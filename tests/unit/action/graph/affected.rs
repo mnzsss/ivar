@@ -625,3 +625,122 @@ fn test_affected_tests_multi_repo_identical_paths() -> Result<(), Box<dyn std::e
 
     Ok(())
 }
+
+fn fn_symbol(repo: &str, name: &str) -> Symbol {
+    Symbol {
+        id: None,
+        file_id: None,
+        repo: repo.to_owned(),
+        name: name.to_owned(),
+        kind: SymbolKind::Fn,
+        scope: None,
+        signature: None,
+        docstring: None,
+        span: Span::new(1, 1, 2, 1),
+        is_exported: true,
+        complexity: None,
+    }
+}
+
+fn call_edge(repo: &str, to_name: &str) -> Edge {
+    Edge {
+        id: None,
+        repo: repo.to_owned(),
+        file_id: None,
+        from_symbol_id: None,
+        to_symbol_id: None,
+        to_name: Some(to_name.to_owned()),
+        kind: EdgeKind::Calls,
+        provenance: Provenance::Extracted,
+        line: 1,
+        col: 1,
+        confidence: 1.0,
+    }
+}
+
+/// Layers of files where every file calls every symbol of every file in the
+/// layer below: the number of distinct paths grows as (width * symbols)^depth
+/// while the number of files stays tiny.
+fn index_dense_layers(db: &GraphDb, repo: &str, layers: usize, width: usize, symbols: usize) {
+    let mut below: Vec<String> = vec!["base_fn".to_owned()];
+    db.index_extracted_file(
+        repo,
+        "src/base.rs",
+        "hash_base",
+        1,
+        1,
+        "",
+        false,
+        &ExtractedFile {
+            symbols: vec![fn_symbol(repo, "base_fn")],
+            edges: vec![],
+        },
+    )
+    .unwrap();
+
+    for layer in 1..=layers {
+        let mut current = Vec::new();
+        for file in 0..width {
+            let names: Vec<String> = (0..symbols)
+                .map(|s| format!("l{layer}_f{file}_s{s}"))
+                .collect();
+            let extracted = ExtractedFile {
+                symbols: names.iter().map(|n| fn_symbol(repo, n)).collect(),
+                edges: below.iter().map(|n| call_edge(repo, n)).collect(),
+            };
+            db.index_extracted_file(
+                repo,
+                &format!("src/l{layer}_f{file}.rs"),
+                &format!("hash_{layer}_{file}"),
+                1,
+                1,
+                "",
+                false,
+                &extracted,
+            )
+            .unwrap();
+            current.extend(names);
+        }
+        below = current;
+    }
+
+    db.index_extracted_file(
+        repo,
+        "tests/top_test.rs",
+        "hash_top",
+        1,
+        1,
+        "",
+        false,
+        &ExtractedFile {
+            symbols: vec![fn_symbol(repo, "test_top")],
+            edges: below.iter().map(|n| call_edge(repo, n)).collect(),
+        },
+    )
+    .unwrap();
+}
+
+#[test]
+fn test_affected_dense_fan_in_finishes_with_shortest_path() {
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let db = GraphDb::open_in_memory().unwrap();
+        db.insert_repo("test_repo", "/root", "main", None).unwrap();
+        index_dense_layers(&db, "test_repo", 4, 5, 5);
+        let result =
+            find_affected_tests(&db, &["src/base.rs".to_owned()], Some("test_repo"), 5).unwrap();
+        tx.send(result).unwrap();
+    });
+
+    let result = rx
+        .recv_timeout(std::time::Duration::from_secs(5))
+        .expect("affected traversal must finish on a dense fan-in graph");
+
+    assert_eq!(result.affected_test_files, vec!["tests/top_test.rs"]);
+    assert_eq!(result.recommendations.len(), 1);
+    let rec = &result.recommendations[0];
+    assert_eq!(rec.hop_count, 5);
+    assert_eq!(rec.causal_path.len(), 5);
+    assert_eq!(rec.causal_path[0].target, "src/base.rs:base_fn");
+    assert_eq!(rec.causal_path[4].source, "tests/top_test.rs:test_top");
+}

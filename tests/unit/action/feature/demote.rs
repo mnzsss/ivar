@@ -5,6 +5,8 @@
     clippy::indexing_slicing
 )]
 
+use rstest::rstest;
+
 use super::*;
 use crate::action::feature::create::CreateInput;
 use crate::action::feature::create::create as create_action;
@@ -101,40 +103,24 @@ fn demote_removes_the_promotion_record_and_keeps_the_worktree() {
     assert!(root.join(".ivar/repos/api/checkout/README.md").is_file());
 }
 
-#[test]
-fn demote_is_rejected_when_the_feature_does_not_exist() {
+#[rstest]
+#[case::the_feature_does_not_exist("ghost", "feature.not_found")]
+#[case::the_repo_was_never_promoted("checkout", "feature.not_promoted")]
+fn demote_is_rejected_when(#[case] feature: &str, #[case] code: &str) {
     let (_guard, root) = hall_with_feature();
     let ctx = Ctx::new(root);
 
     let failure = demote(
         &ctx,
         DemoteInput {
-            feature: "ghost".to_owned(),
+            feature: feature.to_owned(),
             repo: "api".to_owned(),
         },
     )
     .unwrap_err();
 
     assert_eq!(failure.status, Status::Blocked);
-    assert_eq!(failure.code, "feature.not_found");
-}
-
-#[test]
-fn demote_is_rejected_when_the_repo_was_never_promoted() {
-    let (_guard, root) = hall_with_feature();
-    let ctx = Ctx::new(root);
-
-    let failure = demote(
-        &ctx,
-        DemoteInput {
-            feature: "checkout".to_owned(),
-            repo: "api".to_owned(),
-        },
-    )
-    .unwrap_err();
-
-    assert_eq!(failure.status, Status::Blocked);
-    assert_eq!(failure.code, "feature.not_promoted");
+    assert_eq!(failure.code, code);
 }
 
 /// A promotion with a successful integration receipt is individually

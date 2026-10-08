@@ -5,6 +5,8 @@
     clippy::indexing_slicing
 )]
 
+use rstest::rstest;
+
 use super::*;
 use crate::action::feature::create::{self as feature_create, CreateInput as FeatureCreateInput};
 use crate::action::hall::{self, InitInput};
@@ -497,40 +499,24 @@ fn approve_is_blocked_when_the_gates_artifact_is_missing() {
     assert_eq!(failure.code, "plan.artifact_missing");
 }
 
-#[test]
-fn approve_is_blocked_for_an_unknown_gate() {
+#[rstest]
+#[case::an_unknown_gate("checkout", "bogus", "plan.unknown_gate")]
+#[case::a_missing_feature("ghost", "requirements", "plan.feature_not_found")]
+fn approve_is_blocked_for(#[case] feature: &str, #[case] gate: &str, #[case] code: &str) {
     let (_guard, root) = seeded_hall();
     let ctx = Ctx::new(root);
 
     let failure = approve(
         &ctx,
         ApproveInput {
-            feature: "checkout".to_owned(),
-            gate: "bogus".to_owned(),
+            feature: feature.to_owned(),
+            gate: gate.to_owned(),
         },
     )
     .unwrap_err();
 
     assert_eq!(failure.status, Status::Blocked);
-    assert_eq!(failure.code, "plan.unknown_gate");
-}
-
-#[test]
-fn approve_is_blocked_for_a_missing_feature() {
-    let (_guard, root) = seeded_hall();
-    let ctx = Ctx::new(root);
-
-    let failure = approve(
-        &ctx,
-        ApproveInput {
-            feature: "ghost".to_owned(),
-            gate: "requirements".to_owned(),
-        },
-    )
-    .unwrap_err();
-
-    assert_eq!(failure.status, Status::Blocked);
-    assert_eq!(failure.code, "plan.feature_not_found");
+    assert_eq!(failure.code, code);
 }
 
 #[test]

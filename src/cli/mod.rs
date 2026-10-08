@@ -5,7 +5,7 @@
 //! and it is a straight shape conversion — no validation, no I/O. Validating
 //! a value (an unknown `--provider`, a malformed `--name`) needs `domain`,
 //! which this module may not import (see the layering table in
-//! ARCHITECTURE.md and `tests/architecture.rs`, which enforces it), so that
+//! ARCHITECTURE.md and `tests/static_checks/architecture.rs`, which enforces it), so that
 //! work belongs to the `action` function the converted `Input` is handed to.
 //!
 //! Those conversions live here and nowhere else — `run` is pure dispatch —

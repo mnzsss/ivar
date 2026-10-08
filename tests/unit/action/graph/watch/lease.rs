@@ -35,3 +35,13 @@ fn probing_for_the_leader_never_takes_the_lease() {
         assert_eq!(leader_pid(&layout), Some(std::process::id()));
     }
 }
+
+#[test]
+fn dropping_the_lease_releases_it_while_a_forked_child_still_holds_the_descriptor() {
+    let (_tmp, layout) = layout();
+    let lease = Lease::try_acquire(&layout).unwrap().unwrap();
+    let inherited_by_child = lease.file.try_clone().unwrap();
+    drop(lease);
+    assert!(Lease::try_acquire(&layout).unwrap().is_some());
+    drop(inherited_by_child);
+}

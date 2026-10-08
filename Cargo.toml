@@ -115,7 +115,6 @@ landlock = "0.4"
 # never mocked; external systems are faked at a trait seam. wiremock is
 # deliberately absent — it is async and would pull tokio into the test profile.
 assert_cmd = "2"
-insta = { version = "1", features = ["json"] }
 rstest = "0.26"
 predicates = "3"
 
@@ -185,3 +184,26 @@ debug = false
 # buys a stack frame nobody steps into. Set this to `true` for the one
 # dependency you are bisecting, then put it back.
 debug = false
+
+# SQLite and the tree-sitter parsers are C code that every graph test runs
+# through. Unoptimized, they are most of the graph suite's time; at
+# opt-level 3 they cost one slower cold build and the suite runs about 30%
+# faster. Kept to these crates: "*" would slow the dev build of every
+# dependency, and this crate keeps opt-level 0 and its debug assertions.
+[profile.dev.package.libsqlite3-sys]
+opt-level = 3
+
+[profile.dev.package.tree-sitter]
+opt-level = 3
+
+[profile.dev.package.tree-sitter-rust]
+opt-level = 3
+
+[profile.dev.package.tree-sitter-typescript]
+opt-level = 3
+
+[profile.dev.package.tree-sitter-json]
+opt-level = 3
+
+[profile.dev.package.tree-sitter-md]
+opt-level = 3

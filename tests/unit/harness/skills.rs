@@ -138,13 +138,15 @@ fn ivar_execute_skill_content_satisfies_all_invariants() {
     let content = skill.skill_md();
 
     // Invariants
+    assert!(content.contains("name: ivar-execute"));
     assert!(content.contains("subagent"));
     assert!(content.contains("Lightweight validation"));
+    assert!(content.contains("lightweight validation"));
     assert!(content.contains("Deferred validation failures"));
     assert!(content.contains("Standards review"));
     assert!(content.contains("Spec review"));
     assert!(content.contains("Ask"));
-    assert!(content.contains("Draft"));
+    assert!(content.contains("Draft delivery"));
 }
 
 #[test]

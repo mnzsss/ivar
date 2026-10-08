@@ -17,10 +17,7 @@
     clippy::print_stdout
 )]
 
-#[path = "support/integration.rs"]
-mod common;
-
-use common::{hall_root, ivar, seeded_repo};
+use crate::common::{hall_root, ivar, seeded_repo};
 
 /// Verify that `lazygit` exists on this machine. Returns `true` when the
 /// binary is found on PATH, `false` otherwise.

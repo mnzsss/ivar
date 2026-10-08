@@ -6,6 +6,7 @@
 )]
 
 use camino::{Utf8Path, Utf8PathBuf};
+use rstest::rstest;
 
 use super::*;
 use crate::action::feature::create::{CreateInput, create as feature_create};
@@ -792,31 +793,67 @@ fn finding<'a>(report: &'a DoctorOutcome, code: &str) -> &'a Diagnosis {
         .unwrap_or_else(|| panic!("no `{code}` finding in {:?}", report.findings))
 }
 
-#[test]
-fn doctor_reports_missing_shipped_command() {
+#[rstest]
+#[case::doctor_reports_missing_shipped_command(
+    ".claude/commands/ivar-review.md",
+    "provider.command_missing",
+    "review"
+)]
+#[case::doctor_reports_missing_shipped_skill(
+    ".claude/skills/ivar-execute",
+    "provider.skill_missing",
+    "execute"
+)]
+#[case::doctor_names_missing_canonical_instructions(
+    "HALL.md",
+    "instructions.canonical_missing",
+    "HALL.md"
+)]
+fn doctor_reports_a_removed_managed_file(
+    #[case] removed: &str,
+    #[case] code: &str,
+    #[case] named: &str,
+) {
     let (_guard, root) = utf8_temp_dir();
     let ctx = Ctx::new(root.clone());
     init(&ctx, &fresh_input()).unwrap();
-    fs::remove_file(&root.join(".claude/commands/ivar-review.md")).unwrap();
+    fs::remove_path(&root.join(removed)).unwrap();
 
     let report = doctor(&ctx).unwrap();
 
-    let finding = finding(&report.value, "provider.command_missing");
-    assert!(finding.what.contains("review"), "was: {}", finding.what);
+    let finding = finding(&report.value, code);
+    assert!(finding.what.contains(named), "was: {}", finding.what);
     assert!(finding.fix.contains("ivar sync"));
 }
 
-#[test]
-fn doctor_reports_modified_shipped_command() {
+#[rstest]
+#[case::command(
+    ".claude/commands/ivar-sync.md",
+    "tampered\n",
+    "provider.command_modified",
+    "sync"
+)]
+#[case::skill(
+    ".claude/skills/ivar-execute/SKILL.md",
+    "tampered skill\n",
+    "provider.skill_modified",
+    "execute"
+)]
+fn doctor_reports_a_modified_shipped_file(
+    #[case] path: &str,
+    #[case] content: &str,
+    #[case] code: &str,
+    #[case] named: &str,
+) {
     let (_guard, root) = utf8_temp_dir();
     let ctx = Ctx::new(root.clone());
     init(&ctx, &fresh_input()).unwrap();
-    fs::write_text(&root.join(".claude/commands/ivar-sync.md"), "tampered\n").unwrap();
+    fs::write_text(&root.join(path), content).unwrap();
 
     let report = doctor(&ctx).unwrap();
 
-    let finding = finding(&report.value, "provider.command_modified");
-    assert!(finding.what.contains("sync"), "was: {}", finding.what);
+    let finding = finding(&report.value, code);
+    assert!(finding.what.contains(named), "was: {}", finding.what);
     assert!(finding.fix.contains("ivar sync"));
 }
 
@@ -842,12 +879,14 @@ fn doctor_reports_modified_legacy_command_with_a_preserve_fix() {
     );
 }
 
-#[test]
-fn doctor_reports_stale_commands_for_unavailable_provider() {
+#[rstest]
+#[case::commands("provider.command_stale")]
+#[case::skills("provider.skill_stale")]
+fn doctor_reports_stale_files_for_unavailable_provider(#[case] code: &str) {
     let (_guard, root) = utf8_temp_dir();
     let ctx = Ctx::new(root.clone());
     init(&ctx, &fresh_input()).unwrap();
-    // Add OpenCode, sync (materialises its commands), then drop it again.
+    // Add OpenCode, sync (materialises its commands and skills), then drop it again.
     let layout = Layout::at(root.clone());
     let both = Manifest::new(
         HallName::new("acme").unwrap(),
@@ -872,13 +911,15 @@ fn doctor_reports_stale_commands_for_unavailable_provider() {
 
     let report = doctor(&ctx).unwrap();
 
-    let finding = finding(&report.value, "provider.command_stale");
+    let finding = finding(&report.value, code);
     assert!(finding.what.contains("opencode"), "was: {}", finding.what);
     assert!(finding.fix.contains("ivar sync"));
 }
 
-#[test]
-fn doctor_says_nothing_about_healthy_commands() {
+#[rstest]
+#[case::commands("provider.command")]
+#[case::skills("provider.skill")]
+fn doctor_says_nothing_about_healthy_files(#[case] prefix: &str) {
     let (_guard, root) = utf8_temp_dir();
     let ctx = Ctx::new(root.clone());
     init(&ctx, &fresh_input()).unwrap();
@@ -890,94 +931,8 @@ fn doctor_says_nothing_about_healthy_commands() {
             .value
             .findings
             .iter()
-            .all(|finding| !finding.code.starts_with("provider.command")),
-        "healthy commands must produce no command findings: {:?}",
-        report.value.findings
-    );
-}
-
-#[test]
-fn doctor_reports_missing_shipped_skill() {
-    let (_guard, root) = utf8_temp_dir();
-    let ctx = Ctx::new(root.clone());
-    init(&ctx, &fresh_input()).unwrap();
-    fs::remove_path(&root.join(".claude/skills/ivar-execute")).unwrap();
-
-    let report = doctor(&ctx).unwrap();
-
-    let finding = finding(&report.value, "provider.skill_missing");
-    assert!(finding.what.contains("execute"), "was: {}", finding.what);
-    assert!(finding.fix.contains("ivar sync"));
-}
-
-#[test]
-fn doctor_reports_modified_shipped_skill() {
-    let (_guard, root) = utf8_temp_dir();
-    let ctx = Ctx::new(root.clone());
-    init(&ctx, &fresh_input()).unwrap();
-    fs::write_text(
-        &root.join(".claude/skills/ivar-execute/SKILL.md"),
-        "tampered skill\n",
-    )
-    .unwrap();
-
-    let report = doctor(&ctx).unwrap();
-
-    let finding = finding(&report.value, "provider.skill_modified");
-    assert!(finding.what.contains("execute"), "was: {}", finding.what);
-    assert!(finding.fix.contains("ivar sync"));
-}
-
-#[test]
-fn doctor_reports_stale_skills_for_unavailable_provider() {
-    let (_guard, root) = utf8_temp_dir();
-    let ctx = Ctx::new(root.clone());
-    init(&ctx, &fresh_input()).unwrap();
-    // Add OpenCode, sync (materialises its skills), then drop it again.
-    let layout = Layout::at(root.clone());
-    let both = Manifest::new(
-        HallName::new("acme").unwrap(),
-        Providers::new(
-            vec![Provider::ClaudeCode, Provider::OpenCode],
-            Provider::ClaudeCode,
-        ),
-        vec![],
-        None,
-    )
-    .unwrap();
-    Manifest::write(&layout, &both).unwrap();
-    crate::action::sync::sync(&ctx, &Default::default()).unwrap();
-    let claude_only = Manifest::new(
-        HallName::new("acme").unwrap(),
-        Providers::new(vec![Provider::ClaudeCode], Provider::ClaudeCode),
-        vec![],
-        None,
-    )
-    .unwrap();
-    Manifest::write(&layout, &claude_only).unwrap();
-
-    let report = doctor(&ctx).unwrap();
-
-    let finding = finding(&report.value, "provider.skill_stale");
-    assert!(finding.what.contains("opencode"), "was: {}", finding.what);
-    assert!(finding.fix.contains("ivar sync"));
-}
-
-#[test]
-fn doctor_says_nothing_about_healthy_skills() {
-    let (_guard, root) = utf8_temp_dir();
-    let ctx = Ctx::new(root.clone());
-    init(&ctx, &fresh_input()).unwrap();
-
-    let report = doctor(&ctx).unwrap();
-
-    assert!(
-        report
-            .value
-            .findings
-            .iter()
-            .all(|finding| !finding.code.starts_with("provider.skill")),
-        "healthy skills must produce no skill findings: {:?}",
+            .all(|finding| !finding.code.starts_with(prefix)),
+        "healthy files must produce no {prefix} findings: {:?}",
         report.value.findings
     );
 }
@@ -1044,20 +999,6 @@ fn init_warns_but_stays_valid_when_the_alias_path_is_occupied() {
 }
 
 // -- doctor: root instruction topology ------------------------------------
-
-#[test]
-fn doctor_names_missing_canonical_instructions() {
-    let (_guard, root) = utf8_temp_dir();
-    let ctx = Ctx::new(root.clone());
-    init(&ctx, &fresh_input()).unwrap();
-    fs::remove_file(&root.join("HALL.md")).unwrap();
-
-    let report = doctor(&ctx).unwrap();
-
-    let finding = finding(&report.value, "instructions.canonical_missing");
-    assert!(finding.what.contains("HALL.md"), "was: {}", finding.what);
-    assert!(finding.fix.contains("ivar sync"));
-}
 
 #[test]
 fn doctor_names_a_non_regular_canonical_file() {

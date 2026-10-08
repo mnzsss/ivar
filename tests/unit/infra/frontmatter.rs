@@ -5,6 +5,7 @@
     clippy::indexing_slicing
 )]
 
+use rstest::rstest;
 use serde::Deserialize;
 
 use super::*;
@@ -18,61 +19,43 @@ struct Doc {
     closed_at: Option<String>,
 }
 
-#[test]
-fn no_frontmatter_is_normal_not_an_error() {
-    let source = "just a plain body\nwith two lines\n";
+#[rstest]
+#[case::no_frontmatter_is_normal_not_an_error("just a plain body\nwith two lines\n")]
+#[case::empty_input_is_normal_too("")]
+// A `---` line that isn't the first line of the document is body, not a
+// fence — nothing opened it.
+#[case::fence_must_be_at_the_very_start("intro\n---\nkey: value\n---\nbody\n")]
+#[case::a_line_with_extra_dashes_is_not_a_fence("----\nnot frontmatter\n")]
+fn a_document_without_an_opening_fence_is_all_body(#[case] source: &str) {
     let split = split(source).unwrap();
     assert_eq!(split.frontmatter, None);
     assert_eq!(split.body, source);
 }
 
-#[test]
-fn empty_input_is_normal_too() {
-    let split = split("").unwrap();
-    assert_eq!(split.frontmatter, None);
-    assert_eq!(split.body, "");
-}
-
-#[test]
-fn fence_must_be_at_the_very_start() {
-    // A `---` line that isn't the first line of the document is body, not a
-    // fence — nothing opened it.
-    let source = "intro\n---\nkey: value\n---\nbody\n";
+#[rstest]
+#[case::splits_frontmatter_from_body(
+    "---\noutcome: shipped\n---\nbody line one\nbody line two\n",
+    "outcome: shipped\n",
+    "body line one\nbody line two\n"
+)]
+#[case::dashes_inside_the_body_are_not_a_terminator_once_closed(
+    "---\noutcome: shipped\n---\nbody\n---\nmore body\n",
+    "outcome: shipped\n",
+    "body\n---\nmore body\n"
+)]
+#[case::crlf_input_survives_with_body_unchanged(
+    "---\r\noutcome: shipped\r\n---\r\nbody line\r\nsecond line\r\n",
+    "outcome: shipped\r\n",
+    "body line\r\nsecond line\r\n"
+)]
+fn split_separates_frontmatter_from_body(
+    #[case] source: &str,
+    #[case] frontmatter: &str,
+    #[case] body: &str,
+) {
     let split = split(source).unwrap();
-    assert_eq!(split.frontmatter, None);
-    assert_eq!(split.body, source);
-}
-
-#[test]
-fn a_line_with_extra_dashes_is_not_a_fence() {
-    let source = "----\nnot frontmatter\n";
-    let split = split(source).unwrap();
-    assert_eq!(split.frontmatter, None);
-    assert_eq!(split.body, source);
-}
-
-#[test]
-fn splits_frontmatter_from_body() {
-    let source = "---\noutcome: shipped\n---\nbody line one\nbody line two\n";
-    let split = split(source).unwrap();
-    assert_eq!(split.frontmatter, Some("outcome: shipped\n"));
-    assert_eq!(split.body, "body line one\nbody line two\n");
-}
-
-#[test]
-fn dashes_inside_the_body_are_not_a_terminator_once_closed() {
-    let source = "---\noutcome: shipped\n---\nbody\n---\nmore body\n";
-    let split = split(source).unwrap();
-    assert_eq!(split.frontmatter, Some("outcome: shipped\n"));
-    assert_eq!(split.body, "body\n---\nmore body\n");
-}
-
-#[test]
-fn crlf_input_survives_with_body_unchanged() {
-    let source = "---\r\noutcome: shipped\r\n---\r\nbody line\r\nsecond line\r\n";
-    let split = split(source).unwrap();
-    assert_eq!(split.frontmatter, Some("outcome: shipped\r\n"));
-    assert_eq!(split.body, "body line\r\nsecond line\r\n");
+    assert_eq!(split.frontmatter, Some(frontmatter));
+    assert_eq!(split.body, body);
 }
 
 #[test]

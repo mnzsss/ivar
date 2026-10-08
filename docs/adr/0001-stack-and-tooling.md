@@ -295,12 +295,18 @@ and reading `/proc` on Linux.
 - **No mocking of internal code.** Real temporary git repositories via
   `tempfile`, real filesystem, real subprocesses — matching the prior art's
   integration tier and the house convention it came from.
-- `assert_cmd` drives the compiled binary; `insta` snapshots stdout, which is the
-  cheapest guard on "the human surface and `--json` emit the same bytes".
+- `assert_cmd` drives the compiled binary. "The human surface and `--json`
+  report the same facts" is guarded by comparing the two field by field
+  (`json_and_human_surfaces_carry_the_same_facts`), not by snapshots.
 - `rstest` for parametrised cases. External systems are faked at a trait seam.
 - `cargo-llvm-cov` **reports** coverage and does not gate. A per-file threshold is
   good discipline inside a private monorepo and a hostile gate for a stranger
   whose ten-line PR would fail on coverage of a file they did not touch.
+- CI's coverage job runs the suite through `cargo-nextest`
+  (`.config/nextest.toml`, profile `ci`: no retries, slow-timeout); the gate
+  stays on `cargo test --all-features`, because on the 4-core runner nextest's
+  process-per-test was slower (about 27s vs 22s measured with 4 threads); the
+  ignored graph simulation and network-off persona job stay on `cargo test`.
 - The **differential harness stays**: run the surviving TypeScript and the Rust
   against identical fixtures and require canonicalised equality. It produced
   51/52, it is cheap to keep, and it is applied where a silent reconciliation

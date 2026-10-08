@@ -23,7 +23,7 @@ Closes #
 - [ ] No test touches the network. CI runs without credentials, so a fork's PR
       must pass the same gate — fake the boundary at its trait seam instead.
 - [ ] Changed the command surface? `docs/reference/commands.md` is generated
-      from the binary, and `tests/docs_reference.rs` fails until it is regenerated.
+      from the binary, and `tests/static_checks/docs_reference.rs` fails until it is regenerated.
 - [ ] Changed the on-disk format? `docs/reference/on-disk-format.md` states a
       migration promise. Say here how this keeps it.
 - [ ] Adapted someone else's code into a file? Header at the top of that file

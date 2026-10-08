@@ -5,13 +5,17 @@
 //! `tests/delivery/`; this file declares them and the shared infrastructure
 //! they consume.
 //!
+//! The CLI end-to-end cases only: everything clap, exit codes and the
+//! `--json` envelope add on top of `deliver`. The behaviour matrix runs
+//! in-process under `tests/unit/action/feature/deliver/`.
+//!
 //! Scopes:
 //! - [`support`] — delivery-only fixtures and helpers
-//! - [`preview`] — preview shape, empty-feature, fingerprint-drift, human rendering
-//! - [`apply`] — gates, drift, push, warning, CLI end-to-end cases
-//! - [`pull_requests`] — PR creation/update and sibling-link cases
-//! - `metadata_*` — scoped values, body files, validation, and existing-PR edits
-//! - `draft_*` — creation/scope, conversion/failures, and CLI/fingerprint contracts
+//! - [`preview`] — the `--json` preview envelope
+//! - [`apply`] — CLI-only path, `--only`, partial push failure
+//! - [`pull_requests`] — PR creation and update
+//! - [`metadata_validation`] — `--land` with metadata, refused
+//! - [`draft_creation`] — `--draft` on a new PR
 
 #![allow(
     clippy::unwrap_used,
@@ -46,23 +50,8 @@ mod apply;
 #[path = "delivery/pull_requests.rs"]
 mod pull_requests;
 
-#[path = "delivery/metadata_scope.rs"]
-mod metadata_scope;
-
-#[path = "delivery/metadata_body.rs"]
-mod metadata_body;
-
 #[path = "delivery/metadata_validation.rs"]
 mod metadata_validation;
 
-#[path = "delivery/metadata_edit.rs"]
-mod metadata_edit;
-
 #[path = "delivery/draft_creation.rs"]
 mod draft_creation;
-
-#[path = "delivery/draft_conversion.rs"]
-mod draft_conversion;
-
-#[path = "delivery/draft_contract.rs"]
-mod draft_contract;

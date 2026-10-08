@@ -5,6 +5,8 @@
     clippy::indexing_slicing
 )]
 
+use rstest::rstest;
+
 use super::*;
 
 fn change_dir(line: usize, command: &str, dir: &str) -> ShellCommand {
@@ -57,10 +59,17 @@ fn chained_commands_split_and_each_block_starts_at_the_repo_root() {
     assert_eq!(scan_shell_commands(source, &[]), expected);
 }
 
-#[test]
-fn commands_outside_shell_fences_are_ignored() {
-    let source = "cd nowhere\n```rust\ncd nowhere\n```\n```text\nnpm run x\n```\n";
-
+#[rstest]
+#[case::commands_outside_shell_fences_are_ignored(
+    "cd nowhere\n```rust\ncd nowhere\n```\n```text\nnpm run x\n```\n"
+)]
+#[case::a_script_that_is_not_literal_is_skipped("```sh\nnpm run $TARGET\nnpm test\n```\n")]
+#[case::yarn_runs_are_never_reported("```sh\nyarn run build\nyarn build\n```\n")]
+#[case::cd_dash_stops_tracking_the_block("```sh\ncd -\nnpm run test\n```\n")]
+#[case::a_dot_slash_prefixed_ivar_path_stops_tracking_the_block(
+    "```sh\ncd ./.ivar/repos/api\nnpm run test\n```\n"
+)]
+fn a_block_with_nothing_reportable_scans_empty(#[case] source: &str) {
     assert!(scan_shell_commands(source, &[]).is_empty());
 }
 
@@ -84,13 +93,6 @@ fn a_cd_that_is_not_literal_stops_tracking_the_block() {
 }
 
 #[test]
-fn a_script_that_is_not_literal_is_skipped() {
-    let source = "```sh\nnpm run $TARGET\nnpm test\n```\n";
-
-    assert!(scan_shell_commands(source, &[]).is_empty());
-}
-
-#[test]
 fn a_run_with_flags_or_a_workspace_scope_is_skipped() {
     for command in [
         "npm run --silent build",
@@ -109,27 +111,6 @@ fn a_run_with_flags_or_a_workspace_scope_is_skipped() {
             "`{command}` must be skipped"
         );
     }
-}
-
-#[test]
-fn yarn_runs_are_never_reported() {
-    let source = "```sh\nyarn run build\nyarn build\n```\n";
-
-    assert!(scan_shell_commands(source, &[]).is_empty());
-}
-
-#[test]
-fn cd_dash_stops_tracking_the_block() {
-    let source = "```sh\ncd -\nnpm run test\n```\n";
-
-    assert!(scan_shell_commands(source, &[]).is_empty());
-}
-
-#[test]
-fn a_dot_slash_prefixed_ivar_path_stops_tracking_the_block() {
-    let source = "```sh\ncd ./.ivar/repos/api\nnpm run test\n```\n";
-
-    assert!(scan_shell_commands(source, &[]).is_empty());
 }
 
 #[test]

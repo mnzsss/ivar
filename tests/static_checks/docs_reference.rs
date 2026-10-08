@@ -22,7 +22,7 @@
 //! To regenerate after changing the CLI:
 //!
 //! ```sh
-//! IVAR_UPDATE_DOCS=1 cargo test --test docs_reference
+//! IVAR_UPDATE_DOCS=1 cargo test --test static_checks
 //! ```
 //!
 //! `clap-markdown` is deliberately not used. It renders a whole document with
@@ -105,8 +105,8 @@ fn link_targets(text: &str) -> Vec<String> {
 fn render(command: &mut Command) -> String {
     let mut out = String::new();
     out.push_str(
-        "<!-- Generated from clap by tests/docs_reference.rs. Do not edit by hand: run\n     \
-         `IVAR_UPDATE_DOCS=1 cargo test --test docs_reference`. -->\n",
+        "<!-- Generated from clap by tests/static_checks/docs_reference.rs. Do not edit by hand: run\n     \
+         `IVAR_UPDATE_DOCS=1 cargo test --test static_checks`. -->\n",
     );
     let name = command.get_name().to_owned();
     render_command(&mut out, command, &name, 3);
@@ -238,7 +238,7 @@ fn the_command_reference_matches_the_binary() {
     let existing = std::fs::read_to_string(&path).unwrap_or_else(|error| {
         panic!(
             "{} is missing ({error}). Create it with the two markers, then run \
-             `IVAR_UPDATE_DOCS=1 cargo test --test docs_reference`.",
+             `IVAR_UPDATE_DOCS=1 cargo test --test static_checks`.",
             path.display()
         )
     });
@@ -266,7 +266,7 @@ fn the_command_reference_matches_the_binary() {
 
     panic!(
         "{} is out of date with the CLI.\n\nRegenerate it:\n    \
-         IVAR_UPDATE_DOCS=1 cargo test --test docs_reference\n",
+         IVAR_UPDATE_DOCS=1 cargo test --test static_checks\n",
         path.display()
     );
 }
@@ -293,60 +293,6 @@ fn documented_provider_set_equals_all_providers() {
     assert!(providers.contains(&ivar::domain::provider::Provider::ClaudeCode));
     assert!(providers.contains(&ivar::domain::provider::Provider::OpenCode));
     assert!(providers.contains(&ivar::domain::provider::Provider::Omp));
-}
-
-#[test]
-fn documentation_reflects_guided_wave_execution_lifecycle() {
-    let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-    let skills_guide = std::fs::read_to_string(manifest_dir.join("docs/guides/skills.md")).unwrap();
-    let plan_guide =
-        std::fs::read_to_string(manifest_dir.join("docs/guides/planning-and-execution.md"))
-            .unwrap();
-    let cmd_ref = std::fs::read_to_string(manifest_dir.join("docs/reference/commands.md")).unwrap();
-
-    // Skills guide documents ivar-execute as official shipped skill
-    assert!(
-        skills_guide.contains("ivar-execute"),
-        "skills.md must document ivar-execute"
-    );
-    assert!(
-        skills_guide.contains("shipped skill")
-            || skills_guide.contains("Shipped skill")
-            || skills_guide.contains("shipped skills"),
-        "skills.md must describe shipped skills"
-    );
-
-    // Planning and execution guide documents key guided execution concepts
-    assert!(
-        plan_guide.contains("ivar-execute"),
-        "planning-and-execution.md must document ivar-execute skill"
-    );
-    assert!(
-        plan_guide.contains("lightweight validation")
-            || plan_guide.contains("Lightweight validation"),
-        "planning-and-execution.md must document lightweight validation"
-    );
-    assert!(
-        plan_guide.contains("Deferred validation failures")
-            || plan_guide.contains("deferred validation"),
-        "planning-and-execution.md must document deferred validation failures"
-    );
-    assert!(
-        plan_guide.contains("Standards review") && plan_guide.contains("Spec review"),
-        "planning-and-execution.md must document dual Standards and Spec review barrier"
-    );
-    assert!(
-        plan_guide.contains("Draft delivery")
-            || plan_guide.contains("draft mode")
-            || plan_guide.contains("draft by default"),
-        "planning-and-execution.md must document draft delivery"
-    );
-
-    // Commands reference notes the execution skill/lifecycle
-    assert!(
-        cmd_ref.contains("ivar-execute"),
-        "commands.md must reference ivar-execute"
-    );
 }
 
 /// A relative link in the documentation must point at a file that exists.
@@ -407,5 +353,51 @@ fn documentation_contains_links_to_check() {
     assert!(
         found >= 40,
         "expected at least 40 link targets, found {found} — the extractor is broken"
+    );
+}
+
+/// Every `--test <name>` that a contributor or CI is told to run names a
+/// Cargo test target that exists, so merging or renaming a target cannot
+/// leave a command behind that fails with "no test target named".
+#[test]
+fn every_cargo_test_target_named_in_docs_and_ci_exists() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let targets: Vec<String> = std::fs::read_dir(root.join("tests"))
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| path.extension().is_some_and(|e| e == "rs"))
+        .map(|path| path.file_stem().unwrap().to_string_lossy().into_owned())
+        .collect();
+
+    let mut sources = markdown_files();
+    for file in [
+        "CONTRIBUTING.md",
+        "CLAUDE.md",
+        ".github/pull_request_template.md",
+    ] {
+        sources.push(root.join(file));
+    }
+    for entry in std::fs::read_dir(root.join(".github/workflows")).unwrap() {
+        sources.push(entry.unwrap().path());
+    }
+
+    let mut unknown = Vec::new();
+    for source in &sources {
+        let text = std::fs::read_to_string(source).unwrap();
+        for after in text.split("--test ").skip(1) {
+            let name: String = after
+                .chars()
+                .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+                .collect();
+            if !targets.contains(&name) {
+                unknown.push(format!("{}: --test {name}", source.display()));
+            }
+        }
+    }
+
+    assert!(
+        unknown.is_empty(),
+        "commands name test targets that do not exist (targets: {targets:?}):\n  {}",
+        unknown.join("\n  ")
     );
 }

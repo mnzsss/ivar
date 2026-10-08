@@ -21,7 +21,7 @@
 //!
 //! # Layering
 //!
-//! Dependencies point downward only. `tests/architecture.rs` enforces this — a
+//! Dependencies point downward only. `tests/static_checks/architecture.rs` enforces this — a
 //! convention nobody remembers is not a boundary.
 //!
 //! | module    | may import                     | may **not** import                            |

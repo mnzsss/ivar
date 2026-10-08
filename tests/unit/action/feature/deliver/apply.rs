@@ -208,3 +208,100 @@ fn deliver_refuses_a_plan_edited_after_it_was_approved() {
     .unwrap_err();
     assert_eq!(failure.code, "deliver.plan_not_approved");
 }
+
+fn apply_without_fingerprint() -> DeliverInput {
+    DeliverInput {
+        preview: false,
+        ..preview_input("checkout")
+    }
+}
+
+fn assert_refused_until_plan_approved(root: &Utf8PathBuf, input: DeliverInput) -> String {
+    let failure = deliver(&Ctx::new(root.clone()), input).unwrap_err();
+    let text = failure_text(&failure);
+    assert!(text.contains("ivar plan approve checkout plan"), "{text}");
+    text
+}
+
+#[test]
+fn apply_is_refused_while_the_plan_gate_is_not_approved() {
+    let (_guard, root) = hall_with_promoted(&["api"]);
+
+    let text = assert_refused_until_plan_approved(&root, apply_without_fingerprint());
+
+    assert!(text.contains("plan"), "{text}");
+}
+
+#[test]
+fn apply_is_refused_even_with_a_matching_fingerprint_while_the_gate_is_pending() {
+    let (_guard, root) = hall_with_promoted(&["api"]);
+
+    // A fingerprint straight off the preview — the drift gate is satisfied, and
+    // the plan gate still refuses. The two are independent.
+    let fp = preview_json(&root, preview_input("checkout"))["preview"]["fingerprint"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+
+    assert_refused_until_plan_approved(&root, apply_input("checkout", &fp));
+}
+
+#[test]
+fn approving_only_the_upstream_gates_is_not_enough() {
+    let (_guard, root) = hall_with_promoted(&["api"]);
+    let ctx = Ctx::new(root.clone());
+    crate::action::plan::create::create(
+        &ctx,
+        crate::action::plan::create::CreateInput {
+            feature: "checkout".to_owned(),
+            artifacts: Vec::new(),
+        },
+    )
+    .unwrap();
+    for gate in ["requirements", "analysis"] {
+        crate::action::plan::approve::approve(
+            &ctx,
+            crate::action::plan::approve::ApproveInput {
+                feature: "checkout".to_owned(),
+                gate: gate.to_owned(),
+            },
+        )
+        .unwrap();
+    }
+
+    assert_refused_until_plan_approved(&root, apply_without_fingerprint());
+}
+
+#[test]
+fn invalidating_the_plan_gate_closes_delivery_again() {
+    let (_guard, root) = hall_with_promoted(&["api"]);
+    approve_through_plan(&root);
+
+    crate::action::plan::approve::invalidate(
+        &Ctx::new(root.clone()),
+        crate::action::plan::approve::InvalidateInput {
+            feature: "checkout".to_owned(),
+            gate: "plan".to_owned(),
+        },
+    )
+    .unwrap();
+
+    assert_refused_until_plan_approved(&root, apply_without_fingerprint());
+}
+
+#[test]
+fn approving_the_plan_after_a_preview_drifts_the_fingerprint() {
+    let (_guard, root) = hall_with_promoted(&["api"]);
+
+    let stale = preview_json(&root, preview_input("checkout"))["preview"]["fingerprint"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    approve_through_plan(&root);
+
+    // The gate state is part of what the human approved, so crossing it
+    // is drift like any other — the preview has to be taken again.
+    let failure = deliver(&Ctx::new(root.clone()), apply_input("checkout", &stale)).unwrap_err();
+    let text = failure_text(&failure);
+    assert!(text.contains("drifted"), "{text}");
+}

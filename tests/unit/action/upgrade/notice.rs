@@ -194,19 +194,20 @@ fn no_cache_location_means_no_check() {
 
 #[test]
 fn finish_gives_up_at_the_deadline() {
-    struct Slow;
-    impl LatestRelease for Slow {
+    struct Blocked(std::sync::mpsc::Receiver<()>);
+    impl LatestRelease for Blocked {
         fn latest_location(&self, _timeout: Duration) -> Result<String, Failure> {
-            std::thread::sleep(Duration::from_secs(5));
+            let _ = self.0.recv();
             Ok(TAG_13.to_owned())
         }
     }
+    let (release, blocked) = std::sync::mpsc::channel();
     let (_dir, root) = utf8_temp_dir();
     let started = std::time::Instant::now();
 
     let _ = finish(Notice::start_with(
         &on(),
-        Slow,
+        Blocked(blocked),
         Some(root.join("c.json")),
         NOW,
         current(),
@@ -218,4 +219,5 @@ fn finish_gives_up_at_the_deadline() {
         "{:?}",
         started.elapsed()
     );
+    drop(release);
 }

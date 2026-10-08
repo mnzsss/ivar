@@ -73,7 +73,7 @@ pub(super) fn preregister_if_needed(
     if let Some(oauth) = &server.oauth {
         let (secret, auth_mode) = match &oauth.client_secret_env {
             Some(var) => {
-                let val = resolve_secret(layout, var, &server.name)?;
+                let val = resolve_secret(layout, var, std::env::var(var).ok(), &server.name)?;
                 (Some((var.clone(), val)), AuthMode::ClientSecretPost)
             }
             None => (None, AuthMode::None),
@@ -183,8 +183,13 @@ fn oauth_registration(
 /// Resolve a registered OAuth client secret from the caller's environment first
 /// and then from `.ivar/secrets/mcp.env`. If the caller's environment supplied
 /// the value, backfills the local store for existing halls.
-fn resolve_secret(layout: &Layout, var: &str, server_name: &str) -> Result<String, Failure> {
-    if let Ok(env_val) = std::env::var(var) {
+fn resolve_secret(
+    layout: &Layout,
+    var: &str,
+    env_value: Option<String>,
+    server_name: &str,
+) -> Result<String, Failure> {
+    if let Some(env_val) = env_value {
         let _ = McpSecrets::set_and_write(layout, var, &env_val)?;
         return Ok(env_val);
     }

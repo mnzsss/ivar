@@ -5,7 +5,9 @@
 //! integration tests under `tests/` cannot see this module — they link
 //! [`integration`](integration) instead. Both adapters pull their
 //! implementation from [`shared`](shared), so the two boundaries share one
-//! helper set rather than two drifting copies.
+//! helper set rather than two drifting copies. It also links `fake_gh.rs`,
+//! the same fake `gh` the integration adapter puts on `PATH`, and points this
+//! thread's `gh` at it.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -21,6 +23,26 @@ mod shared;
 pub(crate) use shared::{
     canonical_temp_dir, empty_repo, git, hall_root, seeded_repo, utf8_temp_dir,
 };
+
+#[path = "fake_gh.rs"]
+mod fake_gh;
+
+pub(crate) use fake_gh::FakeGh;
+
+/// `fake`'s `gh` script with its state files in the environment — what a
+/// test extends with a one-off switch such as `GH_FAKE_READY_FAIL`.
+pub(crate) fn fake_gh_command(fake: &FakeGh) -> crate::infra::proc::Command {
+    crate::infra::proc::Command::new(fake.dir.join("gh").as_str())
+        .env("GH_FAKE_STATE", fake.state.as_str())
+        .env("GH_FAKE_LOG", fake.log.as_str())
+        .env("GH_FAKE_CHECKS", fake.checks.as_str())
+}
+
+/// Every `gh` this thread spawns runs `fake` until the guard drops — the
+/// in-process counterpart of putting `fake.dir` first on a child's `PATH`.
+pub(crate) fn fake_gh_on_this_thread(fake: &FakeGh) -> crate::infra::proc::Redirect {
+    crate::infra::proc::redirect_on_this_thread("gh", fake_gh_command(fake))
+}
 
 /// A canonicalised hall root with a freshly initialised hall named `acme`.
 ///

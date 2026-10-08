@@ -21,11 +21,8 @@
     clippy::cast_sign_loss
 )]
 
-#[path = "support/integration.rs"]
-mod common;
-
+use crate::common::{FakeGh, hall_root, ivar, seeded_repo};
 use camino::{Utf8Path, Utf8PathBuf};
-use common::{FakeGh, hall_root, ivar, seeded_repo};
 use predicates::prelude::predicate;
 
 /// Run git in `cwd` with a fixed identity.

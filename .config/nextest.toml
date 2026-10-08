@@ -1,0 +1,10 @@
+# CI's coverage job uses this profile through `cargo llvm-cov nextest`.
+# Locally `cargo nextest run --profile ci` is optional; the gate remains
+# `cargo test --all-features`.
+[profile.ci]
+fail-fast = false
+# A flaky test must fail the gate, never pass on a second attempt.
+retries = 0
+# Flag a test as slow after 15s and kill it after 60s, instead of letting a
+# hang run into the job's six-hour limit.
+slow-timeout = { period = "15s", terminate-after = 4 }

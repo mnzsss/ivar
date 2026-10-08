@@ -16,11 +16,8 @@
     clippy::indexing_slicing
 )]
 
-#[path = "support/integration.rs"]
-mod common;
-
+use crate::common::{hall_root, ivar, seeded_repo};
 use camino::Utf8Path;
-use common::{hall_root, ivar, seeded_repo};
 use predicates::prelude::*;
 
 /// The twelve shipped command ids.

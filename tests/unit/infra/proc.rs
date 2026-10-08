@@ -67,6 +67,34 @@ fn invalid_utf8_is_decoded_lossily_rather_than_failing() {
     );
 }
 
+#[test]
+fn a_redirect_replaces_the_program_on_this_thread_only() {
+    let probe = Command::new("ivar-redirect-probe").arg("tail");
+    let redirect = redirect_on_this_thread(
+        "ivar-redirect-probe",
+        Command::new("sh")
+            .args(["-c", "printf '%s %s' \"$PROBE\" \"$1\"", "sh"])
+            .env("PROBE", "redirected"),
+    );
+
+    assert_eq!(capture(&probe).unwrap().stdout, "redirected tail");
+
+    let other_thread = probe.clone();
+    let elsewhere_spawn_failed = std::thread::spawn(move || capture(&other_thread).is_err())
+        .join()
+        .unwrap();
+    assert!(
+        elsewhere_spawn_failed,
+        "another thread must still run the real program"
+    );
+
+    drop(redirect);
+    assert!(
+        capture(&probe).is_err(),
+        "dropping the guard must restore the real program"
+    );
+}
+
 // -- cwd and env ----------------------------------------------------------
 
 #[test]

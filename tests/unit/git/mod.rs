@@ -1037,3 +1037,57 @@ fn reset_hard_moves_the_checked_out_branch_to_a_revision() {
         "the reset must discard the local commit's file"
     );
 }
+
+fn subjects_on(repo: &Utf8Path, branch: &str) -> String {
+    let output = std::process::Command::new("git")
+        .args(["-C", repo.as_str(), "log", "--format=%s", branch])
+        .output()
+        .unwrap();
+    String::from_utf8(output.stdout).unwrap()
+}
+
+#[test]
+fn seeded_repos_are_independent_repos_on_the_requested_branch() {
+    let (_guard, dir) = utf8_temp_dir();
+    let first = seeded_repo(&dir.join("first"), "trunk");
+    let second = seeded_repo(&dir.join("second"), "trunk");
+
+    git(&first, &["commit", "--allow-empty", "-m", "only in first"]);
+
+    assert_eq!(subjects_on(&first, "trunk"), "only in first\nseed\n");
+    assert_eq!(subjects_on(&second, "trunk"), "seed\n");
+    assert_eq!(
+        std::fs::read_to_string(second.join(".git/HEAD")).unwrap(),
+        "ref: refs/heads/trunk\n"
+    );
+    assert_eq!(
+        std::fs::read_to_string(second.join("README.md")).unwrap(),
+        "seed\n"
+    );
+    assert!(!second.join(".git/objects/info/alternates").exists());
+    let toplevel = std::process::Command::new("git")
+        .args(["-C", second.as_str(), "rev-parse", "--show-toplevel"])
+        .output()
+        .unwrap();
+    assert_eq!(
+        String::from_utf8(toplevel.stdout).unwrap().trim(),
+        second.canonicalize_utf8().unwrap().as_str()
+    );
+}
+
+#[test]
+fn an_empty_repo_is_unborn_on_its_branch_and_reinit_keeps_history() {
+    let (_guard, dir) = utf8_temp_dir();
+    let repo = empty_repo(&dir.join("repo"), "develop");
+
+    assert_eq!(
+        std::fs::read_to_string(repo.join(".git/HEAD")).unwrap(),
+        "ref: refs/heads/develop\n"
+    );
+    assert_eq!(subjects_on(&repo, "develop"), "");
+
+    git(&repo, &["commit", "--allow-empty", "-m", "kept"]);
+    empty_repo(&repo, "develop");
+
+    assert_eq!(subjects_on(&repo, "develop"), "kept\n");
+}

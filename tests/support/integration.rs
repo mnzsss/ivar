@@ -6,9 +6,7 @@
 //! `src/test_support.rs` is `#[cfg(test)]` inside the library, so it is not
 //! part of the compiled crate and integration tests under `tests/` genuinely
 //! cannot see it. That boundary is real and not worth breaking — but it does
-//! not mean every test binary needs its own copy of the same four helpers,
-//! which is what `tests/init.rs` and `tests/sync.rs` had before the shared
-//! module existed.
+//! not mean every test binary needs its own copy of the same helpers.
 
 #![allow(
     clippy::unwrap_used,
@@ -26,8 +24,8 @@ pub(crate) use shared::*;
 #[path = "fake_gh.rs"]
 mod fake_gh;
 
-// Used by delivery.rs and nested_subfeatures.rs; the other integration
-// binaries that include this module see it as unused.
+// Used by the delivery and cli binaries; personas and provider_live include
+// this module without using it.
 #[allow(unused_imports)]
 pub(crate) use fake_gh::FakeGh;
 

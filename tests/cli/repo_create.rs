@@ -7,10 +7,7 @@
     clippy::indexing_slicing
 )]
 
-#[path = "support/integration.rs"]
-mod common;
-
-use common::{FakeGh, hall_root, ivar};
+use crate::common::{FakeGh, hall_root, ivar};
 
 #[test]
 fn create_remote_makes_a_private_github_repo_pushes_a_readme_and_registers_it() {

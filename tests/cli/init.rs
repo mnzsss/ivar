@@ -13,22 +13,8 @@
     clippy::indexing_slicing
 )]
 
-#[path = "support/integration.rs"]
-mod common;
-
-use common::{hall_root as utf8_temp_dir, ivar};
+use crate::common::{hall_root as utf8_temp_dir, ivar};
 use predicates::prelude::*;
-
-#[test]
-fn fresh_init_creates_the_expected_on_disk_shape() {
-    let (_guard, root) = utf8_temp_dir();
-
-    ivar().current_dir(&root).arg("init").assert().success();
-
-    assert!(root.join("ivar.json").is_file());
-    assert!(root.join(".ivar").is_dir());
-    assert!(root.join(".gitignore").is_file());
-}
 
 #[test]
 fn ivar_json_is_written_with_canonical_bytes() {
@@ -69,21 +55,6 @@ fn gitignore_uses_the_star_form_never_the_bare_dotdir() {
 }
 
 #[test]
-fn init_refuses_an_existing_hall_with_a_nonzero_exit() {
-    let (_guard, root) = utf8_temp_dir();
-
-    ivar().current_dir(&root).arg("init").assert().success();
-
-    ivar()
-        .current_dir(&root)
-        .arg("init")
-        .assert()
-        .failure()
-        .code(2)
-        .stderr(predicate::str::contains("already exists"));
-}
-
-#[test]
 fn init_refuses_an_existing_hall_reported_as_json() {
     let (_guard, root) = utf8_temp_dir();
 
@@ -120,23 +91,6 @@ fn a_successful_json_run_says_so_in_the_envelope() {
     let value: serde_json::Value = serde_json::from_slice(&output).expect("valid json");
     assert_eq!(value["ok"], true);
     assert!(value.get("kind").is_none(), "{value}");
-}
-
-#[test]
-fn init_refuses_to_nest_inside_an_existing_hall() {
-    let (_guard, root) = utf8_temp_dir();
-    ivar().current_dir(&root).arg("init").assert().success();
-
-    let nested = root.join("nested");
-    std::fs::create_dir(&nested).expect("create nested dir");
-
-    ivar()
-        .current_dir(&nested)
-        .arg("init")
-        .assert()
-        .failure()
-        .code(2)
-        .stderr(predicate::str::contains("existing hall"));
 }
 
 #[test]

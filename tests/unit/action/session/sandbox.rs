@@ -314,24 +314,6 @@ fn sandbox_status_enum_variants_and_predicates() {
 }
 
 #[test]
-fn sandbox_status_enum_variants_and_display() {
-    use crate::action::session::sandbox::SandboxStatus;
-
-    let enforced = SandboxStatus::Enforced;
-    assert!(enforced.is_enforced());
-
-    let degraded = SandboxStatus::Degraded {
-        reason: "Partially enforced".into(),
-    };
-    assert!(!degraded.is_enforced());
-
-    let unavailable = SandboxStatus::Unavailable {
-        reason: "Landlock not supported on this platform".into(),
-    };
-    assert!(!unavailable.is_enforced());
-}
-
-#[test]
 fn launcher_resolves_session_from_disk_and_builds_sandbox() {
     let (_guard, root) = hall_with_promoted_feature();
     let layout = Layout::at(root.clone());

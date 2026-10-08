@@ -1,6 +1,6 @@
 //! Rendering an action's `Outcome`/`Report`/`Failure` as bytes, and the exit
 //! code that goes with it. Split out of `run` so that file stays under the
-//! line-count ceiling `tests/architecture.rs`'s sibling size check enforces.
+//! line-count ceiling `tests/static_checks/architecture.rs`'s sibling size check enforces.
 
 use std::io;
 use std::process::ExitCode;

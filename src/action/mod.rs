@@ -13,7 +13,7 @@
 //! prints; rendering is `bin/ivar.rs`'s job.
 //!
 //! `action` may import anything below it (`domain`, `store`, `git`,
-//! `harness`, `tui`, `infra`) but never `cli` — see `tests/architecture.rs`,
+//! `harness`, `tui`, `infra`) but never `cli` — see `tests/static_checks/architecture.rs`,
 //! which enforces this lexically over every file in this directory.
 
 pub mod batch;

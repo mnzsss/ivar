@@ -239,7 +239,9 @@ src/
     github.rs      GitHub token lookup (and the credential-helper wiring that
                    derives it from `gh`/`$GITHUB_TOKEN` on each call). PR
                    operations themselves are not a trait seam: tests fake the
-                   `gh` executable on PATH (see tests/support/fake_gh.rs), and
+                   `gh` executable (tests/support/fake_gh.rs) — on PATH for an
+                   integration binary, through `proc`'s test-only per-thread
+                   program redirect for an in-process unit test — and the
                    shared command boundary lives in
                    `action/feature/pull_requests/mod.rs`.
     term.rs        colour, NO_COLOR, is-a-tty, width. Decides *whether* to
@@ -260,9 +262,11 @@ compilation boundaries, and the layout keeps them distinct:
 
 ```
 tests/
-  architecture.rs           the layering rule and the centralization invariant
-  delivery.rs init.rs …     top-level integration targets, discovered by Cargo
-                            and compiled as their own crates
+  static_checks.rs          checks that read the repository: the layering rule,
+                            the centralization invariant, the command reference
+  cli.rs delivery.rs …      top-level integration targets, discovered by Cargo
+                            and compiled as their own crates; each links its
+                            modules from the directory of the same name
   support/
     shared.rs               the one implementation of temp-dir and real-Git
                             helpers
@@ -288,7 +292,7 @@ The `#[path]` link means the module is still compiled as a child of its owning
 production module inside the library test crate — `use super::*` and access to
 private parent items keep working, so relocating a test never widens production
 visibility. Physical location and compilation home are deliberately different
-things, and `tests/architecture.rs` enforces all three: the layering scan walks
+things, and `tests/static_checks/architecture.rs` enforces all three: the layering scan walks
 `tests/unit/<module>/` with the same allowed imports as `src/<module>/`, a
 second rule refuses any `#[test]`, `#[rstest]`, or inline `mod tests { … }`
 body under `src/`, and a third walks the physical `tests/unit/` tree and every
@@ -446,7 +450,7 @@ rules from scattering into the verbs.
 `std::time::SystemTime::now()` directly because its timestamp is a plain
 `String`, written once at construction and never read back as a clock. Routing
 it through `store` and back would add conversion without strengthening an
-invariant. `tests/architecture.rs`'s layering scan only walks `use` statements,
+invariant. `tests/static_checks/architecture.rs`'s layering scan only walks `use` statements,
 so a fully-qualified `std::time::SystemTime::now()` call is invisible to it;
 this exception is enforced by review, not by the test.
 

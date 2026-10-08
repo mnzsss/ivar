@@ -5,6 +5,8 @@
     clippy::indexing_slicing
 )]
 
+use rstest::rstest;
+
 use super::*;
 use crate::action::feature::create::CreateInput;
 use crate::action::feature::create::create as create_action;
@@ -125,26 +127,17 @@ fn promote_creates_the_branch_off_the_default_branch_not_any_other() {
     );
 }
 
-#[test]
-fn promote_is_rejected_when_the_feature_does_not_exist() {
+#[rstest]
+#[case::the_feature_does_not_exist("ghost", "api", "feature.not_found")]
+#[case::the_repo_is_not_in_the_manifest("checkout", "ghost", "repo.not_in_manifest")]
+fn promote_is_rejected_when(#[case] feature: &str, #[case] repo: &str, #[case] code: &str) {
     let (_guard, root) = hall_with_feature();
     let ctx = Ctx::new(root);
 
-    let failure = promote(&ctx, promote_input("ghost", "api")).unwrap_err();
+    let failure = promote(&ctx, promote_input(feature, repo)).unwrap_err();
 
     assert_eq!(failure.status, Status::Blocked);
-    assert_eq!(failure.code, "feature.not_found");
-}
-
-#[test]
-fn promote_is_rejected_when_the_repo_is_not_in_the_manifest() {
-    let (_guard, root) = hall_with_feature();
-    let ctx = Ctx::new(root);
-
-    let failure = promote(&ctx, promote_input("checkout", "ghost")).unwrap_err();
-
-    assert_eq!(failure.status, Status::Blocked);
-    assert_eq!(failure.code, "repo.not_in_manifest");
+    assert_eq!(failure.code, code);
 }
 
 #[test]
