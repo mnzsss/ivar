@@ -182,6 +182,16 @@ Only a **root** delivers. Delivery of a root is blocked by any active, failed,
 stale, or unintegrated descendant — abandoned history does not block, but a
 descendant beneath an abandoned node still does.
 
+`ivar feature list` draws the tree: roots by name, each followed by its
+subfeatures with `├──` / `└──` glyphs (`--json` stays flat, in the same
+order, with `parent` and `depth`). Deleting a parent takes its whole
+subtree, leaves first: on a terminal `ivar feature delete <parent>` shows the
+tree and asks once; without one it refuses unless `--yes` is passed. Every
+node is checked before anything is removed, and a run that fails part-way
+keeps the records it has not reached, so re-running resumes. `ivar feature
+cleanup` covers the subtree the same way, with its single approved record as
+the consent; `prune` never cascades.
+
 ## How they fit
 
 ```

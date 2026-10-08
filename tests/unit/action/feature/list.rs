@@ -99,3 +99,126 @@ fn the_human_surface_lists_features_with_their_counts() {
         "Features in /hall:\nFEATURE   BRANCH    PROMOTED  STATE\ncheckout  checkout  1/2       active\n"
     );
 }
+
+#[test]
+fn list_orders_features_as_forest_and_renders_glyphs_in_human_output() {
+    let (_guard, root) = seeded_hall();
+    let ctx = Ctx::new(root.clone());
+
+    // Root "alpha" with child "zz" — child sorts after root "beta", so
+    // alphabetical order would be [alpha, alpha-sub, beta, zz], but forest
+    // order is [alpha, zz, beta].
+    create_action(
+        &ctx,
+        CreateInput {
+            name: "alpha".to_owned(),
+            branch: None,
+            base: None,
+            parent: None,
+            via: None,
+            strategy: None,
+        },
+    )
+    .unwrap();
+    create_action(
+        &ctx,
+        CreateInput {
+            name: "zz".to_owned(),
+            branch: None,
+            base: None,
+            parent: Some("alpha".to_owned()),
+            via: None,
+            strategy: None,
+        },
+    )
+    .unwrap();
+    create_action(
+        &ctx,
+        CreateInput {
+            name: "beta".to_owned(),
+            branch: None,
+            base: None,
+            parent: None,
+            via: None,
+            strategy: None,
+        },
+    )
+    .unwrap();
+
+    let report = list(&ctx).unwrap();
+
+    // Forest order: alpha, zz (child of alpha), beta — not alphabetical
+    let names: Vec<&str> = report
+        .value
+        .features
+        .iter()
+        .map(|f| f.name.as_str())
+        .collect();
+    assert_eq!(names, vec!["alpha", "zz", "beta"]);
+
+    // Verify human output renders glyphs in the FEATURE column
+    let mut output = Vec::new();
+    report.value.write_human(&mut output).unwrap();
+    let rendered = String::from_utf8(output).unwrap();
+
+    // "alpha" is a root → no prefix
+    assert!(rendered.contains("alpha"));
+    // "zz" is the last (and only) child of "alpha" → "└── zz"
+    assert!(rendered.contains("└── zz"));
+    // "beta" is a root → no prefix
+    assert!(rendered.contains("beta"));
+}
+
+#[test]
+fn list_skips_cycle_members_but_still_lists_dangling_parent_root() {
+    use crate::domain::name::BranchName;
+    let (_guard, root) = seeded_hall();
+    let ctx = Ctx::new(root.clone());
+    let layout = Layout::at(root);
+
+    // Write features using Feature::new + .write(&layout) which creates directories
+    // - "dangling" has parent "absent" (not in map) → listed at depth 0 as root
+    // - "child-of-dangling" has parent "dangling" → listed at depth 1 beneath dangling
+    // - "cyc-a" and "cyc-b" name each other as parent → form a cycle and are absent
+    let mut dangling = Feature::new(
+        FeatureName::new("dangling").unwrap(),
+        BranchName::new("dangling").unwrap(),
+    );
+    dangling.parent = Some(FeatureName::new("absent").unwrap());
+    dangling.write(&layout).unwrap();
+
+    let mut child = Feature::new(
+        FeatureName::new("child-of-dangling").unwrap(),
+        BranchName::new("child-of-dangling").unwrap(),
+    );
+    child.parent = Some(FeatureName::new("dangling").unwrap());
+    child.write(&layout).unwrap();
+
+    let mut cyc_a = Feature::new(
+        FeatureName::new("cyc-a").unwrap(),
+        BranchName::new("cyc-a").unwrap(),
+    );
+    cyc_a.parent = Some(FeatureName::new("cyc-b").unwrap());
+    cyc_a.write(&layout).unwrap();
+
+    let mut cyc_b = Feature::new(
+        FeatureName::new("cyc-b").unwrap(),
+        BranchName::new("cyc-b").unwrap(),
+    );
+    cyc_b.parent = Some(FeatureName::new("cyc-a").unwrap());
+    cyc_b.write(&layout).unwrap();
+
+    let report = list(&ctx).unwrap();
+    let names_and_depths: Vec<(&str, usize)> = report
+        .value
+        .features
+        .iter()
+        .map(|f| (f.name.as_str(), f.depth))
+        .collect();
+
+    // Dangling feature listed at depth 0 as root; child beneath it at depth 1; cycle members absent
+    assert_eq!(
+        names_and_depths,
+        vec![("dangling", 0), ("child-of-dangling", 1)]
+    );
+}

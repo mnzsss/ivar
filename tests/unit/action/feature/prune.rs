@@ -331,3 +331,33 @@ fn prune_keeps_a_feature_with_no_commits_of_its_own() {
     );
     assert!(feature_dir(&root).join("feature.json").exists());
 }
+
+#[test]
+fn prune_refuses_parent_with_descendants() {
+    let (_guard, root) = hall_with_promoted_feature_based_on_an_open_base();
+    let ctx = Ctx::new(root.clone());
+    land_checkout_into(&root, "develop");
+
+    create_action(
+        &ctx,
+        CreateInput {
+            name: "child".to_owned(),
+            branch: None,
+            base: None,
+            parent: Some("checkout".to_owned()),
+            via: None,
+            strategy: None,
+        },
+    )
+    .unwrap();
+
+    let report = prune(&ctx).unwrap();
+    assert!(report.value.pruned.is_empty());
+    assert!(
+        report
+            .value
+            .kept
+            .iter()
+            .any(|k| k.feature.as_str() == "checkout" && k.reason.contains("has 1 descendant(s)"))
+    );
+}

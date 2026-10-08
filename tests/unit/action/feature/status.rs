@@ -496,3 +496,58 @@ fn feature_status_falls_back_to_integration_receipt_pr_url() {
         Some("https://github.com/org/repo/pull/99")
     );
 }
+
+#[test]
+fn status_subtree_human_output_renders_tree_glyphs() {
+    use crate::domain::feature::FeatureIntegrationState;
+    let tree_entries = vec![
+        TreeEntry {
+            feature: FeatureName::new("child-a").unwrap(),
+            parent: Some(FeatureName::new("root-feature").unwrap()),
+            depth: 1,
+            state: FeatureIntegrationState::Active,
+            plan_gate: GateState::Pending,
+            repos: vec![RepoName::new("api").unwrap()],
+            run: None,
+            sessions: vec!["s1".to_owned()],
+            blockers: vec![],
+        },
+        TreeEntry {
+            feature: FeatureName::new("child-b").unwrap(),
+            parent: Some(FeatureName::new("root-feature").unwrap()),
+            depth: 1,
+            state: FeatureIntegrationState::Integrated,
+            plan_gate: GateState::Approved,
+            repos: vec![],
+            run: None,
+            sessions: vec![],
+            blockers: vec![],
+        },
+    ];
+
+    let outcome = StatusOutcome {
+        root: Utf8PathBuf::from("/hall"),
+        name: FeatureName::new("root-feature").unwrap(),
+        branch: "root-feature".to_owned(),
+        is_subfeature: false,
+        parent: None,
+        plan_approved: true,
+        repos: vec![],
+        tree: Some(tree_entries),
+    };
+
+    let mut output = Vec::new();
+    outcome.write_human(&mut output).unwrap();
+    let rendered = String::from_utf8(output).unwrap();
+
+    assert!(rendered.contains("Subtree:"));
+    // Two space base indent + glyph
+    assert!(
+        rendered.contains("  ├── child-a  state active  plan pending  repos 1  no run  sessions 1")
+    );
+    assert!(
+        rendered.contains(
+            "  └── child-b  state integrated  plan approved  repos 0  no run  sessions 0"
+        )
+    );
+}

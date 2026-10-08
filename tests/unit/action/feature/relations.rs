@@ -689,3 +689,122 @@ fn failed_evidence_is_failed_not_stale() {
     .unwrap();
     assert_eq!(blockers[0].state, FeatureIntegrationState::Failed);
 }
+
+#[test]
+fn forest_returns_roots_sorted_by_name_with_descendants_in_preorder() {
+    let mut features = Vec::new();
+
+    // Roots: "zeta" and "alpha"
+    // "zeta" has child "zeta-sub" (depth 1) which has child "zeta-sub-leaf" (depth 2)
+    // "alpha" has children "alpha-b" and "alpha-a" (depth 1)
+    let mut f_zeta = Feature::new(
+        FeatureName::new("zeta").unwrap(),
+        BranchName::new("zeta").unwrap(),
+    );
+    f_zeta.parent = None;
+    features.push(f_zeta);
+
+    let mut f_zeta_sub = Feature::new(
+        FeatureName::new("zeta-sub").unwrap(),
+        BranchName::new("zeta-sub").unwrap(),
+    );
+    f_zeta_sub.parent = Some(FeatureName::new("zeta").unwrap());
+    features.push(f_zeta_sub);
+
+    let mut f_zeta_sub_leaf = Feature::new(
+        FeatureName::new("zeta-sub-leaf").unwrap(),
+        BranchName::new("zeta-sub-leaf").unwrap(),
+    );
+    f_zeta_sub_leaf.parent = Some(FeatureName::new("zeta-sub").unwrap());
+    features.push(f_zeta_sub_leaf);
+
+    let mut f_alpha = Feature::new(
+        FeatureName::new("alpha").unwrap(),
+        BranchName::new("alpha").unwrap(),
+    );
+    f_alpha.parent = None;
+    features.push(f_alpha);
+
+    let mut f_alpha_b = Feature::new(
+        FeatureName::new("alpha-b").unwrap(),
+        BranchName::new("alpha-b").unwrap(),
+    );
+    f_alpha_b.parent = Some(FeatureName::new("alpha").unwrap());
+    features.push(f_alpha_b);
+
+    let mut f_alpha_a = Feature::new(
+        FeatureName::new("alpha-a").unwrap(),
+        BranchName::new("alpha-a").unwrap(),
+    );
+    f_alpha_a.parent = Some(FeatureName::new("alpha").unwrap());
+    features.push(f_alpha_a);
+
+    let map = build_feature_map(&features);
+    let entries = forest(&map);
+
+    let rendered: Vec<(usize, &str)> = entries
+        .iter()
+        .map(|(depth, f)| (*depth, f.name.as_str()))
+        .collect();
+
+    assert_eq!(
+        rendered,
+        vec![
+            (0, "alpha"),
+            (1, "alpha-a"),
+            (1, "alpha-b"),
+            (0, "zeta"),
+            (1, "zeta-sub"),
+            (2, "zeta-sub-leaf"),
+        ]
+    );
+}
+
+#[test]
+fn forest_treats_dangling_parent_feature_as_root_with_descendants_beneath_it() {
+    let mut features = Vec::new();
+
+    // "orphan" has a parent that is not in the map ("missing-parent")
+    let mut f_orphan = Feature::new(
+        FeatureName::new("orphan").unwrap(),
+        BranchName::new("orphan").unwrap(),
+    );
+    f_orphan.parent = Some(FeatureName::new("missing-parent").unwrap());
+    features.push(f_orphan);
+
+    // "orphan-child" is a child of "orphan"
+    let mut f_orphan_child = Feature::new(
+        FeatureName::new("orphan-child").unwrap(),
+        BranchName::new("orphan-child").unwrap(),
+    );
+    f_orphan_child.parent = Some(FeatureName::new("orphan").unwrap());
+    features.push(f_orphan_child);
+
+    // "normal" is a regular root
+    let mut f_normal = Feature::new(
+        FeatureName::new("normal").unwrap(),
+        BranchName::new("normal").unwrap(),
+    );
+    f_normal.parent = None;
+    features.push(f_normal);
+
+    let map = build_feature_map(&features);
+    let entries = forest(&map);
+
+    let rendered: Vec<(usize, &str)> = entries
+        .iter()
+        .map(|(depth, f)| (*depth, f.name.as_str()))
+        .collect();
+
+    assert_eq!(
+        rendered,
+        vec![(0, "normal"), (0, "orphan"), (1, "orphan-child"),]
+    );
+}
+
+#[test]
+fn forest_with_empty_map_returns_empty_vec() {
+    let features: Vec<Feature> = Vec::new();
+    let map = build_feature_map(&features);
+    assert!(forest(&map).is_empty());
+}

@@ -921,7 +921,7 @@ fn a_missing_parent_promotion_blocks_noninteractive_runs_with_the_exact_command(
 // -- deletion and lifecycle gates ---------------------------------------------
 
 #[test]
-fn parent_deletion_is_blocked_until_every_descendant_is_deleted() {
+fn parent_deletion_without_yes_refuses_in_noninteractive_mode() {
     let (_guard, root) = nested_hall(&["true"]);
     ivar()
         .current_dir(&root)
@@ -929,28 +929,58 @@ fn parent_deletion_is_blocked_until_every_descendant_is_deleted() {
         .assert()
         .success();
 
+    // Deleting parent without --yes in non-interactive / --json mode fails with consent code
     let failure = failure_output(&root, &["feature", "delete", "parent"]);
-    assert_eq!(failure["code"], "feature.has_descendants");
+    assert_eq!(failure["code"], "feature.delete_subtree_needs_consent");
+    let fix_cmd = failure["fix_actions"][0]["command"]
+        .as_str()
+        .expect("fix command string");
+    assert_eq!(fix_cmd, "ivar feature delete parent --yes");
 
-    // Leaves first, then the parent goes.
+    // Verify nothing was removed
+    assert!(root.join(".ivar/features/parent").exists());
+    assert!(root.join(".ivar/features/child").exists());
+    assert!(root.join(".ivar/features/leaf").exists());
+}
+
+#[test]
+fn parent_deletion_with_yes_deletes_entire_subtree() {
+    let (_guard, root) = nested_hall(&["true"]);
+    ivar()
+        .current_dir(&root)
+        .args(["feature", "create", "leaf", "--parent", "child"])
+        .assert()
+        .success();
+
+    ivar()
+        .current_dir(&root)
+        .args(["feature", "delete", "parent", "--yes"])
+        .assert()
+        .success();
+
+    assert!(!root.join(".ivar/features/parent").exists());
+    assert!(!root.join(".ivar/features/child").exists());
+    assert!(!root.join(".ivar/features/leaf").exists());
+}
+
+#[test]
+fn leaf_deletion_without_yes_succeeds() {
+    let (_guard, root) = nested_hall(&["true"]);
+    ivar()
+        .current_dir(&root)
+        .args(["feature", "create", "leaf", "--parent", "child"])
+        .assert()
+        .success();
+
     ivar()
         .current_dir(&root)
         .args(["feature", "delete", "leaf"])
         .assert()
         .success();
-    let failure = failure_output(&root, &["feature", "delete", "parent"]);
-    assert_eq!(failure["code"], "feature.has_descendants");
-    ivar()
-        .current_dir(&root)
-        .args(["feature", "delete", "child"])
-        .assert()
-        .success();
-    ivar()
-        .current_dir(&root)
-        .args(["feature", "delete", "parent"])
-        .assert()
-        .success();
-    assert!(!root.join(".ivar/features/parent").exists());
+
+    assert!(!root.join(".ivar/features/leaf").exists());
+    assert!(root.join(".ivar/features/child").exists());
+    assert!(root.join(".ivar/features/parent").exists());
 }
 
 #[test]

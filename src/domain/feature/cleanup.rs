@@ -4,12 +4,11 @@
 //! them here. Keeping the decisions here makes cleanup and prune share the one
 //! definition of a feature whose local state may be removed.
 
+use super::super::name::{BranchName, FeatureName, RepoName, SessionId};
+use super::integration::FeatureIntegrationState;
 use camino::Utf8PathBuf;
 use serde::{Deserialize, Serialize};
 use std::fmt;
-
-use super::super::name::{BranchName, FeatureName, RepoName, SessionId};
-
 /// Minimal git and manifest facts for one promoted repository to judge delivery.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DeliveryRepoFacts {
@@ -228,10 +227,8 @@ impl CleanupRepoFacts {
 pub struct CleanupFacts {
     pub repos: Vec<CleanupRepoFacts>,
     pub live_sessions: Vec<SessionId>,
-    pub descendants: Vec<FeatureName>,
     pub session_inspection_error: Option<String>,
 }
-
 impl CleanupFacts {
     #[must_use]
     pub fn to_delivery_facts(&self) -> DeliveryFacts {
@@ -254,8 +251,8 @@ pub enum CleanupBlocker {
     LiveSessions {
         sessions: Vec<SessionId>,
     },
-    Descendants {
-        features: Vec<FeatureName>,
+    NotIntegrated {
+        state: FeatureIntegrationState,
     },
     UnmergedCommits {
         repo: RepoName,
@@ -318,7 +315,9 @@ impl fmt::Display for CleanupBlocker {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             CleanupBlocker::LiveSessions { .. } => write!(f, "has a live session"),
-            CleanupBlocker::Descendants { .. } => write!(f, "has blocking descendants"),
+            CleanupBlocker::NotIntegrated { state } => {
+                write!(f, "subfeature is `{state}`; integrate or abandon it first")
+            }
             CleanupBlocker::UnmergedCommits {
                 repo,
                 effective_base,
@@ -386,11 +385,6 @@ pub fn classify_cleanup(facts: &CleanupFacts) -> CleanupVerdict {
         }
     }
 
-    if !facts.descendants.is_empty() {
-        blockers.push(CleanupBlocker::Descendants {
-            features: facts.descendants.clone(),
-        });
-    }
     if facts.repos.is_empty() {
         blockers.push(CleanupBlocker::EmptyFeature);
     }
@@ -409,6 +403,80 @@ pub fn classify_cleanup(facts: &CleanupFacts) -> CleanupVerdict {
     }
 
     CleanupVerdict { blockers }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CleanupDescendantFacts {
+    pub state: FeatureIntegrationState,
+    pub repos: Vec<CleanupRepoFacts>,
+    pub live_sessions: Vec<SessionId>,
+    pub session_inspection_error: Option<String>,
+}
+
+#[must_use]
+pub fn classify_descendant_cleanup(facts: &CleanupDescendantFacts) -> CleanupVerdict {
+    let mut blockers = Vec::new();
+    match facts.state {
+        FeatureIntegrationState::Integrated | FeatureIntegrationState::Abandoned => {}
+        FeatureIntegrationState::Active => {
+            blockers.push(CleanupBlocker::NotIntegrated {
+                state: FeatureIntegrationState::Active,
+            });
+        }
+        FeatureIntegrationState::Failed => {
+            blockers.push(CleanupBlocker::NotIntegrated {
+                state: FeatureIntegrationState::Failed,
+            });
+        }
+        FeatureIntegrationState::Stale => {
+            blockers.push(CleanupBlocker::NotIntegrated {
+                state: FeatureIntegrationState::Stale,
+            });
+        }
+        FeatureIntegrationState::Delivered => {
+            blockers.push(CleanupBlocker::NotIntegrated {
+                state: FeatureIntegrationState::Delivered,
+            });
+        }
+    }
+    if !facts.live_sessions.is_empty() {
+        blockers.push(CleanupBlocker::LiveSessions {
+            sessions: facts.live_sessions.clone(),
+        });
+    }
+    if let Some(error) = &facts.session_inspection_error {
+        blockers.push(CleanupBlocker::SessionInspectionFailed {
+            error: error.clone(),
+        });
+    }
+    for repo in &facts.repos {
+        if repo.dirty_worktree == Some(true) {
+            blockers.push(CleanupBlocker::DirtyWorktree {
+                repo: repo.repo.clone(),
+            });
+        }
+        if let Some(error) = &repo.inspection_error {
+            blockers.push(CleanupBlocker::RepositoryInspectionFailed {
+                repo: repo.repo.clone(),
+                error: error.clone(),
+            });
+        }
+    }
+    CleanupVerdict { blockers }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CleanupDescendant {
+    pub feature: FeatureName,
+    pub branch: BranchName,
+    pub parent: FeatureName,
+    pub depth: usize,
+    pub state: FeatureIntegrationState,
+    pub repos: Vec<CleanupRepo>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub blockers: Vec<CleanupBlocker>,
+    pub paths_to_remove: Vec<Utf8PathBuf>,
 }
 
 /// One promoted repository's minimal cleanup evidence.
@@ -435,6 +503,19 @@ pub struct CleanupPreview {
     pub blockers: Vec<CleanupBlocker>,
     pub paths_to_remove: Vec<Utf8PathBuf>,
     pub fingerprint: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub descendants: Vec<CleanupDescendant>,
+}
+
+impl CleanupPreview {
+    #[must_use]
+    pub fn has_blockers(&self) -> bool {
+        !self.blockers.is_empty()
+            || self
+                .descendants
+                .iter()
+                .any(|descendant| !descendant.blockers.is_empty())
+    }
 }
 
 pub const CLEANUP_RECORD_SCHEMA_VERSION: u32 = 1;
@@ -521,6 +602,18 @@ pub struct CleanupApplyOutcome {
     pub feature: FeatureName,
     pub branch: BranchName,
     pub fingerprint: String,
+    pub worktrees: Vec<WorktreeRemoval>,
+    pub branches: Vec<BranchDeletion>,
+    pub feature_removed: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub descendants: Vec<CleanupDescendantOutcome>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CleanupDescendantOutcome {
+    pub feature: FeatureName,
+    pub branch: BranchName,
     pub worktrees: Vec<WorktreeRemoval>,
     pub branches: Vec<BranchDeletion>,
     pub feature_removed: bool,

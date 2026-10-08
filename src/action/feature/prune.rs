@@ -105,6 +105,7 @@ pub fn prune(ctx: &Ctx) -> Outcome<PruneOutcome> {
                 DeleteInput {
                     name: name.to_string(),
                     force: false,
+                    descendants: feature_delete::Descendants::Refuse,
                 },
             ) {
                 Ok(report) => {

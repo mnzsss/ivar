@@ -435,6 +435,7 @@ Delete a feature: its worktrees, its directory under `.ivar/`, and its plans. Re
 | flag | value | default | description |
 | --- | --- | --- | --- |
 | `--force` |  |  | Delete even with a live session or uncommitted or untracked changes in a promoted worktree, discarding them |
+| `--yes` |  |  | Consent to deleting the feature together with every subfeature, without asking |
 
 
 ##### `ivar feature rebase`
