@@ -3,7 +3,7 @@
 //!
 //! These live in `domain` rather than beside the decision logic because the
 //! per-provider adapters in `src/providers/` must name them, and `providers`
-//! may not import `action` (`tests/architecture.rs`).
+//! may not import `action` (`tests/static_checks/architecture.rs`).
 
 use camino::Utf8PathBuf;
 

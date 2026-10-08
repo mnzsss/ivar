@@ -35,8 +35,8 @@ a `1`, not a failure. Treating `1` as fatal in a script will make `ivar` look
 broken when it is telling you something.
 
 <!-- BEGIN GENERATED COMMANDS -->
-<!-- Generated from clap by tests/docs_reference.rs. Do not edit by hand: run
-     `IVAR_UPDATE_DOCS=1 cargo test --test docs_reference`. -->
+<!-- Generated from clap by tests/static_checks/docs_reference.rs. Do not edit by hand: run
+     `IVAR_UPDATE_DOCS=1 cargo test --test static_checks`. -->
 
 ### `ivar`
 

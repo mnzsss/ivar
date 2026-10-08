@@ -804,7 +804,7 @@ fn guard_takes_a_hidden_slice_for_claude_code_only() {
         panic!("expected the guard command");
     };
     let input = guard_cmd::GuardInput::try_from(args).unwrap();
-    // `cli` may import only `action` (tests/architecture.rs), so compare by Debug name.
+    // `cli` may import only `action` (tests/static_checks/architecture.rs), so compare by Debug name.
     assert_eq!(format!("{:?}", input.provider), "ClaudeCode");
     assert_eq!(input.slice, Some(2));
 

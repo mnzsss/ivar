@@ -62,7 +62,7 @@ for name in "${SELECTED[@]}"; do
 
     # For now, this script documents the process. Actual regeneration requires
     # running the Rust code with the fixture input. See the test harness in
-    # tests/skill.rs for the exact conversion logic.
+    # tests/static_checks/skill.rs for the exact conversion logic.
 
     # Quick sanity check: the fixture file must exist and be valid JSON.
     if ! jq empty "$fixture_file" 2>/dev/null; then

@@ -214,7 +214,7 @@ fn deliver_skill_documents_only_selection() {
 /// Every `ivar ...` invocation quoted in shipped prose and repository
 /// documentation must parse against the real CLI.
 ///
-/// `tests/docs_reference.rs` keeps the *generated* half of the docs honest by
+/// `docs_reference` keeps the *generated* half of the docs honest by
 /// rendering `clap` and failing on disagreement. This is the same rule for the
 /// hand-written half: prose cites invocations, and `clap` is the only
 /// authority on whether one is real.
