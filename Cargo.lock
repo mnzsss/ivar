@@ -1132,6 +1132,8 @@ dependencies = [
  "portable-pty",
  "predicates",
  "ratatui",
+ "regex",
+ "regex-automata",
  "rstest",
  "rusqlite",
  "schemars",

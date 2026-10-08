@@ -107,6 +107,20 @@ tree-sitter-json = "0.24"
 tree-sitter-md = "=0.3.2"
 notify = { version = "8.2", default-features = false, features = ["macos_fsevent"] }
 
+# --- build/test feature unification ----------------------------------------
+# Not imported by ivar's code. Do not remove as "unused".
+# `predicates` (dev, via assert_cmd) turns on `regex/default` and, through
+# `bstr`, `regex-automata/dfa-search`; tree-sitter depends on regex. Without
+# these two lines `cargo build` and `cargo test` resolve different features
+# and compile regex, tree-sitter, libivar (~100 MB rlib) and the ivar binary
+# twice into the same target/, and switching between the two rebuilds
+# libivar. Measured on 96fd99c0: clean build + test 1.2 GB -> 957 MB; the
+# release binary grows 113 KB. Still unified when this prints nothing:
+#   diff <(cargo tree -e normal --prefix none -f '{p} [{f}]' | sort -u) \
+#        <(cargo tree -e normal,dev --prefix none -f '{p} [{f}]' | sort -u) | grep '^<'
+regex = "1"
+regex-automata = { version = "0.4", features = ["dfa-search"] }
+
 [target.'cfg(target_os = "linux")'.dependencies]
 landlock = "0.4"
 
