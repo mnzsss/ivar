@@ -213,5 +213,5 @@ fn instructions_for(provider: Provider, evaluation: &Evaluation, index: usize) -
 }
 
 #[cfg(test)]
-#[path = "../../../../tests/unit/action/session/guard.rs"]
+#[path = "../../../../tests/unit/action/session/guard/mod.rs"]
 mod tests;
