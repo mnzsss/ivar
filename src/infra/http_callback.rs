@@ -210,11 +210,13 @@ impl CallbackServer {
             return;
         };
         // A child forked by any thread inherits this descriptor until it
-        // execs, which keeps the socket listening past close; shutdown stops
-        // it listening for every duplicate, so the port is free on return.
-        #[cfg(unix)]
+        // execs, which keeps the socket listening past close. Linux tears a
+        // listening socket down on shutdown for every descriptor copy, so the
+        // port is free on return; other platforms reject shutdown on a
+        // listener, so there the port is only freed once every copy closes.
+        #[cfg(target_os = "linux")]
         let _ = TcpStream::from(std::os::fd::OwnedFd::from(listener)).shutdown(Shutdown::Both);
-        #[cfg(not(unix))]
+        #[cfg(not(target_os = "linux"))]
         drop(listener);
     }
 

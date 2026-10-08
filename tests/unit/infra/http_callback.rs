@@ -7,7 +7,6 @@ use super::*;
 // -- parsing logic -------------------------------------------------------
 
 #[rstest]
-// Original bug: %252B was decoded twice, ending as `+` instead of `%2B`.
 #[case::query_values_are_decoded_exactly_once("code=%252B", "%2B")]
 #[case::code_with_percent_encoded_chars_survives_round_trip("code=%2B%2F%3D", "+/=")]
 #[case::multibyte_query_does_not_panic("code=🚀", "🚀")]
@@ -329,6 +328,7 @@ fn drop_before_callback_releases_port_and_does_not_leak_thread() {
     assert!(rebinding.is_ok(), "port should be available after drop");
 }
 
+#[cfg(target_os = "linux")]
 #[test]
 fn drop_releases_port_while_a_forked_child_still_holds_the_listener() {
     let server = CallbackServer::bind_on("test-state", Duration::from_secs(10)).unwrap();
@@ -340,6 +340,7 @@ fn drop_releases_port_while_a_forked_child_still_holds_the_listener() {
     drop(inherited_by_child);
 }
 
+#[cfg(target_os = "linux")]
 #[test]
 fn wait_releases_port_while_a_forked_child_still_holds_the_listener() {
     let expected_state = "test-state";
