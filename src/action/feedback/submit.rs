@@ -2,7 +2,7 @@ use super::super::discover_hall;
 use super::{DEFAULT_REPO, URL_LIMIT, issue_preview, redactions};
 use crate::action::Ctx;
 use crate::domain::feedback::FeedbackStatus;
-use crate::error::{Failure, Outcome, Report, WriteHuman};
+use crate::error::{Failure, FixAction, Outcome, Report, WriteHuman};
 use crate::infra::url::encode_component;
 use crate::store::feedback as feedback_store;
 use serde::{Deserialize, Serialize};
@@ -38,10 +38,23 @@ impl GhClient for LiveGh {
     }
 }
 
+/// How `submit` gets a human's approval (R-FB-HUMAN).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(tag = "mode", rename_all = "lowercase")]
+pub enum SubmitMode {
+    /// Ask on the terminal, then publish.
+    Interactive,
+    /// Show exactly what would be published, and its fingerprint. Publishes nothing.
+    Preview,
+    /// Publish only if the entry still fingerprints as the approved preview.
+    Apply { fingerprint: String },
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct SubmitInput {
     pub id: String,
     pub repo: Option<String>,
+    pub mode: SubmitMode,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
@@ -59,6 +72,13 @@ pub enum SubmitReport {
     },
     Declined {
         id: String,
+    },
+    Preview {
+        id: String,
+        repo: String,
+        title: String,
+        body: String,
+        fingerprint: String,
     },
 }
 
@@ -85,8 +105,66 @@ impl WriteHuman for SubmitReport {
             Self::Declined { id } => {
                 writeln!(w, "Submission declined for {id}.")
             }
+            Self::Preview {
+                id,
+                repo,
+                title,
+                body,
+                fingerprint,
+            } => {
+                writeln!(w, "Preview of feedback {id} for {repo}")?;
+                writeln!(w, "\nTitle: {title}\n\n{body}\n")?;
+                writeln!(w, "Fingerprint: {fingerprint}")?;
+                writeln!(
+                    w,
+                    "Publish after human approval: ivar feedback submit {id} --repo {repo} --fingerprint {fingerprint}"
+                )
+            }
         }
     }
+}
+
+/// SHA-256 of the canonical JSON of what gets published and where: the
+/// entry id, the target repo, and the redacted title and body.
+pub(crate) fn fingerprint(
+    id: &str,
+    repo: &str,
+    title: &str,
+    body: &str,
+) -> Result<String, Failure> {
+    #[derive(Serialize)]
+    struct Published<'a> {
+        id: &'a str,
+        repo: &'a str,
+        title: &'a str,
+        body: &'a str,
+    }
+    let rendered = crate::infra::json::to_canonical_string(&Published {
+        id,
+        repo,
+        title,
+        body,
+    })?;
+    Ok(crate::infra::hash::text(&rendered))
+}
+
+fn fingerprint_mismatch(id: &str, repo: &str, expected: &str, actual: &str) -> Failure {
+    let command = format!("ivar feedback submit {id} --repo {repo} --preview");
+    Failure::blocked(
+        "feedback.fingerprint_mismatch",
+        format!("feedback {id} no longer matches the preview that was approved"),
+    )
+    .expected(format!("the preview fingerprint `{expected}`"))
+    .actual(format!(
+        "the entry, its redaction or the repo now fingerprint as `{actual}`"
+    ))
+    .fix(
+        FixAction::safe(
+            "feedback.re_preview",
+            format!("Preview again with `{command}` and have a human approve the new text."),
+        )
+        .command(command),
+    )
 }
 
 pub fn submit(ctx: &Ctx, input: SubmitInput) -> Outcome<SubmitReport> {
@@ -94,7 +172,7 @@ pub fn submit(ctx: &Ctx, input: SubmitInput) -> Outcome<SubmitReport> {
 }
 
 pub fn submit_with<G: GhClient>(ctx: &Ctx, input: SubmitInput, gh: &G) -> Outcome<SubmitReport> {
-    let SubmitInput { id, repo } = input;
+    let SubmitInput { id, repo, mode } = input;
     let layout = discover_hall(ctx)?;
 
     let mut entry = feedback_store::read(&layout, &id)?.ok_or_else(|| {
@@ -122,28 +200,46 @@ pub fn submit_with<G: GhClient>(ctx: &Ctx, input: SubmitInput, gh: &G) -> Outcom
         ));
     }
 
-    // R-FB-HUMAN: Gate on confirmation seam interactivity
-    if !ctx.confirm.is_interactive() {
-        return Err(Failure::blocked(
-            "feedback.submit_needs_terminal",
-            "Feedback submission requires an interactive terminal for confirmation",
-        ));
-    }
-
     let r = redactions(&layout);
     let (redacted_title, redacted_body) = issue_preview(&entry, &r);
+    let repo = repo.unwrap_or_else(|| DEFAULT_REPO.to_owned());
+    let current = fingerprint(&entry.id, &repo, &redacted_title, &redacted_body)?;
 
-    let question = format!(
-        "Submit feedback to GitHub?\n\nTitle: {}\n\n{}",
-        redacted_title, redacted_body
-    );
-
-    let confirmed = ctx.confirm(&question, None)?;
-    if !confirmed {
-        return Ok(Report::new(SubmitReport::Declined { id: entry.id }));
+    match mode {
+        SubmitMode::Preview => {
+            return Ok(Report::new(SubmitReport::Preview {
+                id: entry.id,
+                repo,
+                title: redacted_title,
+                body: redacted_body,
+                fingerprint: current,
+            }));
+        }
+        SubmitMode::Apply {
+            fingerprint: expected,
+        } => {
+            if expected != current {
+                return Err(fingerprint_mismatch(&entry.id, &repo, &expected, &current));
+            }
+        }
+        SubmitMode::Interactive => {
+            // R-FB-HUMAN: Gate on confirmation seam interactivity
+            if !ctx.confirm.is_interactive() {
+                return Err(Failure::blocked(
+                    "feedback.submit_needs_terminal",
+                    "Feedback submission requires an interactive terminal for confirmation",
+                ));
+            }
+            let question = format!(
+                "Submit feedback to GitHub?\n\nTitle: {}\n\n{}",
+                redacted_title, redacted_body
+            );
+            if !ctx.confirm(&question, None)? {
+                return Ok(Report::new(SubmitReport::Declined { id: entry.id }));
+            }
+        }
     }
-
-    let repo = repo.as_deref().unwrap_or(DEFAULT_REPO);
+    let repo = repo.as_str();
 
     // Try gh issue create
     if gh.gh_login().is_ok()

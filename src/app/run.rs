@@ -1050,6 +1050,7 @@ pub fn run(cli: Cli) -> ExitCode {
                             feedback_action::submit::SubmitInput {
                                 id: submit_args.id,
                                 repo: submit_args.repo,
+                                mode: feedback_action::submit::SubmitMode::Interactive,
                             },
                         ),
                         json,

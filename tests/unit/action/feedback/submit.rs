@@ -110,6 +110,7 @@ fn refuses_submission_when_confirm_is_non_interactive() {
         SubmitInput {
             id: "001-test".into(),
             repo: None,
+            mode: SubmitMode::Interactive,
         },
         &gh,
     )
@@ -141,6 +142,7 @@ fn declined_confirm_leaves_file_identical_and_reports_declined() {
         SubmitInput {
             id: "001-test".into(),
             repo: None,
+            mode: SubmitMode::Interactive,
         },
         &gh,
     )
@@ -178,6 +180,7 @@ fn publishes_via_gh_and_updates_status_and_published_url() {
         SubmitInput {
             id: "001-test".into(),
             repo: None,
+            mode: SubmitMode::Interactive,
         },
         &gh,
     )
@@ -213,6 +216,7 @@ fn falls_back_to_prefilled_url_when_gh_unauthenticated() {
         SubmitInput {
             id: "001-test".into(),
             repo: None,
+            mode: SubmitMode::Interactive,
         },
         &gh,
     )
@@ -247,6 +251,7 @@ fn falls_back_to_title_only_url_when_body_exceeds_url_limit() {
         SubmitInput {
             id: "001-test".into(),
             repo: None,
+            mode: SubmitMode::Interactive,
         },
         &gh,
     )
@@ -280,6 +285,7 @@ fn refuses_submitting_already_published_entry() {
         SubmitInput {
             id: "001-test".into(),
             repo: None,
+            mode: SubmitMode::Interactive,
         },
         &gh,
     )
@@ -289,4 +295,184 @@ fn refuses_submitting_already_published_entry() {
         err.what
             .contains("https://github.com/mnzsss/ivar/issues/42")
     );
+}
+
+fn no_terminal(root: camino::Utf8PathBuf) -> Ctx {
+    Ctx::new(root).with_confirm(crate::action::confirm::reporter(false))
+}
+
+fn input(mode: SubmitMode) -> SubmitInput {
+    SubmitInput {
+        id: "001-test".into(),
+        repo: None,
+        mode,
+    }
+}
+
+fn gh_calls(gh: &MockGh) -> usize {
+    gh.invocations
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .len()
+}
+
+fn preview_fingerprint(report: SubmitReport) -> String {
+    match report {
+        SubmitReport::Preview { fingerprint, .. } => fingerprint,
+        other => panic!("expected Preview, got {other:?}"),
+    }
+}
+
+#[test]
+fn preview_without_a_terminal_shows_the_redacted_issue_and_publishes_nothing() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root.clone());
+    let entry = seed_entry(&layout, "001-test", FeedbackStatus::Open, "bug details");
+    let gh = MockGh::success("https://github.com/mnzsss/ivar/issues/1");
+
+    let report = submit_with(&no_terminal(root), input(SubmitMode::Preview), &gh).unwrap();
+
+    let (title, body) = crate::action::feedback::issue_preview(
+        &entry,
+        &crate::action::feedback::redactions(&layout),
+    );
+    let expected_fp = fingerprint("001-test", DEFAULT_REPO, &title, &body).unwrap();
+    assert_eq!(
+        report.value,
+        SubmitReport::Preview {
+            id: "001-test".into(),
+            repo: DEFAULT_REPO.into(),
+            title,
+            body,
+            fingerprint: expected_fp,
+        }
+    );
+    assert_eq!(gh_calls(&gh), 0);
+    let kept = crate::store::feedback::read(&layout, "001-test")
+        .unwrap()
+        .unwrap();
+    assert_eq!(kept.frontmatter.status, FeedbackStatus::Open);
+}
+
+#[test]
+fn fingerprint_changes_with_each_bound_field() {
+    let base = fingerprint("001-a", "mnzsss/ivar", "title", "body").unwrap();
+    assert_eq!(
+        base,
+        fingerprint("001-a", "mnzsss/ivar", "title", "body").unwrap()
+    );
+    for other in [
+        fingerprint("002-a", "mnzsss/ivar", "title", "body").unwrap(),
+        fingerprint("001-a", "other/repo", "title", "body").unwrap(),
+        fingerprint("001-a", "mnzsss/ivar", "title!", "body").unwrap(),
+        fingerprint("001-a", "mnzsss/ivar", "title", "body!").unwrap(),
+    ] {
+        assert_ne!(base, other);
+    }
+}
+
+#[test]
+fn apply_with_the_previewed_fingerprint_publishes_without_a_terminal() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root.clone());
+    seed_entry(&layout, "001-test", FeedbackStatus::Open, "bug details");
+    let gh = MockGh::success("https://github.com/mnzsss/ivar/issues/99");
+    let ctx = no_terminal(root);
+    let fp = preview_fingerprint(
+        submit_with(&ctx, input(SubmitMode::Preview), &gh)
+            .unwrap()
+            .value,
+    );
+
+    let report = submit_with(&ctx, input(SubmitMode::Apply { fingerprint: fp }), &gh).unwrap();
+
+    assert_eq!(
+        report.value,
+        SubmitReport::Published {
+            id: "001-test".into(),
+            url: "https://github.com/mnzsss/ivar/issues/99".into()
+        }
+    );
+    assert_eq!(gh_calls(&gh), 1);
+    let updated = crate::store::feedback::read(&layout, "001-test")
+        .unwrap()
+        .unwrap();
+    assert_eq!(updated.frontmatter.status, FeedbackStatus::Published);
+}
+
+#[test]
+fn apply_after_the_entry_changes_is_refused_and_publishes_nothing() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root.clone());
+    seed_entry(&layout, "001-test", FeedbackStatus::Open, "bug details");
+    let gh = MockGh::success("https://github.com/mnzsss/ivar/issues/99");
+    let ctx = no_terminal(root);
+    let fp = preview_fingerprint(
+        submit_with(&ctx, input(SubmitMode::Preview), &gh)
+            .unwrap()
+            .value,
+    );
+    seed_entry(
+        &layout,
+        "001-test",
+        FeedbackStatus::Open,
+        "edited after review",
+    );
+
+    let err = submit_with(&ctx, input(SubmitMode::Apply { fingerprint: fp }), &gh).unwrap_err();
+
+    assert_eq!(err.code, "feedback.fingerprint_mismatch");
+    assert_eq!(gh_calls(&gh), 0);
+    let kept = crate::store::feedback::read(&layout, "001-test")
+        .unwrap()
+        .unwrap();
+    assert_eq!(kept.frontmatter.status, FeedbackStatus::Open);
+}
+
+#[test]
+fn apply_to_another_repo_than_previewed_is_refused() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root.clone());
+    seed_entry(&layout, "001-test", FeedbackStatus::Open, "bug details");
+    let gh = MockGh::success("https://github.com/other/repo/issues/1");
+    let ctx = no_terminal(root);
+    let fp = preview_fingerprint(
+        submit_with(&ctx, input(SubmitMode::Preview), &gh)
+            .unwrap()
+            .value,
+    );
+
+    let err = submit_with(
+        &ctx,
+        SubmitInput {
+            id: "001-test".into(),
+            repo: Some("other/repo".into()),
+            mode: SubmitMode::Apply { fingerprint: fp },
+        },
+        &gh,
+    )
+    .unwrap_err();
+
+    assert_eq!(err.code, "feedback.fingerprint_mismatch");
+    assert_eq!(gh_calls(&gh), 0);
+}
+
+#[test]
+fn a_published_entry_is_refused_in_preview_and_apply() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root.clone());
+    seed_entry(&layout, "001-test", FeedbackStatus::Published, "done");
+    let gh = MockGh::success("https://github.com/mnzsss/ivar/issues/1");
+    let ctx = no_terminal(root);
+
+    for mode in [
+        SubmitMode::Preview,
+        SubmitMode::Apply {
+            fingerprint: "0".repeat(64),
+        },
+    ] {
+        let err = submit_with(&ctx, input(mode), &gh).unwrap_err();
+        assert_eq!(err.code, "feedback.already_published");
+    }
+    assert_eq!(gh_calls(&gh), 0);
 }
