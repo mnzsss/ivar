@@ -338,3 +338,85 @@ fn resolve_for_agent_ignores_an_ambient_id_that_is_not_a_session_of_this_hall() 
         );
     }
 }
+
+/// #152: from a cwd outside every view dir, a write whose target lies in a
+/// live session's view dir resolves to that session, even when the ambient
+/// id names another one.
+#[test]
+fn resolve_for_write_prefers_the_target_owner_over_the_ambient_session() {
+    let (_guard, root, parent_id, child_id) = hall_with_child_session();
+    let layout = Layout::at(root.clone());
+    let child_view = layout.feature_session(
+        &FeatureName::new("checkout-ui").unwrap(),
+        &crate::domain::name::SessionId::new(&child_id).unwrap(),
+    );
+    let target = child_view.join(".tmp/report.json");
+
+    let env = SessionEnv::resolve_for_write(&root, &target, Some(&parent_id))
+        .unwrap()
+        .expect("the target's session resolves");
+    assert_eq!(env.session_id, child_id);
+
+    let agent = SessionEnv::resolve_for_agent(&root, Some(&parent_id))
+        .unwrap()
+        .expect("the ambient session resolves");
+    assert_eq!(
+        agent.session_id, parent_id,
+        "resolve_for_agent must keep the ambient id"
+    );
+}
+
+/// #130 stays: a cwd inside a view dir beats the target's owner, so a
+/// session never borrows another session's writable set.
+#[test]
+fn resolve_for_write_keeps_the_cwd_view_dir_over_the_target_owner() {
+    let (_guard, root, parent_id, child_id) = hall_with_child_session();
+    let layout = Layout::at(root.clone());
+    let parent_view = crate::action::session::lookup::most_recent(
+        &layout,
+        &FeatureName::new("checkout").unwrap(),
+    )
+    .unwrap()
+    .unwrap()
+    .view_dir;
+    let child_view = layout.feature_session(
+        &FeatureName::new("checkout-ui").unwrap(),
+        &crate::domain::name::SessionId::new(&child_id).unwrap(),
+    );
+
+    let env = SessionEnv::resolve_for_write(&parent_view, &child_view.join("notes.md"), None)
+        .unwrap()
+        .expect("the cwd view dir resolves");
+    assert_eq!(env.session_id, parent_id);
+}
+
+/// A target outside every view dir leaves today's order untouched: the
+/// ambient id still wins.
+#[test]
+fn resolve_for_write_falls_back_to_the_ambient_session_outside_every_view_dir() {
+    let (_guard, root, _parent_id, child_id) = hall_with_child_session();
+
+    let env = SessionEnv::resolve_for_write(&root, &root.join("docs/topic.md"), Some(&child_id))
+        .unwrap()
+        .expect("the ambient session resolves");
+    assert_eq!(env.session_id, child_id);
+}
+
+/// A session view dir of another hall never lends its writable set.
+#[test]
+fn resolve_for_write_ignores_a_target_in_another_halls_session() {
+    let (_guard, root, parent_id, _child_id) = hall_with_child_session();
+    let (_other_guard, other_root, _other_parent, other_child) = hall_with_child_session();
+    let other_layout = Layout::at(other_root);
+    let foreign = other_layout
+        .feature_session(
+            &FeatureName::new("checkout-ui").unwrap(),
+            &crate::domain::name::SessionId::new(&other_child).unwrap(),
+        )
+        .join(".tmp/x.md");
+
+    let env = SessionEnv::resolve_for_write(&root, &foreign, Some(&parent_id))
+        .unwrap()
+        .expect("the ambient session of this hall resolves");
+    assert_eq!(env.session_id, parent_id);
+}
