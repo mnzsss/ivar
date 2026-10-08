@@ -1,9 +1,14 @@
 //! `.claude/settings.json` materialisation: ivar owns the `hooks` and
-//! `attribution` keys; the user owns everything else, `env` included.
+//! `attribution` keys and the `<hall>-` entries of `enabledMcpjsonServers`;
+//! the user owns everything else, `env` included.
 //! `attribution` is blanked so Claude Code adds no AI attribution to commits or
 //! PRs, overriding any user value. Halls commit this file, so it carries no
 //! clone-specific value such as the hall root; the process environment carries
 //! `IVAR_HALL` instead, and a legacy `env.IVAR_HALL` entry is dropped.
+//!
+//! Claude Code launched directly inside the hall (outside `ivar session`)
+//! approves the hall's declared MCP servers through `enabledMcpjsonServers` so
+//! it does not prompt the user for tools ivar materialised into `.mcp.json`.
 //!
 //! The pattern is identical to [`super::mcp`]: read the existing document,
 //! merge ivar's keys, compare canonical bytes, write only on change. A file
@@ -11,6 +16,7 @@
 
 use camino::Utf8Path;
 
+use crate::domain::name::HallName;
 use crate::infra::json;
 
 use super::doc;
@@ -21,13 +27,17 @@ const IVAR_HOOKS: &str = "hooks";
 const IVAR_ATTRIBUTION: &str = "attribution";
 const IVAR_KEYS: [&str; 2] = [IVAR_HOOKS, IVAR_ATTRIBUTION];
 
+/// Claude Code's approval list for `.mcp.json` servers. Partly ivar's:
+/// entries named `<hall>-…` are this hall's, every other entry is the user's.
+const MCP_APPROVALS: &str = "enabledMcpjsonServers";
 const ENV: &str = "env";
 const LEGACY_ENV_IVAR_HALL: &str = "IVAR_HALL";
 
-/// Materialise the ivar-owned keys at `path`.
+/// Materialise the ivar-owned keys and approvals at `path`.
 ///
 /// The file is created when absent, merged when present (replacing exactly
-/// the `hooks` and `attribution` keys and dropping a legacy `env.IVAR_HALL`),
+/// the `hooks` and `attribution` keys, merging `<hall>-` entries in
+/// `enabledMcpjsonServers`, and dropping a legacy `env.IVAR_HALL`),
 /// and left alone when the canonical bytes already match. A file that exists
 /// but is not a JSON object is refused.
 ///
@@ -35,13 +45,15 @@ const LEGACY_ENV_IVAR_HALL: &str = "IVAR_HALL";
 ///
 /// Returns [`Error`] if the existing file cannot be parsed as a JSON object
 /// or the merged document cannot be written.
-pub fn materialise_settings(path: &Utf8Path) -> Result<Change, Error> {
+pub fn materialise_settings(
+    path: &Utf8Path,
+    hall: &HallName,
+    allowlist: &[String],
+) -> Result<Change, Error> {
     let ivar_doc = ivar_doc();
     let (existing, raw) = doc::read_doc(path)?;
-
-    let Some(mut doc) = existing else {
-        return doc::write_doc(path, &ivar_doc).map(|_| Change::Created);
-    };
+    let created = existing.is_none();
+    let mut doc = existing.unwrap_or_else(|| serde_json::Value::Object(serde_json::Map::new()));
 
     let object = doc.as_object_mut().ok_or_else(|| Error::McpNotObject {
         path: path.to_path_buf(),
@@ -53,6 +65,7 @@ pub fn materialise_settings(path: &Utf8Path) -> Result<Change, Error> {
         object.insert(key.to_owned(), value);
     }
     remove_legacy_ivar_hall(object);
+    merge_mcp_approvals(object, hall, allowlist);
 
     let rendered = json::to_canonical_string(&doc).map_err(|source| Error::Mcp {
         path: path.to_path_buf(),
@@ -63,7 +76,11 @@ pub fn materialise_settings(path: &Utf8Path) -> Result<Change, Error> {
     }
 
     doc::write_doc(path, &doc)?;
-    Ok(Change::Updated)
+    Ok(if created {
+        Change::Created
+    } else {
+        Change::Updated
+    })
 }
 
 /// Remove ivar's keys, and a legacy `env.IVAR_HALL`, from the settings file at
@@ -78,7 +95,7 @@ pub fn materialise_settings(path: &Utf8Path) -> Result<Change, Error> {
 ///
 /// Returns [`Error`] if the existing file cannot be parsed as a JSON object
 /// or the merged document cannot be written.
-pub fn remove_settings(path: &Utf8Path) -> Result<Change, Error> {
+pub fn remove_settings(path: &Utf8Path, hall: &HallName) -> Result<Change, Error> {
     let (existing, _) = doc::read_doc(path)?;
     let Some(mut doc) = existing else {
         return Ok(Change::Unchanged);
@@ -94,6 +111,7 @@ pub fn remove_settings(path: &Utf8Path) -> Result<Change, Error> {
             removed_any = true;
         }
     }
+    removed_any |= merge_mcp_approvals(object, hall, &[]);
 
     if !removed_any {
         return Ok(Change::Unchanged);
@@ -101,6 +119,41 @@ pub fn remove_settings(path: &Utf8Path) -> Result<Change, Error> {
     let is_empty = object.is_empty();
 
     doc::finish_removal(path, is_empty, &doc)
+}
+
+/// Replace this hall's entries in `enabledMcpjsonServers` with `allowlist`,
+/// keeping every entry not prefixed `<hall>-`. A non-array value counts as
+/// no user entries. An empty result drops the key. Returns whether the
+/// value changed.
+fn merge_mcp_approvals(
+    object: &mut serde_json::Map<String, serde_json::Value>,
+    hall: &HallName,
+    allowlist: &[String],
+) -> bool {
+    let prefix = format!("{hall}-");
+    let before = object.get(MCP_APPROVALS).cloned();
+    let mut names: Vec<String> = before
+        .as_ref()
+        .and_then(serde_json::Value::as_array)
+        .map(|entries| {
+            entries
+                .iter()
+                .filter_map(serde_json::Value::as_str)
+                .filter(|name| !name.starts_with(&prefix))
+                .map(str::to_owned)
+                .collect()
+        })
+        .unwrap_or_default();
+    names.extend(allowlist.iter().cloned());
+    names.sort();
+    names.dedup();
+
+    if names.is_empty() {
+        object.remove(MCP_APPROVALS);
+    } else {
+        object.insert(MCP_APPROVALS.to_owned(), serde_json::json!(names));
+    }
+    before.as_ref() != object.get(MCP_APPROVALS)
 }
 
 /// Drop a legacy `env.IVAR_HALL` entry, and `env` itself when that empties it.

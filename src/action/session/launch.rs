@@ -37,15 +37,7 @@ pub(crate) fn provider_command(
     resume: bool,
     user_args: &[String],
 ) -> Result<Command, Failure> {
-    let hall_name = manifest.name().clone();
-    let mut allowlist: Vec<String> = manifest
-        .mcp_servers()
-        .iter()
-        .map(|server| server.materialised_name(&hall_name))
-        .collect();
-    allowlist.sort();
-    allowlist.dedup();
-
+    let allowlist = crate::domain::mcp::hall_mcp_allowlist(manifest.name(), manifest.mcp_servers());
     let command = providers::start_command(provider, resume, &allowlist)?;
     let command = command.args(user_args.iter().cloned());
     let command = SessionEnv::build(layout, session_id, view_dir, provider, feature).apply(command);

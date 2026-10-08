@@ -1312,6 +1312,33 @@ fn sync_materialises_settings_and_artifacts_per_provider() {
 }
 
 #[test]
+fn sync_approves_the_declared_servers_in_claude_settings() {
+    let (_guard, root) = hall_with(&[]);
+    let layout = Layout::at(root.clone());
+    let manifest = Manifest::read(&layout)
+        .unwrap()
+        .unwrap()
+        .with_mcp_servers(vec![McpServerDef::new("docs", "local").command("npx")])
+        .unwrap();
+    Manifest::write(&layout, &manifest).unwrap();
+    let ctx = Ctx::new(root.clone());
+
+    let report = sync(&ctx, &SyncInput::default()).unwrap();
+
+    assert!(report.is_clean());
+    let settings: serde_json::Value = serde_json::from_str(
+        &fs::read_text(&root.join(".claude/settings.json"))
+            .unwrap()
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        settings["enabledMcpjsonServers"],
+        serde_json::json!(["acme-docs"])
+    );
+}
+
+#[test]
 fn sync_removes_artifacts_when_provider_is_not_listed() {
     let (_guard, root) = hall_with_all_providers();
     let ctx = Ctx::new(root.clone());

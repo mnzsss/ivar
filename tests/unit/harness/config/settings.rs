@@ -6,8 +6,17 @@
 )]
 
 use super::*;
+use crate::domain::name::HallName;
 use crate::infra::fs;
 use crate::test_support::utf8_temp_dir;
+
+fn acme() -> HallName {
+    HallName::new("acme").unwrap()
+}
+
+fn names(list: &[&str]) -> Vec<String> {
+    list.iter().map(|name| (*name).to_owned()).collect()
+}
 
 #[test]
 fn materialise_preserves_user_permissions_and_sandbox() {
@@ -27,7 +36,7 @@ fn materialise_preserves_user_permissions_and_sandbox() {
     )
     .unwrap();
 
-    let change = materialise_settings(&path).unwrap();
+    let change = materialise_settings(&path, &acme(), &[]).unwrap();
     assert_eq!(change, Change::Updated);
 
     let doc: serde_json::Value =
@@ -56,10 +65,10 @@ fn materialise_is_idempotent() {
     let (_guard, dir) = utf8_temp_dir();
     let path = dir.join("settings.json");
 
-    let first = materialise_settings(&path).unwrap();
+    let first = materialise_settings(&path, &acme(), &[]).unwrap();
     assert_eq!(first, Change::Created);
 
-    let second = materialise_settings(&path).unwrap();
+    let second = materialise_settings(&path, &acme(), &[]).unwrap();
     assert_eq!(second, Change::Unchanged);
 }
 
@@ -67,9 +76,9 @@ fn materialise_is_idempotent() {
 fn remove_settings_deletes_file_when_only_ivar_keys() {
     let (_guard, dir) = utf8_temp_dir();
     let path = dir.join("settings.json");
-    materialise_settings(&path).unwrap();
+    materialise_settings(&path, &acme(), &[]).unwrap();
 
-    let change = remove_settings(&path).unwrap();
+    let change = remove_settings(&path, &acme()).unwrap();
     assert_eq!(change, Change::Removed);
     assert!(!path.exists());
 }
@@ -88,7 +97,7 @@ fn remove_settings_preserves_user_keys() {
     )
     .unwrap();
 
-    let change = remove_settings(&path).unwrap();
+    let change = remove_settings(&path, &acme()).unwrap();
     assert_eq!(change, Change::Removed);
 
     let doc: serde_json::Value =
@@ -107,7 +116,7 @@ fn materialise_writes_no_ivar_hall() {
     let (_guard, dir) = utf8_temp_dir();
     let path = dir.join("settings.json");
 
-    materialise_settings(&path).unwrap();
+    materialise_settings(&path, &acme(), &[]).unwrap();
 
     let doc = read_doc(&path);
     assert!(doc.pointer("/env/IVAR_HALL").is_none(), "{doc}");
@@ -120,7 +129,10 @@ fn materialise_keeps_user_env_and_strips_legacy_ivar_hall() {
     let path = dir.join("settings.json");
     fs::write_text(&path, r#"{ "env": { "FOO": "1", "IVAR_HALL": "acme" } }"#).unwrap();
 
-    assert_eq!(materialise_settings(&path).unwrap(), Change::Updated);
+    assert_eq!(
+        materialise_settings(&path, &acme(), &[]).unwrap(),
+        Change::Updated
+    );
 
     assert_eq!(read_doc(&path)["env"], serde_json::json!({ "FOO": "1" }));
 }
@@ -131,7 +143,7 @@ fn materialise_drops_env_left_empty_by_legacy_ivar_hall() {
     let path = dir.join("settings.json");
     fs::write_text(&path, r#"{ "env": { "IVAR_HALL": "acme" } }"#).unwrap();
 
-    materialise_settings(&path).unwrap();
+    materialise_settings(&path, &acme(), &[]).unwrap();
 
     assert!(read_doc(&path).get("env").is_none());
 }
@@ -142,7 +154,7 @@ fn remove_settings_strips_legacy_ivar_hall_and_keeps_user_env() {
     let path = dir.join("settings.json");
     fs::write_text(&path, r#"{ "env": { "FOO": "1", "IVAR_HALL": "acme" } }"#).unwrap();
 
-    assert_eq!(remove_settings(&path).unwrap(), Change::Removed);
+    assert_eq!(remove_settings(&path, &acme()).unwrap(), Change::Removed);
 
     assert_eq!(read_doc(&path)["env"], serde_json::json!({ "FOO": "1" }));
 }
@@ -152,7 +164,7 @@ fn remove_settings_on_absent_file_is_unchanged() {
     let (_guard, dir) = utf8_temp_dir();
     let path = dir.join("settings.json");
 
-    assert_eq!(remove_settings(&path).unwrap(), Change::Unchanged);
+    assert_eq!(remove_settings(&path, &acme()).unwrap(), Change::Unchanged);
 }
 
 #[test]
@@ -161,7 +173,7 @@ fn a_non_object_file_is_refused() {
     let path = dir.join("settings.json");
     fs::write_text(&path, r#""just a string""#).unwrap();
 
-    let result = materialise_settings(&path);
+    let result = materialise_settings(&path, &acme(), &[]);
     assert!(result.is_err());
 }
 
@@ -171,7 +183,7 @@ fn materialise_turns_off_harness_attribution() {
     let path = dir.join("settings.json");
     fs::write_text(&path, r#"{ "attribution": { "commit": "x", "pr": "y" } }"#).unwrap();
 
-    materialise_settings(&path).unwrap();
+    materialise_settings(&path, &acme(), &[]).unwrap();
 
     let doc: serde_json::Value =
         serde_json::from_str(&fs::read_text(&path).unwrap().unwrap()).unwrap();
@@ -191,7 +203,7 @@ fn remove_settings_drops_attribution_and_keeps_user_keys() {
     )
     .unwrap();
 
-    assert_eq!(remove_settings(&path).unwrap(), Change::Removed);
+    assert_eq!(remove_settings(&path, &acme()).unwrap(), Change::Removed);
 
     let doc: serde_json::Value =
         serde_json::from_str(&fs::read_text(&path).unwrap().unwrap()).unwrap();
@@ -203,7 +215,7 @@ fn remove_settings_drops_attribution_and_keeps_user_keys() {
 fn pre_tool_use_runs_the_guard_then_five_instruction_slices() {
     let (_guard, dir) = utf8_temp_dir();
     let path = dir.join("settings.json");
-    materialise_settings(&path).unwrap();
+    materialise_settings(&path, &acme(), &[]).unwrap();
 
     let doc = read_doc(&path);
     let entries = doc["hooks"]["PreToolUse"].as_array().unwrap();
@@ -245,7 +257,10 @@ fn an_existing_single_guard_entry_is_rewritten() {
     )
     .unwrap();
 
-    assert_eq!(materialise_settings(&path).unwrap(), Change::Updated);
+    assert_eq!(
+        materialise_settings(&path, &acme(), &[]).unwrap(),
+        Change::Updated
+    );
     assert_eq!(
         read_doc(&path)["hooks"]["PreToolUse"][0]["hooks"]
             .as_array()
@@ -253,4 +268,90 @@ fn an_existing_single_guard_entry_is_rewritten() {
             .len(),
         6
     );
+}
+
+#[test]
+fn materialise_approves_the_hall_servers_and_keeps_user_names() {
+    let (_guard, dir) = utf8_temp_dir();
+    let path = dir.join("settings.json");
+    fs::write_text(
+        &path,
+        r#"{ "enabledMcpjsonServers": ["magnific", "acme-retired"] }"#,
+    )
+    .unwrap();
+
+    materialise_settings(&path, &acme(), &names(&["acme-docs", "acme-graph"])).unwrap();
+
+    assert_eq!(
+        read_doc(&path)["enabledMcpjsonServers"],
+        serde_json::json!(["acme-docs", "acme-graph", "magnific"])
+    );
+}
+
+#[test]
+fn materialise_without_servers_or_user_names_writes_no_approval_key() {
+    let (_guard, dir) = utf8_temp_dir();
+    let path = dir.join("settings.json");
+    fs::write_text(&path, r#"{ "enabledMcpjsonServers": ["acme-retired"] }"#).unwrap();
+
+    materialise_settings(&path, &acme(), &[]).unwrap();
+
+    assert!(read_doc(&path).get("enabledMcpjsonServers").is_none());
+}
+
+#[test]
+fn materialise_with_the_same_servers_twice_is_unchanged() {
+    let (_guard, dir) = utf8_temp_dir();
+    let path = dir.join("settings.json");
+    let allowlist = names(&["acme-docs"]);
+
+    assert_eq!(
+        materialise_settings(&path, &acme(), &allowlist).unwrap(),
+        Change::Created
+    );
+    assert_eq!(
+        materialise_settings(&path, &acme(), &allowlist).unwrap(),
+        Change::Unchanged
+    );
+}
+
+#[test]
+fn materialise_replaces_a_non_array_approval_value() {
+    let (_guard, dir) = utf8_temp_dir();
+    let path = dir.join("settings.json");
+    fs::write_text(&path, r#"{ "enabledMcpjsonServers": true }"#).unwrap();
+
+    materialise_settings(&path, &acme(), &names(&["acme-docs"])).unwrap();
+
+    assert_eq!(
+        read_doc(&path)["enabledMcpjsonServers"],
+        serde_json::json!(["acme-docs"])
+    );
+}
+
+#[test]
+fn remove_strips_only_the_hall_approvals() {
+    let (_guard, dir) = utf8_temp_dir();
+    let path = dir.join("settings.json");
+    fs::write_text(
+        &path,
+        r#"{ "enabledMcpjsonServers": ["acme-docs", "magnific"] }"#,
+    )
+    .unwrap();
+
+    assert_eq!(remove_settings(&path, &acme()).unwrap(), Change::Removed);
+    assert_eq!(
+        read_doc(&path)["enabledMcpjsonServers"],
+        serde_json::json!(["magnific"])
+    );
+}
+
+#[test]
+fn remove_deletes_a_file_holding_only_ivar_keys_and_hall_approvals() {
+    let (_guard, dir) = utf8_temp_dir();
+    let path = dir.join("settings.json");
+    materialise_settings(&path, &acme(), &names(&["acme-docs"])).unwrap();
+
+    assert_eq!(remove_settings(&path, &acme()).unwrap(), Change::Removed);
+    assert!(!path.exists());
 }

@@ -329,6 +329,20 @@ impl McpServerDef {
     }
 }
 
+/// The hall-qualified names of `servers`, sorted and deduplicated: the
+/// list Claude Code approves through `enabledMcpjsonServers`, both in the
+/// launch `--settings` flag and in the hall's `.claude/settings.json`.
+#[must_use]
+pub fn hall_mcp_allowlist(hall: &HallName, servers: &[McpServerDef]) -> Vec<String> {
+    let mut names: Vec<String> = servers
+        .iter()
+        .map(|server| server.materialised_name(hall))
+        .collect();
+    names.sort();
+    names.dedup();
+    names
+}
+
 /// A pre-provisioned OAuth client registration for a server whose host
 /// rejects a harness's own dynamic client registration.
 ///
