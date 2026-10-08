@@ -260,3 +260,60 @@ fn report_schema_describes_the_report_and_lists_every_outcome() {
     );
     assert_eq!(report["additionalProperties"], false);
 }
+
+/// #151: after `finish --outcome failed`, `status` with neither `--run` nor
+/// `--history` shows that terminal receipt rather than "no matching run".
+#[test]
+fn status_without_flags_shows_a_run_finished_as_failed() {
+    let (_guard, root) = seeded_hall();
+    let ctx = Ctx::new(root);
+    let layout = discover_hall(&ctx).unwrap();
+    let feature = FeatureName::new("child-feature").unwrap();
+
+    let plan_path = layout.plan_dir(&feature).join("plan.md");
+    fs::write_text(&plan_path, "# Plan\nContent\n").unwrap();
+    let run_id = RunId::new("00000000-0000-4000-8000-000000000001").unwrap();
+    RunReceipt::start(
+        run_id.clone(),
+        feature.clone(),
+        plan_path.clone(),
+        hash::file(&plan_path).unwrap(),
+        RunBaseline::empty(),
+        SessionId::new("00000000-0000-4000-8000-000000000002").unwrap(),
+        Provider::ClaudeCode,
+        rfc3339_now(),
+    )
+    .write(&layout)
+    .unwrap();
+    let report_path = layout.feature_dir(&feature).join("report.json");
+    fs::write_text(
+        &report_path,
+        &serde_json::to_string(&valid_report()).unwrap(),
+    )
+    .unwrap();
+    finish(
+        &ctx,
+        FinishInput {
+            feature: feature.to_string(),
+            plan: Some(plan_path.to_string()),
+            report_json: report_path.to_string(),
+            outcome: "failed".to_owned(),
+        },
+    )
+    .unwrap();
+
+    let shown = crate::action::execute::status::status(
+        &ctx,
+        crate::action::execute::status::StatusInput {
+            feature: feature.to_string(),
+            plan: Some(plan_path.to_string()),
+            history: false,
+            run: None,
+        },
+    )
+    .unwrap();
+
+    assert_eq!(shown.value.receipts.len(), 1);
+    assert_eq!(shown.value.receipts[0].id, run_id);
+    assert_eq!(shown.value.receipts[0].status, RunStatus::Failed);
+}
