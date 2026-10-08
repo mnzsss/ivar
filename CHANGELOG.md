@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.0](https://github.com/mnzsss/ivar/compare/v0.14.0...v0.15.0) - 2026-10-08
+
+### Added
+
+- feature tree in list and cascading delete/cleanup ([#161](https://github.com/mnzsss/ivar/pull/161))
+- view unpromoted repos at the feature's base ([#160](https://github.com/mnzsss/ivar/pull/160))
+- deliver repo instructions to session agents ([#159](https://github.com/mnzsss/ivar/pull/159))
+- rebase onto the remote base tip and select repos ([#158](https://github.com/mnzsss/ivar/pull/158))
+- add ivar feedback and check every omp write target ([#145](https://github.com/mnzsss/ivar/pull/145))
+- add semantic subfeature integration titles ([#144](https://github.com/mnzsss/ivar/pull/144))
+- restyle cli output with tables, spinner and source snippets ([#142](https://github.com/mnzsss/ivar/pull/142))
+
+### Documentation
+
+- describe the read-only guard per platform ([#148](https://github.com/mnzsss/ivar/pull/148))
+- describe ivar as multi-repo worktrees for coding agents ([#146](https://github.com/mnzsss/ivar/pull/146))
+
+### Fixed
+
+- style the deliver preview labels and show the demo in the README ([#154](https://github.com/mnzsss/ivar/pull/154))
+- show the latest run receipt and align project text with the product ([#147](https://github.com/mnzsss/ivar/pull/147))
+
 ## [0.14.0](https://github.com/mnzsss/ivar/compare/v0.13.0...v0.14.0) - 2026-10-03
 
 ### Added
