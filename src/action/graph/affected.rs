@@ -199,8 +199,6 @@ pub fn derive_test_command(
 /// Walks reverse dependencies (incoming `IMPORTS`, `CALLS`, and `CROSS_IMPORTS` edges)
 /// across symbols and files up to `max_depth` hops, constructing causal explanations
 /// and focused test recommendations.
-type BfsQueueItem = (i64, String, String, Vec<CausalStep>, HashSet<i64>);
-
 pub fn find_affected_tests(
     db: &GraphDb,
     changed_files: &[String],
@@ -421,8 +419,7 @@ fn record_test_recommendation(
     };
     let edge_kind = primary_step.edge_kind.clone();
     let provenance = primary_step.provenance;
-    // Aggregate confidence along the path
-    let confidence = next_path.iter().fold(1.0, |acc, s| acc * s.confidence);
+    let confidence = path_confidence(next_path);
     let hops = next_path.len();
 
     let reason = if hops == 1 {
@@ -494,6 +491,24 @@ fn should_replace_recommendation(
     }
 }
 
+fn path_confidence(steps: &[CausalStep]) -> f64 {
+    steps.iter().fold(1.0, |acc, s| acc * s.confidence)
+}
+
+fn causal_step(edge: &RawCausalEdge) -> CausalStep {
+    let describe = |path: &str, symbol: Option<&str>| {
+        symbol.map_or_else(|| path.to_owned(), |s| format!("{path}:{s}"))
+    };
+    CausalStep {
+        source: describe(&edge.from_path, edge.from_symbol_name.as_deref()),
+        target: describe(&edge.to_path, edge.to_symbol_name.as_deref()),
+        edge_kind: edge.edge_kind.clone(),
+        provenance: edge.provenance,
+        confidence: edge.confidence,
+        line: edge.line,
+    }
+}
+
 /// Reverse traversal to find all affected test files and incoming causal paths.
 fn traverse_reverse_dependencies(
     db: &GraphDb,
@@ -535,73 +550,53 @@ fn traverse_reverse_dependencies(
     ";
 
     for tf in target_files {
-        // BFS queue: (current_file_id, current_repo, current_path, accumulated_path, visited_files)
-        let mut visited = HashSet::new();
-        visited.insert(tf.id);
+        let mut expanded = HashSet::from([tf.id]);
+        let mut frontier: Vec<(i64, String, Vec<CausalStep>)> =
+            vec![(tf.id, tf.path.clone(), Vec::new())];
 
-        let mut queue: std::collections::VecDeque<BfsQueueItem> = std::collections::VecDeque::new();
-        queue.push_back((tf.id, tf.repo.clone(), tf.path.clone(), Vec::new(), visited));
+        for _ in 0..max_depth {
+            // Every shortest path to a file passes through files at their own
+            // shortest hop, and path confidence is a product, so expanding each
+            // file once with its best path keeps the selected recommendations
+            // while bounding the walk by files instead of by paths.
+            let mut next_layer: BTreeMap<i64, (String, Vec<CausalStep>)> = BTreeMap::new();
 
-        while let Some((curr_fid, _curr_repo, curr_path, path_so_far, visited_set)) =
-            queue.pop_front()
-        {
-            if path_so_far.len() >= max_depth {
-                continue;
+            for (curr_fid, curr_path, path_so_far) in &frontier {
+                for edge in fetch_outgoing_edges(conn, edge_query_sql, *curr_fid, repo)? {
+                    if expanded.contains(&edge.from_file_id) {
+                        continue;
+                    }
+
+                    let mut next_path = path_so_far.clone();
+                    next_path.push(causal_step(&edge));
+
+                    if is_test_file(&edge.from_path) {
+                        record_test_recommendation(
+                            db,
+                            hall_root,
+                            tf,
+                            &edge,
+                            &next_path,
+                            curr_path,
+                            affected_tests_set,
+                            recommendations_map,
+                        );
+                    }
+
+                    let is_better = next_layer.get(&edge.from_file_id).is_none_or(|(_, best)| {
+                        path_confidence(&next_path) > path_confidence(best)
+                    });
+                    if is_better {
+                        next_layer.insert(edge.from_file_id, (edge.from_path, next_path));
+                    }
+                }
             }
 
-            let outgoing_edges = fetch_outgoing_edges(conn, edge_query_sql, curr_fid, repo)?;
-
-            for edge in outgoing_edges {
-                if visited_set.contains(&edge.from_file_id) {
-                    continue;
-                }
-
-                let source_desc = edge
-                    .from_symbol_name
-                    .as_deref()
-                    .map(|s| format!("{}:{}", edge.from_path, s))
-                    .unwrap_or_else(|| edge.from_path.clone());
-                let target_desc = edge
-                    .to_symbol_name
-                    .as_deref()
-                    .map(|s| format!("{}:{}", edge.to_path, s))
-                    .unwrap_or_else(|| edge.to_path.clone());
-
-                let step = CausalStep {
-                    source: source_desc,
-                    target: target_desc,
-                    edge_kind: edge.edge_kind.clone(),
-                    provenance: edge.provenance,
-                    confidence: edge.confidence,
-                    line: edge.line,
-                };
-
-                let mut next_path = path_so_far.clone();
-                next_path.push(step);
-
-                if is_test_file(&edge.from_path) {
-                    record_test_recommendation(
-                        db,
-                        hall_root,
-                        tf,
-                        &edge,
-                        &next_path,
-                        &curr_path,
-                        affected_tests_set,
-                        recommendations_map,
-                    );
-                }
-
-                let mut next_visited = visited_set.clone();
-                next_visited.insert(edge.from_file_id);
-                queue.push_back((
-                    edge.from_file_id,
-                    edge.from_repo,
-                    edge.from_path,
-                    next_path,
-                    next_visited,
-                ));
-            }
+            expanded.extend(next_layer.keys().copied());
+            frontier = next_layer
+                .into_iter()
+                .map(|(fid, (path, steps))| (fid, path, steps))
+                .collect();
         }
     }
 
