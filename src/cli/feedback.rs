@@ -26,6 +26,30 @@ pub struct FeedbackSubmitArgs {
     /// GitHub target repository (defaults to mnzsss/ivar).
     #[arg(long)]
     pub repo: Option<String>,
+
+    /// Print the redacted issue and its fingerprint; publish nothing. Needs no terminal.
+    #[arg(long, conflicts_with = "fingerprint")]
+    pub preview: bool,
+
+    /// Publish without a terminal, only if the entry still matches this preview fingerprint.
+    #[arg(long)]
+    pub fingerprint: Option<String>,
+}
+
+impl From<FeedbackSubmitArgs> for crate::action::feedback::submit::SubmitInput {
+    fn from(args: FeedbackSubmitArgs) -> Self {
+        use crate::action::feedback::submit::SubmitMode;
+        let mode = match (args.preview, args.fingerprint) {
+            (true, _) => SubmitMode::Preview,
+            (false, Some(fingerprint)) => SubmitMode::Apply { fingerprint },
+            (false, None) => SubmitMode::Interactive,
+        };
+        Self {
+            id: args.id,
+            repo: args.repo,
+            mode,
+        }
+    }
 }
 
 #[derive(Debug, Args)]

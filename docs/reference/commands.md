@@ -1162,6 +1162,8 @@ Submit a feedback entry as a GitHub issue
 | flag | value | default | description |
 | --- | --- | --- | --- |
 | `--repo` | `<REPO>` |  | GitHub target repository (defaults to mnzsss/ivar) |
+| `--preview` |  |  | Print the redacted issue and its fingerprint; publish nothing. Needs no terminal |
+| `--fingerprint` | `<FINGERPRINT>` |  | Publish without a terminal, only if the entry still matches this preview fingerprint |
 
 
 #### `ivar guard`

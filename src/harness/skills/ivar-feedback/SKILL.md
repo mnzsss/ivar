@@ -42,4 +42,8 @@ EOF
 ## Critical rules
 
 1. **Path relativity:** Always quote paths relative to the hall root (e.g. `repos/my-repo/src/lib.rs`), never absolute paths from your container or host.
-2. **Never submit:** NEVER run `ivar feedback submit` yourself. Submission sends data to GitHub and requires human confirmation. After recording with `ivar feedback add`, report the entry ID to the user and tell them to run `ivar feedback submit <id>` if they wish to publish it.
+2. **Publish only after a human approves the exact text:** Never publish on your own initiative. When the user asks you to publish an entry:
+   1. Run `ivar feedback submit <id> --preview` (add `--repo <owner/name>` if the user named another repository). It prints the redacted title and body exactly as they will be published, the target repo, and a fingerprint. It publishes nothing.
+   2. Show the user that preview verbatim and ask them to approve it.
+   3. Only after they explicitly approve in the conversation, run `ivar feedback submit <id> --repo <repo> --fingerprint <fingerprint>` with the fingerprint from that preview.
+   4. If it fails with `feedback.fingerprint_mismatch`, the entry, its redaction or the repo changed: preview again and ask again. Never reuse an old approval.
