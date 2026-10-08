@@ -108,14 +108,11 @@ fn preregistration_skipped_when_the_manifest_already_carries_oauth() {
     let (_guard, root) = seeded_hall();
     let layout = Layout::at(root.clone());
     let manifest = Manifest::read(&layout).unwrap().unwrap();
-    // `CARGO_MANIFEST_DIR` is a variable cargo always sets on the test
-    // process itself — used here purely as "a variable guaranteed to be
-    // set", to exercise the present-and-usable branch without mutating the
-    // process environment (`unsafe_code` is denied in this crate, so
-    // `std::env::set_var` is not an option).
+    let var_name = "IVAR_MCP_AUTH_TEST_ALREADY_REGISTERED_VAR";
+    McpSecrets::set_and_write(&layout, var_name, "stored-secret-val").unwrap();
     let server = McpServerDef::new("figma", "http")
         .url("https://mcp.figma.com/mcp")
-        .oauth(McpOauth::new("existing-client", "CARGO_MANIFEST_DIR"));
+        .oauth(McpOauth::new("existing-client", var_name));
 
     let result = preregister_if_needed(
         &layout,
@@ -126,16 +123,27 @@ fn preregistration_skipped_when_the_manifest_already_carries_oauth() {
         None,
     )
     .unwrap();
-    let (var, val) = result.secret.unwrap();
-    assert_eq!(var, "CARGO_MANIFEST_DIR");
-    assert_eq!(val, env!("CARGO_MANIFEST_DIR"));
 
-    // Verify it backfilled into .ivar/secrets/mcp.env
-    let secrets = McpSecrets::read(&layout).unwrap();
+    assert!(matches!(result.report, Preregistration::Skipped));
+    assert_eq!(result.client_id.as_deref(), Some("existing-client"));
     assert_eq!(
-        secrets.get("CARGO_MANIFEST_DIR"),
-        Some(env!("CARGO_MANIFEST_DIR"))
+        result.secret,
+        Some((var_name.to_owned(), "stored-secret-val".to_owned()))
     );
+}
+
+#[test]
+fn secret_from_the_environment_wins_and_is_backfilled_into_the_mcp_secrets_store() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root.clone());
+    let var_name = "IVAR_MCP_AUTH_TEST_ENV_BACKFILL_VAR";
+    McpSecrets::set_and_write(&layout, var_name, "stale-stored-val").unwrap();
+
+    let val = resolve_secret(&layout, var_name, Some("from-env".to_owned()), "figma").unwrap();
+
+    assert_eq!(val, "from-env");
+    let secrets = McpSecrets::read(&layout).unwrap();
+    assert_eq!(secrets.get(var_name), Some("from-env"));
 }
 
 #[test]
