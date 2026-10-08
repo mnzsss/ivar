@@ -13,6 +13,7 @@ use super::*;
 use crate::action::feature::create::{self as feature_create, CreateInput};
 use crate::action::feature::promote::{self as feature_promote, PromoteInput};
 use crate::action::hall::{self, InitInput};
+use crate::domain::feature::Feature;
 use crate::domain::name::{BranchName, FeatureName, RepoName, SessionId};
 use crate::domain::provider::Provider;
 use crate::store::layout::Layout;
