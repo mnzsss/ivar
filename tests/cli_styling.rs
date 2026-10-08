@@ -7,6 +7,7 @@ mod common;
 use assert_cmd::Command;
 use common::{declare_repos, git, hall_root, ivar, seeded_repo};
 use predicates::prelude::*;
+use rstest::rstest;
 
 /// The binary, run from `cwd`, with the env vars scrubbed that would make the
 /// result depend on the developer's shell: `FORCE_COLOR` and `NO_COLOR` are
@@ -72,27 +73,19 @@ fn assert_hook_bytes_are_colourless(cwd: &camino::Utf8Path, args: &[&str], stdin
     assert!(!plain.stderr.contains(&0x1b));
 }
 
-#[test]
-fn guard_stdin_hook_under_force_color_produces_identical_bytes_to_no_color() {
+#[rstest]
+#[case::guard_stdin(
+    &["guard", "--provider", "claude-code"],
+    r#"{"tool_name":"Write","tool_input":{"file_path":"/tmp/test.txt"},"cwd":"/tmp"}"#
+)]
+#[case::git_credential(&["git-credential", "capability"], "")]
+// Outside any session `session env` fails, and that failure — the bytes a
+// provider hook reads back — must stay as plain under `FORCE_COLOR` as its
+// success does.
+#[case::session_env_failure(&["session", "env"], "")]
+fn hook_bytes_under_force_color_match_no_color(#[case] args: &[&str], #[case] stdin: &str) {
     let (_guard, root) = hall_root();
-    let payload =
-        r#"{"tool_name":"Write","tool_input":{"file_path":"/tmp/test.txt"},"cwd":"/tmp"}"#;
-    assert_hook_bytes_are_colourless(&root, &["guard", "--provider", "claude-code"], payload);
-}
-
-#[test]
-fn git_credential_hook_under_force_color_produces_identical_bytes_to_no_color() {
-    let (_guard, root) = hall_root();
-    assert_hook_bytes_are_colourless(&root, &["git-credential", "capability"], "");
-}
-
-/// Outside any session `session env` fails, and that failure — the bytes a
-/// provider hook reads back — must stay as plain under `FORCE_COLOR` as its
-/// success does.
-#[test]
-fn session_env_hook_failure_under_force_color_produces_identical_bytes_to_no_color() {
-    let (_guard, root) = hall_root();
-    assert_hook_bytes_are_colourless(&root, &["session", "env"], "");
+    assert_hook_bytes_are_colourless(&root, args, stdin);
 }
 
 #[test]

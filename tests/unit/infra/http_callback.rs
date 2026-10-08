@@ -1,21 +1,19 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+use rstest::rstest;
+
 use super::*;
 
 // -- parsing logic -------------------------------------------------------
 
-#[test]
-fn query_values_are_decoded_exactly_once() {
-    // Original bug: %252B -> decoded once as %2B -> decoded twice as +
-    // Fix: %252B -> decoded once as %2B
-    let params = CallbackServer::parse_query("code=%252B");
-    assert_eq!(params.get("code").unwrap(), "%2B");
-}
-
-#[test]
-fn code_with_percent_encoded_chars_survives_round_trip() {
-    let params = CallbackServer::parse_query("code=%2B%2F%3D");
-    assert_eq!(params.get("code").unwrap(), "+/=");
+#[rstest]
+// Original bug: %252B was decoded twice, ending as `+` instead of `%2B`.
+#[case::query_values_are_decoded_exactly_once("code=%252B", "%2B")]
+#[case::code_with_percent_encoded_chars_survives_round_trip("code=%2B%2F%3D", "+/=")]
+#[case::multibyte_query_does_not_panic("code=🚀", "🚀")]
+fn parse_query_decodes_the_code(#[case] query: &str, #[case] code: &str) {
+    let params = CallbackServer::parse_query(query);
+    assert_eq!(params.get("code").unwrap(), code);
 }
 
 #[test]
@@ -30,13 +28,6 @@ fn query_separator_inside_value_is_not_split() {
 fn path_is_decoded_for_routing() {
     let (_method, path, _query) = CallbackServer::parse_request_line("GET /call%62ack HTTP/1.1");
     assert_eq!(path, "/callback");
-}
-
-#[test]
-fn multibyte_query_does_not_panic() {
-    // This is valid UTF-8, it should not panic.
-    let params = CallbackServer::parse_query("code=🚀");
-    assert_eq!(params.get("code").unwrap(), "🚀");
 }
 
 // -- bind tests ----------------------------------------------------------
@@ -79,17 +70,18 @@ fn valid_callback_returns_code_and_200() {
 
 // -- percent-decoding ----------------------------------------------------
 
-#[test]
-fn percent_encoded_code_is_decoded() {
+#[rstest]
+#[case::percent_encoded_code_is_decoded("hello%20world", "hello world")]
+#[case::plus_in_query_decoded_as_space("hello+world", "hello world")]
+fn a_callback_code_is_decoded(#[case] encoded: &'static str, #[case] decoded: &str) {
     let expected_state = "test-state";
     let server = CallbackServer::bind_on(expected_state, Duration::from_secs(10)).unwrap();
     let addr = server.addr();
 
     std::thread::spawn(move || {
         let mut stream = std::net::TcpStream::connect(addr).expect("connect");
-        // code=hello%20world (space as %20)
         let request = format!(
-            "GET /callback?code=hello%20world&state={expected_state} HTTP/1.1\r\n\
+            "GET /callback?code={encoded}&state={expected_state} HTTP/1.1\r\n\
              Host: 127.0.0.1\r\n\
              \r\n"
         );
@@ -100,31 +92,7 @@ fn percent_encoded_code_is_decoded() {
     });
 
     let result = server.wait().expect("wait should succeed");
-    assert_eq!(result.0, "hello world");
-}
-
-#[test]
-fn plus_in_query_decoded_as_space() {
-    let expected_state = "test-state";
-    let server = CallbackServer::bind_on(expected_state, Duration::from_secs(10)).unwrap();
-    let addr = server.addr();
-
-    std::thread::spawn(move || {
-        let mut stream = std::net::TcpStream::connect(addr).expect("connect");
-        // code=hello+world (space as +)
-        let request = format!(
-            "GET /callback?code=hello+world&state={expected_state} HTTP/1.1\r\n\
-             Host: 127.0.0.1\r\n\
-             \r\n"
-        );
-        stream.write_all(request.as_bytes()).expect("write");
-        let mut response = String::new();
-        std::io::Read::read_to_string(&mut stream, &mut response).expect("read");
-        assert!(response.starts_with("HTTP/1.1 200"));
-    });
-
-    let result = server.wait().expect("wait should succeed");
-    assert_eq!(result.0, "hello world");
+    assert_eq!(result.0, decoded);
 }
 
 // -- state validation ----------------------------------------------------

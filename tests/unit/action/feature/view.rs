@@ -5,6 +5,8 @@
     clippy::indexing_slicing
 )]
 
+use rstest::rstest;
+
 use super::*;
 use crate::action::feature::create::{CreateInput, create as feature_create};
 use crate::action::feature::promote::{PromoteInput, promote as feature_promote};
@@ -121,38 +123,23 @@ fn view_collects_one_shell_per_promoted_repo_in_worktree_order() {
     assert!(fs::is_dir(&worktree).unwrap(), "the worktree exists");
 }
 
-#[test]
-fn view_is_rejected_for_a_missing_feature() {
+#[rstest]
+#[case::a_missing_feature("ghost", "feature.not_found")]
+#[case::a_feature_with_no_promotions("checkout", "feature.view_no_repos")]
+fn view_is_rejected_for(#[case] feature: &str, #[case] code: &str) {
     let (_guard, root) = hall_with_feature();
     let ctx = Ctx::new(root);
 
     let failure = view(
         &ctx,
         ViewInput {
-            feature: "ghost".to_owned(),
+            feature: feature.to_owned(),
         },
     )
     .unwrap_err();
 
     assert_eq!(failure.status, Status::Blocked);
-    assert_eq!(failure.code, "feature.not_found");
-}
-
-#[test]
-fn view_is_rejected_for_a_feature_with_no_promotions() {
-    let (_guard, root) = hall_with_feature();
-    let ctx = Ctx::new(root);
-
-    let failure = view(
-        &ctx,
-        ViewInput {
-            feature: "checkout".to_owned(),
-        },
-    )
-    .unwrap_err();
-
-    assert_eq!(failure.status, Status::Blocked);
-    assert_eq!(failure.code, "feature.view_no_repos");
+    assert_eq!(failure.code, code);
 }
 
 #[test]

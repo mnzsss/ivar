@@ -30,6 +30,7 @@
 use std::collections::HashMap;
 
 use camino::Utf8PathBuf;
+use rstest::rstest;
 use serde::{Deserialize, Serialize};
 
 use ivar::domain::name::RepoName;
@@ -281,40 +282,17 @@ fn steps_to_canonical(steps: &[Step]) -> String {
 
 // -- individual tests per fixture --------------------------------------------
 
-#[test]
-fn create_vector_matches_golden() {
-    let fixture = load_fixture("create");
+#[rstest]
+#[case::create("create")]
+#[case::update_not_link("update_not_link")]
+#[case::remove("remove")]
+#[case::unchanged("unchanged")]
+fn vector_matches_golden(#[case] name: &str) {
+    let fixture = load_fixture(name);
     let steps = run_plan(&fixture).expect("plan should succeed");
     let actual = steps_to_canonical(&steps);
     let expected = ivar::infra::json::to_canonical_string(&fixture.expected_steps).unwrap();
-    assert_eq!(actual, expected, "create vector mismatch");
-}
-
-#[test]
-fn update_not_link_vector_matches_golden() {
-    let fixture = load_fixture("update_not_link");
-    let steps = run_plan(&fixture).expect("plan should succeed");
-    let actual = steps_to_canonical(&steps);
-    let expected = ivar::infra::json::to_canonical_string(&fixture.expected_steps).unwrap();
-    assert_eq!(actual, expected, "update_not_link vector mismatch");
-}
-
-#[test]
-fn remove_vector_matches_golden() {
-    let fixture = load_fixture("remove");
-    let steps = run_plan(&fixture).expect("plan should succeed");
-    let actual = steps_to_canonical(&steps);
-    let expected = ivar::infra::json::to_canonical_string(&fixture.expected_steps).unwrap();
-    assert_eq!(actual, expected, "remove vector mismatch");
-}
-
-#[test]
-fn unchanged_vector_matches_golden() {
-    let fixture = load_fixture("unchanged");
-    let steps = run_plan(&fixture).expect("plan should succeed");
-    let actual = steps_to_canonical(&steps);
-    let expected = ivar::infra::json::to_canonical_string(&fixture.expected_steps).unwrap();
-    assert_eq!(actual, expected, "unchanged vector mismatch");
+    assert_eq!(actual, expected, "{name} vector mismatch");
 }
 
 #[test]

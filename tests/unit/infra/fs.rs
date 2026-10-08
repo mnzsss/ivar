@@ -5,6 +5,7 @@
     clippy::indexing_slicing
 )]
 
+use rstest::rstest;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::sync::Arc;
@@ -622,50 +623,112 @@ fn not_utf8_error_converts_to_a_blocked_failure() {
 // here touches the process environment (which races across concurrently-run
 // tests — see `github::token_from` for the same pattern).
 
-#[test]
-fn data_dir_from_uses_xdg_data_home_when_absolute() {
+#[rstest]
+#[case::uses_xdg_data_home_when_absolute(
+    Some("/custom/data"),
+    Some("/home/someone"),
+    None,
+    None,
+    "linux",
+    "/custom/data"
+)]
+#[case::falls_through_when_xdg_data_home_is_relative(
+    Some("relative/data"),
+    Some("/home/someone"),
+    None,
+    None,
+    "linux",
+    "/home/someone/.local/share"
+)]
+#[case::falls_through_when_xdg_data_home_is_empty(
+    Some(""),
+    Some("/home/someone"),
+    None,
+    None,
+    "linux",
+    "/home/someone/.local/share"
+)]
+#[case::uses_home_when_xdg_data_home_is_unset(
+    None,
+    Some("/home/someone"),
+    None,
+    None,
+    "linux",
+    "/home/someone/.local/share"
+)]
+#[case::macos_uses_xdg_when_absolute(
+    Some("/custom/data"),
+    Some("/Users/someone"),
+    Some("/Users/someone/AppData/Roaming"),
+    None,
+    "macos",
+    "/custom/data"
+)]
+#[case::macos_falls_through_to_home_library_application_support(
+    None,
+    Some("/Users/someone"),
+    None,
+    None,
+    "macos",
+    "/Users/someone/Library/Application Support"
+)]
+#[case::macos_falls_through_when_xdg_is_relative(
+    Some("relative/data"),
+    Some("/Users/someone"),
+    None,
+    None,
+    "macos",
+    "/Users/someone/Library/Application Support"
+)]
+#[case::windows_uses_xdg_when_absolute(
+    Some("/custom/data"),
+    None,
+    Some("/home/someone/AppData/Roaming"),
+    Some("/home/someone/AppData/Local"),
+    "windows",
+    "/custom/data"
+)]
+#[case::windows_uses_appdata_when_xdg_unset(
+    None,
+    None,
+    Some("/home/someone/AppData/Roaming"),
+    Some("/home/someone/AppData/Local"),
+    "windows",
+    "/home/someone/AppData/Roaming"
+)]
+#[case::windows_falls_back_to_localappdata(
+    None,
+    None,
+    None,
+    Some("/home/someone/AppData/Local"),
+    "windows",
+    "/home/someone/AppData/Local"
+)]
+#[case::windows_rejects_relative_appdata(
+    None,
+    None,
+    Some("relative/appdata"),
+    Some("/home/someone/AppData/Local"),
+    "windows",
+    "/home/someone/AppData/Local"
+)]
+fn data_dir_from_resolves(
+    #[case] xdg: Option<&str>,
+    #[case] home: Option<&str>,
+    #[case] appdata: Option<&str>,
+    #[case] local_appdata: Option<&str>,
+    #[case] os: &str,
+    #[case] expected: &str,
+) {
     let resolved = data_dir_from(
-        Some("/custom/data".to_owned()),
-        Some("/home/someone".to_owned()),
-        None,
-        None,
-        "linux",
+        xdg.map(str::to_owned),
+        home.map(str::to_owned),
+        appdata.map(str::to_owned),
+        local_appdata.map(str::to_owned),
+        os,
     )
     .unwrap();
-    assert_eq!(resolved, Utf8PathBuf::from("/custom/data"));
-}
-
-#[test]
-fn data_dir_from_falls_through_when_xdg_data_home_is_relative() {
-    let resolved = data_dir_from(
-        Some("relative/data".to_owned()),
-        Some("/home/someone".to_owned()),
-        None,
-        None,
-        "linux",
-    )
-    .unwrap();
-    assert_eq!(resolved, Utf8PathBuf::from("/home/someone/.local/share"));
-}
-
-#[test]
-fn data_dir_from_falls_through_when_xdg_data_home_is_empty() {
-    let resolved = data_dir_from(
-        Some(String::new()),
-        Some("/home/someone".to_owned()),
-        None,
-        None,
-        "linux",
-    )
-    .unwrap();
-    assert_eq!(resolved, Utf8PathBuf::from("/home/someone/.local/share"));
-}
-
-#[test]
-fn data_dir_from_uses_home_when_xdg_data_home_is_unset() {
-    let resolved =
-        data_dir_from(None, Some("/home/someone".to_owned()), None, None, "linux").unwrap();
-    assert_eq!(resolved, Utf8PathBuf::from("/home/someone/.local/share"));
+    assert_eq!(resolved, Utf8PathBuf::from(expected));
 }
 
 #[test]
@@ -682,152 +745,60 @@ fn data_dir_from_fails_naming_what_it_looked_for_when_neither_resolves() {
     assert!(failure.expected.as_deref().unwrap_or("").contains("HOME"));
 }
 
-#[test]
-fn data_dir_from_fails_when_xdg_data_home_is_relative_and_home_is_unset() {
-    let failure =
-        data_dir_from(Some("relative/data".to_owned()), None, None, None, "linux").unwrap_err();
-    assert_eq!(failure.code, "fs.data_dir");
-}
-
-// -- data_dir_from: macOS cases ------------------------------------------------
-
-#[test]
-fn data_dir_from_macos_uses_xdg_when_absolute() {
-    let resolved = data_dir_from(
-        Some("/custom/data".to_owned()),
-        Some("/Users/someone".to_owned()),
-        Some("/Users/someone/AppData/Roaming".to_owned()),
-        None,
-        "macos",
+#[rstest]
+#[case::fails_when_xdg_data_home_is_relative_and_home_is_unset(
+    Some("relative/data"),
+    None,
+    None,
+    None,
+    "linux"
+)]
+#[case::macos_fails_without_xdg_or_home(None, None, None, None, "macos")]
+#[case::windows_rejects_empty_localappdata(None, None, Some(""), None, "windows")]
+#[case::windows_fails_without_any_path(None, None, None, None, "windows")]
+fn data_dir_from_refuses(
+    #[case] xdg: Option<&str>,
+    #[case] home: Option<&str>,
+    #[case] appdata: Option<&str>,
+    #[case] local_appdata: Option<&str>,
+    #[case] os: &str,
+) {
+    let failure = data_dir_from(
+        xdg.map(str::to_owned),
+        home.map(str::to_owned),
+        appdata.map(str::to_owned),
+        local_appdata.map(str::to_owned),
+        os,
     )
-    .unwrap();
-    assert_eq!(resolved, Utf8PathBuf::from("/custom/data"));
-}
-
-#[test]
-fn data_dir_from_macos_falls_through_to_home_library_application_support() {
-    let resolved =
-        data_dir_from(None, Some("/Users/someone".to_owned()), None, None, "macos").unwrap();
-    assert_eq!(
-        resolved,
-        Utf8PathBuf::from("/Users/someone/Library/Application Support")
-    );
-}
-
-#[test]
-fn data_dir_from_macos_falls_through_when_xdg_is_relative() {
-    let resolved = data_dir_from(
-        Some("relative/data".to_owned()),
-        Some("/Users/someone".to_owned()),
-        None,
-        None,
-        "macos",
-    )
-    .unwrap();
-    assert_eq!(
-        resolved,
-        Utf8PathBuf::from("/Users/someone/Library/Application Support")
-    );
-}
-
-#[test]
-fn data_dir_from_macos_fails_without_xdg_or_home() {
-    let failure = data_dir_from(None, None, None, None, "macos").unwrap_err();
-    assert_eq!(failure.code, "fs.data_dir");
-}
-
-// -- data_dir_from: Windows cases ----------------------------------------------
-
-#[test]
-fn data_dir_from_windows_uses_xdg_when_absolute() {
-    let resolved = data_dir_from(
-        Some("/custom/data".to_owned()),
-        None,
-        Some("/home/someone/AppData/Roaming".to_owned()),
-        Some("/home/someone/AppData/Local".to_owned()),
-        "windows",
-    )
-    .unwrap();
-    assert_eq!(resolved, Utf8PathBuf::from("/custom/data"));
-}
-
-#[test]
-fn data_dir_from_windows_uses_appdata_when_xdg_unset() {
-    let resolved = data_dir_from(
-        None,
-        None,
-        Some("/home/someone/AppData/Roaming".to_owned()),
-        Some("/home/someone/AppData/Local".to_owned()),
-        "windows",
-    )
-    .unwrap();
-    assert_eq!(resolved, Utf8PathBuf::from("/home/someone/AppData/Roaming"));
-}
-
-#[test]
-fn data_dir_from_windows_falls_back_to_localappdata() {
-    let resolved = data_dir_from(
-        None,
-        None,
-        None,
-        Some("/home/someone/AppData/Local".to_owned()),
-        "windows",
-    )
-    .unwrap();
-    assert_eq!(resolved, Utf8PathBuf::from("/home/someone/AppData/Local"));
-}
-
-#[test]
-fn data_dir_from_windows_rejects_relative_appdata() {
-    let resolved = data_dir_from(
-        None,
-        None,
-        Some("relative/appdata".to_owned()),
-        Some("/home/someone/AppData/Local".to_owned()),
-        "windows",
-    )
-    .unwrap();
-    assert_eq!(resolved, Utf8PathBuf::from("/home/someone/AppData/Local"));
-}
-
-#[test]
-fn data_dir_from_windows_rejects_empty_localappdata() {
-    let failure = data_dir_from(None, None, Some("".to_owned()), None, "windows").unwrap_err();
-    assert_eq!(failure.code, "fs.data_dir");
-}
-
-#[test]
-fn data_dir_from_windows_fails_without_any_path() {
-    let failure = data_dir_from(None, None, None, None, "windows").unwrap_err();
+    .unwrap_err();
     assert_eq!(failure.code, "fs.data_dir");
 }
 
 // -- cache_dir: the same pure-cascade shape as data_dir ----------------------
 
-#[test]
-fn cache_dir_from_uses_xdg_cache_home_when_absolute() {
-    let resolved = cache_dir_from(
-        Some("/xdg/cache".to_owned()),
-        Some("/home/u".to_owned()),
-        "linux",
-    )
-    .unwrap();
-    assert_eq!(resolved, Utf8PathBuf::from("/xdg/cache"));
-}
-
-#[test]
-fn cache_dir_from_ignores_a_relative_or_empty_xdg_cache_home() {
-    for xdg in ["relative/cache", ""] {
-        let resolved =
-            cache_dir_from(Some(xdg.to_owned()), Some("/home/u".to_owned()), "linux").unwrap();
-        assert_eq!(resolved, Utf8PathBuf::from("/home/u/.cache"), "{xdg:?}");
-    }
-}
-
-#[test]
-fn cache_dir_from_uses_library_caches_on_macos() {
-    let resolved = cache_dir_from(None, Some("/Users/u".to_owned()), "macos").unwrap();
-    assert_eq!(resolved, Utf8PathBuf::from("/Users/u/Library/Caches"));
+#[rstest]
+#[case::uses_xdg_cache_home_when_absolute(
+    Some("/xdg/cache"),
+    Some("/home/u"),
+    "linux",
+    "/xdg/cache"
+)]
+#[case::ignores_a_relative_xdg_cache_home(
+    Some("relative/cache"),
+    Some("/home/u"),
+    "linux",
+    "/home/u/.cache"
+)]
+#[case::ignores_an_empty_xdg_cache_home(Some(""), Some("/home/u"), "linux", "/home/u/.cache")]
+#[case::uses_library_caches_on_macos(None, Some("/Users/u"), "macos", "/Users/u/Library/Caches")]
+fn cache_dir_from_resolves(
+    #[case] xdg: Option<&str>,
+    #[case] home: Option<&str>,
+    #[case] os: &str,
+    #[case] expected: &str,
+) {
+    let resolved = cache_dir_from(xdg.map(str::to_owned), home.map(str::to_owned), os).unwrap();
+    assert_eq!(resolved, Utf8PathBuf::from(expected));
 }
 
 #[test]
