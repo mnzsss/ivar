@@ -2126,6 +2126,92 @@ fn foreign_session_view_denial_directs_to_own_view() {
     assert!(out.body.contains(view1.as_str()));
 }
 
+/// #152: the cwd is the hall root, the harness carries session A's id, and
+/// the write targets session B's `.tmp/`. The path names B, so B's set
+/// judges it and allows it.
+#[test]
+fn a_hall_root_write_into_another_sessions_tmp_resolves_to_that_session() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let id_a = SessionId::new("6f0c9d5f-0000-4000-8000-000000000090").unwrap();
+    let view_a = layout.discovery_session(&id_a);
+    crate::infra::fs::ensure_dir(&view_a).unwrap();
+    crate::domain::session::SessionState::new(Provider::ClaudeCode, "2026-10-08T00:00:00Z")
+        .write(&view_a)
+        .unwrap();
+    let id_b = SessionId::new("6f0c9d5f-0000-4000-8000-000000000091").unwrap();
+    let view_b = layout.discovery_session(&id_b);
+    crate::infra::fs::ensure_dir(&view_b).unwrap();
+    crate::domain::session::SessionState::new(Provider::ClaudeCode, "2026-10-08T00:00:01Z")
+        .write(&view_b)
+        .unwrap();
+
+    let payload = serde_json::json!({
+        "tool_name": "Write",
+        "tool_input": { "file_path": view_b.join(".tmp/run-report.json"), "content": "{}" },
+        "cwd": root,
+    });
+    let evaluation = evaluate(
+        Provider::ClaudeCode,
+        &payload.to_string(),
+        Some(id_a.as_str()),
+    )
+    .unwrap();
+
+    assert_eq!(
+        evaluation
+            .session_env
+            .as_ref()
+            .map(|env| env.session_id.as_str()),
+        Some(id_b.as_str())
+    );
+    assert!(
+        matches!(evaluation.decision, GuardDecision::Allow),
+        "{:?}",
+        evaluation.decision
+    );
+}
+
+/// A read from the hall root keeps the ambient session: only writes are
+/// attributed by their target.
+#[test]
+fn a_hall_root_read_of_another_sessions_file_keeps_the_ambient_session() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let id_a = SessionId::new("6f0c9d5f-0000-4000-8000-000000000092").unwrap();
+    let view_a = layout.discovery_session(&id_a);
+    crate::infra::fs::ensure_dir(&view_a).unwrap();
+    crate::domain::session::SessionState::new(Provider::ClaudeCode, "2026-10-08T00:00:00Z")
+        .write(&view_a)
+        .unwrap();
+    let id_b = SessionId::new("6f0c9d5f-0000-4000-8000-000000000093").unwrap();
+    let view_b = layout.discovery_session(&id_b);
+    crate::infra::fs::ensure_dir(&view_b).unwrap();
+    crate::domain::session::SessionState::new(Provider::ClaudeCode, "2026-10-08T00:00:01Z")
+        .write(&view_b)
+        .unwrap();
+
+    let payload = serde_json::json!({
+        "tool_name": "Read",
+        "tool_input": { "file_path": view_b.join("discovery.md") },
+        "cwd": root,
+    });
+    let evaluation = evaluate(
+        Provider::ClaudeCode,
+        &payload.to_string(),
+        Some(id_a.as_str()),
+    )
+    .unwrap();
+
+    assert_eq!(
+        evaluation
+            .session_env
+            .as_ref()
+            .map(|env| env.session_id.as_str()),
+        Some(id_a.as_str())
+    );
+}
+
 #[test]
 fn symlinked_claude_skills_remain_writable() {
     let (_guard, root) = hall_with_promoted_feature();

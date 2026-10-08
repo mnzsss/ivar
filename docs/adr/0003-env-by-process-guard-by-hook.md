@@ -37,6 +37,14 @@ subfeature's view links its parent's feature worktree, so a child agent's
 canonical cwd lands there; the fallback would hand it the parent's session
 and the parent's writable set.
 
+For a write, the guard uses `SessionEnv::resolve_for_write`, which inserts
+one step after the walk-up: when the cwd lies in no view dir, the live
+session whose view dir holds the write's first absolute target wins over
+the ambient id. The path names the session it writes into. The walk-up
+still comes first, so an agent standing in one session's view dir never
+borrows another session's writable set, and a session of another hall
+never matches.
+
 ### D2 — Env injected by the process, guard enforced by hook
 
 `SessionEnv` is built once in `build` and applied to the provider command at

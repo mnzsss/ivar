@@ -974,7 +974,8 @@ pub fn guard(
 /// share it without recording graph calls or search misses again. `ambient`
 /// is the agent's `IVAR_SESSION_ID`, passed in so tests never touch process
 /// env: it names the agent's own session when the cwd is outside its view dir
-/// (see `SessionEnv::resolve_for_agent`).
+/// (see `SessionEnv::resolve_for_agent`), unless a write's target lies in a
+/// live session's view dir (see `SessionEnv::resolve_for_write`).
 fn evaluate(
     provider: Provider,
     stdin_json: &str,
@@ -982,19 +983,32 @@ fn evaluate(
 ) -> Result<Evaluation, Failure> {
     let (tool_request, cwd) = crate::providers::parse_tool_request(provider, stdin_json)?;
 
-    let session_env = cwd
-        .as_deref()
-        .and_then(|cwd| {
-            crate::action::session::env::SessionEnv::resolve_for_agent(cwd, ambient).ok()
-        })
-        .flatten();
-    let mut set = session_env.as_ref().and_then(resolve_writable_set);
-
     let targets: Vec<Utf8PathBuf> = tool_request
         .targets
         .iter()
         .filter_map(|t| resolve_target(cwd.as_deref(), t))
         .collect();
+
+    // A write names the session it lands in: from a cwd outside every view
+    // dir, the session owning the first absolute target beats the ambient
+    // id. Reads, and relative targets, keep the agent's own session.
+    let owner_target = tool_request
+        .writes
+        .then(|| tool_request.targets.iter().find(|t| t.is_absolute()))
+        .flatten()
+        .and_then(|t| resolve_target(cwd.as_deref(), t));
+
+    let session_env = cwd
+        .as_deref()
+        .and_then(|cwd| {
+            use crate::action::session::env::SessionEnv;
+            match owner_target.as_deref() {
+                Some(target) => SessionEnv::resolve_for_write(cwd, target, ambient).ok(),
+                None => SessionEnv::resolve_for_agent(cwd, ambient).ok(),
+            }
+        })
+        .flatten();
+    let mut set = session_env.as_ref().and_then(resolve_writable_set);
 
     let mut ambiguous_features = None;
 
