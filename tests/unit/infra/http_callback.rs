@@ -58,7 +58,6 @@ fn valid_callback_returns_code_and_200() {
     let addr = server.addr();
 
     std::thread::spawn(move || {
-        std::thread::sleep(Duration::from_millis(50));
         let mut stream = std::net::TcpStream::connect(addr).expect("connect to callback server");
         let request = format!(
             "GET /callback?code=auth-code-123&state={expected_state} HTTP/1.1\r\n\
@@ -87,7 +86,6 @@ fn percent_encoded_code_is_decoded() {
     let addr = server.addr();
 
     std::thread::spawn(move || {
-        std::thread::sleep(Duration::from_millis(50));
         let mut stream = std::net::TcpStream::connect(addr).expect("connect");
         // code=hello%20world (space as %20)
         let request = format!(
@@ -112,7 +110,6 @@ fn plus_in_query_decoded_as_space() {
     let addr = server.addr();
 
     std::thread::spawn(move || {
-        std::thread::sleep(Duration::from_millis(50));
         let mut stream = std::net::TcpStream::connect(addr).expect("connect");
         // code=hello+world (space as +)
         let request = format!(
@@ -139,7 +136,6 @@ fn wrong_state_is_rejected_with_400() {
     let addr = server.addr();
 
     std::thread::spawn(move || {
-        std::thread::sleep(Duration::from_millis(50));
         let mut stream = std::net::TcpStream::connect(addr).expect("connect");
         let request = "GET /callback?code=auth-code-123&state=wrong-state HTTP/1.1\r\n\
              Host: 127.0.0.1\r\n\
@@ -165,7 +161,6 @@ fn missing_state_is_rejected() {
     let addr = server.addr();
 
     std::thread::spawn(move || {
-        std::thread::sleep(Duration::from_millis(50));
         let mut stream = std::net::TcpStream::connect(addr).expect("connect");
         // No state param
         let request = "GET /callback?code=auth-code-123 HTTP/1.1\r\n\
@@ -192,7 +187,6 @@ fn wrong_path_is_rejected() {
     let addr = server.addr();
 
     std::thread::spawn(move || {
-        std::thread::sleep(Duration::from_millis(50));
         let mut stream = std::net::TcpStream::connect(addr).expect("connect");
         let request = "GET /wrong-path HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n";
         stream.write_all(request.as_bytes()).expect("write");
@@ -214,7 +208,6 @@ fn non_get_method_is_rejected() {
     let addr = server.addr();
 
     std::thread::spawn(move || {
-        std::thread::sleep(Duration::from_millis(50));
         let mut stream = std::net::TcpStream::connect(addr).expect("connect");
         let request = format!(
             "POST /callback?code=auth-code-123&state={expected_state} HTTP/1.1\r\n\
@@ -244,7 +237,6 @@ fn oauth_error_is_rejected_without_leaking_description() {
     let addr = server.addr();
 
     std::thread::spawn(move || {
-        std::thread::sleep(Duration::from_millis(50));
         let mut stream = std::net::TcpStream::connect(addr).expect("connect");
         // error=access_denied&error_description=User+denied+access
         let request = format!(
@@ -276,7 +268,6 @@ fn missing_code_is_rejected() {
     let addr = server.addr();
 
     std::thread::spawn(move || {
-        std::thread::sleep(Duration::from_millis(50));
         let mut stream = std::net::TcpStream::connect(addr).expect("connect");
         // Only state, no code
         let request = format!(
@@ -366,8 +357,6 @@ fn drop_before_callback_releases_port_and_does_not_leak_thread() {
     let addr = server.addr();
     drop(server);
 
-    // Port should be immediately rebindable.
-    std::thread::sleep(Duration::from_millis(50));
     let rebinding = std::net::TcpListener::bind(addr);
     assert!(rebinding.is_ok(), "port should be available after drop");
 }
@@ -381,7 +370,6 @@ fn wait_joins_worker_and_releases_resources() {
     let addr = server.addr();
 
     std::thread::spawn(move || {
-        std::thread::sleep(Duration::from_millis(50));
         let mut stream = std::net::TcpStream::connect(addr).expect("connect");
         let request = format!(
             "GET /callback?code=abc&state={expected_state} HTTP/1.1\r\n\

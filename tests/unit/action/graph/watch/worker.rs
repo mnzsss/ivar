@@ -1,4 +1,9 @@
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    clippy::panic
+)]
 
 use std::time::{Duration, Instant};
 
@@ -20,11 +25,8 @@ fn git(dir: &Utf8Path, args: &[&str]) {
     assert!(ok, "git {args:?}");
 }
 
-fn hall_with_repo() -> (TempDir, Layout, Utf8PathBuf) {
-    let tmp = tempfile::tempdir().unwrap();
-    let root = Utf8PathBuf::from_path_buf(tmp.path().to_path_buf()).unwrap();
-    std::fs::create_dir_all(root.join(".ivar")).unwrap();
-    let repo = root.join("api");
+fn init_repo(root: &Utf8Path, name: &str) -> Utf8PathBuf {
+    let repo = root.join(name);
     std::fs::create_dir_all(repo.join("src")).unwrap();
     git(&repo, &["init", "-b", "main"]);
     git(&repo, &["config", "user.name", "t"]);
@@ -32,12 +34,20 @@ fn hall_with_repo() -> (TempDir, Layout, Utf8PathBuf) {
     std::fs::write(repo.join("src/lib.rs"), "pub fn alpha() {}\n").unwrap();
     git(&repo, &["add", "."]);
     git(&repo, &["commit", "-m", "init"]);
+    repo
+}
+
+fn hall_with_repo() -> (TempDir, Layout, Utf8PathBuf) {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = Utf8PathBuf::from_path_buf(tmp.path().to_path_buf()).unwrap();
+    std::fs::create_dir_all(root.join(".ivar")).unwrap();
+    let repo = init_repo(&root, "api");
     (tmp, Layout::at(root), repo)
 }
 
-fn target(repo: &Utf8Path) -> Target {
+fn base_target(name: &str, repo: &Utf8Path) -> Target {
     Target {
-        scope: Scope::Base { repo: "api".into() },
+        scope: Scope::Base { repo: name.into() },
         worktree: repo.to_owned(),
         git_meta: vec![
             (repo.join(".git"), vec!["HEAD".into(), "packed-refs".into()]),
@@ -45,6 +55,19 @@ fn target(repo: &Utf8Path) -> Target {
         ],
         kind: TargetKind::Base,
     }
+}
+
+fn target(repo: &Utf8Path) -> Target {
+    base_target("api", repo)
+}
+
+fn observed(db: &GraphDb, scope: &str) -> i64 {
+    db.watch_scopes()
+        .unwrap()
+        .into_iter()
+        .find(|row| row.scope == scope)
+        .unwrap_or_else(|| panic!("no watch scope {scope}"))
+        .observed
 }
 
 fn names(db: &GraphDb) -> Vec<String> {
@@ -120,17 +143,36 @@ fn an_uncommitted_new_file_is_indexed() {
     wait_for("new dir file", || names(&db).contains(&"gamma".to_owned()));
 }
 
+/// One watcher thread handles every event in arrival order, and a reindex
+/// finishes its writes before its scope reads as settled. So any event the
+/// `api` catch-up caused is handled before the `web` edit made after it,
+/// and once `web` has been reindexed, `api`'s count is final.
 #[test]
 fn an_idle_indexed_repo_never_retriggers_itself() {
     let (_tmp, layout, repo) = hall_with_repo();
-    let (_worker, db) = start(&layout, &repo);
-    wait_for("catch-up", || db.watch_settled(&["base:api"]).unwrap());
-    let before = db.watch_scopes().unwrap()[0].observed;
+    let sentinel = init_repo(layout.root(), "web");
+    let targets = vec![target(&repo), base_target("web", &sentinel)];
+    let db_path = layout.ivar_dir().join("memory.db");
+    let db = GraphDb::open(db_path.as_std_path()).unwrap();
+    let _worker = Worker::spawn(
+        layout.clone(),
+        db_path,
+        Box::new(move |_, _| targets.clone()),
+    )
+    .unwrap();
+    wait_for("catch-up", || {
+        db.watch_settled(&["base:api", "base:web"]).unwrap()
+    });
+    let before = observed(&db, "base:api");
+    let sentinel_before = observed(&db, "base:web");
 
-    std::thread::sleep(Duration::from_millis(1500));
+    std::fs::write(sentinel.join("src/lib.rs"), "pub fn omega() {}\n").unwrap();
+    wait_for("sentinel reindex", || {
+        observed(&db, "base:web") > sentinel_before && db.watch_settled(&["base:web"]).unwrap()
+    });
 
     assert_eq!(
-        db.watch_scopes().unwrap()[0].observed,
+        observed(&db, "base:api"),
         before,
         "git status / DB writes must not loop"
     );

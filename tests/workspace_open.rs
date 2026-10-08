@@ -122,12 +122,13 @@ fn a_human_run_opens_the_workspace_it_wrote() {
 /// run has no editor to open into.
 #[test]
 fn a_json_run_writes_the_workspace_and_opens_nothing() {
-    let (_guard, root, editor) = hall_with_feature();
-    let marker = editor.join("opened");
+    let (_guard, root, json_editor) = hall_with_feature();
+    let human_editor = root.parent().unwrap().join("human-editor");
+    fake_editor(&human_editor);
 
     let output = ivar()
         .current_dir(&root)
-        .env("PATH", path_with(&editor))
+        .env("PATH", path_with(&json_editor))
         .args(["feature", "workspace", "checkout", "--json"])
         .assert()
         .success()
@@ -139,10 +140,25 @@ fn a_json_run_writes_the_workspace_and_opens_nothing() {
     let written = Utf8PathBuf::from(value["path"].as_str().expect("a path"));
     assert!(written.is_file(), "the workspace file was not written");
 
-    // A detached spawn is fast, but not instantaneous; give it a window it
-    // would comfortably win before concluding it never happened.
-    std::thread::sleep(std::time::Duration::from_secs(2));
-    assert!(!marker.exists(), "--json started an editor");
+    // An editor `ivar` spawns is already running when `ivar` exits
+    // (`proc::detach` returns after the child's exec). So an editor the
+    // --json run started would have been running before this human run's
+    // editor even existed; once the later one has written its marker, the
+    // earlier one's absence is the answer, with no window to guess.
+    ivar()
+        .current_dir(&root)
+        .env("PATH", path_with(&human_editor))
+        .args(["feature", "workspace", "checkout"])
+        .assert()
+        .success();
+    assert!(
+        wait_for(&human_editor.join("opened")),
+        "the human run's editor was never started"
+    );
+    assert!(
+        !json_editor.join("opened").exists(),
+        "--json started an editor"
+    );
 }
 
 /// The file is the deliverable; the editor is a convenience. A `code` that
