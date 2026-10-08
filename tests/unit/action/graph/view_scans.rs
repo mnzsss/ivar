@@ -8,6 +8,7 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use crate::action::graph::query::scan_fixture::seeded_copy;
 use crate::action::graph::query::{
     find::explore_find, find_symbols, get_callees, get_callers, get_callers_of, get_file_outline,
     get_impact, get_references, get_references_of,
@@ -60,12 +61,9 @@ fn edge(
     }
 }
 
-fn seeded_db() -> (GraphDb, i64) {
-    let db = GraphDb::open_in_memory().unwrap();
-    db.ensure_views_base_mode().unwrap();
+fn seed(db: &GraphDb) {
     db.insert_repo("app", "/app", "main", None).unwrap();
     let mut previous: Option<(i64, String)> = None;
-    let mut target = 0;
     for file in 0..FILES {
         let file_id = db
             .upsert_file("app", &format!("src/m{file}/code.rs"), "h", 1, 1)
@@ -97,11 +95,28 @@ fn seeded_db() -> (GraphDb, i64) {
             previous = Some((*id, sym.name.clone()));
         }
         db.insert_edges(&edges).unwrap();
-        if file == FILES / 2 {
-            target = ids[SYMBOLS_PER_FILE / 2];
-        }
     }
-    (db, target)
+}
+
+fn target_name() -> String {
+    format!("f{}_s{}", FILES / 2, SYMBOLS_PER_FILE / 2)
+}
+
+fn seeded_db() -> (tempfile::TempDir, GraphDb, i64) {
+    let (dir, db) = seeded_copy(
+        &format!("view-{FILES}x{SYMBOLS_PER_FILE}"),
+        include_str!("view_scans.rs"),
+        seed,
+    );
+    let target = db
+        .conn()
+        .query_row(
+            "SELECT id FROM symbols WHERE repo = 'app' AND name = ?1",
+            [target_name()],
+            |row| row.get(0),
+        )
+        .unwrap();
+    (dir, db, target)
 }
 
 fn configure_one_layer(db: &GraphDb) {
@@ -137,7 +152,7 @@ fn vm_steps(db: &GraphDb, query: impl FnOnce()) -> u64 {
 }
 
 fn heavy_queries(db: &GraphDb, target: i64) -> Vec<(&'static str, u64)> {
-    let name = format!("f{}_s{}", FILES / 2, SYMBOLS_PER_FILE / 2);
+    let name = target_name();
     let path = format!("src/m{}/code.rs", FILES / 2);
     vec![
         (
@@ -212,20 +227,20 @@ fn assert_no_table_walks(steps: Vec<(&'static str, u64)>) {
 
 #[test]
 fn base_view_queries_seek_indexes() {
-    let (db, target) = seeded_db();
+    let (_dir, db, target) = seeded_db();
     assert_no_table_walks(heavy_queries(&db, target));
 }
 
 #[test]
 fn session_view_queries_seek_indexes() {
-    let (db, target) = seeded_db();
+    let (_dir, db, target) = seeded_db();
     configure_one_layer(&db);
     assert_no_table_walks(heavy_queries(&db, target));
 }
 
 #[test]
 fn edges_into_a_shadowed_symbol_resolve_by_name_in_the_session() {
-    let (db, _) = seeded_db();
+    let (_dir, db, _) = seeded_db();
     let id_of = |name: &str, repo: &str| -> i64 {
         db.conn()
             .query_row(

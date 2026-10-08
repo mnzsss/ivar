@@ -8,6 +8,7 @@
 use super::rank::PATH_TIER_SQL;
 use super::search::{NAME_PREFIX_MATCH, prefix_casings};
 use super::{explore_find, find_symbols};
+use crate::action::graph::query::scan_fixture::seeded_copy;
 use crate::domain::graph::{Span, Symbol, SymbolKind};
 use crate::store::graph::db::GraphDb;
 
@@ -41,9 +42,9 @@ const PATHS: &[&str] = &[
     "tests/user_test.rs",
 ];
 
-fn seeded_db(files_per_path: usize) -> GraphDb {
-    let db = GraphDb::open_in_memory().unwrap();
-    db.ensure_views_base_mode().unwrap();
+const LARGE_COPIES: usize = 160;
+
+fn seed(db: &GraphDb, files_per_path: usize) {
     db.insert_repo("app", "/app", "main", None).unwrap();
     for copy in 0..files_per_path {
         for path in PATHS {
@@ -73,7 +74,20 @@ fn seeded_db(files_per_path: usize) -> GraphDb {
             db.insert_symbols(&symbols).unwrap();
         }
     }
+}
+
+fn seeded_db(files_per_path: usize) -> GraphDb {
+    let db = GraphDb::open_in_memory().unwrap();
+    seed(&db, files_per_path);
     db
+}
+
+fn large_seeded_db() -> (tempfile::TempDir, GraphDb) {
+    seeded_copy(
+        &format!("find-{LARGE_COPIES}x{}x{}", PATHS.len(), NAME_STEMS.len()),
+        include_str!("find_scans.rs"),
+        |db| seed(db, LARGE_COPIES),
+    )
 }
 
 fn find_snapshot(db: &GraphDb, term: &str) -> Vec<String> {
@@ -287,7 +301,7 @@ fn symbols_table_scans(db: &GraphDb, sql: &str, params: impl rusqlite::Params) -
 
 #[test]
 fn prefix_tiers_seek_the_name_index() {
-    let db = seeded_db(160);
+    let (_dir, db) = large_seeded_db();
     let [c1, c2, c3, c4] = prefix_casings("get");
     let sql = format!(
         "SELECT vs.id, f.path FROM visible_symbols vs JOIN visible_files f ON vs.file_id = f.id
@@ -301,7 +315,7 @@ fn prefix_tiers_seek_the_name_index() {
 
 #[test]
 fn path_tier_reaches_symbols_through_matched_files() {
-    let db = seeded_db(160);
+    let (_dir, db) = large_seeded_db();
     let scans = symbols_table_scans(
         &db,
         PATH_TIER_SQL,

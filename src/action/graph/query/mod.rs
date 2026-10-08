@@ -336,3 +336,7 @@ mod query_views_tests;
 #[cfg(test)]
 #[path = "../../../../tests/unit/action/graph/view_scans.rs"]
 mod view_scans_tests;
+
+#[cfg(test)]
+#[path = "../../../../tests/unit/action/graph/scan_fixture.rs"]
+mod scan_fixture;
