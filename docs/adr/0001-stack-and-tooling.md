@@ -302,6 +302,11 @@ and reading `/proc` on Linux.
 - `cargo-llvm-cov` **reports** coverage and does not gate. A per-file threshold is
   good discipline inside a private monorepo and a hostile gate for a stranger
   whose ten-line PR would fail on coverage of a file they did not touch.
+- CI's coverage job runs the suite through `cargo-nextest`
+  (`.config/nextest.toml`, profile `ci`: no retries, slow-timeout); the gate
+  stays on `cargo test --all-features`, because on the 4-core runner nextest's
+  process-per-test was slower (about 27s vs 22s measured with 4 threads); the
+  ignored graph simulation and network-off persona job stay on `cargo test`.
 - The **differential harness stays**: run the surviving TypeScript and the Rust
   against identical fixtures and require canonicalised equality. It produced
   51/52, it is cheap to keep, and it is applied where a silent reconciliation
