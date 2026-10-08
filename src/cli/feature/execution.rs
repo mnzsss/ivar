@@ -63,8 +63,10 @@ pub struct ExecuteStatusArgs {
     /// Plan file; defaults to `.ivar/features/<feature>/plan.md`.
     #[arg(long)]
     pub plan: Option<String>,
+    /// Show every receipt of the feature, newest first.
     #[arg(long, conflicts_with = "run")]
     pub history: bool,
+    /// Show the receipt with this run id.
     #[arg(long, conflicts_with = "history")]
     pub run: Option<String>,
 }

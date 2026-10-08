@@ -351,8 +351,8 @@ Show the current or most recent receipt, a receipt by id, or complete history
 | flag | value | default | description |
 | --- | --- | --- | --- |
 | `--plan` | `<PLAN>` |  | Plan file; defaults to `.ivar/features/<feature>/plan.md` |
-| `--history` |  |  |  |
-| `--run` | `<RUN>` |  |  |
+| `--history` |  |  | Show every receipt of the feature, newest first |
+| `--run` | `<RUN>` |  | Show the receipt with this run id |
 
 
 ###### `ivar feature execute accept-revision`
@@ -1162,6 +1162,8 @@ Submit a feedback entry as a GitHub issue
 | flag | value | default | description |
 | --- | --- | --- | --- |
 | `--repo` | `<REPO>` |  | GitHub target repository (defaults to mnzsss/ivar) |
+| `--preview` |  |  | Print the redacted issue and its fingerprint; publish nothing. Needs no terminal |
+| `--fingerprint` | `<FINGERPRINT>` |  | Publish without a terminal, only if the entry still matches this preview fingerprint |
 
 
 #### `ivar guard`

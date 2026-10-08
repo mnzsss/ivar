@@ -106,11 +106,20 @@ ivar feedback list
 ivar feedback show 001-unexpected-guard-denial-on-config --redacted
 ```
 
-Publish an entry to GitHub issues (requires interactive confirmation):
+Publish an entry to GitHub issues. In a terminal, `submit` asks for confirmation:
 
 ```sh
 ivar feedback submit 001-unexpected-guard-denial-on-config
 ```
+
+Without a terminal, for example from an agent, preview the exact issue first, then publish it with the preview's fingerprint once a human has approved that text:
+
+```sh
+ivar feedback submit 001-unexpected-guard-denial-on-config --preview
+ivar feedback submit 001-unexpected-guard-denial-on-config --fingerprint <fingerprint>
+```
+
+A fingerprint is refused if the entry, its redaction or the repository changed since the preview.
 
 ## See where you are
 

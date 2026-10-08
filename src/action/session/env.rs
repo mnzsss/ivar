@@ -136,6 +136,28 @@ impl SessionEnv {
         cwd: &Utf8Path,
         ambient: Option<&str>,
     ) -> Result<Option<Self>, crate::error::Failure> {
+        Self::resolve(cwd, None, ambient)
+    }
+
+    /// `resolve_for_agent` for a write to `target` (already canonical). When
+    /// the cwd lies in no view dir, the live session whose view dir holds
+    /// `target` wins over the ambient id: a write that names its session
+    /// lands in it. The cwd's view dir still wins over the target, so a
+    /// session never borrows another session's writable set, and a session
+    /// of another hall never matches.
+    pub fn resolve_for_write(
+        cwd: &Utf8Path,
+        target: &Utf8Path,
+        ambient: Option<&str>,
+    ) -> Result<Option<Self>, crate::error::Failure> {
+        Self::resolve(cwd, Some(target), ambient)
+    }
+
+    fn resolve(
+        cwd: &Utf8Path,
+        target: Option<&Utf8Path>,
+        ambient: Option<&str>,
+    ) -> Result<Option<Self>, crate::error::Failure> {
         let current = match cwd.canonicalize_utf8() {
             Ok(path) => path,
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
@@ -154,6 +176,13 @@ impl SessionEnv {
         let Some(layout) = Layout::discover(&current)? else {
             return Ok(None);
         };
+
+        if let Some(target) = target
+            && let Some(env) = Self::from_view_dir_walk(target).ok().flatten()
+            && env.hall.as_path() == layout.root()
+        {
+            return Ok(Some(env));
+        }
 
         if let Some(env) = ambient.and_then(|id| Self::from_ambient(&layout, id)) {
             return Ok(Some(env));

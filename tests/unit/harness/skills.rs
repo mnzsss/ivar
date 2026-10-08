@@ -43,7 +43,16 @@ fn feedback_skill_content_satisfies_all_invariants() {
     assert!(content.contains("## Cause"));
     assert!(content.contains("## What should change"));
     assert!(content.contains("## Suggested tests"));
-    assert!(content.contains("NEVER run `ivar feedback submit`"));
+}
+#[test]
+fn feedback_skill_publishes_only_through_an_approved_preview() {
+    let skill = catalog()
+        .iter()
+        .find(|s| s.id == "feedback")
+        .expect("feedback skill is in catalog");
+    let content = skill.skill_md();
+    assert!(content.contains("ivar feedback submit <id> --preview"));
+    assert!(content.contains("--fingerprint <fingerprint>"));
 }
 
 #[test]

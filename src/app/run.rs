@@ -1033,7 +1033,10 @@ pub fn run(cli: Cli) -> ExitCode {
                 &mut stderr,
             ),
             FeedbackCommand::Submit(submit_args) => {
-                if !term::is_tty(term::Stream::Stdout) {
+                let input = feedback_action::submit::SubmitInput::from(submit_args);
+                if input.mode == feedback_action::submit::SubmitMode::Interactive
+                    && !term::is_tty(term::Stream::Stdout)
+                {
                     respond_failure(
                         &crate::error::Failure::blocked(
                             "feedback.submit_needs_terminal",
@@ -1045,13 +1048,7 @@ pub fn run(cli: Cli) -> ExitCode {
                     )
                 } else {
                     respond(
-                        feedback_action::submit::submit(
-                            &ctx,
-                            feedback_action::submit::SubmitInput {
-                                id: submit_args.id,
-                                repo: submit_args.repo,
-                            },
-                        ),
+                        feedback_action::submit::submit(&ctx, input),
                         json,
                         &mut stdout,
                         &mut stderr,
