@@ -6,11 +6,14 @@ pub(super) use crate::action::hall::{self, InitInput};
 pub(super) use crate::domain::feature::{DeliveryAction, DeliveryRepo, DraftAction};
 pub(super) use crate::domain::name::{BranchName, HallName, RepoName};
 pub(super) use crate::domain::provider::Provider;
-pub(super) use crate::error::{Status, WriteHuman};
+pub(super) use crate::error::{Failure, Report, Status, WriteHuman};
 pub(super) use crate::git::Git;
+pub(super) use crate::infra::proc::redirect_on_this_thread;
 pub(super) use crate::store::layout::Layout;
 pub(super) use crate::store::manifest::{Manifest, Providers, Repo};
-pub(super) use crate::test_support::{git, hall_root, seeded_repo};
+pub(super) use crate::test_support::{
+    FakeGh, fake_gh_command, fake_gh_on_this_thread, git, hall_root, seeded_repo,
+};
 pub(super) use camino::{Utf8Path, Utf8PathBuf};
 
 pub(super) fn approve_through_plan(root: &Utf8PathBuf) {
@@ -36,6 +39,16 @@ pub(super) fn approve_through_plan(root: &Utf8PathBuf) {
 }
 
 pub(super) fn hall_with_promoted(repos: &[&str]) -> (tempfile::TempDir, Utf8PathBuf) {
+    hall_with_promoted_on(repos, None, |_| {})
+}
+
+/// [`hall_with_promoted`], with `checkout` cut from `base` and each origin
+/// shaped by `prepare_origin` before the hall clones it.
+pub(super) fn hall_with_promoted_on(
+    repos: &[&str],
+    base: Option<&str>,
+    prepare_origin: impl Fn(&Utf8Path),
+) -> (tempfile::TempDir, Utf8PathBuf) {
     let (guard, root) = hall_root();
     let ctx = Ctx::new(root.clone());
     hall::init(
@@ -53,6 +66,7 @@ pub(super) fn hall_with_promoted(repos: &[&str]) -> (tempfile::TempDir, Utf8Path
         .iter()
         .map(|name| {
             let origin = seeded_repo(&origins.join(name), "main");
+            prepare_origin(&origin);
             Repo::new(
                 RepoName::new(*name).unwrap(),
                 origin.as_str(),
@@ -75,7 +89,7 @@ pub(super) fn hall_with_promoted(repos: &[&str]) -> (tempfile::TempDir, Utf8Path
         CreateInput {
             name: "checkout".to_owned(),
             branch: None,
-            base: None,
+            base: base.map(str::to_owned),
             parent: None,
             via: None,
             strategy: None,
@@ -113,6 +127,23 @@ pub(super) fn preview_input(feature: &str) -> DeliverInput {
         global_metadata: PullRequestMetadata::default(),
         repo_overrides: Vec::new(),
         only: Vec::new(),
+    }
+}
+
+/// `checkout`'s preview input carrying the global `--name`, `--body` and
+/// `--draft` values.
+pub(super) fn metadata_input(
+    title: Option<&str>,
+    body: Option<&str>,
+    draft: Option<bool>,
+) -> DeliverInput {
+    DeliverInput {
+        global_metadata: PullRequestMetadata {
+            title: title.map(str::to_owned),
+            body: body.map(str::to_owned),
+            draft,
+        },
+        ..preview_input("checkout")
     }
 }
 
@@ -243,4 +274,130 @@ pub(super) fn child_of_checkout(root: &Utf8PathBuf, name: &str) {
     );
     child.parent = Some(crate::domain::name::FeatureName::new("checkout").unwrap());
     child.write(&layout).unwrap();
+}
+
+/// An origin with a `develop` branch one commit past `main`, merged back
+/// into `main` first when `merge_develop_into_main` — the base fixture the
+/// base-verdict tests cut `checkout` from.
+pub(super) fn with_develop_base(merge_develop_into_main: bool) -> impl Fn(&Utf8Path) {
+    move |origin| {
+        git(origin, &["checkout", "-b", "develop"]);
+        std::fs::write(origin.join("develop-only.txt"), "develop\n").unwrap();
+        git(origin, &["add", "develop-only.txt"]);
+        git(origin, &["commit", "-m", "develop work"]);
+        git(origin, &["checkout", "main"]);
+        if merge_develop_into_main {
+            git(
+                origin,
+                &["merge", "--no-ff", "-m", "merge develop", "develop"],
+            );
+        }
+    }
+}
+
+/// Point every declared repo at `https://github.com/acme/<repo>.git` — the
+/// only kind of URL that gets a PR — and keep its origin reachable through a
+/// repo-local `insteadOf` in its bare clone, where every remote git call
+/// deliver makes runs (`--git-dir <bare>`). A process-wide rewrite would leak
+/// into tests running on other threads.
+pub(super) fn as_github_remotes(root: &Utf8Path) {
+    rewrite_to_github(root, str::to_owned);
+}
+
+/// [`as_github_remotes`], but the rewrite lands on a path that does not
+/// exist: a remote that never answers, without touching the network.
+pub(super) fn as_unreachable_github_remote(root: &Utf8Path) {
+    let missing = root.join("no-such-origin");
+    rewrite_to_github(root, |_| missing.to_string());
+}
+
+fn rewrite_to_github(root: &Utf8Path, reach: impl Fn(&str) -> String) {
+    let layout = Layout::at(root.to_path_buf());
+    let manifest = Manifest::read(&layout).unwrap().unwrap();
+    let repos = manifest
+        .repos()
+        .iter()
+        .map(|repo| {
+            let url = format!("https://github.com/acme/{}.git", repo.name().as_str());
+            let key = format!("url.{}.insteadOf", reach(repo.url()));
+            git(&layout.repo_bare(repo.name()), &["config", &key, &url]);
+            Repo::new(repo.name().clone(), url, repo.default_branch().clone())
+        })
+        .collect();
+    let manifest = Manifest::new(
+        manifest.name().clone(),
+        manifest.providers().clone(),
+        repos,
+        None,
+    )
+    .unwrap();
+    Manifest::write(&layout, &manifest).unwrap();
+}
+
+/// A promoted, plan-approved hall whose repos point at GitHub, with the fake
+/// `gh` installed but not yet redirected: the caller holds that guard.
+pub(super) fn on_github(repos: &[&str]) -> (tempfile::TempDir, Utf8PathBuf, FakeGh) {
+    let (guard, root) = hall_with_promoted(repos);
+    approve_through_plan(&root);
+    let fake = FakeGh::install(&root);
+    as_github_remotes(&root);
+    (guard, root, fake)
+}
+
+/// The `--preview --json` document for `input`.
+pub(super) fn preview_json(root: &Utf8Path, input: DeliverInput) -> serde_json::Value {
+    let report = deliver(
+        &Ctx::new(root.to_path_buf()),
+        DeliverInput {
+            preview: true,
+            ..input
+        },
+    )
+    .unwrap();
+    serde_json::to_value(&report).unwrap()
+}
+
+/// Preview, then apply with that preview's fingerprint and the same input.
+pub(super) fn apply_report(root: &Utf8Path, input: DeliverInput) -> Report<DeliverOutcome> {
+    let fingerprint = preview_json(root, input.clone())["preview"]["fingerprint"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    deliver(
+        &Ctx::new(root.to_path_buf()),
+        DeliverInput {
+            preview: false,
+            fingerprint: Some(fingerprint),
+            ..input
+        },
+    )
+    .unwrap()
+}
+
+/// The apply `--json` document of a run the CLI would exit `0` from.
+pub(super) fn deliver_json(root: &Utf8Path, input: DeliverInput) -> serde_json::Value {
+    let report = apply_report(root, input);
+    assert!(
+        report.is_clean(),
+        "unexpected warnings: {:?}",
+        report.warnings
+    );
+    serde_json::to_value(&report).unwrap()
+}
+
+/// The apply `--json` document of a run the CLI would exit `1` from.
+pub(super) fn deliver_json_expecting_warnings(
+    root: &Utf8Path,
+    input: DeliverInput,
+) -> serde_json::Value {
+    let report = apply_report(root, input);
+    assert!(!report.is_clean(), "expected warnings, got a clean report");
+    serde_json::to_value(&report).unwrap()
+}
+
+/// What the CLI prints on stderr for `failure`, without colour.
+pub(super) fn failure_text(failure: &Failure) -> String {
+    let mut out = Vec::new();
+    failure.write_human(&mut out).unwrap();
+    anstream::adapter::strip_str(&String::from_utf8(out).unwrap()).to_string()
 }

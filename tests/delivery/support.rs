@@ -165,26 +165,6 @@ pub(crate) fn setup_two_repo_hall(root: &Utf8PathBuf) {
     }
 }
 
-/// Point the declared repo's URL at `https://github.com/…` but redirect it,
-/// via git's own `insteadOf`, to a path that does not exist — an immediate
-/// local failure, so this never touches the network. Used to simulate the
-/// remote not answering.
-pub(crate) fn as_unreachable_github_remote(root: &Utf8Path) -> Vec<(String, String)> {
-    let path = root.join("ivar.json");
-    let mut value: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
-    let mut rewrites = Vec::new();
-    for repo in value["repos"].as_array_mut().unwrap() {
-        let name = repo["name"].as_str().unwrap().to_owned();
-        let url = format!("https://github.com/acme/{name}.git");
-        let broken = root.join("no-such-origin");
-        rewrites.push((format!("url.{broken}.insteadOf"), url.clone()));
-        repo["url"] = serde_json::Value::String(url);
-    }
-    std::fs::write(&path, serde_json::to_string(&value).unwrap()).unwrap();
-    rewrites
-}
-
 /// Deliver `feature` through the fake `gh`, expecting warnings (exit `1`)
 /// rather than a clean run. Returns the apply document.
 pub(crate) fn deliver_on_github_expecting_warnings(
@@ -298,49 +278,4 @@ pub(crate) fn setup_deliver_hall(root: &Utf8PathBuf) {
     std::fs::write(worktree.join("work.md"), "work\n").unwrap();
     git(&worktree, &["add", "work.md"]);
     git(&worktree, &["commit", "-m", "work"]);
-}
-
-/// A hall with one promoted repo whose feature declares `develop` as its
-/// base: `main`, plus `develop` carrying its own commit, merged into `main`
-/// first when `merge_develop_into_main` is set — so the clone captures
-/// whichever ancestry the caller needs before `develop` is (maybe) deleted
-/// or advanced later in the test. Returns the origin path.
-pub(crate) fn setup_deliver_hall_with_base(
-    root: &Utf8PathBuf,
-    merge_develop_into_main: bool,
-) -> Utf8PathBuf {
-    ivar().current_dir(root).arg("init").assert().success();
-    let origin = seeded_repo(&root.parent().unwrap().join("origins/api"), "main");
-    git(&origin, &["checkout", "-b", "develop"]);
-    std::fs::write(origin.join("develop-only.txt"), "develop\n").unwrap();
-    git(&origin, &["add", "develop-only.txt"]);
-    git(&origin, &["commit", "-m", "develop work"]);
-    git(&origin, &["checkout", "main"]);
-    if merge_develop_into_main {
-        git(
-            &origin,
-            &["merge", "--no-ff", "-m", "merge develop", "develop"],
-        );
-    }
-
-    declare_repos(root, &[("api", &origin, "main")]);
-    ivar().current_dir(root).arg("sync").assert().success();
-
-    ivar()
-        .current_dir(root)
-        .args(["feature", "create", "checkout", "--base", "develop"])
-        .assert()
-        .success();
-    ivar()
-        .current_dir(root)
-        .args(["feature", "promote", "checkout", "api"])
-        .assert()
-        .success();
-
-    let worktree = root.join(".ivar/repos/api/checkout");
-    std::fs::write(worktree.join("work.md"), "work\n").unwrap();
-    git(&worktree, &["add", "work.md"]);
-    git(&worktree, &["commit", "-m", "work"]);
-
-    origin
 }

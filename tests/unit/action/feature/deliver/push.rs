@@ -294,3 +294,159 @@ fn only_a_delivery_of_every_promotion_links_siblings() {
         &feature
     ));
 }
+
+#[test]
+fn delivering_with_a_never_delivered_base_refuses_the_pr_with_a_deliver_parent_first_fix() {
+    let (_guard, root) = hall_with_promoted_on(&["api"], Some("develop"), with_develop_base(false));
+    approve_through_plan(&root);
+    let fake = FakeGh::install(&root);
+    let _gh = fake_gh_on_this_thread(&fake);
+    as_github_remotes(&root);
+    let origin = root.parent().unwrap().join("origins/api");
+
+    // The base's branch is gone, and — unlike the merged-and-deleted case —
+    // it was never merged into `main` first: nothing confirms it shipped.
+    git(&origin, &["branch", "-D", "develop"]);
+
+    let applied = deliver_json_expecting_warnings(&root, preview_input("checkout"));
+
+    assert_eq!(applied["pushes"][0]["ok"], true);
+    let warnings = applied["warnings"].as_array().expect("warnings array");
+    assert!(
+        warnings
+            .iter()
+            .any(|w| w["code"] == "feature.base_never_delivered"),
+        "warnings were: {warnings:?}"
+    );
+    assert!(applied["preview"]["repos"][0]["pr_url"].is_null());
+}
+
+// `feature deliver` refuses to open or update a PR against a base that no
+// longer supports it — merged and deleted, never delivered, moved on without
+// a rebase, or simply unreachable. Each refusal is per repo (the push still
+// lands) and never touches the network beyond what `remote_branch_tip`
+// already reaches for.
+
+#[test]
+fn delivering_with_an_unreachable_remote_never_reports_the_base_absent() {
+    let (_guard, root) = hall_with_promoted(&["api"]);
+    approve_through_plan(&root);
+    let fake = FakeGh::install(&root);
+    let _gh = fake_gh_on_this_thread(&fake);
+    as_unreachable_github_remote(&root);
+
+    let applied = deliver_json_expecting_warnings(&root, preview_input("checkout"));
+
+    let warnings = applied["warnings"].as_array().expect("warnings array");
+    assert!(
+        warnings.iter().any(|w| w["code"] == "deliver.push_failed"),
+        "the unanswered push is reported: {warnings:?}"
+    );
+    assert!(
+        warnings.iter().all(|w| !w["what"]
+            .as_str()
+            .unwrap()
+            .to_lowercase()
+            .contains("absent")),
+        "an unanswered remote must never be reported as an absent base: {warnings:?}"
+    );
+    assert!(applied["preview"]["repos"][0]["pr_url"].is_null());
+    assert_eq!(
+        fake.log().matches("pr create").count(),
+        0,
+        "no PR may be attempted for a repo the remote never received"
+    );
+}
+
+fn advance_develop_on(origin: &Utf8Path) {
+    git(origin, &["checkout", "develop"]);
+    std::fs::write(origin.join("develop-later.txt"), "later\n").unwrap();
+    git(origin, &["add", "develop-later.txt"]);
+    git(origin, &["commit", "-m", "later develop work"]);
+    git(origin, &["checkout", "main"]);
+}
+
+#[test]
+fn delivering_with_a_base_that_moved_refuses_the_pr_but_still_pushes() {
+    let (_guard, root) = hall_with_promoted_on(&["api"], Some("develop"), with_develop_base(false));
+    approve_through_plan(&root);
+    let fake = FakeGh::install(&root);
+    let _gh = fake_gh_on_this_thread(&fake);
+    as_github_remotes(&root);
+
+    // Advance `develop` past what `checkout` was cut from, and pull that
+    // straight into the bare clone's own `develop` ref — simulating that
+    // ivar's local knowledge of the base has moved on, since `ivar sync`
+    // itself only ever keeps the default branch's worktree current.
+    let origin = root.parent().unwrap().join("origins/api");
+    advance_develop_on(&origin);
+    let bare = root.join(".ivar/repos/api/.bare");
+    git(&bare, &["fetch", origin.as_str(), "develop:develop"]);
+
+    let applied = deliver_json_expecting_warnings(&root, preview_input("checkout"));
+
+    assert_eq!(
+        applied["pushes"][0]["ok"], true,
+        "pushing raw commits does not depend on the base"
+    );
+    let warnings = applied["warnings"].as_array().expect("warnings array");
+    assert!(
+        warnings.iter().any(|w| w["code"] == "feature.base_moved"),
+        "warnings were: {warnings:?}"
+    );
+    assert!(applied["preview"]["repos"][0]["pr_url"].is_null());
+    assert_eq!(fake.log().matches("pr create").count(), 0);
+}
+
+/// The bare clone's own `develop` ref is never re-fetched by anything this
+/// test runs — `ivar sync` only ever keeps the default branch's worktree
+/// current — so this is the ordinary case: the remote has moved on and
+/// nothing local knows it yet. The check must ask the remote's own tip, not
+/// trust a local ref that still (trivially) looks like an ancestor.
+#[test]
+fn delivering_with_a_base_that_moved_only_on_the_remote_still_refuses_the_pr() {
+    let (_guard, root) = hall_with_promoted_on(&["api"], Some("develop"), with_develop_base(false));
+    approve_through_plan(&root);
+    let fake = FakeGh::install(&root);
+    let _gh = fake_gh_on_this_thread(&fake);
+    as_github_remotes(&root);
+
+    advance_develop_on(&root.parent().unwrap().join("origins/api"));
+
+    let applied = deliver_json_expecting_warnings(&root, preview_input("checkout"));
+
+    assert_eq!(applied["pushes"][0]["ok"], true);
+    let warnings = applied["warnings"].as_array().expect("warnings array");
+    assert!(
+        warnings.iter().any(|w| w["code"] == "feature.base_moved"),
+        "a base advanced only on the remote must still refuse — warnings were: {warnings:?}"
+    );
+    assert!(applied["preview"]["repos"][0]["pr_url"].is_null());
+    assert_eq!(fake.log().matches("pr create").count(), 0);
+}
+
+#[test]
+fn delivering_with_a_merged_and_deleted_base_refuses_the_pr_with_a_rebase_onto_default_fix() {
+    let (_guard, root) = hall_with_promoted_on(&["api"], Some("develop"), with_develop_base(true));
+    approve_through_plan(&root);
+    let fake = FakeGh::install(&root);
+    let _gh = fake_gh_on_this_thread(&fake);
+    as_github_remotes(&root);
+    let origin = root.parent().unwrap().join("origins/api");
+
+    // The base shipped and its branch was deleted — GitHub's usual
+    // auto-delete-on-merge. ivar's bare clone keeps its own, now stale,
+    // local `develop` ref, exactly as a developer's clone would.
+    git(&origin, &["branch", "-D", "develop"]);
+
+    let applied = deliver_json_expecting_warnings(&root, preview_input("checkout"));
+
+    assert_eq!(applied["pushes"][0]["ok"], true);
+    let warnings = applied["warnings"].as_array().expect("warnings array");
+    let warning = warnings
+        .iter()
+        .find(|w| w["code"] == "feature.base_merged_and_deleted")
+        .unwrap_or_else(|| panic!("warnings were: {warnings:?}"));
+    assert!(warning["what"].as_str().unwrap().contains("develop"));
+    assert!(applied["preview"]["repos"][0]["pr_url"].is_null());
+}

@@ -699,3 +699,36 @@ fn the_human_preview_paints_only_its_labels() {
     );
     assert_eq!(anstream::adapter::strip_str(&rendered).to_string(), plain);
 }
+
+#[test]
+fn human_preview_surface_lists_each_repo_and_the_fingerprint() {
+    let (_guard, root) = hall_with_promoted(&["api"]);
+    let mut out = Vec::new();
+    deliver(&Ctx::new(root.clone()), preview_input("checkout"))
+        .unwrap()
+        .value
+        .write_human(&mut out)
+        .unwrap();
+
+    let human = anstream::adapter::strip_str(&String::from_utf8(out).unwrap()).to_string();
+    assert!(human.contains("Delivery preview for `checkout`"));
+    assert!(human.contains("branch:  checkout"));
+    assert!(human.contains("refspec: checkout:refs/heads/checkout"));
+    assert!(human.contains("base:    main"));
+    // The remote is a local path — push only, no PR.
+    assert!(human.contains("action:  push only"));
+    assert!(human.contains("fingerprint:"));
+}
+
+#[test]
+fn the_preview_reports_the_plan_gate_without_refusing() {
+    let (_guard, root) = hall_with_promoted(&["api"]);
+
+    let value = preview_json(&root, preview_input("checkout"));
+    assert_eq!(value["preview"]["plan_gate"], "pending");
+
+    approve_through_plan(&root);
+
+    let value = preview_json(&root, preview_input("checkout"));
+    assert_eq!(value["preview"]["plan_gate"], "approved");
+}

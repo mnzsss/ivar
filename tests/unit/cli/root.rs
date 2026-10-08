@@ -1119,3 +1119,92 @@ fn guard_takes_a_hidden_slice_for_claude_code_only() {
         .to_string();
     assert!(!help.contains("--slice"), "{help}");
 }
+
+/// The long help a non-TTY `ivar feature deliver --help` prints: clap wraps
+/// at 100 columns when it cannot read a terminal width.
+fn deliver_long_help() -> String {
+    Cli::command()
+        .find_subcommand("feature")
+        .unwrap()
+        .find_subcommand("deliver")
+        .unwrap()
+        .clone()
+        .term_width(100)
+        .render_long_help()
+        .to_string()
+}
+
+/// `feature deliver --help` documents `--draft`, its positional repository
+/// scope (global before `--repo`, scoped after `--repo <name>`), and its
+/// conflict with `--land`.
+#[test]
+fn draft_help_documents_scope_and_land_conflict() {
+    let stdout = deliver_long_help();
+    assert!(
+        stdout.contains("--draft"),
+        "--draft flag must appear in deliver help: {stdout}"
+    );
+    assert!(
+        stdout.contains("--repo"),
+        "--repo flag must appear in deliver help: {stdout}"
+    );
+    assert!(
+        stdout.contains("--land"),
+        "--land flag must appear in deliver help: {stdout}"
+    );
+
+    let draft_section = find_flag_help(&stdout, "draft");
+    assert!(
+        draft_section.contains("global") || draft_section.contains("before"),
+        "--draft help must describe positional scoping (global before --repo): {draft_section}"
+    );
+    assert!(
+        draft_section.contains("--repo"),
+        "--draft help must mention --repo scoping: {draft_section}"
+    );
+    assert!(
+        draft_section.contains("land") || draft_section.contains("--land"),
+        "--draft help must mention the --land conflict: {draft_section}"
+    );
+}
+
+#[test]
+fn deliver_help_states_name_and_body_are_fingerprinted() {
+    let stdout = deliver_long_help();
+
+    for flag in ["name", "body", "fingerprint"] {
+        let section = find_flag_help(&stdout, flag);
+        assert!(
+            section.contains("fingerprint"),
+            "--{flag} help must say it is part of the fingerprint: {section}"
+        );
+    }
+}
+
+/// Extract the help text for a specific long flag from `--help` output.
+/// Returns the description line(s) for `--<flag_name>`.
+fn find_flag_help(help_output: &str, flag_name: &str) -> String {
+    let marker = format!("--{flag_name}");
+    let lines: Vec<&str> = help_output.lines().collect();
+    let mut result = String::new();
+    let mut collecting = false;
+
+    for line in &lines {
+        let trimmed = line.trim();
+        if trimmed.starts_with(&marker) {
+            collecting = true;
+            result.push_str(trimmed);
+            result.push('\n');
+            continue;
+        }
+        if collecting {
+            // Stop at the next flag definition or empty section
+            if trimmed.starts_with("--") || trimmed.is_empty() {
+                break;
+            }
+            result.push_str(trimmed);
+            result.push('\n');
+        }
+    }
+    result
+}
