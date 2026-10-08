@@ -361,6 +361,37 @@ fn drop_before_callback_releases_port_and_does_not_leak_thread() {
     assert!(rebinding.is_ok(), "port should be available after drop");
 }
 
+#[test]
+fn drop_releases_port_while_a_forked_child_still_holds_the_listener() {
+    let server = CallbackServer::bind_on("test-state", Duration::from_secs(10)).unwrap();
+    let addr = server.addr();
+    let inherited_by_child = server.listener.as_ref().unwrap().try_clone().unwrap();
+    drop(server);
+
+    assert!(std::net::TcpListener::bind(addr).is_ok());
+    drop(inherited_by_child);
+}
+
+#[test]
+fn wait_releases_port_while_a_forked_child_still_holds_the_listener() {
+    let expected_state = "test-state";
+    let server = CallbackServer::bind_on(expected_state, Duration::from_secs(10)).unwrap();
+    let addr = server.addr();
+    let inherited_by_child = server.listener.as_ref().unwrap().try_clone().unwrap();
+    let client = std::thread::spawn(move || {
+        let mut stream = std::net::TcpStream::connect(addr).expect("connect");
+        let request = format!("GET /callback?code=abc&state={expected_state} HTTP/1.1\r\n\r\n");
+        stream.write_all(request.as_bytes()).expect("write");
+        let mut response = String::new();
+        std::io::Read::read_to_string(&mut stream, &mut response).expect("read");
+    });
+    server.wait().expect("wait should succeed");
+    client.join().unwrap();
+
+    assert!(std::net::TcpListener::bind(addr).is_ok());
+    drop(inherited_by_child);
+}
+
 // -- successful callback --------------------------------------------------
 
 #[test]

@@ -197,13 +197,25 @@ impl CallbackServer {
             )),
         };
 
-        // Ensure the worker has fully finished and the listener is closed.
-        drop(self.listener.take());
+        self.release_listener();
         if let Some(worker) = self.worker.take() {
             let _ = worker.join();
         }
 
         result
+    }
+
+    fn release_listener(&mut self) {
+        let Some(listener) = self.listener.take() else {
+            return;
+        };
+        // A child forked by any thread inherits this descriptor until it
+        // execs, which keeps the socket listening past close; shutdown stops
+        // it listening for every duplicate, so the port is free on return.
+        #[cfg(unix)]
+        let _ = TcpStream::from(std::os::fd::OwnedFd::from(listener)).shutdown(Shutdown::Both);
+        #[cfg(not(unix))]
+        drop(listener);
     }
 
     // -- worker -----------------------------------------------------------
@@ -470,10 +482,7 @@ impl CallbackServer {
 impl Drop for CallbackServer {
     fn drop(&mut self) {
         self.shutdown.store(true, Ordering::Release);
-        // Drop the listener explicitly — this closes this handle, and
-        // triggers the closing of the socket (if the worker's handle is
-        // already closed), and unblocks the worker's `accept()`.
-        drop(self.listener.take());
+        self.release_listener();
         if let Some(worker) = self.worker.take() {
             let _ = worker.join();
         }
