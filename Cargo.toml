@@ -168,12 +168,13 @@ cast_sign_loss = "warn"
 lto = true
 codegen-units = 1
 strip = true
-opt-level = "s"
+opt-level = "z"
 # Nothing in the crate requires unwinding: `ratatui::init` installs a panic
 # hook (tui/master_detail.rs) that restores the terminal, and panic hooks run
-# under `abort` too. `opt-level = "s"` trades some codegen for size; measured
-# against `graph index` on this checkout, the runtime cost was within the
-# ≤15% gate.
+# under `abort` too. `opt-level = "z"` trades codegen for size. Measured on
+# this checkout (12 interleaved pairs of `graph index --full`, medians): "s"
+# 4.13s and 14,869,368 B, "z" 4.16s and 13,979,864 B — z/s 1.007 wall time
+# (1.034 CPU time), within the ≤15% gate.
 panic = "abort"
 
 [profile.dev]
