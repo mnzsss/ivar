@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.0](https://github.com/mnzsss/ivar/compare/v0.15.0...v0.16.0) - 2026-10-09
+
+### Added
+
+- compressed release assets and smaller builds ([#166](https://github.com/mnzsss/ivar/pull/166))
+- approve hall MCP servers in claude settings ([#162](https://github.com/mnzsss/ivar/pull/162))
+
+### Fixed
+
+- guard target sessions, agent feedback submit and status help ([#163](https://github.com/mnzsss/ivar/pull/163))
+
 ## [0.15.0](https://github.com/mnzsss/ivar/compare/v0.14.0...v0.15.0) - 2026-10-08
 
 ### Added
