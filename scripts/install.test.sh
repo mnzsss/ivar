@@ -58,8 +58,12 @@ esac
 EOF
 
 # curl — never talks to the network. Logs every invocation, then serves the
-# fake artifact files: any `-o` target ending in `.sha256` gets the sidecar,
-# anything else gets the binary. FAKE_CURL_FAIL=1 simulates a dead upstream.
+# fake artifact files: a `-o` target ending in `.sha256` gets the sidecar,
+# anything else gets the binary. Compressed assets (`.xz`/`.gz` and their
+# sidecars) are served only when their FAKE_*_FILE is set and answer like a
+# 404 (`curl -f` exit 22) otherwise, so every case that does not set them
+# exercises the installer's fallback to the bare binary — whatever
+# decompressors the host has. FAKE_CURL_FAIL=1 simulates a dead upstream.
 # If -d/--data is passed, logs the POST body to $CURL_LOG and $EVENT_LOG.
 cat > "$FAKE_BIN/curl" <<'EOF'
 #!/bin/sh
@@ -92,9 +96,17 @@ if [ -n "$data_payload" ]; then
     exit 0
 fi
 
+serve() { # fixture-or-empty
+    [ -n "$1" ] || exit 22
+    cp "$1" "$out"
+}
 case "$out" in
-    *.sha256) cp "$FAKE_SHA_FILE" "$out" ;;
-    *)        cp "$FAKE_BIN_FILE" "$out" ;;
+    *.xz.sha256) serve "${FAKE_XZ_SHA_FILE:-}" ;;
+    *.gz.sha256) serve "${FAKE_GZ_SHA_FILE:-}" ;;
+    *.xz)        serve "${FAKE_XZ_FILE:-}" ;;
+    *.gz)        serve "${FAKE_GZ_FILE:-}" ;;
+    *.sha256)    cp "$FAKE_SHA_FILE" "$out" ;;
+    *)           cp "$FAKE_BIN_FILE" "$out" ;;
 esac
 EOF
 
@@ -213,6 +225,41 @@ path_without_ivar() { # pathvalue
 
 BASE_PATH="$(path_without_ivar "$SAVED_PATH")"
 export BASE_PATH
+
+# Decompressors. The host's own `xz`/`gzip` sit in BASE_PATH, so cases that
+# choose a format run on MIN_PATH instead: a directory holding only the
+# commands the installer and the fakes need, plus one of the fake
+# decompressors below. The fakes log their argv to CURL_LOG, so a case can
+# read the order of downloads and decompression off one file, and they
+# "decompress" with `cat`: the fixtures below are stored, not compressed.
+# Real round-trips are scripts/compress-release-assets.test.sh's job; this
+# harness checks which file the installer asks for, in what order, and what
+# it refuses.
+MIN_BIN="$WORK/min-bin"
+mkdir -p "$MIN_BIN"
+for tool in sh cat cp mkdir chmod rm env; do
+    ln -s "$(PATH="$SAVED_PATH" command -v "$tool")" "$MIN_BIN/$tool"
+done
+for tool in xz gzip; do
+    mkdir -p "$WORK/$tool-bin"
+    cat > "$WORK/$tool-bin/$tool" <<EOF
+#!/bin/sh
+printf '$tool %s\n' "\$*" >> "\$CURL_LOG"
+[ "\$1" = "-dc" ] && [ "\$2" = "--" ] || exit 2
+exec cat -- "\$3"
+EOF
+    chmod +x "$WORK/$tool-bin/$tool"
+done
+
+# write_compressed_fixture DIR — beside DIR/ivar, the `.xz` and `.gz` assets
+# and their sidecars, named the way scripts/compress-release-assets.sh
+# publishes them: the sidecar names `ivar.<ext>`.
+write_compressed_fixture() { # dir
+    for ext in xz gz; do
+        cp "$1/ivar" "$1/ivar.$ext"
+        hash_file "$1/ivar.$ext" > "$1/ivar.$ext.sha256"
+    done
+}
 
 
 # ── tests ──────────────────────────────────────────────────────────────
@@ -566,6 +613,148 @@ else
     bad "collector failure prevented successful installation"
 fi
 
+# ── compressed assets ──────────────────────────────────────────────────
+
+URL="https://dl.example.test/ivar/ivar-linux-x86_64"
+
+# xz on PATH and the release has `.xz`: the installer downloads the compressed
+# asset and its sidecar, decompresses, then fetches the bare sidecar to check
+# what it decompressed. The bare binary itself is never downloaded.
+write_fake_artifact "$WORK/xz-art" "9.9.9"
+write_compressed_fixture "$WORK/xz-art"
+run_installer PATH="$FAKE_BIN:$WORK/xz-bin:$WORK/gzip-bin:$MIN_BIN" \
+    FAKE_UNAME_S="Linux" FAKE_UNAME_M="x86_64" \
+    IVAR_BASE_URL="https://dl.example.test/ivar" \
+    IVAR_INSTALL_DIR="$WORK/dest-xz" \
+    FAKE_BIN_FILE="$WORK/xz-art/ivar" \
+    FAKE_SHA_FILE="$WORK/xz-art/ivar.sha256" \
+    FAKE_XZ_FILE="$WORK/xz-art/ivar.xz" \
+    FAKE_XZ_SHA_FILE="$WORK/xz-art/ivar.xz.sha256"
+if [ "$RUN_RC" -eq 0 ] \
+    && [ -x "$WORK/dest-xz/ivar" ] \
+    && cmp -s "$WORK/dest-xz/ivar" "$WORK/xz-art/ivar" \
+    && grep -qF "$URL.xz " "$CURL_LOG" \
+    && grep -qF "$URL.xz.sha256 " "$CURL_LOG" \
+    && grep -q '^xz -dc -- ' "$CURL_LOG" \
+    && grep -qF "$URL.sha256 " "$CURL_LOG" \
+    && ! grep -qF "$URL " "$CURL_LOG" \
+    && ! grep -qF "$URL.gz" "$CURL_LOG" \
+    && [ -z "$(find "$FAKE_TMP" -mindepth 1 -name "tmp.*" 2>/dev/null)" ]; then
+    ok "xz available: installs from .xz, verified against both sidecars"
+else
+    bad "xz install (rc=$RUN_RC: $(cat "$WORK/run.out"); log: $(cat "$CURL_LOG"))"
+fi
+
+# Only gzip on PATH: the installer asks for `.gz` and never for `.xz`.
+write_fake_artifact "$WORK/gz-art" "9.9.9"
+write_compressed_fixture "$WORK/gz-art"
+run_installer PATH="$FAKE_BIN:$WORK/gzip-bin:$MIN_BIN" \
+    FAKE_UNAME_S="Linux" FAKE_UNAME_M="x86_64" \
+    IVAR_BASE_URL="https://dl.example.test/ivar" \
+    IVAR_INSTALL_DIR="$WORK/dest-gz" \
+    FAKE_BIN_FILE="$WORK/gz-art/ivar" \
+    FAKE_SHA_FILE="$WORK/gz-art/ivar.sha256" \
+    FAKE_GZ_FILE="$WORK/gz-art/ivar.gz" \
+    FAKE_GZ_SHA_FILE="$WORK/gz-art/ivar.gz.sha256"
+if [ "$RUN_RC" -eq 0 ] \
+    && cmp -s "$WORK/dest-gz/ivar" "$WORK/gz-art/ivar" \
+    && grep -qF "$URL.gz " "$CURL_LOG" \
+    && grep -q '^gzip -dc -- ' "$CURL_LOG" \
+    && ! grep -qF "$URL.xz" "$CURL_LOG" \
+    && ! grep -qF "$URL " "$CURL_LOG"; then
+    ok "only gzip available: installs from .gz"
+else
+    bad "gz install (rc=$RUN_RC: $(cat "$WORK/run.out"); log: $(cat "$CURL_LOG"))"
+fi
+
+# Neither decompressor: straight to the bare binary, no compressed request.
+write_fake_artifact "$WORK/plain-art" "9.9.9"
+write_compressed_fixture "$WORK/plain-art"
+run_installer PATH="$FAKE_BIN:$MIN_BIN" \
+    FAKE_UNAME_S="Linux" FAKE_UNAME_M="x86_64" \
+    IVAR_BASE_URL="https://dl.example.test/ivar" \
+    IVAR_INSTALL_DIR="$WORK/dest-plain" \
+    FAKE_BIN_FILE="$WORK/plain-art/ivar" \
+    FAKE_SHA_FILE="$WORK/plain-art/ivar.sha256" \
+    FAKE_XZ_FILE="$WORK/plain-art/ivar.xz" \
+    FAKE_XZ_SHA_FILE="$WORK/plain-art/ivar.xz.sha256" \
+    FAKE_GZ_FILE="$WORK/plain-art/ivar.gz" \
+    FAKE_GZ_SHA_FILE="$WORK/plain-art/ivar.gz.sha256"
+if [ "$RUN_RC" -eq 0 ] \
+    && cmp -s "$WORK/dest-plain/ivar" "$WORK/plain-art/ivar" \
+    && grep -qF "$URL " "$CURL_LOG" \
+    && ! grep -qF "$URL.xz" "$CURL_LOG" \
+    && ! grep -qF "$URL.gz" "$CURL_LOG"; then
+    ok "no decompressor: installs the bare binary"
+else
+    bad "no decompressor (rc=$RUN_RC: $(cat "$WORK/run.out"); log: $(cat "$CURL_LOG"))"
+fi
+
+# xz available but the release has no `.xz` (an older release, or an
+# IVAR_BASE_URL mirror without them): falls back to the bare binary quietly.
+write_fake_artifact "$WORK/old-art" "9.9.9"
+run_installer PATH="$FAKE_BIN:$WORK/xz-bin:$MIN_BIN" \
+    FAKE_UNAME_S="Linux" FAKE_UNAME_M="x86_64" \
+    IVAR_BASE_URL="https://dl.example.test/ivar" \
+    IVAR_INSTALL_DIR="$WORK/dest-old" \
+    FAKE_BIN_FILE="$WORK/old-art/ivar" \
+    FAKE_SHA_FILE="$WORK/old-art/ivar.sha256"
+if [ "$RUN_RC" -eq 0 ] \
+    && cmp -s "$WORK/dest-old/ivar" "$WORK/old-art/ivar" \
+    && grep -qF "$URL.xz " "$CURL_LOG" \
+    && grep -qF "$URL " "$CURL_LOG" \
+    && ! grep -q '^xz ' "$CURL_LOG" \
+    && ! grep -q 'error' "$WORK/run.out"; then
+    ok "missing .xz falls back to the bare binary without an error"
+else
+    bad "missing .xz fallback (rc=$RUN_RC: $(cat "$WORK/run.out"); log: $(cat "$CURL_LOG"))"
+fi
+
+# The compressed bytes do not match their sidecar: refuse before
+# decompressing, and do not fall back — a fallback would hide tampering.
+write_fake_artifact "$WORK/badxz-art" "9.9.9"
+write_compressed_fixture "$WORK/badxz-art"
+printf '%064d  ivar.xz\n' 0 > "$WORK/badxz-art/ivar.xz.sha256"
+run_installer PATH="$FAKE_BIN:$WORK/xz-bin:$MIN_BIN" \
+    FAKE_UNAME_S="Linux" FAKE_UNAME_M="x86_64" \
+    IVAR_BASE_URL="https://dl.example.test/ivar" \
+    IVAR_INSTALL_DIR="$WORK/dest-badxz" \
+    FAKE_BIN_FILE="$WORK/badxz-art/ivar" \
+    FAKE_SHA_FILE="$WORK/badxz-art/ivar.sha256" \
+    FAKE_XZ_FILE="$WORK/badxz-art/ivar.xz" \
+    FAKE_XZ_SHA_FILE="$WORK/badxz-art/ivar.xz.sha256"
+if [ "$RUN_RC" -ne 0 ] \
+    && [ ! -e "$WORK/dest-badxz/ivar" ] \
+    && ! grep -q '^xz ' "$CURL_LOG" \
+    && ! grep -qF "$URL " "$CURL_LOG" \
+    && grep -q 'ivar-linux-x86_64.xz' "$WORK/run.out" \
+    && [ -z "$(find "$FAKE_TMP" -mindepth 1 -name "tmp.*" 2>/dev/null)" ]; then
+    ok "bad .xz checksum refuses before decompressing, no fallback"
+else
+    bad "bad .xz checksum (rc=$RUN_RC: $(cat "$WORK/run.out"); log: $(cat "$CURL_LOG"))"
+fi
+
+# The `.xz` verifies but decompresses to bytes the bare sidecar rejects:
+# nothing is installed.
+write_fake_artifact "$WORK/badbin-art" "9.9.9"
+write_compressed_fixture "$WORK/badbin-art"
+printf '%064d  ivar\n' 0 > "$WORK/badbin-art/ivar.sha256"
+run_installer PATH="$FAKE_BIN:$WORK/xz-bin:$MIN_BIN" \
+    FAKE_UNAME_S="Linux" FAKE_UNAME_M="x86_64" \
+    IVAR_BASE_URL="https://dl.example.test/ivar" \
+    IVAR_INSTALL_DIR="$WORK/dest-badbin" \
+    FAKE_BIN_FILE="$WORK/badbin-art/ivar" \
+    FAKE_SHA_FILE="$WORK/badbin-art/ivar.sha256" \
+    FAKE_XZ_FILE="$WORK/badbin-art/ivar.xz" \
+    FAKE_XZ_SHA_FILE="$WORK/badbin-art/ivar.xz.sha256"
+if [ "$RUN_RC" -ne 0 ] \
+    && [ ! -e "$WORK/dest-badbin/ivar" ] \
+    && grep -q '^xz -dc -- ' "$CURL_LOG" \
+    && [ -z "$(find "$FAKE_TMP" -mindepth 1 -name "tmp.*" 2>/dev/null)" ]; then
+    ok "decompressed binary failing the bare sidecar is not installed"
+else
+    bad "decompressed checksum (rc=$RUN_RC: $(cat "$WORK/run.out"); log: $(cat "$CURL_LOG"))"
+fi
 # ── summary ────────────────────────────────────────────────────────────
 
 if [ "$FAIL" -ne 0 ]; then

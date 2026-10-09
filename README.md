@@ -91,7 +91,11 @@ cargo install ivar
 Or download a platform binary from the [latest release](https://github.com/mnzsss/ivar/releases/latest).
 Each release includes `ivar-linux-x86_64`, `ivar-linux-aarch64`,
 `ivar-darwin-x86_64`, and `ivar-darwin-aarch64`, plus a `.sha256` file for every
-artifact. Make the downloaded binary executable and put it on your `PATH`.
+artifact. The same binaries also come compressed as `.xz` and `.gz`
+(`ivar-linux-x86_64.xz` is about a quarter of the size); the install script
+uses them when `xz` or `gzip` is available. Decompress with
+`xz -d ivar-linux-x86_64.xz` or `gzip -d ivar-linux-x86_64.gz`, then make the
+binary executable and put it on your `PATH`.
 
 ## Start with a Hall
 

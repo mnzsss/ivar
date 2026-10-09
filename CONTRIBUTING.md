@@ -67,6 +67,28 @@ same machine with a warm build cache, and compare the two summaries. The
 script sets `RUSTC_BOOTSTRAP=1` to unlock the per-test timing, which makes
 cargo rebuild the test targets once the first time you run it.
 
+## Reclaiming disk space
+
+Cargo never deletes old artifacts from `target/`. Every dependency bump,
+toolchain bump and profile (`dev`, `release`, `e2e`, `cargo llvm-cov`'s
+instrumented build) adds another copy, and each worktree has its own
+`target/`, so a checkout that builds and tests for a few weeks reaches
+several gigabytes. A clean `cargo build` plus `cargo test --no-run` is
+about 1 GB.
+
+[`cargo-sweep`](https://github.com/holmgr/cargo-sweep) removes what is no
+longer used without throwing away the rest of the cache:
+
+```sh
+cargo install cargo-sweep
+cargo sweep --time 14     # artifacts not used in the last 14 days
+cargo sweep --installed   # artifacts from toolchains no longer installed
+```
+
+Run it from the repository root, in each worktree you keep. `cargo clean`
+is the blunt alternative: it removes everything and the next build starts
+cold.
+
 ## Testing a candidate locally
 
 `cargo test --test personas` runs the persona suite: the compiled binary driven
@@ -170,7 +192,10 @@ Three things then happen on that tag, in order:
    serves. Each one is smoke-tested before it is uploaded — the right
    architecture, a checksum sidecar in the format `scripts/install.sh` expects,
    and, where the runner can execute what it built, a `--version` that reports
-   the version being released.
+   the version being released. Once all four are up, it adds
+   compressed `.xz` and `.gz` copies of each, with their own sidecars, after
+   checking that each one decompresses to exactly the binary it came from
+   (`scripts/compress-release-assets.sh`).
 2. The same workflow then appends an Install section and the SHA-256 of every
    asset to the release body, below release-plz's changelog. It regenerates
    that block rather than appending to it, so re-runs do not stack.

@@ -4,7 +4,10 @@
 # POSIX sh, no runtime dependency beyond the standard toolchain. Detects the
 # platform, downloads the matching binary plus its SHA-256 sidecar, verifies
 # the checksum before anything becomes executable, and installs into
-# ${IVAR_INSTALL_DIR:-$HOME/.local/bin}.
+# ${IVAR_INSTALL_DIR:-$HOME/.local/bin}. When `xz` or `gzip` is on PATH it
+# downloads the compressed asset instead (about a third of the size), checks
+# that against its own sidecar before decompressing, and still checks the
+# result against the bare binary's sidecar.
 #
 # The default base URL is GitHub's `releases/latest/download`, which always
 # resolves to the newest release's assets — so this script does not change per
@@ -59,15 +62,35 @@ detect_platform() {
     printf '%s-%s\n' "$os" "$arch"
 }
 
-# verify_checksum — run the platform's tool against the sidecar.
-# The sidecar names `ivar` and the download sits next to it, so `-c` can
-# resolve the file relative to the temp dir.
-verify_checksum() { # tmpdir
+# verify_checksum — run the platform's tool against a sidecar.
+# Each sidecar names the file it checks (`ivar`, `ivar.xz`, `ivar.gz`) and the
+# download sits next to it, so `-c` can resolve the file relative to the temp
+# dir.
+verify_checksum() { # tmpdir sidecar
     if [ "$(uname -s)" = "Darwin" ]; then
-        (cd "$1" && shasum -a 256 -c ivar.sha256) >/dev/null
+        (cd "$1" && shasum -a 256 -c "$2") >/dev/null
     else
-        (cd "$1" && sha256sum -c ivar.sha256) >/dev/null
+        (cd "$1" && sha256sum -c "$2") >/dev/null
     fi
+}
+
+# pick_format — print the compressed asset extension this machine can
+# decode, or nothing. xz first: it is the smaller download. macOS ships gzip
+# and no xz, so a Mac without Homebrew's xz takes `.gz`.
+pick_format() {
+    if command -v xz >/dev/null 2>&1; then
+        printf 'xz\n'
+    elif command -v gzip >/dev/null 2>&1; then
+        printf 'gz\n'
+    fi
+}
+
+# decompress — write the decoded bytes of a verified download to `ivar`.
+decompress() { # format src dst
+    case "$1" in
+        xz) xz -dc -- "$2" > "$3" ;;
+        gz) gzip -dc -- "$2" > "$3" ;;
+    esac
 }
 
 # installed_version — print the version the installed binary reports, or
@@ -132,12 +155,32 @@ main() {
     bin_url="$IVAR_BASE_URL/ivar-$platform"
     sum_url="$bin_url.sha256"
 
-    curl -fsSL "$bin_url" -o "$tmpdir/ivar"
+    # The compressed asset is an optimisation, so a release (or an
+    # IVAR_BASE_URL mirror) without it falls back to the bare binary — the
+    # probe uses -f without -S, so that 404 prints nothing. A compressed file
+    # that downloads but fails its checksum is the opposite case: that is a
+    # hard failure, because falling back would hide tampering.
+    fmt="$(pick_format)"
+    fetched=""
+    if [ -n "$fmt" ] \
+        && curl -fsL "$bin_url.$fmt" -o "$tmpdir/ivar.$fmt" \
+        && curl -fsL "$bin_url.$fmt.sha256" -o "$tmpdir/ivar.$fmt.sha256"; then
+        verify_checksum "$tmpdir" "ivar.$fmt.sha256" \
+            || fail "checksum mismatch for ivar-$platform.$fmt; nothing was installed"
+        decompress "$fmt" "$tmpdir/ivar.$fmt" "$tmpdir/ivar" \
+            || fail "could not decompress ivar-$platform.$fmt; nothing was installed"
+        fetched="$fmt"
+    fi
+    if [ -z "$fetched" ]; then
+        curl -fsSL "$bin_url" -o "$tmpdir/ivar"
+    fi
     curl -fsSL "$sum_url" -o "$tmpdir/ivar.sha256"
 
     # Verify before chmod/mv: a bad artifact must never become executable,
-    # and the temp dir is still owned by the trap if this fails.
-    verify_checksum "$tmpdir"
+    # and the temp dir is still owned by the trap if this fails. A
+    # decompressed binary is checked here too, against the same sidecar a
+    # bare download would be.
+    verify_checksum "$tmpdir" ivar.sha256
 
     chmod 755 "$tmpdir/ivar"
     mkdir -p "$IVAR_INSTALL_DIR"
