@@ -14,6 +14,12 @@ name: release binaries
 # of that breaks `curl -fsSL https://ivar.run/install | sh` silently, and takes
 # packaging/aur/PKGBUILD-bin with it.
 #
+# Beside each bare binary the `compress` job adds `ivar-<os>-<arch>.xz` and
+# `.gz`, each with a sidecar naming `ivar.xz` / `ivar.gz`. The script prefers
+# them when it can decompress them and falls back to the bare binary when a
+# release has none, so they are an addition to the contract above, never a
+# replacement for it.
+#
 # Two entry points, and both take the tag explicitly rather than reading
 # `github.ref`, because neither is triggered by a tag push:
 #   - workflow_call     — the normal path, from release-plz.yml
@@ -277,18 +283,66 @@ jobs:
             cp "$file" "ivar.schema.${version}.json"
             gh release upload "$TAG" "ivar.schema.${version}.json" --clobber
           done
+
+  # The compressed assets ride on the bare ones rather than on the matrix:
+  # macOS runners do not guarantee `xz`, and one runner means one xz and one
+  # gzip, so the bytes do not depend on which image built which platform.
+  # `needs: upload` — with fail-fast off, a failed leg must not leave a
+  # release with compressed assets for three platforms; the script refuses
+  # an incomplete set anyway. The rules live in a script with an offline
+  # harness for the same reason the schema check does: YAML is a place
+  # nothing can run them.
+  compress:
+    name: compressed assets
+    needs: upload
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ inputs.tag }}
+          persist-credentials: false
+
+      - name: download the bare assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -eu
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir assets \
+            --pattern 'ivar-linux-x86_64' --pattern 'ivar-linux-x86_64.sha256' \
+            --pattern 'ivar-linux-aarch64' --pattern 'ivar-linux-aarch64.sha256' \
+            --pattern 'ivar-darwin-x86_64' --pattern 'ivar-darwin-x86_64.sha256' \
+            --pattern 'ivar-darwin-aarch64' --pattern 'ivar-darwin-aarch64.sha256'
+
+      - name: compress and verify
+        run: sh scripts/compress-release-assets.sh assets
+
+      # --clobber for the same reason as the binaries; the output is
+      # reproducible, so a re-run replaces each file with identical bytes.
+      - name: upload
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -eu
+          gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber \
+            assets/*.xz assets/*.gz assets/*.xz.sha256 assets/*.gz.sha256
+
   # release-plz writes the release body from the changelog, which says what
   # changed and nothing about how to get it. This appends the two things a
   # release page is otherwise missing: how to install this version, and the
   # checksums to verify a manual download against.
   #
-  # `needs: upload` and not `if: always()` — with fail-fast off, a single
-  # failed leg would otherwise publish a checksum block that is quietly missing
-  # a platform. Skipping is the right outcome; dispatching the workflow again
-  # for the tag fixes both the asset and these notes.
+  # `needs: compress` (which needs `upload`) and not `if: always()` — with
+  # fail-fast off, a single failed leg would otherwise publish a checksum
+  # block that is quietly missing a platform. Skipping is the right outcome;
+  # dispatching the workflow again for the tag fixes the assets and these
+  # notes.
   notes:
     name: release notes
-    needs: upload
+    needs: compress
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -303,9 +357,10 @@ jobs:
           set -euo pipefail
           gh release download "$TAG" --repo "$GITHUB_REPOSITORY" \
             --pattern '*.sha256' --dir sidecars
-          count=$(find sidecars -name '*.sha256' | wc -l | tr -d ' ')
-          if [ "$count" -ne 4 ]; then
-            echo "::error::expected 4 checksum sidecars on $TAG, found $count"
+          bare=$(find sidecars -name '*.sha256' ! -name '*.xz.sha256' ! -name '*.gz.sha256' | wc -l | tr -d ' ')
+          compressed=$(find sidecars \( -name '*.xz.sha256' -o -name '*.gz.sha256' \) | wc -l | tr -d ' ')
+          if [ "$bare" -ne 4 ] || [ "$compressed" -ne 8 ]; then
+            echo "::error::expected 4 bare and 8 compressed checksum sidecars on $TAG, found $bare and $compressed"
             exit 1
           fi
 
@@ -344,10 +399,11 @@ jobs:
             echo '## Checksums (SHA-256)'
             echo
             echo '```'
-            # The sidecars all name `ivar` — that is scripts/install.sh's
-            # contract, not a description of the file. Reading them back under
-            # the asset each one belongs to is the whole point of this block:
-            # four identical `… ivar` lines would tell a reader nothing.
+            # The sidecars name `ivar`, `ivar.xz` or `ivar.gz` — that is
+            # scripts/install.sh's contract, not a description of the file.
+            # Reading them back under the asset each one belongs to is the
+            # whole point of this block: four identical `… ivar` lines would
+            # tell a reader nothing.
             for sidecar in sidecars/*.sha256; do
               asset=$(basename "$sidecar" .sha256)
               printf '%s  %s\n' "$(awk 'NR == 1 { print $1 }' "$sidecar")" "$asset"
