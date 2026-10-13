@@ -83,6 +83,17 @@ fn a_bare_index_reindexes_every_configured_path_and_keeps_its_scope() {
         "{outcome:?}"
     );
     assert!(outcome.removed.scopes.is_empty(), "{:?}", outcome.removed);
+
+    let again = index(&root, &[]);
+
+    let hall = again
+        .repos
+        .iter()
+        .find(|r| r.repo == "hall")
+        .unwrap_or_else(|| panic!("{again:?}"));
+    assert_eq!(hall.files_indexed, 0, "{again:?}");
+    assert_eq!(hall.files_deleted, 0, "{again:?}");
+    assert!(again.removed.is_empty(), "{:?}", again.removed);
 }
 
 #[test]
@@ -127,4 +138,59 @@ fn index_refuses_repo_with_path_and_writes_nothing() {
     assert_eq!(error.code, "graph.index_conflict");
     let on_disk = std::fs::read_to_string(root.join("ivar.json")).unwrap();
     assert!(!on_disk.contains("\"graph\""), "{on_disk}");
+}
+
+fn hall_with_synced_api() -> (tempfile::TempDir, Utf8PathBuf) {
+    let (tmp, root) = crate::test_support::hall_root();
+    let ctx = Ctx::new(root.clone());
+    init(
+        &ctx,
+        &InitInput {
+            path: Utf8PathBuf::from("."),
+            name: Some("acme".to_owned()),
+            provider: None,
+        },
+    )
+    .unwrap();
+    let origin = crate::test_support::seeded_repo(
+        &root.parent().unwrap().join("origins").join("api"),
+        "main",
+    );
+    let layout = Layout::at(root.clone());
+    let manifest = Manifest::read(&layout)
+        .unwrap()
+        .unwrap()
+        .with_repo_added(crate::store::manifest::Repo::new(
+            crate::domain::name::RepoName::new("api").unwrap(),
+            origin.as_str(),
+            crate::domain::name::BranchName::new("main").unwrap(),
+        ))
+        .unwrap();
+    Manifest::write(&layout, &manifest).unwrap();
+    crate::action::sync::sync(&ctx, &Default::default()).unwrap();
+    (tmp, root)
+}
+
+#[test]
+fn index_of_one_repo_reconciles_nothing() {
+    let (_tmp, root) = hall_with_synced_api();
+    {
+        let db = GraphDb::open(root.join(".ivar/memory.db").as_std_path()).unwrap();
+        db.insert_repo("orca", "/x/orca", "main", None).unwrap();
+    }
+
+    let outcome = index_cmd(
+        &Ctx::new(root.clone()),
+        IndexInput {
+            repo: Some("api".to_owned()),
+            ..input(&[])
+        },
+    )
+    .unwrap()
+    .value;
+
+    assert!(outcome.repos.iter().any(|r| r.repo == "api"), "{outcome:?}");
+    assert!(outcome.removed.is_empty(), "{:?}", outcome.removed);
+    let db = GraphDb::open_read_only(root.join(".ivar/memory.db").as_std_path()).unwrap();
+    assert!(db.get_repo("orca").unwrap().is_some());
 }
