@@ -29,6 +29,7 @@ use crate::store::manifest::Manifest;
 
 use super::Ctx;
 use super::{discover_hall, read_manifest};
+use crate::action::graph::reconcile::HallFacts;
 use crate::action::session::base_view::{self, BaseView};
 use camino::{Utf8Path, Utf8PathBuf};
 
@@ -699,22 +700,82 @@ fn graph_diagnoses(layout: &Layout, manifest: &Manifest, git: &impl Git) -> Vec<
             });
         }
     }
+    let facts = HallFacts::gather(layout, manifest);
+    findings.extend(orphan_graph_diagnoses(&db, &facts));
     let leader = crate::action::graph::watch::lease::leader_pid(layout);
     for row in db.watch_scopes().unwrap_or_default() {
-        if let Some(error) = &row.error {
+        if !facts.scope_is_live(&row.scope) {
+            findings.push(Diagnosis {
+                code: "graph.watch_scope_orphaned",
+                what: format!(
+                    "graph scope `{}` has no repo, feature or path behind it",
+                    row.scope
+                ),
+                fix: "Run `ivar graph index`.".to_owned(),
+            });
+        } else if let Some(error) = &row.error {
             findings.push(Diagnosis {
                 code: "graph.watch_scope_failed",
                 what: format!(
                     "the graph watcher could not reindex `{}`: {error}",
                     row.scope
                 ),
-                fix: "Run `ivar graph index`; the watcher retries on the next change.".to_owned(),
+                fix: "Run `ivar graph index`; a leader retries once the scope is watched again."
+                    .to_owned(),
             });
         } else if leader.is_none() && (row.needs_catchup || row.indexed < row.observed) {
             findings.push(Diagnosis {
                 code: "graph.watch_catchup_pending",
                 what: format!("graph scope `{}` has changes no watcher indexed", row.scope),
                 fix: "Run `ivar graph index`, or start `ivar graph mcp` to catch up.".to_owned(),
+            });
+        }
+    }
+    findings
+}
+
+/// Base repos the manifest no longer declares and layers whose feature is
+/// gone: the rows `ivar graph index` reconciles away, named so a user learns
+/// why the graph is bigger than the hall.
+fn orphan_graph_diagnoses(db: &GraphDb, facts: &HallFacts) -> Vec<Diagnosis> {
+    let mut findings = Vec::new();
+    for row in db.list_base_repos().unwrap_or_default() {
+        if row.id == "hall" || facts.scope_is_live(&format!("base:{}", row.id)) {
+            continue;
+        }
+        let count = |table: &str| -> i64 {
+            db.conn()
+                .query_row(
+                    &format!("SELECT COUNT(*) FROM {table} WHERE repo = ?1"),
+                    [&row.id],
+                    |r| r.get(0),
+                )
+                .unwrap_or(0)
+        };
+        findings.push(Diagnosis {
+            code: "graph.repo_not_in_manifest",
+            what: format!(
+                "graph still holds `{}` ({} files, {} symbols, {} edges) but `ivar.json` no longer declares it",
+                row.id,
+                count("files"),
+                count("symbols"),
+                count("edges")
+            ),
+            fix: format!(
+                "Run `ivar graph clean --repo {}`, or `ivar graph index` to reconcile everything.",
+                row.id
+            ),
+        });
+    }
+    for layer in db.list_layer_records().unwrap_or_default() {
+        if !facts.layer_is_live(&layer.feature) {
+            findings.push(Diagnosis {
+                code: "graph.layer_orphaned",
+                what: format!(
+                    "graph layer `{}` for `{}` belongs to a feature that no longer exists",
+                    layer.feature, layer.repo
+                ),
+                fix: "Run `ivar graph index`.".to_owned(),
             });
         }
     }
