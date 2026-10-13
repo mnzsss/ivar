@@ -302,6 +302,13 @@ worktrees are retained after integration so receipt validation stays exact.
 
 The codebase graph is stored locally in SQLite at `.ivar/memory.db`.
 
+Hall paths are stored under the repo id `hall`, with hall-relative file paths.
+The id carries no `/` because every base view selects base rows with
+`repo NOT LIKE '%/%'`, the convention that marks feature layers. A bare
+`ivar graph index` (and `ivar sync`) also drops repos absent from `ivar.json`,
+layers of features whose directory is gone, and watch scopes with nothing
+behind them, and lists them under `removed` in its outcome.
+
 ### Graph schema v10
 
 Schema version 10 introduces the dedicated `file_content_fts` table and `files.content_truncated`
@@ -400,9 +407,17 @@ at the document for the version it was written as:
 {
   "$schema": "https://ivar.run/schema/4.json",
   "version": 4,
+  "graph": {
+    "paths": ["brand"]
+  },
   …
 }
 ```
+
+`graph.paths` lists hall-root directories that `ivar graph index --path <dir>` added.
+Each later `ivar graph index` and the graph watcher keep them indexed;
+`ivar graph clean --path <dir>` removes an entry. The key is absent when the
+list is empty.
 
 An editor that supports JSON Schema (VS Code, Cursor, Zed, OpenCode) uses that
 reference to validate the file, offer completion for every field and enum value,
