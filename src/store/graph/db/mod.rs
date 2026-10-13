@@ -16,6 +16,7 @@ use rusqlite::Connection;
 
 pub use crate::domain::graph::{Edge, EdgeKind, GraphStats, Provenance, Span, Symbol, SymbolKind};
 use crate::store::graph::schema;
+pub use layer::FORGET_BATCH;
 pub use types::*;
 
 /// Codebase graph database handle wrapping a synchronous SQLite connection.

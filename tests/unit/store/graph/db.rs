@@ -9,6 +9,7 @@ use super::*;
 use crate::domain::graph::{
     MissEvent, MissKind, Span, Symbol, SymbolKind, UsageEvent, UsageSource,
 };
+use crate::store::graph::db::FORGET_BATCH;
 use crate::store::graph::db::usage::MissFilter;
 use tempfile::tempdir;
 
@@ -1313,5 +1314,115 @@ fn indexed_content_search_handles_punctuation_and_quotes() {
     assert_eq!(
         db.search_file_content("", Some("app"), 10).unwrap().len(),
         0
+    );
+}
+
+#[test]
+fn list_base_repos_skips_layer_repos_and_orders_by_id() {
+    let db = GraphDb::open_in_memory().unwrap();
+    db.insert_repo("web", "/web", "main", None).unwrap();
+    db.insert_repo("api", "/api", "main", None).unwrap();
+    db.insert_repo("api/7", "/f/api", "feat", None).unwrap();
+
+    let ids: Vec<String> = db
+        .list_base_repos()
+        .unwrap()
+        .into_iter()
+        .map(|r| r.id)
+        .collect();
+
+    assert_eq!(ids, vec!["api", "web"]);
+}
+
+#[test]
+fn list_layer_records_returns_every_layer_in_feature_order() {
+    let db = GraphDb::open_in_memory().unwrap();
+    db.insert_repo("api", "/api", "main", None).unwrap();
+    db.ensure_layer_record("zeta", "api", "/z/api", "c1")
+        .unwrap();
+    db.ensure_layer_record("alpha", "api", "/a/api", "c1")
+        .unwrap();
+
+    let features: Vec<String> = db
+        .list_layer_records()
+        .unwrap()
+        .into_iter()
+        .map(|l| l.feature)
+        .collect();
+
+    assert_eq!(features, vec!["alpha", "zeta"]);
+}
+
+#[test]
+fn delete_files_under_removes_only_the_prefix_and_treats_like_wildcards_literally() {
+    let db = GraphDb::open_in_memory().unwrap();
+    db.insert_repo("hall", "/hall", "", None).unwrap();
+    db.upsert_file("hall", "brand/DESIGN.md", "h1", 1, 1)
+        .unwrap();
+    db.upsert_file("hall", "brand/moodboard/index.html", "h2", 1, 1)
+        .unwrap();
+    db.upsert_file("hall", "brandy/x.md", "h3", 1, 1).unwrap();
+    db.upsert_file("hall", "docs/a.md", "h4", 1, 1).unwrap();
+    db.upsert_file("hall", "br_nd/y.md", "h5", 1, 1).unwrap();
+
+    let removed = db.delete_files_under("hall", "brand").unwrap();
+
+    assert_eq!(removed, 2);
+    let left: Vec<String> = db
+        .get_files_for_repo("hall")
+        .unwrap()
+        .into_iter()
+        .map(|f| f.path)
+        .collect();
+    assert_eq!(left, vec!["br_nd/y.md", "brandy/x.md", "docs/a.md"]);
+    assert_eq!(db.delete_files_under("hall", "br_nd/").unwrap(), 1);
+}
+
+#[test]
+fn drop_feature_layers_propagates_a_failing_drop() {
+    let db = GraphDb::open_in_memory().unwrap();
+    db.insert_repo("api", "/api", "main", None).unwrap();
+    let id = db
+        .ensure_layer_record("feat", "api", "/f/api", "c1")
+        .unwrap();
+    db.insert_repo(&format!("api/{id}"), "/f/api", "feat", None)
+        .unwrap();
+    db.conn()
+        .execute_batch("DROP TABLE layer_tombstones;")
+        .unwrap();
+
+    let error = db.drop_feature_layers("feat").unwrap_err();
+
+    assert!(
+        error.to_string().contains("layer_tombstones"),
+        "was: {error}"
+    );
+}
+
+#[test]
+fn forget_repo_commits_in_batches_so_the_write_lock_is_short() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let db = GraphDb::open_in_memory().unwrap();
+    db.insert_repo("big", "/big", "main", None).unwrap();
+    for i in 0..(2 * FORGET_BATCH + 1) {
+        db.upsert_file("big", &format!("src/f{i}.rs"), "h", 1, 1)
+            .unwrap();
+    }
+    static COMMITS: AtomicUsize = AtomicUsize::new(0);
+    COMMITS.store(0, Ordering::SeqCst);
+    db.conn().commit_hook(Some(|| {
+        COMMITS.fetch_add(1, Ordering::SeqCst);
+        false
+    }));
+
+    db.forget_repo("big").unwrap();
+
+    db.conn().commit_hook(None::<fn() -> bool>);
+    assert!(db.get_repo("big").unwrap().is_none());
+    assert!(db.get_files_for_repo("big").unwrap().is_empty());
+    assert!(
+        COMMITS.load(Ordering::SeqCst) >= 3,
+        "commits: {}",
+        COMMITS.load(Ordering::SeqCst)
     );
 }

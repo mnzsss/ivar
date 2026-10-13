@@ -206,6 +206,51 @@ impl GraphDb {
         Ok(files)
     }
 
+    /// Every base repository row: ids never contain `/`, which the base views
+    /// reserve for feature layers.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GraphDbError`] if the query fails.
+    pub fn list_base_repos(&self) -> Result<Vec<RepoRow>> {
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT id, root_path, default_branch, last_indexed_commit, indexed_at
+             FROM repos WHERE id NOT LIKE '%/%' ORDER BY id",
+        )?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok(RepoRow {
+                    id: row.get(0)?,
+                    root_path: row.get(1)?,
+                    default_branch: row.get(2)?,
+                    last_indexed_commit: row.get(3)?,
+                    indexed_at: row.get(4)?,
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
+    }
+
+    /// Deletes every file of `repo` whose path is `prefix` itself or lies under
+    /// `prefix/`, returning how many rows went.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GraphDbError`] if the delete fails.
+    pub fn delete_files_under(&self, repo: &str, prefix: &str) -> Result<usize> {
+        let dir = prefix.trim_end_matches('/');
+        let escaped = dir
+            .replace('\\', "\\\\")
+            .replace('%', "\\%")
+            .replace('_', "\\_");
+        let pattern = format!("{escaped}/%");
+        let removed = self.conn.execute(
+            "DELETE FROM files WHERE repo = ?1 AND (path = ?2 OR path LIKE ?3 ESCAPE '\\')",
+            params![repo, dir, pattern],
+        )?;
+        Ok(removed)
+    }
+
     /// Deletes a file record by repo and path. Cascades to symbols and edges.
     ///
     /// # Errors
