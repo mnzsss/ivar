@@ -21,6 +21,9 @@ pub struct CleanupOutcome {
     pub removed: Vec<String>,
     /// Everything declined (the user said no, or the run was not a tty).
     pub kept: Vec<String>,
+    /// Repos forgotten in the graph database alongside their directory.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub graph_forgotten: Vec<String>,
 }
 
 impl WriteHuman for CleanupOutcome {
@@ -34,6 +37,9 @@ impl WriteHuman for CleanupOutcome {
         }
         for path in &self.kept {
             writeln!(w, "  kept    {path}")?;
+        }
+        for repo in &self.graph_forgotten {
+            writeln!(w, "  forgot  graph data of `{repo}`")?;
         }
         Ok(())
     }
@@ -56,6 +62,7 @@ pub fn cleanup(ctx: &Ctx) -> Outcome<CleanupOutcome> {
 
     let mut removed = Vec::new();
     let mut kept = Vec::new();
+    let mut graph_forgotten = Vec::new();
 
     let repos_dir = layout.repos_dir();
     if fs::is_dir(&repos_dir)? {
@@ -75,6 +82,15 @@ pub fn cleanup(ctx: &Ctx) -> Outcome<CleanupOutcome> {
             if ask_remove(ctx, &repo_dir)? {
                 fs::remove_path(&repo_dir)?;
                 removed.push(repo_dir.to_string());
+                let db_path = layout.ivar_dir().join("memory.db");
+                if db_path.is_file()
+                    && let Ok(_lock) = crate::action::graph::lock_index(&layout)
+                    && let Ok(db) = crate::store::graph::db::GraphDb::open(db_path.as_std_path())
+                    && db.get_repo(name).ok().flatten().is_some()
+                    && db.forget_repo(name).is_ok()
+                {
+                    graph_forgotten.push(name.to_owned());
+                }
             } else {
                 kept.push(repo_dir.to_string());
             }
@@ -85,6 +101,7 @@ pub fn cleanup(ctx: &Ctx) -> Outcome<CleanupOutcome> {
         root: layout.root().to_path_buf(),
         removed,
         kept,
+        graph_forgotten,
     }))
 }
 

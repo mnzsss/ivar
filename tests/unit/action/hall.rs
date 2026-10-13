@@ -183,6 +183,45 @@ fn cleanup_removes_when_the_confirmation_seam_says_yes() {
 }
 
 #[test]
+fn cleanup_forgets_a_removed_repo_in_the_graph() {
+    let (_guard, root) = utf8_temp_dir();
+    let mut ctx = Ctx::new(root.clone());
+    ctx = ctx.with_confirm(crate::action::confirm::fixed(true));
+    init(&ctx, &fresh_input()).unwrap();
+    fs::ensure_dir(&root.join(".ivar/repos/stale")).unwrap();
+    {
+        let db = crate::store::graph::db::GraphDb::open(root.join(".ivar/memory.db").as_std_path())
+            .unwrap();
+        db.insert_repo("stale", "/x/stale", "main", None).unwrap();
+        db.insert_repo("api", "/x/api", "main", None).unwrap();
+    }
+
+    let report = cleanup(&ctx).unwrap();
+
+    assert_eq!(report.value.graph_forgotten, vec!["stale"]);
+    let db = crate::store::graph::db::GraphDb::open_read_only(
+        root.join(".ivar/memory.db").as_std_path(),
+    )
+    .unwrap();
+    assert!(db.get_repo("stale").unwrap().is_none());
+    assert!(db.get_repo("api").unwrap().is_some());
+}
+
+#[test]
+fn cleanup_without_a_graph_database_still_removes_the_directory() {
+    let (_guard, root) = utf8_temp_dir();
+    let mut ctx = Ctx::new(root.clone());
+    ctx = ctx.with_confirm(crate::action::confirm::fixed(true));
+    init(&ctx, &fresh_input()).unwrap();
+    fs::ensure_dir(&root.join(".ivar/repos/stale")).unwrap();
+
+    let report = cleanup(&ctx).unwrap();
+
+    assert_eq!(report.value.removed.len(), 1);
+    assert!(report.value.graph_forgotten.is_empty());
+}
+
+#[test]
 fn init_creates_the_expected_on_disk_shape() {
     let (_guard, root) = utf8_temp_dir();
     let ctx = Ctx::new(root.clone());
