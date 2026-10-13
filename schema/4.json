@@ -1,5 +1,22 @@
 {
   "$defs": {
+    "Graph": {
+      "additionalProperties": false,
+      "description": "Which hall-root directories `ivar graph index` keeps in the graph.",
+      "properties": {
+        "paths": {
+          "description": "Hall-relative directories, normalised and sorted.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "paths"
+      ],
+      "type": "object"
+    },
     "IntegrationPolicy": {
       "additionalProperties": false,
       "description": "A fully-resolved integration policy: one via, one strategy.",
@@ -210,6 +227,17 @@
       "const": "https://ivar.run/schema/4.json",
       "description": "URL of the JSON Schema for this file.",
       "type": "string"
+    },
+    "graph": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Graph"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Hall-root directories the graph indexes on request."
     },
     "integration": {
       "$ref": "#/$defs/IntegrationPolicy",
