@@ -899,3 +899,21 @@ fn delete_refuses_an_untracked_file_in_a_worktree_unless_forced() {
     };
     assert!(delete(&ctx, forced).unwrap().value.feature_removed);
 }
+
+#[test]
+fn delete_warns_when_the_graph_database_cannot_drop_the_layers() {
+    let (_guard, root) = hall_with_promoted_feature();
+    std::fs::write(root.join(".ivar/memory.db"), b"not sqlite").unwrap();
+    let ctx = Ctx::new(root.clone());
+
+    let report = delete(&ctx, delete_input("checkout")).unwrap();
+
+    assert!(
+        report
+            .warnings
+            .iter()
+            .any(|w| w.code == "graph.layers_not_dropped" && w.subject == "checkout"),
+        "warnings: {:?}",
+        report.warnings
+    );
+}

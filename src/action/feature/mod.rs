@@ -46,6 +46,33 @@ pub(crate) use relations::descendants;
 
 pub mod select;
 
+use crate::domain::name::FeatureName;
+use crate::error::Warning;
+use crate::store::layout::Layout;
+
+/// Drops a feature's graph layers; a failure is a warning, never a stop,
+/// because the feature directory is already gone and `ivar graph index`
+/// reconciles leftovers.
+pub(super) fn drop_layers_or_warn(layout: &Layout, name: &FeatureName) -> Option<Warning> {
+    let db_path = layout.ivar_dir().join("memory.db");
+    if !db_path.is_file() {
+        return None;
+    }
+    let dropped = crate::store::graph::db::GraphDb::open(db_path.as_std_path())
+        .map_err(|e| e.to_string())
+        .and_then(|db| {
+            db.drop_feature_layers(name.as_str())
+                .map_err(|e| e.to_string())
+        });
+    dropped.err().map(|reason| {
+        Warning::new(
+            "graph.layers_not_dropped",
+            name.to_string(),
+            format!("graph layers were not dropped: {reason}; run `ivar graph index`"),
+        )
+    })
+}
+
 #[cfg(test)]
 #[path = "../../../tests/unit/action/feature/lifecycle_graph.rs"]
 mod lifecycle_graph_tests;
