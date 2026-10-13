@@ -16,6 +16,7 @@ pub mod narrate;
 pub mod outcome;
 pub mod path;
 pub mod query;
+pub mod reconcile;
 pub mod session;
 pub mod usage;
 pub mod view;
@@ -244,7 +245,7 @@ pub fn index_cmd(ctx: &Ctx, args: IndexInput) -> Outcome<IndexBatchOutcome> {
         .map_err(|err| Failure::failed("graph.index_failed", err.to_string()))?;
         HallIndex {
             repos: vec![outcome],
-            repos_failed: Vec::new(),
+            ..Default::default()
         }
     } else {
         index::index_hall(&db, &layout, &manifest, args.full, ctx.progress())

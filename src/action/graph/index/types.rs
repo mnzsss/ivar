@@ -50,6 +50,8 @@ pub struct RepoFailure {
 pub struct HallIndex {
     pub repos: Vec<IndexOutcome>,
     pub repos_failed: Vec<RepoFailure>,
+    pub removed: crate::action::graph::reconcile::Removed,
+    pub reconcile_failed: Option<String>,
 }
 
 impl FileFailure {

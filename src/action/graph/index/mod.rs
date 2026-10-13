@@ -440,6 +440,10 @@ pub fn index_hall(
     progress: &dyn Progress,
 ) -> HallIndex {
     let mut hall = HallIndex::default();
+    match crate::action::graph::reconcile::reconcile(db, layout, manifest) {
+        Ok(removed) => hall.removed = removed,
+        Err(error) => hall.reconcile_failed = Some(error.to_string()),
+    }
     for repo in manifest.repos() {
         let worktree = layout.repo_worktree(repo.name(), repo.default_branch());
         if !worktree.as_std_path().exists() {
