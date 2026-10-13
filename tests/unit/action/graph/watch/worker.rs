@@ -372,3 +372,38 @@ fn symlinked_worktree_and_control_dirs_classify_canonical_fs_events() {
         "Canonical control dir event must set rediscover"
     );
 }
+
+fn scope_rows(db: &GraphDb) -> Vec<String> {
+    db.watch_scopes()
+        .unwrap()
+        .into_iter()
+        .map(|r| r.scope)
+        .collect()
+}
+
+#[test]
+fn a_scope_row_left_by_an_earlier_leader_is_forgotten_on_start() {
+    let (_tmp, layout, repo) = hall_with_repo();
+    {
+        let db = GraphDb::open(layout.ivar_dir().join("memory.db").as_std_path()).unwrap();
+        db.watch_register("base:gone").unwrap();
+        db.watch_register("layer:old:api").unwrap();
+    }
+    let (_worker, db) = start(&layout, &repo);
+
+    wait_for("catch-up", || db.watch_settled(&["base:api"]).unwrap());
+    wait_for("stale rows forgotten", || {
+        scope_rows(&db) == vec!["base:api"]
+    });
+}
+
+#[test]
+fn a_leader_with_no_targets_forgets_every_row() {
+    let (_tmp, layout, _repo) = hall_with_repo();
+    let db_path = layout.ivar_dir().join("memory.db");
+    let db = GraphDb::open(db_path.as_std_path()).unwrap();
+    db.watch_register("base:gone").unwrap();
+    let _worker = Worker::spawn(layout.clone(), db_path, Box::new(|_, _| Vec::new())).unwrap();
+
+    wait_for("rows forgotten", || scope_rows(&db).is_empty());
+}

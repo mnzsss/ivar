@@ -119,6 +119,18 @@ pub(super) fn process_due_scopes(
     }
 }
 
+fn forget_rows_without_target(layout: &Layout, db: &GraphDb, targets: &[Target]) {
+    let Ok(_lock) = crate::action::graph::lock_index(layout) else {
+        return;
+    };
+    let keep: std::collections::BTreeSet<String> = targets.iter().map(|t| t.scope.key()).collect();
+    for row in db.watch_scopes().unwrap_or_default() {
+        if !keep.contains(&row.scope) {
+            let _ = db.watch_forget(&row.scope);
+        }
+    }
+}
+
 pub(super) fn run(
     layout: Layout,
     db_path: Utf8PathBuf,
@@ -152,6 +164,7 @@ pub(super) fn run(
             now,
         );
     }
+    forget_rows_without_target(&layout, &db, &targets);
 
     let mut rediscover = false;
 
@@ -193,16 +206,15 @@ pub(super) fn run(
             add_control_dirs(&layout, &mut set, &mut watcher);
             let new_targets = discover(&layout, &db);
 
-            // Targets gone: remove scope from set, unwatch paths, forget from DB
             for old_t in &targets {
                 if !new_targets.iter().any(|t| t.scope == old_t.scope) {
                     let unwatched = set.remove_scope(&old_t.scope);
                     for p in unwatched {
                         let _ = watcher.unwatch(p.as_std_path());
                     }
-                    let _ = db.watch_forget(&old_t.scope.key());
                 }
             }
+            forget_rows_without_target(&layout, &db, &new_targets);
 
             // Targets new: register, watch, and catch-up
             for new_t in &new_targets {
