@@ -275,6 +275,7 @@ impl Manifest {
         } else {
             Some(Graph { paths })
         };
+        manifest.validate()?;
         Ok(manifest)
     }
 
@@ -431,6 +432,24 @@ impl Manifest {
                         name: server.name.clone(),
                         reason: format!("{reason}"),
                     })?;
+            }
+        }
+
+        if let Some(graph) = &self.graph {
+            let mut seen: HashSet<&str> = HashSet::new();
+            for path in &graph.paths {
+                if normalise_graph_path(path)? != *path {
+                    return Err(Error::InvalidGraphPath {
+                        path: path.clone(),
+                        reason: "must be written in normalised form".to_owned(),
+                    });
+                }
+                if !seen.insert(path.as_str()) {
+                    return Err(Error::InvalidGraphPath {
+                        path: path.clone(),
+                        reason: "listed more than once".to_owned(),
+                    });
+                }
             }
         }
         Ok(())

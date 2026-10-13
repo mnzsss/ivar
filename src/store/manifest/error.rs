@@ -84,7 +84,7 @@ pub enum Error {
     #[error("graph path `{path}` is invalid: {reason}")]
     InvalidGraphPath { path: String, reason: String },
 
-    /// `ivar graph remove` named a directory `graph.paths` does not list.
+    /// `ivar graph clean --path <dir>` named a directory `graph.paths` does not list.
     #[error("graph path `{path}` is not in `ivar.json`")]
     GraphPathNotFound { path: String },
 }
@@ -213,7 +213,7 @@ impl From<Error> for Failure {
             .actual(format!("`{path}` does not appear in ivar.json"))
             .fix(FixAction::safe(
                 "manifest.add_graph_path_first",
-                format!("Add `{path}` with `ivar graph add`, or check the spelling."),
+                format!("Add `{path}` with `ivar graph index --path <dir>`, or check the spelling."),
             )),
         }
     }

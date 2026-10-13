@@ -640,3 +640,27 @@ fn graph_paths_round_trip_through_write_and_read_and_survive_other_builders() {
     assert_eq!(read_back, manifest);
     assert_eq!(read_back.graph_paths(), ["brand"]);
 }
+
+#[test]
+fn graph_paths_that_are_not_normalised_or_repeated_are_rejected_on_read() {
+    let (_dir, root) = utf8_temp_dir();
+    let layout = Layout::at(root);
+    let manifest_with = |paths: &str| {
+        format!(
+            r#"{{"version":4,"name":"acme","providers":{{"available":["claude-code"],"default":"claude-code"}},"repos":[],"integration":{{"via":"local","strategy":"squash"}},"graph":{{"paths":{paths}}}}}"#
+        )
+    };
+
+    for bad in [r#"["../x"]"#, r#"["./brand"]"#, r#"["brand/"]"#, r#"["brand","brand"]"#] {
+        fs::write_text(&layout.manifest(), &manifest_with(bad)).unwrap();
+        let error = Manifest::read(&layout).unwrap_err();
+        assert!(
+            matches!(error, Error::InvalidGraphPath { .. }),
+            "{bad}: {error:?}"
+        );
+    }
+
+    fs::write_text(&layout.manifest(), &manifest_with(r#"["brand"]"#)).unwrap();
+    let manifest = Manifest::read(&layout).unwrap().unwrap();
+    assert_eq!(manifest.graph_paths(), ["brand"]);
+}
