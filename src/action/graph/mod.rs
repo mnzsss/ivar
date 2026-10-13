@@ -329,9 +329,14 @@ pub fn index_cmd(ctx: &Ctx, args: IndexInput) -> Outcome<IndexBatchOutcome> {
 
 // 9. stats
 pub fn stats_cmd(ctx: &Ctx) -> Outcome<StatsOutcome> {
+    let layout = discover_hall(ctx)?;
+    let manifest = read_manifest(&layout)?;
     let db = open_graph_db(ctx)?;
     let _ = db.prune(MISS_RETENTION_DAYS);
-    let stats = query::get_graph_stats(&db)
+    let mut stats = query::get_graph_stats(&db)
+        .map_err(|err| Failure::failed("graph.stats_failed", err.to_string()))?;
+    stats.hall_paths = db
+        .hall_path_stats(manifest.graph_paths())
         .map_err(|err| Failure::failed("graph.stats_failed", err.to_string()))?;
     Ok(Report::new(StatsOutcome(stats)))
 }

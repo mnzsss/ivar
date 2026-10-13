@@ -14,7 +14,9 @@ use std::path::Path;
 
 use rusqlite::Connection;
 
-pub use crate::domain::graph::{Edge, EdgeKind, GraphStats, Provenance, Span, Symbol, SymbolKind};
+pub use crate::domain::graph::{
+    Edge, EdgeKind, GraphStats, HallPathStats, Provenance, Span, Symbol, SymbolKind,
+};
 use crate::store::graph::schema;
 pub use layer::FORGET_BATCH;
 pub use types::*;
@@ -190,7 +192,36 @@ impl GraphDb {
             db_size_bytes: u64::try_from(page_count * page_size).unwrap_or(u64::MAX),
             layers,
             usage,
+            hall_paths: Vec::new(),
         })
+    }
+
+    /// File counts per configured hall path, read from the `hall` repo.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GraphDbError`] if a count query fails.
+    pub fn hall_path_stats(&self, hall_paths: &[String]) -> Result<Vec<HallPathStats>> {
+        hall_paths
+            .iter()
+            .map(|dir| {
+                let dir = dir.trim_end_matches('/');
+                let escaped = dir
+                    .replace('\\', "\\\\")
+                    .replace('%', "\\%")
+                    .replace('_', "\\_");
+                let pattern = format!("{escaped}/%");
+                let file_count: i64 = self.conn.query_row(
+                    "SELECT COUNT(*) FROM files WHERE repo = 'hall' AND path LIKE ?1 ESCAPE '\\'",
+                    [&pattern],
+                    |r| r.get(0),
+                )?;
+                Ok(HallPathStats {
+                    path: dir.to_owned(),
+                    file_count: usize::try_from(file_count).unwrap_or(usize::MAX),
+                })
+            })
+            .collect()
     }
 }
 
