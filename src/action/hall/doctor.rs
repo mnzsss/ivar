@@ -740,7 +740,9 @@ fn graph_diagnoses(layout: &Layout, manifest: &Manifest, git: &impl Git) -> Vec<
 fn orphan_graph_diagnoses(db: &GraphDb, facts: &HallFacts) -> Vec<Diagnosis> {
     let mut findings = Vec::new();
     for row in db.list_base_repos().unwrap_or_default() {
-        if row.id == "hall" || facts.scope_is_live(&format!("base:{}", row.id)) {
+        if row.id == crate::action::graph::index::HALL_REPO
+            || facts.scope_is_live(&format!("base:{}", row.id))
+        {
             continue;
         }
         let count = |table: &str| -> i64 {

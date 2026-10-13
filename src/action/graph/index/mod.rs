@@ -22,7 +22,9 @@ use crate::store::graph::extractor::{ExtractedFile, extract_file};
 use crate::store::layout::Layout;
 use crate::store::manifest::Manifest;
 
+pub mod hall_path;
 pub mod types;
+pub use hall_path::{HALL_REPO, index_hall_path, validate_hall_path, walk_hall_dir};
 pub use types::{
     FileFailure, HallIndex, IndexError, IndexOutcome, RepoFailure, TextClassification,
     is_ignored_dir, is_ignored_file_path, is_ignored_path,
@@ -205,7 +207,7 @@ fn discover_changed_files(
     Ok((files_to_index, files_to_delete, listed_by_git_diff))
 }
 
-fn build_extract_jobs(
+pub(super) fn build_extract_jobs(
     db: &GraphDb,
     repo_id: &str,
     repo_path: &Path,
@@ -275,7 +277,7 @@ fn build_extract_jobs(
     Ok((jobs, files_failed))
 }
 
-fn run_extraction_jobs(
+pub(super) fn run_extraction_jobs(
     jobs: &[ExtractJob],
     repo_id: &str,
     db: &GraphDb,
@@ -362,7 +364,7 @@ fn run_extraction_jobs(
     ))
 }
 
-struct ExtractJob {
+pub(super) struct ExtractJob {
     rel_path: String,
     full_path: PathBuf,
     lang: Option<SupportedLanguage>,

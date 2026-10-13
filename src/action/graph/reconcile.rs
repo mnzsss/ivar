@@ -10,7 +10,7 @@ use crate::store::graph::db::{GraphDb, GraphDbError};
 use crate::store::layout::Layout;
 use crate::store::manifest::Manifest;
 
-const HALL_REPO: &str = "hall";
+use super::index::HALL_REPO;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct RemovedLayer {

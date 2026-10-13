@@ -15,6 +15,8 @@ pub enum IndexError {
     Git(#[from] crate::git::Error),
     #[error("Database error: {0}")]
     Db(#[from] GraphDbError),
+    #[error("walk error: {0}")]
+    Walk(#[from] walkdir::Error),
 }
 
 /// Statistics and outcome of an indexing run.
