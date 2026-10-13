@@ -110,3 +110,21 @@ fn index_refuses_a_path_inside_ivar_and_writes_nothing() {
     let manifest = Manifest::read(&Layout::at(root)).unwrap().unwrap();
     assert!(manifest.graph_paths().is_empty());
 }
+
+#[test]
+fn index_refuses_repo_with_path_and_writes_nothing() {
+    let (_tmp, root) = hall_with_brand();
+
+    let error = index_cmd(
+        &Ctx::new(root.clone()),
+        IndexInput {
+            repo: Some("x".to_owned()),
+            ..input(&["brand"])
+        },
+    )
+    .unwrap_err();
+
+    assert_eq!(error.code, "graph.index_conflict");
+    let on_disk = std::fs::read_to_string(root.join("ivar.json")).unwrap();
+    assert!(!on_disk.contains("\"graph\""), "{on_disk}");
+}

@@ -74,3 +74,9 @@ fn test_cli_graph_view_mutually_exclusive_seeds() {
     ]);
     assert!(err.is_err(), "file and impact must conflict");
 }
+
+#[test]
+fn graph_index_refuses_repo_and_path_together() {
+    let err = Cli::try_parse_from(["ivar", "graph", "index", "--repo", "x", "--path", "brand"]);
+    assert!(err.is_err(), "repo and path must conflict");
+}

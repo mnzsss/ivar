@@ -227,6 +227,12 @@ fn persist_hall_paths(
 
 // 8. index
 pub fn index_cmd(ctx: &Ctx, args: IndexInput) -> Outcome<IndexBatchOutcome> {
+    if args.repo.is_some() && !args.paths.is_empty() {
+        return Err(Failure::blocked(
+            "graph.index_conflict",
+            "Cannot combine `--repo` with `--path`.",
+        ));
+    }
     let layout = discover_hall(ctx)?;
     let _lock = lock_index(&layout)?;
 
