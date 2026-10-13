@@ -24,7 +24,7 @@ fn the_human_surface_names_every_removed_repo_layer_and_scope() {
             repo: "api".into(),
         }],
         scopes: vec!["base:ivar-bb".into()],
-        hall_files: 0,
+        hall_files: 2,
         skipped: None,
     });
     let mut buf = Vec::new();
@@ -35,6 +35,7 @@ fn the_human_surface_names_every_removed_repo_layer_and_scope() {
     assert!(text.contains("repo orca"), "{text}");
     assert!(text.contains("layer old/api"), "{text}");
     assert!(text.contains("scope base:ivar-bb"), "{text}");
+    assert!(text.contains("2 hall files outside graph.paths"), "{text}");
 }
 
 #[test]

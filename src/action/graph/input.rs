@@ -102,6 +102,7 @@ pub struct CleanInput {
     pub repo: Option<String>,
     pub feature: Option<String>,
     pub all: bool,
+    pub path: Option<String>,
 }
 
 #[derive(Debug, Clone)]

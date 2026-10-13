@@ -125,6 +125,7 @@ fn test_clean_cmd_validation_errors() {
             repo: None,
             feature: None,
             all: false,
+            path: None,
         },
     );
     assert!(res.is_err());
@@ -138,6 +139,7 @@ fn test_clean_cmd_validation_errors() {
             repo: Some("repo1".into()),
             feature: None,
             all: true,
+            path: None,
         },
     );
     assert!(res.is_err());
@@ -157,6 +159,7 @@ fn test_clean_cmd_repo_not_found() {
             repo: Some("nonexistent".into()),
             feature: None,
             all: false,
+            path: None,
         },
     );
     assert!(res.is_err());
@@ -184,6 +187,7 @@ fn test_clean_cmd_removes_repo_and_then_clean_all() {
             repo: Some("repo1".into()),
             feature: None,
             all: false,
+            path: None,
         },
     )
     .unwrap();
@@ -209,6 +213,7 @@ fn test_clean_cmd_removes_repo_and_then_clean_all() {
             repo: None,
             feature: None,
             all: true,
+            path: None,
         },
     )
     .unwrap();
@@ -226,4 +231,120 @@ fn test_clean_cmd_removes_repo_and_then_clean_all() {
     assert_eq!(final_stats.file_count, 0);
     assert_eq!(final_stats.symbol_count, 0);
     assert_eq!(final_stats.edge_count, 0);
+}
+
+fn hall_with_two_paths() -> (tempfile::TempDir, Utf8PathBuf) {
+    let tmp = tempdir().unwrap();
+    let root = Utf8PathBuf::from_path_buf(tmp.path().to_path_buf()).unwrap();
+    let ctx = Ctx::new(root.clone());
+    crate::action::hall::init(
+        &ctx,
+        &crate::action::hall::InitInput {
+            path: Utf8PathBuf::from("."),
+            name: Some("acme".to_owned()),
+            provider: None,
+        },
+    )
+    .unwrap();
+    let layout = crate::store::layout::Layout::at(root.clone());
+    let manifest = crate::store::manifest::Manifest::read(&layout)
+        .unwrap()
+        .unwrap()
+        .with_graph_path_added("brand")
+        .unwrap()
+        .with_graph_path_added("docs")
+        .unwrap();
+    crate::store::manifest::Manifest::write(&layout, &manifest).unwrap();
+    let db = GraphDb::open(root.join(".ivar/memory.db").as_std_path()).unwrap();
+    db.insert_repo("hall", root.as_str(), "", None).unwrap();
+    db.upsert_file("hall", "brand/DESIGN.md", "h1", 1, 1)
+        .unwrap();
+    db.upsert_file("hall", "docs/a.md", "h2", 1, 1).unwrap();
+    db.watch_register("hall:brand").unwrap();
+    db.watch_register("hall:docs").unwrap();
+    (tmp, root)
+}
+
+fn clean_path(
+    root: &Utf8PathBuf,
+    path: &str,
+) -> Result<crate::action::graph::outcome::CleanOutcome, crate::error::Failure> {
+    clean_cmd(
+        &Ctx::new(root.clone()),
+        CleanInput {
+            repo: None,
+            feature: None,
+            all: false,
+            path: Some(path.to_owned()),
+        },
+    )
+    .map(|r| r.value)
+}
+
+#[test]
+fn clean_path_removes_the_files_the_scope_and_the_manifest_entry() {
+    let (_tmp, root) = hall_with_two_paths();
+
+    let outcome = clean_path(&root, "brand/").unwrap();
+
+    assert_eq!(outcome.path.as_deref(), Some("brand"));
+    assert_eq!(outcome.files_removed, 1);
+    let db = GraphDb::open_read_only(root.join(".ivar/memory.db").as_std_path()).unwrap();
+    let paths: Vec<String> = db
+        .get_files_for_repo("hall")
+        .unwrap()
+        .into_iter()
+        .map(|f| f.path)
+        .collect();
+    assert_eq!(paths, vec!["docs/a.md"]);
+    let scopes: Vec<String> = db
+        .watch_scopes()
+        .unwrap()
+        .into_iter()
+        .map(|r| r.scope)
+        .collect();
+    assert_eq!(scopes, vec!["hall:docs"]);
+    let manifest = crate::store::manifest::Manifest::read(&crate::store::layout::Layout::at(root))
+        .unwrap()
+        .unwrap();
+    assert_eq!(manifest.graph_paths(), ["docs"]);
+}
+
+#[test]
+fn cleaning_the_last_path_drops_the_hall_repo() {
+    let (_tmp, root) = hall_with_two_paths();
+    clean_path(&root, "brand").unwrap();
+
+    let outcome = clean_path(&root, "docs").unwrap();
+
+    assert_eq!(outcome.repos_removed, 1);
+    let db = GraphDb::open_read_only(root.join(".ivar/memory.db").as_std_path()).unwrap();
+    assert!(db.get_repo("hall").unwrap().is_none());
+}
+
+#[test]
+fn clean_path_refuses_a_path_that_is_not_configured() {
+    let (_tmp, root) = hall_with_two_paths();
+
+    let error = clean_path(&root, "nope").unwrap_err();
+
+    assert_eq!(error.code, "graph.path_not_configured");
+}
+
+#[test]
+fn clean_refuses_path_together_with_repo() {
+    let (_tmp, root) = hall_with_two_paths();
+
+    let error = clean_cmd(
+        &Ctx::new(root),
+        CleanInput {
+            repo: Some("x".into()),
+            feature: None,
+            all: false,
+            path: Some("brand".into()),
+        },
+    )
+    .unwrap_err();
+
+    assert_eq!(error.code, "graph.clean_conflict");
 }

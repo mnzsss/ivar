@@ -345,6 +345,13 @@ impl WriteHuman for IndexBatchOutcome {
             for scope in &self.removed.scopes {
                 writeln!(w, "    - scope {scope}")?;
             }
+            if self.removed.hall_files > 0 {
+                writeln!(
+                    w,
+                    "    - {} hall files outside graph.paths",
+                    self.removed.hall_files
+                )?;
+            }
         }
         if self.cross_edges_linked > 0 {
             writeln!(w, "  Linked {} cross-repo edges.", self.cross_edges_linked)?;
@@ -441,6 +448,9 @@ impl ToCompact for IndexBatchOutcome {
         for scope in &self.removed.scopes {
             let _ = write!(out, "\n{scope}|removed|scope");
         }
+        if self.removed.hall_files > 0 {
+            let _ = write!(out, "\n{}|removed|hall_files", self.removed.hall_files);
+        }
         out
     }
 }
@@ -495,6 +505,8 @@ pub struct CleanOutcome {
     pub repo: Option<String>,
     pub feature: Option<String>,
     pub all: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
     pub repos_removed: usize,
     pub files_removed: usize,
     pub symbols_removed: usize,

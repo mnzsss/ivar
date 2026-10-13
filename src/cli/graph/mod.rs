@@ -266,6 +266,9 @@ pub struct GraphCleanArgs {
     /// Remove all repositories and data from the graph database.
     #[arg(long)]
     pub all: bool,
+    /// Remove one hall directory from the index and from `graph.paths` in `ivar.json`.
+    #[arg(long, value_name = "DIR")]
+    pub path: Option<String>,
 }
 
 impl From<GraphCleanArgs> for crate::action::graph::input::CleanInput {
@@ -274,6 +277,7 @@ impl From<GraphCleanArgs> for crate::action::graph::input::CleanInput {
             repo: args.repo,
             feature: args.feature,
             all: args.all,
+            path: args.path,
         }
     }
 }
