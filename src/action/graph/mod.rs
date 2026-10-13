@@ -270,6 +270,21 @@ pub fn index_cmd(ctx: &Ctx, args: IndexInput) -> Outcome<IndexBatchOutcome> {
         (McpRegistration::Skipped, None)
     };
 
+    let mut warnings: Vec<crate::error::Warning> = warning.into_iter().collect();
+    if let Some(reason) = &hall.reconcile_failed {
+        warnings.push(crate::error::Warning::new(
+            "graph.reconcile_failed",
+            "graph",
+            format!("stale state was not reconciled: {reason}"),
+        ));
+    }
+    if let Some(reason) = &hall.removed.skipped {
+        warnings.push(crate::error::Warning::new(
+            "graph.reconcile_skipped",
+            "graph",
+            reason.clone(),
+        ));
+    }
     Ok(Report::with_warnings(
         IndexBatchOutcome {
             repos: hall.repos,
@@ -277,8 +292,9 @@ pub fn index_cmd(ctx: &Ctx, args: IndexInput) -> Outcome<IndexBatchOutcome> {
             cross_edges_linked,
             mcp_registration,
             next_command: (mcp_registration == McpRegistration::Registered).then_some("ivar sync"),
+            removed: hall.removed,
         },
-        warning.into_iter().collect(),
+        warnings,
     ))
 }
 
@@ -450,3 +466,7 @@ mod clean_stats_tests;
 #[cfg(test)]
 #[path = "../../../tests/unit/action/graph/misses_cmd.rs"]
 mod misses_cmd_tests;
+
+#[cfg(test)]
+#[path = "../../../tests/unit/action/graph/index_cmd_reconcile.rs"]
+mod index_cmd_reconcile_tests;

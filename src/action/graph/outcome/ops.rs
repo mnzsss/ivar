@@ -290,6 +290,8 @@ pub struct IndexBatchOutcome {
     pub mcp_registration: McpRegistration,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub next_command: Option<&'static str>,
+    #[serde(skip_serializing_if = "crate::action::graph::reconcile::Removed::is_empty")]
+    pub removed: crate::action::graph::reconcile::Removed,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -331,6 +333,18 @@ impl WriteHuman for IndexBatchOutcome {
         }
         for failure in &self.repos_failed {
             writeln!(w, "  - {}: failed: {}", failure.repo, failure.reason)?;
+        }
+        if !self.removed.is_empty() {
+            writeln!(w, "  Removed stale graph state:")?;
+            for repo in &self.removed.repos {
+                writeln!(w, "    - repo {repo}")?;
+            }
+            for layer in &self.removed.layers {
+                writeln!(w, "    - layer {}/{}", layer.feature, layer.repo)?;
+            }
+            for scope in &self.removed.scopes {
+                writeln!(w, "    - scope {scope}")?;
+            }
         }
         if self.cross_edges_linked > 0 {
             writeln!(w, "  Linked {} cross-repo edges.", self.cross_edges_linked)?;
@@ -417,6 +431,15 @@ impl ToCompact for IndexBatchOutcome {
         }
         for failure in &self.repos_failed {
             let _ = write!(out, "\n{}|failed|{}", failure.repo, failure.reason);
+        }
+        for repo in &self.removed.repos {
+            let _ = write!(out, "\n{repo}|removed|repo");
+        }
+        for layer in &self.removed.layers {
+            let _ = write!(out, "\n{}/{}|removed|layer", layer.feature, layer.repo);
+        }
+        for scope in &self.removed.scopes {
+            let _ = write!(out, "\n{scope}|removed|scope");
         }
         out
     }
