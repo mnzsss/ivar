@@ -651,7 +651,12 @@ fn graph_paths_that_are_not_normalised_or_repeated_are_rejected_on_read() {
         )
     };
 
-    for bad in [r#"["../x"]"#, r#"["./brand"]"#, r#"["brand/"]"#, r#"["brand","brand"]"#] {
+    for bad in [
+        r#"["../x"]"#,
+        r#"["./brand"]"#,
+        r#"["brand/"]"#,
+        r#"["brand","brand"]"#,
+    ] {
         fs::write_text(&layout.manifest(), &manifest_with(bad)).unwrap();
         let error = Manifest::read(&layout).unwrap_err();
         assert!(
