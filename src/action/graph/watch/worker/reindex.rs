@@ -45,5 +45,17 @@ pub(super) fn reindex(layout: &Layout, db: &GraphDb, target: &Target) -> Result<
             ensure_layer_indexed(db, layout, feature, repo, &target.worktree, &base)?;
             Ok(())
         }
+        TargetKind::Hall => {
+            let Scope::Hall { path } = &target.scope else {
+                return Err(Failure::failed(
+                    "graph.watch_reindex",
+                    "Expected hall scope for hall target",
+                ));
+            };
+            let _lock = crate::action::graph::lock_index(layout)?;
+            index::index_hall_path(db, layout.root().as_std_path(), path, false, &Silent)
+                .map_err(|err| Failure::failed("graph.watch_reindex", err.to_string()))?;
+            Ok(())
+        }
     }
 }

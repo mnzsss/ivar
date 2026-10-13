@@ -407,3 +407,91 @@ fn a_leader_with_no_targets_forgets_every_row() {
 
     wait_for("rows forgotten", || scope_rows(&db).is_empty());
 }
+
+fn hall_target(root: &Utf8Path, dir: &str) -> Target {
+    Target {
+        scope: Scope::Hall { path: dir.into() },
+        worktree: root.join(dir),
+        git_meta: vec![],
+        kind: TargetKind::Hall,
+    }
+}
+
+#[test]
+fn a_hall_path_target_is_indexed_on_start_and_on_a_new_file() {
+    let (_tmp, layout, _repo) = hall_with_repo();
+    let root = layout.root().to_path_buf();
+    std::fs::create_dir_all(root.join("brand")).unwrap();
+    std::fs::write(root.join("brand/DESIGN.md"), "# design\n").unwrap();
+    let db_path = layout.ivar_dir().join("memory.db");
+    let db = GraphDb::open(db_path.as_std_path()).unwrap();
+    let t = hall_target(&root, "brand");
+    let _worker = Worker::spawn(
+        layout.clone(),
+        db_path,
+        Box::new(move |_, _| vec![t.clone()]),
+    )
+    .unwrap();
+
+    wait_for("catch-up", || db.watch_settled(&["hall:brand"]).unwrap());
+    assert!(db.get_file("hall", "brand/DESIGN.md").unwrap().is_some());
+
+    std::fs::write(root.join("brand/NEW.md"), "new\n").unwrap();
+    wait_for("new file", || {
+        db.get_file("hall", "brand/NEW.md").unwrap().is_some()
+    });
+}
+
+#[test]
+fn hall_targets_come_from_the_manifest_paths_that_exist_on_disk() {
+    let (_tmp, layout, _repo) = hall_with_repo();
+    let root = layout.root().to_path_buf();
+    std::fs::create_dir_all(root.join("brand")).unwrap();
+    let manifest = crate::store::manifest::Manifest::new(
+        crate::domain::name::HallName::new("acme").unwrap(),
+        crate::store::manifest::Providers::new(
+            vec![crate::domain::provider::Provider::ClaudeCode],
+            crate::domain::provider::Provider::ClaudeCode,
+        ),
+        vec![],
+        None,
+    )
+    .unwrap()
+    .with_graph_path_added("brand")
+    .unwrap()
+    .with_graph_path_added("missing")
+    .unwrap();
+
+    let targets = crate::action::graph::watch::worker::hall_targets(&layout, &manifest);
+
+    assert_eq!(targets.len(), 1);
+    assert_eq!(targets[0].scope.key(), "hall:brand");
+    assert_eq!(targets[0].kind, TargetKind::Hall);
+}
+
+#[test]
+fn writing_ivar_json_is_a_control_event() {
+    use notify::Watcher;
+
+    let (_tmp, layout, _repo) = hall_with_repo();
+    std::fs::write(layout.root().join("ivar.json"), "{}").unwrap();
+    let mut set = crate::action::graph::watch::scopes::WatchSet::default();
+    let (tx, _rx) = std::sync::mpsc::channel();
+    let mut watcher = notify::RecommendedWatcher::new(
+        move |res| {
+            let _ = tx.send(res);
+        },
+        notify::Config::default(),
+    )
+    .unwrap();
+
+    crate::action::graph::watch::worker::registry::add_control_dirs(
+        &layout,
+        &mut set,
+        &mut watcher,
+    );
+
+    let manifest = crate::infra::fs::canonicalize(&layout.root().join("ivar.json")).unwrap();
+    assert!(set.is_control(&manifest));
+    assert!(!set.is_control(&layout.root().join("HALL.md")));
+}

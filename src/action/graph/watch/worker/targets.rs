@@ -14,6 +14,7 @@ use crate::store::manifest::Manifest;
 pub(crate) enum TargetKind {
     Base,
     Layer { promotion_base: Option<String> },
+    Hall,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -121,6 +122,22 @@ pub(crate) fn base_targets(layout: &Layout, manifest: &Manifest) -> Vec<Target> 
         });
     }
     targets
+}
+
+/// One target per configured hall path whose directory exists.
+#[must_use]
+pub(crate) fn hall_targets(layout: &Layout, manifest: &Manifest) -> Vec<Target> {
+    manifest
+        .graph_paths()
+        .iter()
+        .filter(|dir| layout.root().join(dir).as_std_path().is_dir())
+        .map(|dir| Target {
+            scope: Scope::Hall { path: dir.clone() },
+            worktree: canonical_or_same(layout.root().join(dir)),
+            git_meta: Vec::new(),
+            kind: TargetKind::Hall,
+        })
+        .collect()
 }
 
 /// Returns the base commit for a repo's layer indexing, checking `db.get_repo_last_commit` first

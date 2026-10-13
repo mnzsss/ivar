@@ -23,7 +23,7 @@ use notify::{RecommendedWatcher, Watcher};
 use crate::action::Failure;
 use crate::action::graph::watch::worker::event_loop::run;
 pub(crate) use crate::action::graph::watch::worker::targets::{
-    Discover, Target, TargetKind, base_commit_for, base_targets, layer_targets,
+    Discover, Target, TargetKind, base_commit_for, base_targets, hall_targets, layer_targets,
 };
 use crate::store::layout::Layout;
 

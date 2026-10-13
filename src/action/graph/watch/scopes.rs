@@ -11,6 +11,7 @@ use crate::action::graph::index::types::{is_ignored_file_path, is_ignored_path};
 pub enum Scope {
     Base { repo: String },
     Layer { feature: String, repo: String },
+    Hall { path: String },
 }
 
 impl Scope {
@@ -19,6 +20,7 @@ impl Scope {
         match self {
             Self::Base { repo } => format!("base:{repo}"),
             Self::Layer { feature, repo } => format!("layer:{feature}:{repo}"),
+            Self::Hall { path } => format!("hall:{path}"),
         }
     }
 }
@@ -33,6 +35,7 @@ enum DirRole {
 pub struct WatchSet {
     dirs: BTreeMap<Utf8PathBuf, (Scope, DirRole)>,
     control_dirs: BTreeSet<Utf8PathBuf>,
+    control_files: BTreeSet<Utf8PathBuf>,
 }
 
 impl WatchSet {
@@ -92,10 +95,17 @@ impl WatchSet {
         dir_buf
     }
 
-    /// Checks if a path is inside or equals any watched control directory.
+    /// Marks one file as control; returns its parent directory for the caller to watch.
+    pub fn add_control_file(&mut self, file: &Utf8Path) -> Utf8PathBuf {
+        self.control_files.insert(file.to_path_buf());
+        file.parent()
+            .map_or_else(|| file.to_path_buf(), Utf8Path::to_path_buf)
+    }
+
+    /// Checks if a path is a control file, or inside or equal to any watched control directory.
     #[must_use]
     pub fn is_control(&self, path: &Utf8Path) -> bool {
-        self.control_dirs.iter().any(|cd| path.starts_with(cd))
+        self.control_files.contains(path) || self.control_dirs.iter().any(|cd| path.starts_with(cd))
     }
 
     /// Removes all directories associated with a scope and returns them.
