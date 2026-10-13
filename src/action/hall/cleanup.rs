@@ -6,8 +6,10 @@ use std::io;
 use camino::{Utf8Path, Utf8PathBuf};
 use serde::Serialize;
 
-use crate::error::{Failure, Outcome, Report, WriteHuman};
+use crate::error::{Failure, Outcome, Report, Warning, WriteHuman};
 use crate::infra::fs;
+use crate::store::graph::db::GraphDb;
+use crate::store::layout::Layout;
 
 use super::super::Ctx;
 use super::{discover_hall, read_manifest};
@@ -63,6 +65,7 @@ pub fn cleanup(ctx: &Ctx) -> Outcome<CleanupOutcome> {
     let mut removed = Vec::new();
     let mut kept = Vec::new();
     let mut graph_forgotten = Vec::new();
+    let mut warnings = Vec::new();
 
     let repos_dir = layout.repos_dir();
     if fs::is_dir(&repos_dir)? {
@@ -82,14 +85,14 @@ pub fn cleanup(ctx: &Ctx) -> Outcome<CleanupOutcome> {
             if ask_remove(ctx, &repo_dir)? {
                 fs::remove_path(&repo_dir)?;
                 removed.push(repo_dir.to_string());
-                let db_path = layout.ivar_dir().join("memory.db");
-                if db_path.is_file()
-                    && let Ok(_lock) = crate::action::graph::lock_index(&layout)
-                    && let Ok(db) = crate::store::graph::db::GraphDb::open(db_path.as_std_path())
-                    && db.get_repo(name).ok().flatten().is_some()
-                    && db.forget_repo(name).is_ok()
-                {
-                    graph_forgotten.push(name.to_owned());
+                match forget_in_graph(&layout, name) {
+                    Ok(true) => graph_forgotten.push(name.to_owned()),
+                    Ok(false) => {}
+                    Err(reason) => warnings.push(Warning::new(
+                        "graph.repo_not_forgotten",
+                        name,
+                        format!("graph data was not forgotten: {reason}; run `ivar graph index`"),
+                    )),
                 }
             } else {
                 kept.push(repo_dir.to_string());
@@ -97,12 +100,33 @@ pub fn cleanup(ctx: &Ctx) -> Outcome<CleanupOutcome> {
         }
     }
 
-    Ok(Report::new(CleanupOutcome {
-        root: layout.root().to_path_buf(),
-        removed,
-        kept,
-        graph_forgotten,
-    }))
+    Ok(Report::with_warnings(
+        CleanupOutcome {
+            root: layout.root().to_path_buf(),
+            removed,
+            kept,
+            graph_forgotten,
+        },
+        warnings,
+    ))
+}
+
+fn forget_in_graph(layout: &Layout, name: &str) -> Result<bool, String> {
+    let db_path = layout.ivar_dir().join("memory.db");
+    if !db_path.is_file() {
+        return Ok(false);
+    }
+    let _lock = crate::action::graph::lock_index(layout).map_err(|failure| failure.what)?;
+    let db = GraphDb::open(db_path.as_std_path()).map_err(|error| error.to_string())?;
+    if db
+        .get_repo(name)
+        .map_err(|error| error.to_string())?
+        .is_none()
+    {
+        return Ok(false);
+    }
+    db.forget_repo(name).map_err(|error| error.to_string())?;
+    Ok(true)
 }
 
 /// Ask before removing `path`. Returns `true` to remove, `false` to keep.

@@ -208,6 +208,29 @@ fn cleanup_forgets_a_removed_repo_in_the_graph() {
 }
 
 #[test]
+fn cleanup_warns_when_the_graph_cannot_forget_a_removed_repo() {
+    let (_guard, root) = utf8_temp_dir();
+    let mut ctx = Ctx::new(root.clone());
+    ctx = ctx.with_confirm(crate::action::confirm::fixed(true));
+    init(&ctx, &fresh_input()).unwrap();
+    fs::ensure_dir(&root.join(".ivar/repos/stale")).unwrap();
+    std::fs::write(root.join(".ivar/memory.db"), b"not a sqlite database").unwrap();
+
+    let report = cleanup(&ctx).unwrap();
+
+    assert!(
+        report
+            .warnings
+            .iter()
+            .any(|w| w.code == "graph.repo_not_forgotten" && w.subject == "stale"),
+        "{:?}",
+        report.warnings
+    );
+    assert!(report.value.graph_forgotten.is_empty());
+    assert!(!fs::exists(&root.join(".ivar/repos/stale")).unwrap());
+}
+
+#[test]
 fn cleanup_without_a_graph_database_still_removes_the_directory() {
     let (_guard, root) = utf8_temp_dir();
     let mut ctx = Ctx::new(root.clone());
