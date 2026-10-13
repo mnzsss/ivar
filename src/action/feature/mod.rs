@@ -58,11 +58,15 @@ pub(super) fn drop_layers_or_warn(layout: &Layout, name: &FeatureName) -> Option
     if !db_path.is_file() {
         return None;
     }
-    let dropped = crate::store::graph::db::GraphDb::open(db_path.as_std_path())
-        .map_err(|e| e.to_string())
-        .and_then(|db| {
-            db.drop_feature_layers(name.as_str())
+    let dropped = crate::action::graph::lock_index(layout)
+        .map_err(|failure| failure.what)
+        .and_then(|_lock| {
+            crate::store::graph::db::GraphDb::open(db_path.as_std_path())
                 .map_err(|e| e.to_string())
+                .and_then(|db| {
+                    db.drop_feature_layers(name.as_str())
+                        .map_err(|e| e.to_string())
+                })
         });
     dropped.err().map(|reason| {
         Warning::new(

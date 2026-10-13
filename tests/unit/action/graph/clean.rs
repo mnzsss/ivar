@@ -348,3 +348,27 @@ fn clean_refuses_path_together_with_repo() {
 
     assert_eq!(error.code, "graph.clean_conflict");
 }
+
+#[test]
+fn clean_feature_runs_under_the_index_lock_while_an_unlocked_lock_file_exists() {
+    let dir = tempdir().unwrap();
+    populate_hall_with_graph(dir.path());
+    let lock_path = dir.path().join(".ivar/memory.lock");
+    std::fs::write(&lock_path, b"").unwrap();
+
+    let outcome = clean_cmd(
+        &make_ctx(dir.path()),
+        CleanInput {
+            repo: None,
+            feature: Some("feat".into()),
+            all: false,
+            path: None,
+        },
+    )
+    .unwrap()
+    .value;
+
+    assert_eq!(outcome.feature.as_deref(), Some("feat"));
+    assert_eq!(outcome.repos_removed, 0);
+    assert!(lock_path.is_file());
+}

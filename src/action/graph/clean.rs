@@ -8,6 +8,7 @@ use crate::action::graph::{lock_index, open_graph_db};
 use crate::action::{discover_hall, read_manifest};
 use crate::error::{Failure, Outcome, Report};
 use crate::store::graph::db::{GraphDb, GraphDbError};
+use crate::store::layout::Layout;
 use crate::store::manifest::{Manifest, normalise_graph_path};
 
 /// Executes the graph clean action.
@@ -29,6 +30,8 @@ pub fn clean_cmd(ctx: &Ctx, args: CleanInput) -> Outcome<CleanOutcome> {
         ));
     }
 
+    let layout = discover_hall(ctx)?;
+    let _lock = lock_index(&layout)?;
     let db = open_graph_db(ctx)?;
 
     if args.all {
@@ -72,10 +75,8 @@ pub fn clean_cmd(ctx: &Ctx, args: CleanInput) -> Outcome<CleanOutcome> {
             ),
         }))
     } else if let Some(raw) = &args.path {
-        clean_hall_path(ctx, &db, raw)
+        clean_hall_path(&layout, &db, raw)
     } else if let Some(repo) = args.repo {
-        let layout = discover_hall(ctx)?;
-        let _lock = lock_index(&layout)?;
         match db.delete_repo(&repo).map_err(|err| clean_failed(&err))? {
             Some(stats) => Ok(Report::new(CleanOutcome {
                 repo: Some(repo.clone()),
@@ -102,10 +103,8 @@ pub fn clean_cmd(ctx: &Ctx, args: CleanInput) -> Outcome<CleanOutcome> {
     }
 }
 
-fn clean_hall_path(ctx: &Ctx, db: &GraphDb, raw: &str) -> Outcome<CleanOutcome> {
-    let layout = discover_hall(ctx)?;
-    let manifest = read_manifest(&layout)?;
-    let _lock = lock_index(&layout)?;
+fn clean_hall_path(layout: &Layout, db: &GraphDb, raw: &str) -> Outcome<CleanOutcome> {
+    let manifest = read_manifest(layout)?;
     let dir = normalise_graph_path(raw)
         .map_err(|err| Failure::blocked("graph.path_invalid", err.to_string()))?;
     if !manifest.graph_paths().contains(&dir) {
@@ -122,7 +121,7 @@ fn clean_hall_path(ctx: &Ctx, db: &GraphDb, raw: &str) -> Outcome<CleanOutcome> 
     let manifest = manifest
         .with_graph_path_removed(&dir)
         .map_err(|err| Failure::failed("manifest.write_failed", err.to_string()))?;
-    Manifest::write(&layout, &manifest)
+    Manifest::write(layout, &manifest)
         .map_err(|err| Failure::failed("manifest.write_failed", err.to_string()))?;
     let repos_removed = if manifest.graph_paths().is_empty() {
         db.delete_repo(HALL_REPO)
