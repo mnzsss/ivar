@@ -1426,3 +1426,59 @@ fn forget_repo_commits_in_batches_so_the_write_lock_is_short() {
         COMMITS.load(Ordering::SeqCst)
     );
 }
+
+#[test]
+fn repo_counts_reports_files_symbols_and_edges_per_repo() {
+    let db = GraphDb::open_in_memory().unwrap();
+    db.insert_repo("ivar", "/ivar", "main", None).unwrap();
+    db.insert_repo("other", "/other", "main", None).unwrap();
+    let file_id = db.upsert_file("ivar", "src/lib.rs", "h", 1, 1).unwrap();
+    db.upsert_file("other", "a.rs", "h", 1, 1).unwrap();
+    let sym_id = db
+        .insert_symbols(&[Symbol {
+            id: None,
+            file_id: Some(file_id),
+            repo: "ivar".to_owned(),
+            name: "init".to_owned(),
+            kind: SymbolKind::Fn,
+            scope: None,
+            signature: None,
+            docstring: None,
+            span: Span::new(1, 1, 2, 1),
+            is_exported: true,
+            complexity: None,
+        }])
+        .unwrap()[0];
+    db.insert_edges(&[Edge {
+        id: None,
+        repo: "ivar".to_owned(),
+        file_id: Some(file_id),
+        from_symbol_id: Some(sym_id),
+        to_symbol_id: None,
+        to_name: Some("helper".to_owned()),
+        kind: EdgeKind::Calls,
+        provenance: Provenance::Extracted,
+        line: 1,
+        col: 1,
+        confidence: 1.0,
+    }])
+    .unwrap();
+
+    assert_eq!(
+        db.repo_counts("ivar").unwrap(),
+        RepoCounts {
+            files: 1,
+            symbols: 1,
+            edges: 1
+        }
+    );
+    assert_eq!(
+        db.repo_counts("other").unwrap(),
+        RepoCounts {
+            files: 1,
+            symbols: 0,
+            edges: 0
+        }
+    );
+    assert_eq!(db.repo_counts("missing").unwrap(), RepoCounts::default());
+}

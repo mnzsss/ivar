@@ -3,7 +3,9 @@
 use rusqlite::{OptionalExtension, params};
 
 use super::GraphDb;
-use super::types::{CleanAllStats, FileRow, RepoCleanStats, RepoRow, Result, now_timestamp};
+use super::types::{
+    CleanAllStats, FileRow, RepoCleanStats, RepoCounts, RepoRow, Result, now_timestamp,
+};
 
 impl GraphDb {
     /// Inserts or updates repository metadata.
@@ -305,6 +307,26 @@ impl GraphDb {
         self.delete_files_for_repo(repo)
     }
 
+    /// Counts the files, symbols and edges stored for `repo`; all zero when it is not indexed.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GraphDbError`] if any count query fails.
+    pub fn repo_counts(&self, repo: &str) -> Result<RepoCounts> {
+        let count = |table: &str| -> Result<usize> {
+            Ok(self.conn.query_row(
+                &format!("SELECT COUNT(*) FROM {table} WHERE repo = ?1"),
+                params![repo],
+                |r| r.get(0),
+            )?)
+        };
+        Ok(RepoCounts {
+            files: count("files")?,
+            symbols: count("symbols")?,
+            edges: count("edges")?,
+        })
+    }
+
     /// Deletes a repository and all associated files, symbols, and edges (via foreign key cascades).
     /// Returns the counts of removed items, or None if the repository was not found.
     ///
@@ -321,21 +343,7 @@ impl GraphDb {
             return Ok(None);
         }
 
-        let files_count: usize = self.conn.query_row(
-            "SELECT COUNT(*) FROM files WHERE repo = ?1",
-            params![repo],
-            |r| r.get(0),
-        )?;
-        let symbols_count: usize = self.conn.query_row(
-            "SELECT COUNT(*) FROM symbols WHERE repo = ?1",
-            params![repo],
-            |r| r.get(0),
-        )?;
-        let edges_count: usize = self.conn.query_row(
-            "SELECT COUNT(*) FROM edges WHERE repo = ?1",
-            params![repo],
-            |r| r.get(0),
-        )?;
+        let counts = self.repo_counts(repo)?;
 
         // Deleting from repos cascades to files, symbols, edges; symbols_ad cleans symbols_fts
         self.conn
@@ -343,9 +351,9 @@ impl GraphDb {
 
         Ok(Some(RepoCleanStats {
             repo: repo.to_owned(),
-            files_removed: files_count,
-            symbols_removed: symbols_count,
-            edges_removed: edges_count,
+            files_removed: counts.files,
+            symbols_removed: counts.symbols,
+            edges_removed: counts.edges,
         }))
     }
 

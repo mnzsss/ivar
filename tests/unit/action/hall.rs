@@ -1576,14 +1576,28 @@ fn doctor_names_an_indexed_repo_the_manifest_no_longer_declares() {
     let db =
         crate::store::graph::db::GraphDb::open(root.join(".ivar/memory.db").as_std_path()).unwrap();
     db.insert_repo("orca", "/x/orca", "main", None).unwrap();
-    db.upsert_file("orca", "a.rs", "h", 1, 1).unwrap();
+    let file_id = db.upsert_file("orca", "a.rs", "h", 1, 1).unwrap();
+    db.insert_symbols(&[crate::domain::graph::Symbol {
+        id: None,
+        file_id: Some(file_id),
+        repo: "orca".into(),
+        name: "main".into(),
+        kind: crate::domain::graph::SymbolKind::Fn,
+        scope: None,
+        signature: None,
+        docstring: None,
+        span: crate::domain::graph::Span::new(1, 1, 2, 1),
+        is_exported: true,
+        complexity: None,
+    }])
+    .unwrap();
     drop(db);
 
     let report = doctor(&Ctx::new(root)).unwrap();
 
     let f = finding(&report.value, "graph.repo_not_in_manifest");
     assert!(
-        f.what.contains("orca") && f.what.contains("1 files"),
+        f.what.contains("orca") && f.what.contains("1 files") && f.what.contains("1 symbols"),
         "was: {}",
         f.what
     );
