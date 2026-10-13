@@ -465,7 +465,30 @@ pub fn index_hall(
             }),
         }
     }
+    index_hall_paths(db, layout, manifest, force_full, progress, &mut hall);
     hall
+}
+
+/// Indexes every `graph.paths` directory into the `hall` repo, one outcome per
+/// path. A directory that fails is recorded and the rest still index.
+pub fn index_hall_paths(
+    db: &GraphDb,
+    layout: &Layout,
+    manifest: &Manifest,
+    force_full: bool,
+    progress: &dyn Progress,
+    hall: &mut HallIndex,
+) {
+    for dir in manifest.graph_paths() {
+        match hall_path::index_hall_path(db, layout.root().as_std_path(), dir, force_full, progress)
+        {
+            Ok(outcome) => hall.repos.push(outcome),
+            Err(error) => hall.repos_failed.push(RepoFailure {
+                repo: format!("hall:{dir}"),
+                reason: error.to_string(),
+            }),
+        }
+    }
 }
 
 #[cfg(test)]

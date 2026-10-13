@@ -135,6 +135,10 @@ pub struct GraphIndexArgs {
     /// Do not declare the graph MCP server in ivar.json.
     #[arg(long)]
     pub no_mcp: bool,
+    /// Hall-root directory to index as well (repeatable). Saved to `graph.paths`
+    /// in `ivar.json`. A run with `--path` indexes hall paths only.
+    #[arg(long = "path", value_name = "DIR")]
+    pub path: Vec<String>,
 }
 
 #[derive(Debug, Args)]

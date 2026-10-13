@@ -54,6 +54,7 @@ pub struct IndexInput {
     pub repo: Option<String>,
     pub full: bool,
     pub register_mcp: bool,
+    pub paths: Vec<String>,
 }
 
 #[derive(Debug, Clone)]

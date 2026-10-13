@@ -24,6 +24,7 @@ fn the_human_surface_names_every_removed_repo_layer_and_scope() {
             repo: "api".into(),
         }],
         scopes: vec!["base:ivar-bb".into()],
+        hall_files: 0,
         skipped: None,
     });
     let mut buf = Vec::new();

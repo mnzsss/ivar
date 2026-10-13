@@ -112,10 +112,13 @@ fn a_layer_whose_feature_directory_is_gone_is_dropped_and_a_live_feature_keeps_l
 #[test]
 fn the_hall_repo_is_never_treated_as_missing_from_the_manifest() {
     let (_tmp, layout, manifest) = hall();
+    let with_brand = manifest.with_graph_path_added("brand").unwrap();
     let db = GraphDb::open_in_memory().unwrap();
     db.insert_repo("hall", "/hall", "", None).unwrap();
+    db.upsert_file("hall", "brand/DESIGN.md", "h1", 1, 1)
+        .unwrap();
 
-    let removed = reconcile(&db, &layout, &manifest).unwrap();
+    let removed = reconcile(&db, &layout, &with_brand).unwrap();
 
     assert!(removed.is_empty());
     assert!(db.get_repo("hall").unwrap().is_some());
@@ -225,4 +228,24 @@ fn hall_facts_answer_liveness_per_scope_kind() {
     assert!(!facts.scope_is_live("hall:brand"));
     assert!(!facts.scope_is_live("bogus"));
     assert!(facts.layer_is_live("alive") && !facts.layer_is_live("dead"));
+}
+
+#[test]
+fn hall_files_outside_the_configured_paths_are_dropped_and_the_repo_goes_with_the_last_path() {
+    let (_tmp, layout, manifest) = hall();
+    let with_docs = manifest.with_graph_path_added("docs").unwrap();
+    let db = GraphDb::open_in_memory().unwrap();
+    db.insert_repo("hall", "/hall", "", None).unwrap();
+    db.upsert_file("hall", "brand/DESIGN.md", "h1", 1, 1)
+        .unwrap();
+    db.upsert_file("hall", "docs/a.md", "h2", 1, 1).unwrap();
+
+    let removed = reconcile(&db, &layout, &with_docs).unwrap();
+    assert_eq!(removed.hall_files, 1);
+    assert!(db.get_file("hall", "brand/DESIGN.md").unwrap().is_none());
+    assert!(db.get_file("hall", "docs/a.md").unwrap().is_some());
+
+    let removed = reconcile(&db, &layout, &manifest).unwrap();
+    assert_eq!(removed.repos, vec!["hall"]);
+    assert!(db.get_repo("hall").unwrap().is_none());
 }

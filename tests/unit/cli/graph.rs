@@ -19,6 +19,7 @@ use crate::cli::root::{Cli, Command};
 #[case::callees(&["ivar", "graph", "callees", "42"], |command: &Command| matches!(command, Command::Graph(GraphCommand::Callees(args)) if args.symbol_id == 42))]
 #[case::file(&["ivar", "graph", "file", "core-repo", "src/main.rs"], |command: &Command| matches!(command, Command::Graph(GraphCommand::File(args)) if args.repo == "core-repo" && args.path == "src/main.rs"))]
 #[case::index(&["ivar", "graph", "index", "--repo", "my-repo", "--full"], |command: &Command| matches!(command, Command::Graph(GraphCommand::Index(args)) if args.repo.as_deref() == Some("my-repo") && args.full))]
+#[case::index_with_paths(&["ivar", "graph", "index", "--path", "brand", "--path", "docs/product"], |command: &Command| matches!(command, Command::Graph(GraphCommand::Index(args)) if args.path == ["brand", "docs/product"] && args.repo.is_none()))]
 #[case::stats(&["ivar", "graph", "stats"], |command: &Command| matches!(command, Command::Graph(GraphCommand::Stats)))]
 #[case::impact(&["ivar", "graph", "impact", "99", "--max-depth", "3"], |command: &Command| matches!(command, Command::Graph(GraphCommand::Impact(args)) if args.symbol_id == 99 && args.max_depth == Some(3)))]
 #[case::view_defaults(&["ivar", "graph", "view"], |command: &Command| matches!(command, Command::Graph(GraphCommand::View(args)) if args.repo.is_none() && args.symbol.is_none() && args.file.is_none() && args.impact.is_none() && args.depth.is_none() && args.limit.is_none() && !args.no_open))]

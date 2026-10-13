@@ -311,6 +311,7 @@ pub(super) fn dispatch_graph(
                     repo: args.repo,
                     full: args.full,
                     register_mcp: !args.no_mcp,
+                    paths: args.path,
                 },
             ),
             json,

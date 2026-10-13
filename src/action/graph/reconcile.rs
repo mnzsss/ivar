@@ -23,14 +23,23 @@ pub struct Removed {
     pub repos: Vec<String>,
     pub layers: Vec<RemovedLayer>,
     pub scopes: Vec<String>,
+    #[serde(skip_serializing_if = "is_zero")]
+    pub hall_files: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub skipped: Option<String>,
+}
+
+fn is_zero(n: &usize) -> bool {
+    *n == 0
 }
 
 impl Removed {
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.repos.is_empty() && self.layers.is_empty() && self.scopes.is_empty()
+        self.repos.is_empty()
+            && self.layers.is_empty()
+            && self.scopes.is_empty()
+            && self.hall_files == 0
     }
 }
 
@@ -64,7 +73,7 @@ impl HallFacts {
                 .iter()
                 .map(|r| r.name().to_string())
                 .collect(),
-            paths: BTreeSet::new(),
+            paths: manifest.graph_paths().iter().cloned().collect(),
             features,
         }
     }
@@ -114,6 +123,23 @@ pub fn reconcile(
         if row.id != HALL_REPO && !facts.scope_is_live(&format!("base:{}", row.id)) {
             db.forget_repo(&row.id)?;
             removed.repos.push(row.id);
+        }
+    }
+    if db.get_repo(HALL_REPO)?.is_some() {
+        if facts.paths.is_empty() {
+            db.forget_repo(HALL_REPO)?;
+            removed.repos.push(HALL_REPO.to_owned());
+        } else {
+            for file in db.get_files_for_repo(HALL_REPO)? {
+                let kept = facts
+                    .paths
+                    .iter()
+                    .any(|dir| file.path.starts_with(&format!("{dir}/")));
+                if !kept {
+                    db.delete_file(HALL_REPO, &file.path)?;
+                    removed.hall_files += 1;
+                }
+            }
         }
     }
     match facts.features_unreadable() {

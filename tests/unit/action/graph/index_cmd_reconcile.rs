@@ -32,6 +32,7 @@ fn index_warns_and_keeps_layers_when_the_features_directory_is_unreadable() {
             repo: None,
             full: false,
             register_mcp: false,
+            paths: vec![],
         },
     )
     .unwrap();

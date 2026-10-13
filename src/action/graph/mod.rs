@@ -207,13 +207,31 @@ pub fn refresh_base_graph(
     Ok(Some(hall))
 }
 
+fn persist_hall_paths(
+    layout: &Layout,
+    mut manifest: Manifest,
+    paths: &[String],
+) -> Result<Manifest, Failure> {
+    for raw in paths {
+        let dir = index::validate_hall_path(layout, &manifest, raw)?;
+        manifest = manifest
+            .with_graph_path_added(&dir)
+            .map_err(|e| Failure::blocked("graph.path_invalid", e.to_string()))?;
+    }
+    if !paths.is_empty() {
+        Manifest::write(layout, &manifest)
+            .map_err(|e| Failure::failed("manifest.write_failed", e.to_string()))?;
+    }
+    Ok(manifest)
+}
+
 // 8. index
 pub fn index_cmd(ctx: &Ctx, args: IndexInput) -> Outcome<IndexBatchOutcome> {
     let layout = discover_hall(ctx)?;
     let _lock = lock_index(&layout)?;
 
     let db = open_graph_db(ctx)?;
-    let manifest = read_manifest(&layout)?;
+    let manifest = persist_hall_paths(&layout, read_manifest(&layout)?, &args.paths)?;
 
     let hall = if let Some(target_repo) = args.repo {
         let repo_decl = manifest
@@ -247,8 +265,19 @@ pub fn index_cmd(ctx: &Ctx, args: IndexInput) -> Outcome<IndexBatchOutcome> {
             repos: vec![outcome],
             ..Default::default()
         }
-    } else {
+    } else if args.paths.is_empty() {
         index::index_hall(&db, &layout, &manifest, args.full, ctx.progress())
+    } else {
+        let mut hall = HallIndex::default();
+        index::index_hall_paths(
+            &db,
+            &layout,
+            &manifest,
+            args.full,
+            ctx.progress(),
+            &mut hall,
+        );
+        hall
     };
 
     // Relink only after the graph changed; dirty unsupported files must remain a no-op.
@@ -391,6 +420,7 @@ pub fn mcp_cmd(ctx: &Ctx, tools: mcp::ToolSurface) -> Outcome<McpOutcome> {
                     repo: repo.map(str::to_owned),
                     full: false,
                     register_mcp: false,
+                    paths: Vec::new(),
                 },
             )
             .map_err(|err| err.to_string())?;
@@ -470,3 +500,7 @@ mod misses_cmd_tests;
 #[cfg(test)]
 #[path = "../../../tests/unit/action/graph/index_cmd_reconcile.rs"]
 mod index_cmd_reconcile_tests;
+
+#[cfg(test)]
+#[path = "../../../tests/unit/action/graph/index_cmd_paths.rs"]
+mod index_cmd_paths_tests;
