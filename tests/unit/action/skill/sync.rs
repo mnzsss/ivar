@@ -183,6 +183,7 @@ fn a_failed_orphan_removal_keeps_its_provider_record() {
     let report = report.unwrap();
 
     assert!(!report.warnings.is_empty());
+    assert_eq!(report.value.steps, 0);
     assert!(fs::is_dir(&orphan).unwrap());
     let persisted = skill::read(&root, SkillRoot::Local).unwrap().unwrap();
     assert!(

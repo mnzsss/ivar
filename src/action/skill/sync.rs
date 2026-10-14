@@ -121,7 +121,8 @@ pub(crate) fn reconcile(
 
     Ok(steps
         .iter()
-        .filter(|step| step.action != Action::Unchanged)
+        .zip(&executed_successfully)
+        .filter(|(step, ok)| **ok && step.action != Action::Unchanged)
         .count() as u64)
 }
 
