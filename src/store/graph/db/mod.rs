@@ -206,11 +206,7 @@ impl GraphDb {
             .iter()
             .map(|dir| {
                 let dir = dir.trim_end_matches('/');
-                let escaped = dir
-                    .replace('\\', "\\\\")
-                    .replace('%', "\\%")
-                    .replace('_', "\\_");
-                let pattern = format!("{escaped}/%");
+                let pattern = under_dir_like(dir);
                 let file_count: i64 = self.conn.query_row(
                     "SELECT COUNT(*) FROM files WHERE repo = 'hall' AND path LIKE ?1 ESCAPE '\\'",
                     [&pattern],
@@ -223,6 +219,15 @@ impl GraphDb {
             })
             .collect()
     }
+}
+
+/// A `LIKE … ESCAPE '\\'` pattern matching every path strictly under `dir`.
+pub(crate) fn under_dir_like(dir: &str) -> String {
+    let escaped = dir
+        .replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_");
+    format!("{escaped}/%")
 }
 
 #[cfg(test)]

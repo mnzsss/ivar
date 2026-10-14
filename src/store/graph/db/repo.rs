@@ -241,11 +241,7 @@ impl GraphDb {
     /// Returns [`GraphDbError`] if the delete fails.
     pub fn delete_files_under(&self, repo: &str, prefix: &str) -> Result<usize> {
         let dir = prefix.trim_end_matches('/');
-        let escaped = dir
-            .replace('\\', "\\\\")
-            .replace('%', "\\%")
-            .replace('_', "\\_");
-        let pattern = format!("{escaped}/%");
+        let pattern = super::under_dir_like(dir);
         let removed = self.conn.execute(
             "DELETE FROM files WHERE repo = ?1 AND (path = ?2 OR path LIKE ?3 ESCAPE '\\')",
             params![repo, dir, pattern],

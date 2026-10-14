@@ -1482,3 +1482,9 @@ fn repo_counts_reports_files_symbols_and_edges_per_repo() {
     );
     assert_eq!(db.repo_counts("missing").unwrap(), RepoCounts::default());
 }
+
+#[test]
+fn under_dir_like_escapes_like_wildcards() {
+    assert_eq!(under_dir_like("a_b%c"), "a\\_b\\%c/%");
+    assert_eq!(under_dir_like("a\\b"), "a\\\\b/%");
+}
