@@ -8,6 +8,7 @@ use crate::action::feature::workspace::OpenAttempt;
 use crate::action::graph::compact::{self, ToCompact};
 use crate::action::graph::index::{IndexOutcome, RepoFailure};
 use crate::action::graph::narrate::{MAX_LIST_ITEMS, MAX_OUTPUT_CHARS};
+use crate::action::graph::reconcile::Removed;
 use crate::action::graph::view::types::ViewSeed;
 use crate::domain::graph::{AffectedResult, ExploreResult, PathResult};
 use crate::error::WriteHuman;
@@ -290,8 +291,8 @@ pub struct IndexBatchOutcome {
     pub mcp_registration: McpRegistration,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub next_command: Option<&'static str>,
-    #[serde(skip_serializing_if = "crate::action::graph::reconcile::Removed::is_empty")]
-    pub removed: crate::action::graph::reconcile::Removed,
+    #[serde(skip_serializing_if = "Removed::is_empty")]
+    pub removed: Removed,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]

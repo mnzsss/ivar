@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver};
 use std::time::Instant;
@@ -123,7 +124,7 @@ fn forget_rows_without_target(layout: &Layout, db: &GraphDb, targets: &[Target])
     let Ok(_lock) = crate::action::graph::lock_index(layout) else {
         return;
     };
-    let keep: std::collections::BTreeSet<String> = targets.iter().map(|t| t.scope.key()).collect();
+    let keep: BTreeSet<String> = targets.iter().map(|t| t.scope.key()).collect();
     for row in db.watch_scopes().unwrap_or_default() {
         if !keep.contains(&row.scope) {
             let _ = db.watch_forget(&row.scope);
