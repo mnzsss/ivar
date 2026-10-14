@@ -1,7 +1,7 @@
 use camino::{Utf8Path, Utf8PathBuf};
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 
-use crate::action::graph::watch::scopes::{Debouncer, WatchSet};
+use crate::action::graph::watch::scopes::{Debouncer, Scope, WatchSet};
 use crate::action::graph::watch::worker::reindex::reindex;
 use crate::action::graph::watch::worker::{Target, TargetKind};
 use crate::domain::name::FeatureName;
@@ -27,24 +27,21 @@ pub(super) fn register_and_watch_target(
     let canonical_worktree = crate::infra::fs::canonicalize(&target.worktree)
         .unwrap_or_else(|_| target.worktree.clone());
     let tracked: Vec<Utf8PathBuf> = match target.kind {
-        TargetKind::Hall => {
-            let root = crate::infra::fs::canonicalize(layout.root())
-                .unwrap_or_else(|_| layout.root().to_path_buf());
-            let dir = canonical_worktree
-                .strip_prefix(&root)
-                .unwrap_or(&canonical_worktree)
-                .to_path_buf();
-            crate::action::graph::index::walk_hall_dir(root.as_std_path(), dir.as_str())
-                .unwrap_or_default()
-                .into_iter()
-                .filter_map(|p| {
-                    Utf8PathBuf::from(p)
-                        .strip_prefix(&dir)
-                        .ok()
-                        .map(Utf8Path::to_path_buf)
-                })
-                .collect()
-        }
+        TargetKind::Hall => match &target.scope {
+            Scope::Hall { path } => {
+                crate::action::graph::index::walk_hall_dir(layout.root().as_std_path(), path)
+                    .unwrap_or_default()
+                    .into_iter()
+                    .filter_map(|p| {
+                        Utf8PathBuf::from(p)
+                            .strip_prefix(path)
+                            .ok()
+                            .map(Utf8Path::to_path_buf)
+                    })
+                    .collect()
+            }
+            _ => Vec::new(),
+        },
         _ => git.tracked_files(&canonical_worktree).unwrap_or_default(),
     };
     let wt_dirs = set.add_worktree(&target.scope, &canonical_worktree, &tracked);
