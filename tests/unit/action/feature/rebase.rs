@@ -47,7 +47,6 @@ fn hall_with_promoted_feature() -> (tempfile::TempDir, Utf8PathBuf) {
             origin.as_str(),
             BranchName::new("main").unwrap(),
         )],
-        None,
     )
     .unwrap();
     Manifest::write(&layout, &manifest).unwrap();
@@ -120,7 +119,6 @@ fn hall_with_promoted_feature_based_on(base: Option<&str>) -> (tempfile::TempDir
             origin.as_str(),
             BranchName::new("main").unwrap(),
         )],
-        None,
     )
     .unwrap();
     Manifest::write(&layout, &manifest).unwrap();
@@ -249,7 +247,6 @@ fn hall_with_promoted_repos(repos: &[&str]) -> (tempfile::TempDir, Utf8PathBuf) 
         HallName::new("acme").unwrap(),
         Providers::new(vec![Provider::ClaudeCode], Provider::ClaudeCode),
         declared,
-        None,
     )
     .unwrap();
     Manifest::write(&layout, &manifest).unwrap();

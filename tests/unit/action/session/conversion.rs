@@ -52,7 +52,6 @@ fn hall_with_discovery_session() -> (tempfile::TempDir, Utf8PathBuf) {
                 BranchName::new("main").unwrap(),
             ),
         ],
-        None,
     )
     .unwrap();
     Manifest::write(&layout, &manifest).unwrap();

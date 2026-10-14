@@ -72,7 +72,7 @@ fn schema_has_id_and_title() {
     let s = schema();
     assert_eq!(
         s.get("$id").and_then(Value::as_str),
-        Some("https://ivar.run/schema/4.json"),
+        Some("https://ivar.run/schema/5.json"),
         "$id must match the canonical URL for the version this document pins"
     );
     assert_eq!(
@@ -91,7 +91,7 @@ fn schema_has_id_and_title() {
     assert_eq!(
         s.pointer("/properties/version/const")
             .and_then(Value::as_u64),
-        Some(4),
+        Some(5),
         "the URL's version segment and the pinned version must be the same version"
     );
 }
@@ -109,7 +109,6 @@ fn schema_describes_all_top_level_properties() {
         "providers",
         "repos",
         "integration",
-        "skills",
         "mcp",
     ] {
         assert!(
@@ -623,8 +622,6 @@ fn schema_defs_cover_manifest_reachable_types() {
         "IntegrationPolicy",
         "IntegrationVia",
         "IntegrationStrategy",
-        "Skills",
-        "Targets",
         "McpOauth",
     ] {
         assert!(

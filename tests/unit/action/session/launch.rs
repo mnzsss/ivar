@@ -24,7 +24,6 @@ fn manifest_with_graph_server() -> Manifest {
         HallName::new("acme").unwrap(),
         Providers::new(vec![Provider::ClaudeCode], Provider::ClaudeCode),
         vec![],
-        None,
     )
     .unwrap()
     .with_mcp_servers(vec![

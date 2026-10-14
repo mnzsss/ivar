@@ -33,7 +33,6 @@ fn manifest(repos: &[&str]) -> Manifest {
                 )
             })
             .collect(),
-        None,
     )
     .unwrap()
 }

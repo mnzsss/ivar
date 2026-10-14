@@ -255,7 +255,6 @@ fn synced_hall(develop_at_sync: bool) -> (tempfile::TempDir, Layout, Utf8PathBuf
             origin.as_str(),
             BranchName::new("main").unwrap(),
         )],
-        None,
     )
     .unwrap();
     Manifest::write(&layout, &manifest).unwrap();

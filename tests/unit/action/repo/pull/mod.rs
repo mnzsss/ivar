@@ -48,7 +48,6 @@ fn hall_with(repos: &[(&str, &str)]) -> (tempfile::TempDir, Utf8PathBuf) {
         HallName::new("acme").unwrap(),
         Providers::new(vec![Provider::ClaudeCode], Provider::ClaudeCode),
         declared,
-        None,
     )
     .unwrap();
     Manifest::write(&layout, &manifest).unwrap();
@@ -232,7 +231,6 @@ fn a_repo_with_no_worktree_fails_and_the_others_still_refresh() {
         HallName::new("acme").unwrap(),
         Providers::new(vec![Provider::ClaudeCode], Provider::ClaudeCode),
         repos,
-        None,
     )
     .unwrap();
     Manifest::write(&layout, &manifest).unwrap();

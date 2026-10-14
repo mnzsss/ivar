@@ -76,17 +76,24 @@ pub fn remove(ctx: &Ctx, input: &RemoveInput) -> Outcome<RemoveOutcome> {
         ))
     })?;
 
-    // Tear down materialised targets best-effort.
+    // Tear down ONLY targets recorded in the skill's state entry (joined to
+    // hall root), never an unrecorded canonical `<config>/skills/<id>` path
+    // (R-USER-FILES).
+    let mut doomed: Vec<(TargetId, Utf8PathBuf)> = Vec::new();
+    if let Ok(Some(state)) = skill::read(layout.root(), root)
+        && let Some(entry) = state.installations.get(skill.id.as_str())
+    {
+        for (id, provider) in &entry.providers {
+            doomed.push((*id, provider.target_path.clone()));
+        }
+    }
     let mut targets_removed = 0u64;
-    for target_id in TargetId::ALL {
-        // `target_path` is hall-relative; the renderer works on absolute
-        // paths, so join it onto the hall root before touching disk.
-        let target_path = layout
-            .root()
-            .join(skill::target_path(target_id, skill.id.as_str()));
+    for (target_id, relative) in doomed {
+        let target_path = layout.root().join(relative);
         if fs::exists(&target_path).unwrap_or(false) {
             let step = crate::domain::skill_sync::Step {
                 skill: skill.id.clone(),
+                target_id,
                 target: target_path,
                 source: skill.dir.clone(),
                 action: crate::domain::skill_sync::Action::Remove,

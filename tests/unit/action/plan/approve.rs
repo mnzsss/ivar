@@ -750,7 +750,6 @@ fn declare_api_repo(root: &Utf8PathBuf) {
             "https://example.invalid/api.git",
             BranchName::new("main").unwrap(),
         )],
-        None,
     )
     .unwrap();
     Manifest::write(&layout, &manifest).unwrap();
@@ -908,7 +907,6 @@ fn declare_api_and_web_repos(root: &Utf8PathBuf) {
         HallName::new("acme").unwrap(),
         Providers::new(vec![Provider::ClaudeCode], Provider::ClaudeCode),
         vec![repo("api"), repo("web")],
-        None,
     )
     .unwrap();
     Manifest::write(&layout, &manifest).unwrap();

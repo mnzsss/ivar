@@ -74,6 +74,8 @@ impl WriteHuman for StatusOutcome {
 /// Show skill installation state.
 pub fn status(ctx: &Ctx) -> Outcome<StatusOutcome> {
     let layout = discover_hall(ctx)?;
+    let manifest = super::super::read_manifest(&layout)?;
+    let available = super::available_targets(&manifest);
 
     // Both roots. A colliding id is dropped here for the same reason `sync`
     // drops it: neither copy can be materialised, so neither has a status.
@@ -89,14 +91,14 @@ pub fn status(ctx: &Ctx) -> Outcome<StatusOutcome> {
         };
 
         let mut targets = Vec::new();
-        for target_id in crate::domain::skill_sync::TargetId::ALL {
+        for &target_id in &available {
             // `target_path` is hall-relative; join it onto the hall root, and
             // verify against the skill directory the renderer actually links —
             // not its `SKILL.md`, which is a file inside that directory.
             let target_path = layout
                 .root()
                 .join(skill::target_path(target_id, skill.id.as_str()));
-            let current = render::verify_status(&target_path, &skill.dir);
+            let current = render::verify_status(&target_path, &skill.dir, skill.render_mode());
             targets.push(TargetStatus {
                 target: target_id.as_str().to_owned(),
                 status: material_status_label(&current),

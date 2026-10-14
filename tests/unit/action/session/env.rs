@@ -147,7 +147,6 @@ fn hall_with_promoted_feature_and_session() -> (tempfile::TempDir, Utf8PathBuf, 
             origin.as_str(),
             BranchName::new("main").unwrap(),
         )],
-        None,
     )
     .unwrap();
     Manifest::write(&layout, &manifest).unwrap();

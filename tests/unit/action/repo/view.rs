@@ -47,7 +47,6 @@ fn hall_declaring(repos: &[(&str, &str)]) -> (tempfile::TempDir, Utf8PathBuf) {
         HallName::new("acme").unwrap(),
         Providers::new(vec![Provider::ClaudeCode], Provider::ClaudeCode),
         declared,
-        None,
     )
     .unwrap();
     Manifest::write(&layout, &manifest).unwrap();

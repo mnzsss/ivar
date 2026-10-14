@@ -1,7 +1,8 @@
 //! `ivar skill sync` — materialise hall skills to native targets.
 //!
 //! Runs offline-only: reads declared skills from `.ivar/skills/`, builds a
-//! pure sync plan (`domain::skill_sync::plan`), executes each step via the
+//! pure sync plan (`domain::skill_sync::plan_with_options`), targets the hall's
+//! available providers, removes orphans, executes each step via the
 //! renderer (`store::render::render` / `store::render::remove`), and writes
 //! the updated installation state (`store::skill::write`).
 //!
@@ -15,17 +16,18 @@ use camino::Utf8Path;
 use serde::Serialize;
 
 use crate::action::Ctx;
-use crate::domain::name::RepoName;
 use crate::domain::skill::SkillRoot;
 use crate::domain::skill_sync::{
     Action, InstallationEntry, PlanOptions, ProviderEntry, State, Step, Target, TargetId,
 };
-use crate::error::{Outcome, Report, Warning, WriteHuman};
+use crate::error::{Failure, Outcome, Report, Warning, WriteHuman};
 use crate::infra::fs;
+use crate::store::layout::Layout;
+use crate::store::manifest::Manifest;
 use crate::store::render::{self, Error as RenderError};
 use crate::store::skill;
 
-use super::super::discover_hall;
+use super::super::{discover_hall, read_manifest};
 use super::enumerate;
 
 /// What `ivar skill sync` did.
@@ -48,65 +50,92 @@ impl WriteHuman for SyncOutcome {
     }
 }
 
-/// Materialise hall skills to native targets (`.claude/skills`, `.opencode/skills`).
+/// Materialise hall skills to native targets following `providers.available`
+/// and remove orphaned targets of dropped providers.
 ///
 /// Offline-only — no remote fetch. Returns a [`Report`] containing the number
 /// of steps executed and any per-step warnings.
 pub fn sync(ctx: &Ctx) -> Outcome<SyncOutcome> {
     let layout = discover_hall(ctx)?;
+    let manifest = read_manifest(&layout)?;
+    let mut warnings = Vec::new();
+    let steps = reconcile(&layout, &manifest, &mut warnings)?;
+    let outcome = SyncOutcome {
+        root: layout.root().to_path_buf(),
+        steps,
+    };
+    Ok(if warnings.is_empty() {
+        Report::new(outcome)
+    } else {
+        Report::with_warnings(outcome, warnings)
+    })
+}
 
-    // Enumerate both roots. An id claimed by both is dropped from both and
-    // reported — the harness has one slot per id, so neither may win silently.
-    let (skills, mut warnings) =
+pub(crate) fn reconcile(
+    layout: &Layout,
+    manifest: &Manifest,
+    warnings: &mut Vec<Warning>,
+) -> Result<u64, Failure> {
+    let (skills, enumerate_warnings) =
         enumerate::enumerate_both(&layout.hall_skills(), &layout.hall_skills_local())?;
+    warnings.extend(enumerate_warnings);
 
-    // Read each root's state, then merge for planning. The planner reconciles
-    // one set of declarations against one set of recorded installations; it
-    // neither knows nor needs to know that the set came from two files.
-    let hall_state = read_state(&layout, SkillRoot::Hall);
-    let local_state = read_state(&layout, SkillRoot::Local);
+    let hall_state = read_state(layout, SkillRoot::Hall);
+    let local_state = read_state(layout, SkillRoot::Local);
     let state = merge_states(&hall_state, &local_state);
 
-    let targets = build_sync_targets(&skills, &layout);
-    let steps = compute_sync_steps(&skills, &targets, &state);
-
-    execute_steps(&steps, &mut warnings);
-    if !steps.is_empty() {
-        persist_sync_state(&layout, &state, &skills, &steps, &targets, &mut warnings);
+    let available = super::available_targets(manifest);
+    let targets = build_sync_targets(&skills, layout, &available);
+    let mut steps = crate::domain::skill_sync::plan_with_options(
+        &skills,
+        &targets,
+        &state,
+        &available,
+        &PlanOptions::default(),
+    );
+    // Recorded paths may be hall-relative (`.claude/skills/x`); a remove
+    // must never resolve against the process cwd.
+    for step in &mut steps {
+        if step.action == Action::Remove {
+            step.target = layout.root().join(&step.target);
+        }
     }
 
-    let executed: u64 = steps
-        .iter()
-        .filter(|step| step.action != Action::Unchanged)
-        .count() as u64;
-
-    let report = if warnings.is_empty() {
-        Report::new(SyncOutcome {
-            root: layout.root().to_path_buf(),
-            steps: executed,
-        })
-    } else {
-        Report::with_warnings(
-            SyncOutcome {
-                root: layout.root().to_path_buf(),
-                steps: executed,
+    let executed_successfully = execute_steps(&steps, warnings);
+    if !steps.is_empty() {
+        persist_sync_state(
+            PersistContext {
+                layout,
+                hall_state: &hall_state,
+                local_state: &local_state,
+                merged_state: &state,
+                skills: &skills,
+                targets: &targets,
             },
+            &steps,
+            &executed_successfully,
             warnings,
-        )
-    };
+        );
+    }
+    remove_emptied_skill_dirs(layout, &available, warnings);
 
-    Ok(report)
+    Ok(steps
+        .iter()
+        .zip(&executed_successfully)
+        .filter(|(step, ok)| **ok && step.action != Action::Unchanged)
+        .count() as u64)
 }
 
 // -- helpers ------------------------------------------------------------------
 
 fn build_sync_targets(
     skills: &[crate::domain::skill::Skill],
-    layout: &crate::store::layout::Layout,
+    layout: &Layout,
+    available: &[TargetId],
 ) -> Vec<Target> {
     let mut targets = Vec::new();
     for skill in skills {
-        for target_id in TargetId::ALL {
+        for &target_id in available {
             // `target_path` is hall-relative (`.claude/skills/<id>`); the
             // renderer and planner operate on absolute paths, so join it onto
             // the hall root here.
@@ -115,7 +144,7 @@ fn build_sync_targets(
             let source_hash = compute_source_hash(&skill.dir);
             // The renderer symlinks the whole skill directory (step.source),
             // so verify the link against that same directory.
-            let status = render::verify_status(&path, &skill.dir);
+            let status = render::verify_status(&path, &skill.dir, skill.render_mode());
             targets.push(Target {
                 id: target_id,
                 skill: skill.id.clone(),
@@ -129,69 +158,58 @@ fn build_sync_targets(
     targets
 }
 
-// The planner is one-target-per-skill, so run it once per provider and
-// concatenate — a skill materialises to all native targets.
-fn compute_sync_steps(
-    skills: &[crate::domain::skill::Skill],
-    targets: &[Target],
-    state: &State,
-) -> Vec<Step> {
-    let mut steps = Vec::new();
-    for target_id in TargetId::ALL {
-        let provider_targets: Vec<Target> = targets
-            .iter()
-            .filter(|t| t.id == target_id)
-            .cloned()
-            .collect();
-        steps.extend(crate::domain::skill_sync::plan_with_options(
-            skills,
-            &provider_targets,
-            state,
-            &PlanOptions::default(),
-        ));
-    }
-    steps.sort_by(|a, b| {
-        (a.skill.as_str(), a.target.as_str()).cmp(&(b.skill.as_str(), b.target.as_str()))
-    });
-    steps
-}
-
 // Execute best-effort: failures become warnings, never abort.
-fn execute_steps(steps: &[Step], warnings: &mut Vec<Warning>) {
+// Returns a boolean flag per step indicating whether execution succeeded.
+fn execute_steps(steps: &[Step], warnings: &mut Vec<Warning>) -> Vec<bool> {
+    let mut success = Vec::with_capacity(steps.len());
     for step in steps {
-        if let Err(e) = execute_step(step) {
-            warnings.push(Warning::new(
-                "skill.sync.step_failed",
-                format!("{}@{}", step.skill, step.target),
-                e.to_string(),
-            ));
+        match execute_step(step) {
+            Ok(()) => success.push(true),
+            Err(e) => {
+                success.push(false);
+                warnings.push(Warning::new(
+                    "skill.sync.step_failed",
+                    format!("{}@{}", step.skill, step.target),
+                    e.to_string(),
+                ));
+            }
         }
     }
+    success
+}
+
+#[derive(Copy, Clone)]
+struct PersistContext<'a> {
+    layout: &'a Layout,
+    hall_state: &'a State,
+    local_state: &'a State,
+    merged_state: &'a State,
+    skills: &'a [crate::domain::skill::Skill],
+    targets: &'a [Target],
 }
 
 fn persist_sync_state(
-    layout: &crate::store::layout::Layout,
-    state: &State,
-    skills: &[crate::domain::skill::Skill],
+    ctx: PersistContext<'_>,
     steps: &[Step],
-    targets: &[Target],
+    executed_successfully: &[bool],
     warnings: &mut Vec<Warning>,
 ) {
-    let mut new_state = state.clone();
-    for step in steps {
+    let mut new_state = ctx.merged_state.clone();
+    for (step, &succeeded) in steps.iter().zip(executed_successfully) {
+        if !succeeded {
+            continue;
+        }
         match step.action {
             Action::Create | Action::Update => {
-                // Find the source hash from the target map.
-                let hash = targets
+                let hash = ctx
+                    .targets
                     .iter()
-                    .find(|t| t.skill == step.skill)
+                    .find(|t| t.skill == step.skill && t.id == step.target_id)
                     .map(|t| t.source_hash.clone())
                     .unwrap_or_default();
                 update_state_entry(&mut new_state, step, &hash);
             }
-            Action::Remove => {
-                remove_state_entry(&mut new_state, &step.skill);
-            }
+            Action::Remove => remove_provider_entry(&mut new_state, step),
             Action::Unchanged => {}
         }
     }
@@ -199,16 +217,19 @@ fn persist_sync_state(
     // whole reason the states are separate: `.ivar/skills/` is un-ignored
     // by the hall's `.gitignore`, so anything recorded there is committed.
     // A personal skill's id must never reach it.
-    for root in [SkillRoot::Hall, SkillRoot::Local] {
-        let split = split_state(&new_state, skills, root);
-        let path = skill::state_path(layout.root(), root);
+    for (root, initial_state) in [
+        (SkillRoot::Hall, ctx.hall_state),
+        (SkillRoot::Local, ctx.local_state),
+    ] {
+        let split = split_state(&new_state, ctx.skills, root, initial_state);
+        let path = skill::state_path(ctx.layout.root(), root);
         if split.installations.is_empty() {
             // Nothing left for this root — drop the file rather than leave
             // an empty one, so `read` answers `None` (nothing installed).
             let _ = fs::remove_path(&path);
             continue;
         }
-        if let Err(e) = skill::write(layout.root(), root, &split) {
+        if let Err(e) = skill::write(ctx.layout.root(), root, &split) {
             warnings.push(Warning::new(
                 "skill.sync.state_write_failed",
                 path.to_string(),
@@ -222,7 +243,7 @@ fn persist_sync_state(
 ///
 /// A missing state file is the normal case for a hall with no personal
 /// skills, and for every hall before its first sync.
-fn read_state(layout: &crate::store::layout::Layout, root: SkillRoot) -> State {
+fn read_state(layout: &Layout, root: SkillRoot) -> State {
     skill::read(layout.root(), root)
         .unwrap_or_default()
         .unwrap_or_default()
@@ -248,14 +269,23 @@ fn merge_states(hall: &State, local: &State) -> State {
 /// A skill that is no longer declared in either root has no `SkillRoot` to
 /// consult, so its entry is attributed to the root whose state file already
 /// records it — that is where the delete has to be written.
-fn split_state(merged: &State, skills: &[crate::domain::skill::Skill], root: SkillRoot) -> State {
+fn split_state(
+    merged: &State,
+    skills: &[crate::domain::skill::Skill],
+    root: SkillRoot,
+    initial_state: &State,
+) -> State {
     let mut out = State::default();
     for (id, entry) in &merged.installations {
         let owner = skills
             .iter()
             .find(|skill| skill.id.as_str() == id)
             .map(|skill| skill.root);
-        if owner == Some(root) {
+        let belongs_here = match owner {
+            Some(o) => o == root,
+            None => initial_state.installations.contains_key(id),
+        };
+        if belongs_here {
             out.installations.insert(id.clone(), entry.clone());
         }
     }
@@ -287,53 +317,71 @@ fn execute_step(step: &Step) -> Result<(), RenderError> {
 
 /// Update the installation state for a skill after a Create or Update step.
 fn update_state_entry(state: &mut State, step: &Step, source_hash: &str) {
-    let skill_id = step.skill.as_str().to_owned();
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default();
-    let iso = format!("{}Z", now.as_secs());
-
-    let providers: std::collections::HashMap<TargetId, ProviderEntry> = {
-        let mut map = std::collections::HashMap::new();
-        for target_id in TargetId::ALL {
-            map.insert(
-                target_id,
-                ProviderEntry {
-                    target_path: skill::target_path(target_id, step.skill.as_str()),
-                    rendered_hash: source_hash.to_owned(),
-                    linked_at: iso.clone(),
-                    mode: Some(step.mode),
-                },
-            );
-        }
-        map
+    let iso = format!(
+        "{}Z",
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs()
+    );
+    let provider = ProviderEntry {
+        target_path: skill::target_path(step.target_id, step.skill.as_str()),
+        rendered_hash: source_hash.to_owned(),
+        linked_at: iso.clone(),
+        mode: Some(step.mode),
     };
+    let entry = state
+        .installations
+        .entry(step.skill.as_str().to_owned())
+        .or_insert_with(|| InstallationEntry {
+            source_path: step.source.clone(),
+            source_hash: source_hash.to_owned(),
+            installed_at: iso.clone(),
+            commit_sha: None,
+            providers: std::collections::HashMap::new(),
+        });
+    entry.source_path = step.source.clone();
+    source_hash.clone_into(&mut entry.source_hash);
+    entry.installed_at.clone_from(&iso);
+    entry.providers.insert(step.target_id, provider);
+}
 
-    match state.installations.get_mut(&skill_id) {
-        Some(entry) => {
-            entry.source_path = step.source.clone();
-            source_hash.clone_into(&mut entry.source_hash);
-            entry.installed_at.clone_from(&iso);
-            entry.providers = providers;
-        }
-        None => {
-            state.installations.insert(
-                skill_id,
-                InstallationEntry {
-                    source_path: step.source.clone(),
-                    source_hash: source_hash.to_owned(),
-                    installed_at: iso,
-                    commit_sha: None,
-                    providers,
-                },
-            );
-        }
+/// Drop one provider's record; the skill's entry goes when none remain.
+fn remove_provider_entry(state: &mut State, step: &Step) {
+    let id = step.skill.as_str();
+    let Some(entry) = state.installations.get_mut(id) else {
+        return;
+    };
+    entry.providers.remove(&step.target_id);
+    if entry.providers.is_empty() {
+        state.installations.remove(id);
     }
 }
 
-/// Remove a skill's entry from the installation state.
-fn remove_state_entry(state: &mut State, skill: &RepoName) {
-    state.installations.remove(skill.as_str());
+/// Remove `<config>/skills` of a provider the hall no longer lists, only
+/// when cleanup left it empty. Never its config dir or a sibling.
+fn remove_emptied_skill_dirs(layout: &Layout, available: &[TargetId], warnings: &mut Vec<Warning>) {
+    for &target_id in &super::SKILL_TARGETS {
+        if available.contains(&target_id) {
+            continue;
+        }
+        let Some(dir) = skill::target_path(target_id, "_")
+            .parent()
+            .map(|p| layout.root().join(p))
+        else {
+            continue;
+        };
+        if fs::is_real_dir(&dir).unwrap_or(false)
+            && fs::read_dir(&dir).is_ok_and(|entries| entries.is_empty())
+            && let Err(e) = fs::remove_empty_dir(&dir)
+        {
+            warnings.push(Warning::new(
+                "skill.sync.dir_remove_failed",
+                dir.to_string(),
+                e.to_string(),
+            ));
+        }
+    }
 }
 
 #[cfg(test)]

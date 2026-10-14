@@ -27,7 +27,6 @@ fn sample_manifest() -> Manifest {
             "git@github.com:acme/api.git",
             BranchName::new("main").unwrap(),
         )],
-        Some(Skills::new(Targets::new(true, true))),
     )
     .unwrap()
 }
@@ -118,7 +117,6 @@ fn new_rejects_default_provider_not_in_available() {
         HallName::new("acme").unwrap(),
         Providers::new(vec![Provider::ClaudeCode], Provider::OpenCode),
         vec![],
-        None,
     )
     .unwrap_err();
     assert!(matches!(error, Error::DefaultProviderNotAvailable { .. }));
@@ -130,7 +128,6 @@ fn new_rejects_empty_available_providers() {
         HallName::new("acme").unwrap(),
         Providers::new(vec![], Provider::ClaudeCode),
         vec![],
-        None,
     )
     .unwrap_err();
     assert!(matches!(error, Error::NoAvailableProviders));
@@ -149,7 +146,6 @@ fn new_rejects_duplicate_repo_names() {
         HallName::new("acme").unwrap(),
         Providers::new(vec![Provider::ClaudeCode], Provider::ClaudeCode),
         vec![repo("a"), repo("b")],
-        None,
     )
     .unwrap_err();
     assert!(matches!(error, Error::DuplicateRepoName { .. }));
@@ -158,7 +154,7 @@ fn new_rejects_duplicate_repo_names() {
 #[test]
 fn new_accepts_a_well_formed_manifest() {
     let manifest = sample_manifest();
-    assert_eq!(manifest.version(), 4);
+    assert_eq!(manifest.version(), 5);
     assert_eq!(manifest.name().as_str(), "acme");
     assert_eq!(
         manifest.providers().available(),
@@ -169,7 +165,6 @@ fn new_accepts_a_well_formed_manifest() {
         Provider::ClaudeCode
     );
     assert_eq!(manifest.repos().len(), 1);
-    assert!(manifest.skills().is_some());
 }
 
 // -- accessors -------------------------------------------------------------
@@ -193,7 +188,6 @@ fn empty_manifest() -> Manifest {
         HallName::new("acme").unwrap(),
         Providers::new(vec![Provider::ClaudeCode], Provider::ClaudeCode),
         vec![],
-        None,
     )
     .unwrap()
 }
@@ -269,20 +263,6 @@ fn repo_not_found_failure_names_the_repo_and_a_safe_fix() {
     assert_eq!(failure.code, "manifest.repo_not_found");
     assert!(failure.what.contains("ghost"));
     assert!(failure.fix_actions[0].safe);
-}
-
-#[test]
-fn targets_accessors_return_the_constructed_values() {
-    let targets = Targets::new(true, false);
-    assert!(targets.claude());
-    assert!(!targets.opencode());
-}
-
-#[test]
-fn skills_accessor_returns_the_constructed_targets() {
-    let skills = Skills::new(Targets::new(true, true));
-    assert!(skills.targets().claude());
-    assert!(skills.targets().opencode());
 }
 
 // -- MCP server definitions ----------------------------------------------
@@ -407,7 +387,6 @@ fn the_v1_constructor_calls_keep_their_compatibility_defaults() {
         HallName::new("acme").unwrap(),
         Providers::new(vec![Provider::ClaudeCode], Provider::ClaudeCode),
         vec![repo],
-        None,
     )
     .unwrap();
     assert_eq!(
@@ -506,7 +485,6 @@ fn a_blank_repo_check_is_refused_on_build() {
             )
             .with_checks(vec!["   ".to_owned()]),
         ],
-        None,
     )
     .unwrap_err();
     match error {

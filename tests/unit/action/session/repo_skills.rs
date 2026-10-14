@@ -435,7 +435,6 @@ fn materialise_suppresses_skill_repo_prefixed_while_keeping_other_warnings() {
             "https://github.com/example/repo-a.git",
             BranchName::new("main").unwrap(),
         )],
-        None,
     )
     .unwrap();
 

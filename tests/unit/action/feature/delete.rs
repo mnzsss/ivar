@@ -524,7 +524,6 @@ fn hall_with_promoted_feature_on(branch: Option<&str>) -> (tempfile::TempDir, Ut
             origin.as_str(),
             BranchName::new("main").unwrap(),
         )],
-        None,
     )
     .unwrap();
     Manifest::write(&layout, &manifest).unwrap();

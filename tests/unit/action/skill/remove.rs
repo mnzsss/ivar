@@ -20,13 +20,8 @@ fn remove_deletes_the_skill_directory_and_targets() {
     let (_guard, root) = seeded_hall();
     write_skill(&root, "to_remove");
     let ctx = Ctx::new(root.clone());
-
-    // First sync to create targets.
     let _ = sync::sync(&ctx).unwrap();
-
-    assert!(fs::exists(&root.join(".claude").join("skills").join("to_remove")).unwrap());
-    assert!(fs::exists(&root.join(".opencode").join("skills").join("to_remove")).unwrap());
-    assert!(fs::exists(&root.join(".omp").join("skills").join("to_remove")).unwrap());
+    assert!(fs::exists(&root.join(".claude/skills/to_remove")).unwrap());
 
     let report = remove(
         &ctx,
@@ -35,15 +30,46 @@ fn remove_deletes_the_skill_directory_and_targets() {
         },
     )
     .unwrap();
-    assert_eq!(report.value.id.as_str(), "to_remove");
-    assert_eq!(report.value.targets_removed, 3);
 
-    // Skill directory gone.
-    assert!(!fs::exists(&root.join(".ivar").join("skills").join("to_remove")).unwrap());
-    // Targets torn down.
-    assert!(!fs::exists(&root.join(".claude").join("skills").join("to_remove")).unwrap());
-    assert!(!fs::exists(&root.join(".opencode").join("skills").join("to_remove")).unwrap());
-    assert!(!fs::exists(&root.join(".omp").join("skills").join("to_remove")).unwrap());
+    assert_eq!(report.value.id.as_str(), "to_remove");
+    assert_eq!(report.value.targets_removed, 1);
+    assert!(!fs::exists(&root.join(".ivar/skills/to_remove")).unwrap());
+    assert!(!fs::exists(&root.join(".claude/skills/to_remove")).unwrap());
+}
+
+#[test]
+fn remove_also_tears_down_a_recorded_target_of_a_removed_provider() {
+    let (_guard, root) = seeded_hall();
+    write_skill(&root, "gone");
+    let layout = Layout::at(root.clone());
+    let manifest = crate::store::manifest::Manifest::read(&layout)
+        .unwrap()
+        .unwrap();
+    let both = manifest
+        .with_providers(crate::store::manifest::Providers::new(
+            vec![
+                crate::domain::provider::Provider::ClaudeCode,
+                crate::domain::provider::Provider::Omp,
+            ],
+            crate::domain::provider::Provider::ClaudeCode,
+        ))
+        .unwrap();
+    crate::store::manifest::Manifest::write(&layout, &both).unwrap();
+    let ctx = Ctx::new(root.clone());
+    let _ = sync::sync(&ctx).unwrap();
+    crate::store::manifest::Manifest::write(&layout, &manifest).unwrap();
+
+    let report = remove(
+        &ctx,
+        &RemoveInput {
+            skill: "gone".to_owned(),
+        },
+    )
+    .unwrap();
+
+    assert_eq!(report.value.targets_removed, 2);
+    assert!(!fs::exists(&root.join(".omp/skills/gone")).unwrap());
+    assert!(!fs::exists(&root.join(".claude/skills/gone")).unwrap());
 }
 
 #[test]
@@ -118,4 +144,27 @@ fn remove_is_verifiable_by_state_cleanup() {
     let skills_dir = root.join(".ivar").join("skills");
     let entries = fs::read_dir(&skills_dir).unwrap();
     assert!(entries.is_empty());
+}
+
+#[test]
+fn remove_leaves_unrecorded_user_directory_alone() {
+    let (_guard, root) = seeded_hall();
+    write_skill(&root, "unsynced");
+    let user_dir = root.join(".claude/skills/unsynced");
+    fs::ensure_dir(&user_dir).unwrap();
+    fs::write_text(&user_dir.join("user.txt"), "keep me").unwrap();
+
+    let ctx = Ctx::new(root.clone());
+    let report = remove(
+        &ctx,
+        &RemoveInput {
+            skill: "unsynced".to_owned(),
+        },
+    )
+    .unwrap();
+
+    assert_eq!(report.value.targets_removed, 0);
+    assert!(fs::exists(&user_dir).unwrap());
+    assert!(fs::exists(&user_dir.join("user.txt")).unwrap());
+    assert!(!fs::exists(&root.join(".ivar/skills/unsynced")).unwrap());
 }

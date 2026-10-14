@@ -40,7 +40,6 @@ fn hall_with_promoted_feature() -> (tempfile::TempDir, Utf8PathBuf) {
             origin.as_str(),
             BranchName::new("main").unwrap(),
         )],
-        None,
     )
     .unwrap();
     Manifest::write(&layout, &manifest).unwrap();
@@ -102,7 +101,6 @@ fn hall_with_promoted_feature_based_on_an_open_base() -> (tempfile::TempDir, Utf
             origin.as_str(),
             BranchName::new("main").unwrap(),
         )],
-        None,
     )
     .unwrap();
     Manifest::write(&layout, &manifest).unwrap();

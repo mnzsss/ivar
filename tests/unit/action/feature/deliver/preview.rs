@@ -64,7 +64,6 @@ fn preview_shows_the_recorded_base_not_always_the_default_branch() {
             origin.as_str(),
             BranchName::new("main").unwrap(),
         )],
-        None,
     )
     .unwrap();
     Manifest::write(&layout, &manifest).unwrap();

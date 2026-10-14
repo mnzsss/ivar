@@ -43,6 +43,39 @@ fn manifest_bytes(root: &Utf8PathBuf) -> String {
     fs::read_text(&root.join("ivar.json")).unwrap().unwrap()
 }
 
+fn write_hall_skill(root: &Utf8PathBuf, id: &str) {
+    let dir = Layout::at(root.clone()).hall_skills().join(id);
+    fs::ensure_dir(&dir).unwrap();
+    fs::write_text(
+        &dir.join("SKILL.md"),
+        &format!("---\nname: {id}\ndescription: {id} skill\n---\n\nBody.\n"),
+    )
+    .unwrap();
+}
+
+#[test]
+fn removing_a_provider_removes_its_hall_skill_targets() {
+    let (_guard, root) = seeded_hall();
+    let ctx = Ctx::new(root.clone());
+    write_hall_skill(&root, "audit");
+    register(&ctx, "opencode");
+    assert!(root.join(".opencode/skills/audit").exists());
+
+    let report = remove(&ctx, &input("opencode", None)).unwrap();
+    assert!(report.warnings.is_empty(), "{:?}", report.warnings);
+    assert_eq!(report.value.skill_targets, 1);
+    assert!(!root.join(".opencode/skills/audit").exists());
+    assert!(root.join(".claude/skills/audit").exists());
+    let state = crate::store::skill::read(&root, crate::domain::skill::SkillRoot::Hall)
+        .unwrap()
+        .unwrap();
+    assert!(
+        !state.installations["audit"]
+            .providers
+            .contains_key(&crate::domain::skill_sync::TargetId::OpenCode)
+    );
+}
+
 #[test]
 fn remove_unregisters_a_provider_and_keeps_the_default() {
     let (_guard, root) = seeded_hall();
@@ -204,6 +237,7 @@ fn the_human_surface_names_the_removed_provider() {
         provider: Provider::Omp,
         available: vec![Provider::ClaudeCode, Provider::OpenCode],
         default: Provider::ClaudeCode,
+        skill_targets: 0,
     };
 
     let mut out = Vec::new();
@@ -214,4 +248,44 @@ fn the_human_surface_names_the_removed_provider() {
         "Removed provider `omp` from /hall — available: claude-code, opencode \
              (default: claude-code).\n"
     );
+}
+
+#[test]
+fn the_human_surface_appends_skill_targets_when_positive() {
+    let outcome = RemoveOutcome {
+        root: Utf8PathBuf::from("/hall"),
+        provider: Provider::Omp,
+        available: vec![Provider::ClaudeCode, Provider::OpenCode],
+        default: Provider::ClaudeCode,
+        skill_targets: 1,
+    };
+
+    let mut out = Vec::new();
+    outcome.write_human(&mut out).unwrap();
+
+    assert_eq!(
+        String::from_utf8(out).unwrap(),
+        "Removed provider `omp` from /hall — available: claude-code, opencode \
+             (default: claude-code). Skill targets changed: 1.\n"
+    );
+}
+
+#[test]
+fn remove_reports_reconciled_skill_targets_when_hall_skill_exists() {
+    let (_guard, root) = seeded_hall();
+    let ctx = Ctx::new(root.clone());
+    write_hall_skill(&root, "audit");
+    crate::action::skill::sync::sync(&ctx).unwrap();
+    let add_report = add(
+        &ctx,
+        &AddInput {
+            name: "opencode".to_owned(),
+        },
+    )
+    .unwrap();
+    assert_eq!(add_report.value.skill_targets, 1);
+
+    let report = remove(&ctx, &input("opencode", None)).unwrap();
+
+    assert_eq!(report.value.skill_targets, 1);
 }

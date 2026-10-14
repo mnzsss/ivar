@@ -19,7 +19,7 @@ use camino::Utf8PathBuf;
 use serde::Serialize;
 
 use crate::domain::provider::Provider;
-use crate::error::{Failure, FixAction, Outcome, Report, WriteHuman};
+use crate::error::{Failure, FixAction, Outcome, Report, Warning, WriteHuman};
 use crate::store::manifest::{Manifest, Providers};
 
 use super::super::sync;
@@ -44,6 +44,8 @@ pub struct AddOutcome {
     pub available: Vec<Provider>,
     /// The hall's default provider — unchanged by this command.
     pub default: Provider,
+    /// Number of skill targets changed during reconciliation.
+    pub skill_targets: u64,
 }
 
 impl WriteHuman for AddOutcome {
@@ -54,11 +56,15 @@ impl WriteHuman for AddOutcome {
             .map(Provider::id)
             .collect::<Vec<_>>()
             .join(", ");
-        writeln!(
+        write!(
             w,
             "Registered provider `{}` in {} — available: {} (default: {}).",
             self.provider, self.root, rendered, self.default
-        )
+        )?;
+        if self.skill_targets > 0 {
+            write!(w, " Skill targets changed: {}.", self.skill_targets)?;
+        }
+        writeln!(w)
     }
 }
 
@@ -94,8 +100,7 @@ pub fn add(ctx: &Ctx, input: &AddInput) -> Outcome<AddOutcome> {
     available.sort();
 
     // Rebuild the manifest through the manifest's own `with_providers`, which
-    // preserves the hall integration defaults, skills, MCP servers, and repos
-    // — no field a mutation is not about is ever dropped.
+    // preserves the hall integration defaults, MCP servers, and repos.
     let updated = manifest.with_providers(Providers::new(available.clone(), default))?;
     Manifest::write(&layout, &updated)?;
 
@@ -104,11 +109,25 @@ pub fn add(ctx: &Ctx, input: &AddInput) -> Outcome<AddOutcome> {
     // shipped workflow commands are materialised immediately; a conflict or
     // write failure is a warning (the manifest keeps the provider; sync is
     // the repair), never a rollback.
+    let mut skill_warnings = Vec::new();
+    let skill_targets =
+        match crate::action::skill::sync::reconcile(&layout, &updated, &mut skill_warnings) {
+            Ok(count) => count,
+            Err(failure) => {
+                skill_warnings.push(Warning::new(
+                    "provider.skill_reconcile_failed",
+                    provider.id(),
+                    failure.to_string(),
+                ));
+                0
+            }
+        };
     let mut report = Report::new(AddOutcome {
         root: layout.root().to_path_buf(),
         provider,
         available,
         default,
+        skill_targets,
     });
     for warning in sync::materialise_instructions(&layout, &updated) {
         report.warn(warning);
@@ -117,6 +136,9 @@ pub fn add(ctx: &Ctx, input: &AddInput) -> Outcome<AddOutcome> {
         report.warn(warning);
     }
     if let Some(warning) = sync::materialise_shipped_skills(&layout, provider) {
+        report.warn(warning);
+    }
+    for warning in skill_warnings {
         report.warn(warning);
     }
     Ok(report)

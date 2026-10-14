@@ -940,6 +940,29 @@ fn remove_path_leaves_a_hardlinked_file_outside_the_tree_read_only() {
 }
 
 #[test]
+fn remove_empty_dir_removes_empty_dir_and_tolerates_absent() {
+    let (_dir, root) = utf8_temp_dir();
+    let empty = root.join("empty");
+    ensure_dir(&empty).unwrap();
+    assert!(exists(&empty).unwrap());
+
+    remove_empty_dir(&empty).unwrap();
+    assert!(!exists(&empty).unwrap());
+
+    // Absent path is success
+    remove_empty_dir(&empty).unwrap();
+
+    // Non-empty dir fails
+    let non_empty = root.join("non_empty");
+    ensure_dir(&non_empty).unwrap();
+    write_text(&non_empty.join("child.txt"), "hello").unwrap();
+    assert!(matches!(
+        remove_empty_dir(&non_empty),
+        Err(Error::Remove { .. })
+    ));
+}
+
+#[test]
 fn lock_exclusive_holds_a_second_locker_until_the_first_is_dropped() {
     let (_guard, dir) = utf8_temp_dir();
     let path = dir.join("run.json.lock");

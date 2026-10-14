@@ -587,7 +587,7 @@ List the hall's providers and the default one
 
 ##### `ivar provider add`
 
-Register a new provider by name
+Register a new provider by name and materialise its config and skills
 
 | argument | required | description |
 | --- | --- | --- |
@@ -596,7 +596,7 @@ Register a new provider by name
 
 ##### `ivar provider remove`
 
-Unregister a provider and tear down its hall config
+Unregister a provider and tear down its hall config and skills
 
 | argument | required | description |
 | --- | --- | --- |
@@ -852,7 +852,7 @@ Convert an external skill into an authored (local) skill
 
 ##### `ivar skill sync`
 
-Materialise hall skills to native targets for other tools
+Materialise hall skills for the hall's providers and remove the ones left behind by providers it no longer lists
 
 
 ##### `ivar skill status`

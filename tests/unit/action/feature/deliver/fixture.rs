@@ -79,7 +79,6 @@ pub(super) fn hall_with_promoted_on(
         HallName::new("acme").unwrap(),
         Providers::new(vec![Provider::ClaudeCode], Provider::ClaudeCode),
         declared,
-        None,
     )
     .unwrap();
     Manifest::write(&layout, &manifest).unwrap();
@@ -324,13 +323,8 @@ fn rewrite_to_github(root: &Utf8Path, reach: impl Fn(&str) -> String) {
             Repo::new(repo.name().clone(), url, repo.default_branch().clone())
         })
         .collect();
-    let manifest = Manifest::new(
-        manifest.name().clone(),
-        manifest.providers().clone(),
-        repos,
-        None,
-    )
-    .unwrap();
+    let manifest =
+        Manifest::new(manifest.name().clone(), manifest.providers().clone(), repos).unwrap();
     Manifest::write(&layout, &manifest).unwrap();
 }
 

@@ -16,17 +16,38 @@ Skills live in one of two roots:
 <hall>/.ivar/skills-local/    personal — gitignored
 ```
 
-`sync` merges both roots into the harness targets:
+`sync` merges both roots into the skill directory of each provider in
+`ivar.json` `providers.available`:
 
 ```
-<hall>/.claude/skills/…
-<hall>/.opencode/skills/…
-<hall>/.omp/skills/…
+<hall>/.claude/skills/…     claude-code
+<hall>/.opencode/skills/…   opencode
+<hall>/.omp/skills/…        omp
+```
 
 `.ivar/skills/` is **committed**, along with `.ivar/setups/` — the hall's
 `.gitignore` ignores derived harness targets `.claude/skills/`,
 `.opencode/skills/`, and `.omp/skills/`, and includes `.ivar/*` plus `!.ivar/skills/` and `!.ivar/setups/` for
 exactly this reason. Everything else under `.ivar/` is derived and ignored.
+
+## Providers decide the targets
+
+`ivar skill sync` writes only for the providers the hall lists. A provider
+that leaves `providers.available` — through `ivar provider remove` or a hand
+edit of `ivar.json` — loses its skill targets on the next `skill sync`:
+every target recorded in `.ivar/skills/state.json` or
+`.ivar/skills-local/state.json` for that provider is removed, symlink or
+copy, and its entry leaves the state file. A copied skill is removed even if
+you edited the copy; edit the source under `.ivar/skills*/` instead.
+
+Files ivar never recorded stay where they are. When cleanup leaves the
+provider's `skills/` directory empty, ivar removes that directory and
+nothing above it.
+
+`ivar provider add` materialises the hall's skills for the new provider and
+`ivar provider remove` cleans them up, so neither needs a follow-up
+`skill sync`. `ivar skill doctor` reports a leftover target of a removed
+provider as `skill.target_orphaned`, fixed by `ivar skill sync`.
 
 ## Authoring one
 
@@ -41,8 +62,8 @@ ivar skill create team-tool --description "..." --hall
 Personal is the default because writing to the committed root is a commit 
 visible in review and inherited by everyone who clones the hall. 
 
-`ivar skill sync` materialises all skills from both roots into
-each harness's native target location. Commit `.ivar/skills/` and your
+`ivar skill sync` materialises all skills from both roots for the hall's
+available providers. Commit `.ivar/skills/` and your
 teammates get it on their next `git pull` + `ivar skill sync`.
 
 ## Installing someone else's

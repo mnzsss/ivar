@@ -51,7 +51,6 @@ fn hall_with_provider_session() -> (tempfile::TempDir, Utf8PathBuf) {
             api_origin.as_str(),
             BranchName::new("main").unwrap(),
         )],
-        None,
     )
     .unwrap();
     Manifest::write(&layout, &manifest).unwrap();
@@ -353,7 +352,6 @@ fn relay_without_a_previous_session_is_blocked() {
             api_origin.as_str(),
             BranchName::new("main").unwrap(),
         )],
-        None,
     )
     .unwrap();
     Manifest::write(&layout, &manifest).unwrap();

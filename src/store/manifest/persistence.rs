@@ -81,6 +81,19 @@ fn v3_to_v4(value: serde_json::Value) -> Result<serde_json::Value, String> {
     Ok(value)
 }
 
+/// Migrate a manifest from v4 → v5.
+///
+/// v5 removes `skills` (`skills.targets.{claude,opencode}`). Nothing ever
+/// read it: skill targets follow `providers.available`. `Manifest` denies
+/// unknown fields, so the key is dropped here rather than tolerated.
+fn v4_to_v5(mut value: serde_json::Value) -> Result<serde_json::Value, String> {
+    value
+        .as_object_mut()
+        .ok_or("manifest must be an object")?
+        .remove("skills");
+    Ok(value)
+}
+
 /// What migrating `ivar.json` would do. Produced by [`Manifest::plan`], which
 /// never touches the file.
 ///
@@ -247,6 +260,7 @@ impl Manifest {
                 Migration::new(1, 2, v1_to_v2),
                 Migration::new(2, 3, v2_to_v3),
                 Migration::new(3, 4, v3_to_v4),
+                Migration::new(4, 5, v4_to_v5),
             ],
             CURRENT_VERSION,
             Policy::Committed,

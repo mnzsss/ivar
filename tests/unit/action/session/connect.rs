@@ -60,7 +60,6 @@ fn hall_with_session(promoted: &[&str]) -> (tempfile::TempDir, Utf8PathBuf) {
                 BranchName::new("main").unwrap(),
             ),
         ],
-        None,
     )
     .unwrap();
     Manifest::write(&layout, &manifest).unwrap();
@@ -340,7 +339,6 @@ fn connect_resolves_a_discovery_session() {
             api_origin.as_str(),
             BranchName::new("main").unwrap(),
         )],
-        None,
     )
     .unwrap();
     Manifest::write(&layout, &manifest).unwrap();
@@ -861,7 +859,6 @@ fn hall_with_based_feature(base: &str) -> (tempfile::TempDir, Utf8PathBuf) {
             origin.as_str(),
             BranchName::new("main").unwrap(),
         )],
-        None,
     )
     .unwrap();
     Manifest::write(&layout, &manifest).unwrap();

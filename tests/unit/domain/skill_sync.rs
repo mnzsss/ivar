@@ -11,6 +11,7 @@ use camino::Utf8PathBuf;
 
 use super::*;
 use crate::domain::name::RepoName;
+use crate::domain::provider::Provider;
 use crate::domain::skill::{ExternalSkillSource, Skill, SkillFrontmatter, SkillRoot};
 
 fn authored_skill(id: &str, dir: &str) -> Skill {
@@ -91,7 +92,7 @@ fn create_when_target_missing_and_no_state() {
     );
     let state = State::default();
 
-    let steps = plan(&[skill], &[target], &state);
+    let steps = plan(&[skill], &[target], &state, &[TargetId::Claude]);
 
     assert_eq!(steps.len(), 1);
     assert_eq!(steps[0].action, Action::Create);
@@ -110,7 +111,7 @@ fn adopt_existing_matching_target_when_no_state() {
     );
     let state = State::default();
 
-    let steps = plan(&[skill], &[target], &state);
+    let steps = plan(&[skill], &[target], &state, &[TargetId::Claude]);
 
     assert_eq!(steps.len(), 1);
     assert_eq!(steps[0].action, Action::Create);
@@ -129,7 +130,7 @@ fn update_when_untracked_obstruction_exists() {
     );
     let state = State::default();
 
-    let steps = plan(&[skill], &[target], &state);
+    let steps = plan(&[skill], &[target], &state, &[TargetId::Claude]);
 
     assert_eq!(steps.len(), 1);
     assert_eq!(steps[0].action, Action::Update);
@@ -160,7 +161,7 @@ fn update_when_render_mode_changed() {
         },
     };
 
-    let steps = plan(&[skill], &[target], &state);
+    let steps = plan(&[skill], &[target], &state, &[TargetId::Claude]);
 
     assert_eq!(steps.len(), 1);
     assert_eq!(steps[0].action, Action::Update);
@@ -188,7 +189,7 @@ fn create_when_tracked_target_is_missing() {
         },
     };
 
-    let steps = plan(&[skill], &[target], &state);
+    let steps = plan(&[skill], &[target], &state, &[TargetId::Claude]);
 
     assert_eq!(steps.len(), 1);
     assert_eq!(steps[0].action, Action::Create);
@@ -215,7 +216,7 @@ fn update_when_symlink_points_elsewhere() {
         },
     };
 
-    let steps = plan(&[skill], &[target], &state);
+    let steps = plan(&[skill], &[target], &state, &[TargetId::Claude]);
 
     assert_eq!(steps.len(), 1);
     assert_eq!(steps[0].action, Action::Update);
@@ -242,7 +243,7 @@ fn update_when_tracked_target_is_not_a_symlink() {
         },
     };
 
-    let steps = plan(&[skill], &[target], &state);
+    let steps = plan(&[skill], &[target], &state, &[TargetId::Claude]);
 
     assert_eq!(steps.len(), 1);
     assert_eq!(steps[0].action, Action::Update);
@@ -270,7 +271,7 @@ fn unchanged_with_refreshed_hash_when_source_changed() {
         },
     };
 
-    let steps = plan(&[skill], &[target], &state);
+    let steps = plan(&[skill], &[target], &state, &[TargetId::Claude]);
 
     assert_eq!(steps.len(), 1);
     assert_eq!(steps[0].action, Action::Unchanged);
@@ -301,7 +302,7 @@ fn unchanged_when_everything_matches() {
         },
     };
 
-    let steps = plan(&[skill], &[target], &state);
+    let steps = plan(&[skill], &[target], &state, &[TargetId::Claude]);
 
     assert_eq!(steps.len(), 1);
     assert_eq!(steps[0].action, Action::Unchanged);
@@ -347,7 +348,7 @@ fn remove_skills_no_longer_declared() {
         },
     };
 
-    let steps = plan(&[skill], &[target], &state);
+    let steps = plan(&[skill], &[target], &state, &[TargetId::Claude]);
 
     // Two steps: create the missing alpha, remove the untracked ghost.
     assert_eq!(steps.len(), 2);
@@ -394,6 +395,7 @@ fn commit_sha_short_circuit_skips() {
         &[skill],
         &[target],
         &state,
+        &[TargetId::Claude],
         &PlanOptions {
             repo_head: Some("abc123".to_owned()),
             tree_clean: true,
@@ -416,10 +418,129 @@ fn omp_target_lifecycle_round_trip() {
     );
     let state = State::default();
 
-    let steps = plan(&[skill], &[target], &state);
+    let steps = plan(&[skill], &[target], &state, &[TargetId::Omp]);
 
     assert_eq!(steps.len(), 1);
     assert_eq!(steps[0].action, Action::Create);
     assert_eq!(steps[0].mode, RenderMode::Symlink);
     assert_eq!(TargetId::Omp.as_str(), "omp");
+}
+
+fn recorded(target: TargetId, path: &str) -> (TargetId, ProviderEntry) {
+    (
+        target,
+        ProviderEntry {
+            target_path: Utf8PathBuf::from(path),
+            rendered_hash: "sha256:x".to_owned(),
+            linked_at: "2026-01-01T00:00:00.000Z".to_owned(),
+            mode: Some(RenderMode::Symlink),
+        },
+    )
+}
+
+fn state_with(id: &str, providers: Vec<(TargetId, ProviderEntry)>) -> State {
+    let mut installations = HashMap::new();
+    installations.insert(
+        id.to_owned(),
+        InstallationEntry {
+            source_path: Utf8PathBuf::from(format!("/source/{id}")),
+            source_hash: "sha256:x".to_owned(),
+            installed_at: "2026-01-01T00:00:00.000Z".to_owned(),
+            commit_sha: None,
+            providers: providers.into_iter().collect(),
+        },
+    );
+    State { installations }
+}
+
+#[test]
+fn every_provider_maps_to_its_skill_target() {
+    assert_eq!(TargetId::from(Provider::ClaudeCode), TargetId::Claude);
+    assert_eq!(TargetId::from(Provider::OpenCode), TargetId::OpenCode);
+    assert_eq!(TargetId::from(Provider::Omp), TargetId::Omp);
+}
+
+#[test]
+fn a_declared_skill_loses_only_the_targets_of_unavailable_providers() {
+    let skill = authored_skill("alpha", "/source/alpha");
+    let state = state_with(
+        "alpha",
+        vec![
+            recorded(TargetId::Claude, ".claude/skills/alpha"),
+            recorded(TargetId::OpenCode, ".opencode/skills/alpha"),
+        ],
+    );
+
+    let steps = plan_orphans(&[skill], &state, &[TargetId::Claude]);
+
+    assert_eq!(steps.len(), 1);
+    assert_eq!(steps[0].action, Action::Remove);
+    assert_eq!(steps[0].target_id, TargetId::OpenCode);
+    assert_eq!(steps[0].target.as_str(), ".opencode/skills/alpha");
+}
+
+#[test]
+fn an_undeclared_skill_is_removed_once_per_recorded_provider() {
+    let state = state_with(
+        "ghost",
+        vec![
+            recorded(TargetId::Claude, "/hall/.claude/skills/ghost"),
+            recorded(TargetId::Omp, "/hall/.omp/skills/ghost"),
+        ],
+    );
+    let available = [TargetId::Claude, TargetId::OpenCode, TargetId::Omp];
+
+    let steps = plan_with_options(&[], &[], &state, &available, &PlanOptions::default());
+
+    let mut removed: Vec<(TargetId, &str)> = steps
+        .iter()
+        .map(|step| (step.target_id, step.target.as_str()))
+        .collect();
+    removed.sort_by_key(|(_, path)| *path);
+    assert_eq!(
+        removed,
+        vec![
+            (TargetId::Claude, "/hall/.claude/skills/ghost"),
+            (TargetId::Omp, "/hall/.omp/skills/ghost"),
+        ]
+    );
+    assert!(steps.iter().all(|step| step.action == Action::Remove));
+}
+
+#[test]
+fn each_available_target_of_a_skill_is_planned_with_its_own_id() {
+    let skill = authored_skill("alpha", "/source/alpha");
+    let claude = target(
+        TargetId::Claude,
+        &skill,
+        "/hall/.claude/skills/alpha",
+        "sha256:any",
+        MaterialStatus::Missing,
+    );
+    let omp = target(
+        TargetId::Omp,
+        &skill,
+        "/hall/.omp/skills/alpha",
+        "sha256:any",
+        MaterialStatus::Missing,
+    );
+
+    let steps = plan(
+        &[skill],
+        &[claude, omp],
+        &State::default(),
+        &[TargetId::Claude, TargetId::Omp],
+    );
+
+    let planned: Vec<(TargetId, Action)> = steps
+        .iter()
+        .map(|step| (step.target_id, step.action))
+        .collect();
+    assert_eq!(
+        planned,
+        vec![
+            (TargetId::Claude, Action::Create),
+            (TargetId::Omp, Action::Create)
+        ]
+    );
 }

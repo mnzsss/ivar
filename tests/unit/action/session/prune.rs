@@ -41,7 +41,6 @@ fn hall_with_two_sessions() -> (tempfile::TempDir, Utf8PathBuf) {
             api_origin.as_str(),
             BranchName::new("main").unwrap(),
         )],
-        None,
     )
     .unwrap();
     Manifest::write(&layout, &manifest).unwrap();
@@ -245,7 +244,6 @@ fn hall_with_detached_session() -> (tempfile::TempDir, Utf8PathBuf) {
             api_origin.as_str(),
             BranchName::new("main").unwrap(),
         )],
-        None,
     )
     .unwrap();
     Manifest::write(&layout, &manifest).unwrap();
