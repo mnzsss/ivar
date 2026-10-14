@@ -39,7 +39,7 @@ fn hall_with_promoted_feature() -> (tempfile::TempDir, Utf8PathBuf) {
             RepoName::new("api").unwrap(),
             origin.as_str(),
             BranchName::new("main").unwrap(),
-        )]
+        )],
     )
     .unwrap();
     Manifest::write(&layout, &manifest).unwrap();
@@ -100,7 +100,7 @@ fn hall_with_promoted_feature_based_on_an_open_base() -> (tempfile::TempDir, Utf
             RepoName::new("api").unwrap(),
             origin.as_str(),
             BranchName::new("main").unwrap(),
-        )]
+        )],
     )
     .unwrap();
     Manifest::write(&layout, &manifest).unwrap();

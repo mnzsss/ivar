@@ -42,7 +42,9 @@ fn remove_also_tears_down_a_recorded_target_of_a_removed_provider() {
     let (_guard, root) = seeded_hall();
     write_skill(&root, "gone");
     let layout = Layout::at(root.clone());
-    let manifest = crate::store::manifest::Manifest::read(&layout).unwrap().unwrap();
+    let manifest = crate::store::manifest::Manifest::read(&layout)
+        .unwrap()
+        .unwrap();
     let both = manifest
         .with_providers(crate::store::manifest::Providers::new(
             vec![

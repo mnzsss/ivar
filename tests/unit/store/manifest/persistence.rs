@@ -27,7 +27,7 @@ fn sample_manifest() -> Manifest {
             RepoName::new("api").unwrap(),
             "git@github.com:acme/api.git",
             BranchName::new("main").unwrap(),
-        )]
+        )],
     )
     .unwrap()
 }
@@ -124,7 +124,6 @@ fn write_then_read_round_trips_and_writes_canonical_bytes() {
     let read_back = Manifest::read(&layout).unwrap().unwrap();
     assert_eq!(read_back, manifest);
 }
-
 
 #[test]
 fn write_stamps_the_version_it_wrote_over_a_legacy_schema_url() {

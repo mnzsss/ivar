@@ -32,7 +32,7 @@ fn manifest(repos: &[&str]) -> Manifest {
                     BranchName::new("main").unwrap(),
                 )
             })
-            .collect()
+            .collect(),
     )
     .unwrap()
 }

@@ -523,7 +523,7 @@ fn hall_with_promoted_feature_on(branch: Option<&str>) -> (tempfile::TempDir, Ut
             RepoName::new("api").unwrap(),
             origin.as_str(),
             BranchName::new("main").unwrap(),
-        )]
+        )],
     )
     .unwrap();
     Manifest::write(&layout, &manifest).unwrap();

@@ -23,7 +23,7 @@ fn hall() -> (tempfile::TempDir, Layout, Manifest) {
             RepoName::new("api").unwrap(),
             "git@x:api.git",
             BranchName::new("main").unwrap(),
-        )]
+        )],
     )
     .unwrap();
     (tmp, layout, manifest)

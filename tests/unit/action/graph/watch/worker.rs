@@ -453,7 +453,7 @@ fn hall_targets_come_from_the_manifest_paths_that_exist_on_disk() {
             vec![crate::domain::provider::Provider::ClaudeCode],
             crate::domain::provider::Provider::ClaudeCode,
         ),
-        vec![]
+        vec![],
     )
     .unwrap()
     .with_graph_path_added("brand")

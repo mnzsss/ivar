@@ -61,7 +61,7 @@ fn multi_repo_hall_with_feature() -> (tempfile::TempDir, Utf8PathBuf) {
                 origin_docs.as_str(),
                 BranchName::new("master").unwrap(),
             ),
-        ]
+        ],
     )
     .unwrap();
     Manifest::write(&layout, &manifest).unwrap();

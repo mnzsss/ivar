@@ -1729,12 +1729,8 @@ fn land_revalidates_head_movement_and_rolls_back() {
             }
         })
         .collect();
-    let new_manifest = Manifest::new(
-        manifest.name().clone(),
-        manifest.providers().clone(),
-        repos
-    )
-    .unwrap();
+    let new_manifest =
+        Manifest::new(manifest.name().clone(), manifest.providers().clone(), repos).unwrap();
     Manifest::write(&layout, &new_manifest).unwrap();
 
     let land_preview = deliver(&ctx, land_preview_input("checkout"))
@@ -1794,12 +1790,8 @@ fn land_revalidates_dirty_worktree_and_rolls_back() {
             }
         })
         .collect();
-    let new_manifest = Manifest::new(
-        manifest.name().clone(),
-        manifest.providers().clone(),
-        repos
-    )
-    .unwrap();
+    let new_manifest =
+        Manifest::new(manifest.name().clone(), manifest.providers().clone(), repos).unwrap();
     Manifest::write(&layout, &new_manifest).unwrap();
 
     let land_preview = deliver(&ctx, land_preview_input("checkout"))
@@ -1866,12 +1858,8 @@ fn land_revalidates_fast_forward_and_rolls_back() {
             }
         })
         .collect();
-    let new_manifest = Manifest::new(
-        manifest.name().clone(),
-        manifest.providers().clone(),
-        repos
-    )
-    .unwrap();
+    let new_manifest =
+        Manifest::new(manifest.name().clone(), manifest.providers().clone(), repos).unwrap();
     Manifest::write(&layout, &new_manifest).unwrap();
 
     let land_preview = deliver(&ctx, land_preview_input("checkout"))

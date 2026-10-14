@@ -43,7 +43,7 @@ fn hall_with_promoted_feature() -> (tempfile::TempDir, Utf8PathBuf) {
             RepoName::new("api").unwrap(),
             origin.as_str(),
             BranchName::new("main").unwrap(),
-        )]
+        )],
     )
     .unwrap();
     Manifest::write(&layout, &manifest).unwrap();
@@ -249,7 +249,7 @@ fn resolve_provider_uses_the_manifest_default_when_absent() {
     let manifest = Manifest::new(
         HallName::new("acme").unwrap(),
         Providers::new(vec![Provider::ClaudeCode], Provider::ClaudeCode),
-        vec![]
+        vec![],
     )
     .unwrap();
 
@@ -578,7 +578,7 @@ fn smart_fetch_warns_and_continues_when_a_repo_fails() {
     let manifest = Manifest::new(
         HallName::new("acme").unwrap(),
         Providers::new(vec![Provider::ClaudeCode], Provider::ClaudeCode),
-        repos
+        repos,
     )
     .unwrap();
     Manifest::write(&layout, &manifest).unwrap();
@@ -940,7 +940,7 @@ fn mcp_allowlist_sorts_servers_from_manifest() {
     let manifest = Manifest::new(
         HallName::new("acme").unwrap(),
         Providers::new(vec![Provider::ClaudeCode], Provider::ClaudeCode),
-        vec![]
+        vec![],
     )
     .unwrap()
     .with_mcp_servers(vec![
@@ -960,7 +960,7 @@ fn mcp_allowlist_is_empty_when_manifest_has_no_mcp_servers() {
     let manifest = Manifest::new(
         HallName::new("acme").unwrap(),
         Providers::new(vec![Provider::ClaudeCode], Provider::ClaudeCode),
-        vec![]
+        vec![],
     )
     .unwrap();
 
@@ -978,7 +978,7 @@ fn mcp_allowlist_ignores_manual_mcp_json_entries() {
     let manifest = Manifest::new(
         HallName::new("acme").unwrap(),
         Providers::new(vec![Provider::ClaudeCode], Provider::ClaudeCode),
-        vec![]
+        vec![],
     )
     .unwrap()
     .with_mcp_servers(vec![
@@ -999,7 +999,7 @@ fn mcp_settings_json_shape_matches_claude_expectations() {
     let manifest = Manifest::new(
         HallName::new("acme").unwrap(),
         Providers::new(vec![Provider::ClaudeCode], Provider::ClaudeCode),
-        vec![]
+        vec![],
     )
     .unwrap()
     .with_mcp_servers(vec![
@@ -1384,7 +1384,7 @@ fn pointers_follow_manifest_order_and_list_only_repos_with_a_file() {
                 api_origin.as_str(),
                 BranchName::new("main").unwrap(),
             ),
-        ]
+        ],
     )
     .unwrap();
     Manifest::write(&layout, &manifest).unwrap();
@@ -2145,7 +2145,7 @@ fn hall_with_based_feature(base: &str) -> (tempfile::TempDir, Utf8PathBuf) {
             RepoName::new("api").unwrap(),
             origin.as_str(),
             BranchName::new("main").unwrap(),
-        )]
+        )],
     )
     .unwrap();
     Manifest::write(&layout, &manifest).unwrap();

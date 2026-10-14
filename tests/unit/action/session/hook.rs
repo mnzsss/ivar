@@ -48,7 +48,7 @@ fn hall_with_one_promoted_repo() -> (tempfile::TempDir, Utf8PathBuf) {
     let manifest = Manifest::new(
         HallName::new("acme").unwrap(),
         Providers::new(vec![Provider::ClaudeCode], Provider::ClaudeCode),
-        repos
+        repos,
     )
     .unwrap();
     Manifest::write(&layout, &manifest).unwrap();

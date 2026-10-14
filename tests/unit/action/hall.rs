@@ -542,7 +542,7 @@ fn hall_with_repo() -> (tempfile::TempDir, Utf8PathBuf) {
             crate::domain::name::RepoName::new("api").unwrap(),
             origin.as_str(),
             crate::domain::name::BranchName::new("main").unwrap(),
-        )]
+        )],
     )
     .unwrap();
     Manifest::write(&layout, &manifest).unwrap();
@@ -955,7 +955,7 @@ fn doctor_reports_stale_files_for_unavailable_provider(#[case] code: &str) {
             vec![Provider::ClaudeCode, Provider::OpenCode],
             Provider::ClaudeCode,
         ),
-        vec![]
+        vec![],
     )
     .unwrap();
     Manifest::write(&layout, &both).unwrap();
@@ -963,7 +963,7 @@ fn doctor_reports_stale_files_for_unavailable_provider(#[case] code: &str) {
     let claude_only = Manifest::new(
         HallName::new("acme").unwrap(),
         Providers::new(vec![Provider::ClaudeCode], Provider::ClaudeCode),
-        vec![]
+        vec![],
     )
     .unwrap();
     Manifest::write(&layout, &claude_only).unwrap();
@@ -1104,7 +1104,7 @@ fn doctor_names_a_stale_managed_block() {
             crate::domain::name::RepoName::new("api").unwrap(),
             origin.as_str(),
             crate::domain::name::BranchName::new("main").unwrap(),
-        )]
+        )],
     )
     .unwrap();
     Manifest::write(&layout, &manifest).unwrap();
@@ -1128,7 +1128,7 @@ fn doctor_names_a_missing_enabled_alias() {
             vec![Provider::ClaudeCode, Provider::OpenCode],
             Provider::ClaudeCode,
         ),
-        vec![]
+        vec![],
     )
     .unwrap();
     Manifest::write(&layout, &manifest).unwrap();
@@ -1203,7 +1203,7 @@ fn doctor_names_a_disabled_providers_leftover_alias() {
             vec![Provider::ClaudeCode, Provider::OpenCode],
             Provider::ClaudeCode,
         ),
-        vec![]
+        vec![],
     )
     .unwrap();
     Manifest::write(&layout, &both).unwrap();
@@ -1211,7 +1211,7 @@ fn doctor_names_a_disabled_providers_leftover_alias() {
     let claude_only = Manifest::new(
         HallName::new("acme").unwrap(),
         Providers::new(vec![Provider::ClaudeCode], Provider::ClaudeCode),
-        vec![]
+        vec![],
     )
     .unwrap();
     Manifest::write(&layout, &claude_only).unwrap();
@@ -1253,7 +1253,7 @@ fn doctor_returns_every_applicable_instruction_finding_in_one_run() {
             crate::domain::name::RepoName::new("api").unwrap(),
             origin.as_str(),
             crate::domain::name::BranchName::new("main").unwrap(),
-        )]
+        )],
     )
     .unwrap();
     Manifest::write(&layout, &both).unwrap();

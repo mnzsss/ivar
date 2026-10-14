@@ -51,7 +51,7 @@ fn hall_with_discovery_session() -> (tempfile::TempDir, Utf8PathBuf) {
                 web_origin.as_str(),
                 BranchName::new("main").unwrap(),
             ),
-        ]
+        ],
     )
     .unwrap();
     Manifest::write(&layout, &manifest).unwrap();

@@ -254,7 +254,7 @@ fn synced_hall(develop_at_sync: bool) -> (tempfile::TempDir, Layout, Utf8PathBuf
             RepoName::new("api").unwrap(),
             origin.as_str(),
             BranchName::new("main").unwrap(),
-        )]
+        )],
     )
     .unwrap();
     Manifest::write(&layout, &manifest).unwrap();

@@ -257,12 +257,8 @@ fn land_runs_verification_gate_and_refuses_on_failure() {
             }
         })
         .collect();
-    let new_manifest = Manifest::new(
-        manifest.name().clone(),
-        manifest.providers().clone(),
-        repos
-    )
-    .unwrap();
+    let new_manifest =
+        Manifest::new(manifest.name().clone(), manifest.providers().clone(), repos).unwrap();
     Manifest::write(&layout, &new_manifest).unwrap();
 
     let preview = deliver(&ctx, land_preview_input("checkout"))

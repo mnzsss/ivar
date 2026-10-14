@@ -107,7 +107,10 @@ pub(crate) fn reconcile(
     }
     remove_emptied_skill_dirs(layout, &available, warnings);
 
-    Ok(steps.iter().filter(|step| step.action != Action::Unchanged).count() as u64)
+    Ok(steps
+        .iter()
+        .filter(|step| step.action != Action::Unchanged)
+        .count() as u64)
 }
 
 // -- helpers ------------------------------------------------------------------
@@ -318,7 +321,9 @@ fn remove_emptied_skill_dirs(layout: &Layout, available: &[TargetId], warnings: 
         if available.contains(&target_id) {
             continue;
         }
-        let Some(dir) = skill::target_path(target_id, "_").parent().map(|p| layout.root().join(p))
+        let Some(dir) = skill::target_path(target_id, "_")
+            .parent()
+            .map(|p| layout.root().join(p))
         else {
             continue;
         };

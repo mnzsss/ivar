@@ -92,7 +92,9 @@ pub fn doctor(ctx: &Ctx) -> Outcome<DoctorOutcome> {
     let home = crate::providers::user_home().ok();
     problems.extend(repo_skill_problems(&layout, home.as_deref()));
     problems.extend(target_status_problems(&skills, &targets, &available));
-    problems.extend(orphaned_target_problems(&layout, &skills, &state, &available));
+    problems.extend(orphaned_target_problems(
+        &layout, &skills, &state, &available,
+    ));
     problems.extend(orphaned_state_problems(&skills, &state));
     let count = problems.len() as u64;
 
@@ -274,11 +276,8 @@ fn orphaned_target_problems(
                     "`{}` is materialised at `{path}` for a provider the hall no longer lists",
                     skill.id
                 ),
-                fix_action: FixAction::safe(
-                    "skill.sync",
-                    "Run `ivar skill sync` to remove it.",
-                )
-                .command("ivar skill sync"),
+                fix_action: FixAction::safe("skill.sync", "Run `ivar skill sync` to remove it.")
+                    .command("ivar skill sync"),
             });
         }
     }

@@ -49,7 +49,11 @@ fn status_lists_only_the_hall_providers_targets() {
 
     let outcome = status(&Ctx::new(root)).unwrap();
 
-    let targets: Vec<&str> = outcome.value.skills.first().unwrap()
+    let targets: Vec<&str> = outcome
+        .value
+        .skills
+        .first()
+        .unwrap()
         .targets
         .iter()
         .map(|t| t.target.as_str())

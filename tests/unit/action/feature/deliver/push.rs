@@ -72,7 +72,7 @@ fn a_failed_push_is_a_warning_and_does_not_block_the_others() {
     let manifest = Manifest::new(
         HallName::new("acme").unwrap(),
         Providers::new(vec![Provider::ClaudeCode], Provider::ClaudeCode),
-        repos
+        repos,
     )
     .unwrap();
     Manifest::write(&layout, &manifest).unwrap();

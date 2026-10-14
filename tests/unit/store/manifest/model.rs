@@ -26,7 +26,7 @@ fn sample_manifest() -> Manifest {
             RepoName::new("api").unwrap(),
             "git@github.com:acme/api.git",
             BranchName::new("main").unwrap(),
-        )]
+        )],
     )
     .unwrap()
 }
@@ -116,7 +116,7 @@ fn new_rejects_default_provider_not_in_available() {
     let error = Manifest::new(
         HallName::new("acme").unwrap(),
         Providers::new(vec![Provider::ClaudeCode], Provider::OpenCode),
-        vec![]
+        vec![],
     )
     .unwrap_err();
     assert!(matches!(error, Error::DefaultProviderNotAvailable { .. }));
@@ -127,7 +127,7 @@ fn new_rejects_empty_available_providers() {
     let error = Manifest::new(
         HallName::new("acme").unwrap(),
         Providers::new(vec![], Provider::ClaudeCode),
-        vec![]
+        vec![],
     )
     .unwrap_err();
     assert!(matches!(error, Error::NoAvailableProviders));
@@ -145,7 +145,7 @@ fn new_rejects_duplicate_repo_names() {
     let error = Manifest::new(
         HallName::new("acme").unwrap(),
         Providers::new(vec![Provider::ClaudeCode], Provider::ClaudeCode),
-        vec![repo("a"), repo("b")]
+        vec![repo("a"), repo("b")],
     )
     .unwrap_err();
     assert!(matches!(error, Error::DuplicateRepoName { .. }));
@@ -187,7 +187,7 @@ fn empty_manifest() -> Manifest {
     Manifest::new(
         HallName::new("acme").unwrap(),
         Providers::new(vec![Provider::ClaudeCode], Provider::ClaudeCode),
-        vec![]
+        vec![],
     )
     .unwrap()
 }
@@ -264,7 +264,6 @@ fn repo_not_found_failure_names_the_repo_and_a_safe_fix() {
     assert!(failure.what.contains("ghost"));
     assert!(failure.fix_actions[0].safe);
 }
-
 
 // -- MCP server definitions ----------------------------------------------
 
@@ -387,7 +386,7 @@ fn the_v1_constructor_calls_keep_their_compatibility_defaults() {
     let manifest = Manifest::new(
         HallName::new("acme").unwrap(),
         Providers::new(vec![Provider::ClaudeCode], Provider::ClaudeCode),
-        vec![repo]
+        vec![repo],
     )
     .unwrap();
     assert_eq!(
@@ -485,7 +484,7 @@ fn a_blank_repo_check_is_refused_on_build() {
                 BranchName::new("main").unwrap(),
             )
             .with_checks(vec!["   ".to_owned()]),
-        ]
+        ],
     )
     .unwrap_err();
     match error {

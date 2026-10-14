@@ -30,7 +30,7 @@ fn hall_with_checkout() -> (tempfile::TempDir, Ctx) {
             RepoName::new("api").unwrap(),
             "https://example.com/api.git",
             BranchName::new("main").unwrap(),
-        )]
+        )],
     )
     .unwrap();
     Manifest::write(&layout, &manifest).unwrap();

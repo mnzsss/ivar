@@ -63,7 +63,7 @@ fn preview_shows_the_recorded_base_not_always_the_default_branch() {
             RepoName::new("api").unwrap(),
             origin.as_str(),
             BranchName::new("main").unwrap(),
-        )]
+        )],
     )
     .unwrap();
     Manifest::write(&layout, &manifest).unwrap();

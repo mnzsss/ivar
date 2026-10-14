@@ -60,7 +60,7 @@ fn seeded_child_hall(checks: &[&str]) -> (tempfile::TempDir, Utf8PathBuf) {
                 BranchName::new("main").unwrap(),
             )
             .with_checks(checks.iter().map(|c| c.to_string()).collect()),
-        ]
+        ],
     )
     .unwrap();
     Manifest::write(&layout, &manifest).unwrap();
@@ -518,7 +518,7 @@ fn parent_missing_repo_hall() -> (tempfile::TempDir, Utf8PathBuf) {
                 BranchName::new("main").unwrap(),
             )
             .with_checks(vec!["true".to_owned()]),
-        ]
+        ],
     )
     .unwrap();
     Manifest::write(&layout, &manifest).unwrap();
@@ -764,7 +764,7 @@ fn seeded_two_repo_child_hall() -> (tempfile::TempDir, Utf8PathBuf) {
                 BranchName::new("main").unwrap(),
             )
             .with_checks(vec!["true".to_owned()]),
-        ]
+        ],
     )
     .unwrap();
     Manifest::write(&layout, &manifest).unwrap();
@@ -882,7 +882,7 @@ fn a_failed_repo_is_resumable_while_a_successful_repo_stays_locked() {
                 BranchName::new("main").unwrap(),
             )
             .with_checks(vec!["exit 1".to_owned()]),
-        ]
+        ],
     )
     .unwrap();
     Manifest::write(&layout, &manifest).unwrap();

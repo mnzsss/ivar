@@ -178,7 +178,6 @@ impl Manifest {
         &self.repos
     }
 
-
     /// The hall-scoped MCP server definitions `ivar sync` materialises into
     /// each provider's config file at the hall root.
     ///
@@ -585,7 +584,6 @@ pub fn local_ref_prefix(name: &RepoName) -> String {
     format!("repos/{name}/")
 }
 
-
 /// Which hall-root directories `ivar graph index` keeps in the graph.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -628,7 +626,6 @@ pub(crate) fn normalise_graph_path(raw: &str) -> Result<String, Error> {
     }
     Ok(components.join("/"))
 }
-
 
 /// The comma-joined provider ids in `providers`, for error messages.
 pub(super) fn provider_ids(providers: &[Provider]) -> String {

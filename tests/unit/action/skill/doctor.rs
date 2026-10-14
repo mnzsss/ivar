@@ -57,7 +57,12 @@ fn doctor_never_reports_targets_of_providers_the_hall_does_not_list() {
     assert!(
         outcome.value.problems.is_empty(),
         "{:?}",
-        outcome.value.problems.iter().map(|p| p.code).collect::<Vec<_>>()
+        outcome
+            .value
+            .problems
+            .iter()
+            .map(|p| p.code)
+            .collect::<Vec<_>>()
     );
 }
 
@@ -79,7 +84,10 @@ fn doctor_reports_a_recorded_target_of_a_removed_provider() {
         .find(|p| p.code == "skill.target_orphaned")
         .expect("orphaned opencode target must be reported");
     assert_eq!(orphan.subject, "kept@opencode");
-    assert_eq!(orphan.fix_action.command.as_deref(), Some("ivar skill sync"));
+    assert_eq!(
+        orphan.fix_action.command.as_deref(),
+        Some("ivar skill sync")
+    );
     assert!(
         !outcome
             .value
@@ -198,7 +206,7 @@ fn hall_with_repo_skill(repo_skill: &str) -> (tempfile::TempDir, camino::Utf8Pat
             RepoName::new("api").unwrap(),
             root.join("origin-api").as_str(),
             BranchName::new("main").unwrap(),
-        )]
+        )],
     )
     .unwrap();
     Manifest::write(&layout, &manifest).unwrap();
