@@ -1,4 +1,6 @@
 //! `ivar mcp` — declare, authenticate and inspect hall MCP servers.
+//!
+//! [`auth`]'s module doc explains the three steps and why a registration is never reported as an authentication.
 
 pub mod add;
 pub mod auth;

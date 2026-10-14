@@ -15,7 +15,7 @@ use crate::store::manifest::Manifest;
 pub struct AddInput {
     /// The server name (e.g. `figma`, `linear`, or a custom identifier).
     pub name: String,
-    /// Remote HTTP(S) URL. When omitted, [`name`] is looked up in [`MCP_PRESETS`].
+    /// Remote HTTP(S) URL. When omitted, `name` is looked up in [`MCP_PRESETS`].
     pub url: Option<String>,
 }
 
