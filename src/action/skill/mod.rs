@@ -30,6 +30,24 @@ use crate::error::{Failure, FixAction};
 use crate::infra::fs;
 use crate::store::layout::Layout;
 
+use crate::domain::skill_sync::TargetId;
+use crate::store::manifest::Manifest;
+
+/// The skill targets of the hall's available providers, in `TargetId`
+/// order (Claude, OpenCode, Omp). The manifest is the single source.
+pub(crate) fn available_targets(manifest: &Manifest) -> Vec<TargetId> {
+    [TargetId::Claude, TargetId::OpenCode, TargetId::Omp]
+        .into_iter()
+        .filter(|target| {
+            manifest
+                .providers()
+                .available()
+                .iter()
+                .any(|provider| TargetId::from(*provider) == *target)
+        })
+        .collect()
+}
+
 /// Find the single top-level directory in `temp_dir` if present; otherwise `temp_dir`.
 pub(super) fn find_repo_root(temp_dir: &Utf8Path) -> Utf8PathBuf {
     if let Ok(entries) = fs::read_dir(temp_dir) {
