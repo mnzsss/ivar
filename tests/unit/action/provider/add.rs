@@ -90,6 +90,24 @@ fn provider_add_creates_the_new_aliases_through_the_shared_reconciler() {
 }
 
 #[test]
+fn adding_a_provider_materialises_existing_hall_skills_for_it() {
+    let (_guard, root) = seeded_hall();
+    let dir = Layout::at(root.clone()).hall_skills().join("audit");
+    fs::ensure_dir(&dir).unwrap();
+    fs::write_text(
+        &dir.join("SKILL.md"),
+        "---\nname: audit\ndescription: audit skill\n---\n\nBody.\n",
+    )
+    .unwrap();
+
+    let report = add(&Ctx::new(root.clone()), &add_input("omp")).unwrap();
+
+    assert!(report.warnings.is_empty(), "{:?}", report.warnings);
+    assert!(root.join(".omp/skills/audit").exists());
+    assert!(root.join(".claude/skills/audit").exists());
+}
+
+#[test]
 fn provider_add_conflict_warns_and_keeps_the_provider_persisted() {
     let (_guard, root) = seeded_hall();
     // An occupied AGENTS.md the reconciler must preserve byte for byte.

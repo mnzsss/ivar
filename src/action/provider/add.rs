@@ -19,7 +19,7 @@ use camino::Utf8PathBuf;
 use serde::Serialize;
 
 use crate::domain::provider::Provider;
-use crate::error::{Failure, FixAction, Outcome, Report, WriteHuman};
+use crate::error::{Failure, FixAction, Outcome, Report, Warning, WriteHuman};
 use crate::store::manifest::{Manifest, Providers};
 
 use super::super::sync;
@@ -94,8 +94,7 @@ pub fn add(ctx: &Ctx, input: &AddInput) -> Outcome<AddOutcome> {
     available.sort();
 
     // Rebuild the manifest through the manifest's own `with_providers`, which
-    // preserves the hall integration defaults, skills, MCP servers, and repos
-    // — no field a mutation is not about is ever dropped.
+    // preserves the hall integration defaults, MCP servers, and repos.
     let updated = manifest.with_providers(Providers::new(available.clone(), default))?;
     Manifest::write(&layout, &updated)?;
 
@@ -117,6 +116,19 @@ pub fn add(ctx: &Ctx, input: &AddInput) -> Outcome<AddOutcome> {
         report.warn(warning);
     }
     if let Some(warning) = sync::materialise_shipped_skills(&layout, provider) {
+        report.warn(warning);
+    }
+    let mut skill_warnings = Vec::new();
+    if let Err(failure) =
+        crate::action::skill::sync::reconcile(&layout, &updated, &mut skill_warnings)
+    {
+        skill_warnings.push(Warning::new(
+            "provider.skill_reconcile_failed",
+            provider.id(),
+            failure.to_string(),
+        ));
+    }
+    for warning in skill_warnings {
         report.warn(warning);
     }
     Ok(report)

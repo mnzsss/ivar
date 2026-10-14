@@ -101,6 +101,13 @@ pub fn remove(ctx: &Ctx, input: &RemoveInput) -> Outcome<RemoveOutcome> {
 
     let mut entries = Vec::new();
     sync::sync_providers(&layout, &updated, &mut entries, &mut warnings);
+    if let Err(failure) = crate::action::skill::sync::reconcile(&layout, &updated, &mut warnings) {
+        warnings.push(Warning::new(
+            "provider.skill_reconcile_failed",
+            provider.id(),
+            failure.to_string(),
+        ));
+    }
 
     Ok(Report::with_warnings(
         RemoveOutcome {
