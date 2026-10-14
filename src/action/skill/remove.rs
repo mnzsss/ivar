@@ -76,23 +76,17 @@ pub fn remove(ctx: &Ctx, input: &RemoveInput) -> Outcome<RemoveOutcome> {
         ))
     })?;
 
-    // Tear down available targets and state-recorded targets, including those
-    // of providers removed from the manifest since the last sync.
-    let manifest = super::super::read_manifest(&layout)?;
-    let mut doomed: Vec<(TargetId, Utf8PathBuf)> = super::available_targets(&manifest)
-        .into_iter()
-        .map(|id| (id, skill::target_path(id, skill.id.as_str())))
-        .collect();
+    // Tear down ONLY targets recorded in the skill's state entry (joined to
+    // hall root), never an unrecorded canonical `<config>/skills/<id>` path
+    // (R-USER-FILES).
+    let mut doomed: Vec<(TargetId, Utf8PathBuf)> = Vec::new();
     if let Ok(Some(state)) = skill::read(layout.root(), root)
         && let Some(entry) = state.installations.get(skill.id.as_str())
     {
         for (id, provider) in &entry.providers {
-            if !doomed.iter().any(|(known, _)| known == id) {
-                doomed.push((*id, provider.target_path.clone()));
-            }
+            doomed.push((*id, provider.target_path.clone()));
         }
     }
-
     let mut targets_removed = 0u64;
     for (target_id, relative) in doomed {
         let target_path = layout.root().join(relative);

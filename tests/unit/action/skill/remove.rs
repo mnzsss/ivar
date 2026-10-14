@@ -145,3 +145,26 @@ fn remove_is_verifiable_by_state_cleanup() {
     let entries = fs::read_dir(&skills_dir).unwrap();
     assert!(entries.is_empty());
 }
+
+#[test]
+fn remove_leaves_unrecorded_user_directory_alone() {
+    let (_guard, root) = seeded_hall();
+    write_skill(&root, "unsynced");
+    let user_dir = root.join(".claude/skills/unsynced");
+    fs::ensure_dir(&user_dir).unwrap();
+    fs::write_text(&user_dir.join("user.txt"), "keep me").unwrap();
+
+    let ctx = Ctx::new(root.clone());
+    let report = remove(
+        &ctx,
+        &RemoveInput {
+            skill: "unsynced".to_owned(),
+        },
+    )
+    .unwrap();
+
+    assert_eq!(report.value.targets_removed, 0);
+    assert!(fs::exists(&user_dir).unwrap());
+    assert!(fs::exists(&user_dir.join("user.txt")).unwrap());
+    assert!(!fs::exists(&root.join(".ivar/skills/unsynced")).unwrap());
+}
