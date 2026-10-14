@@ -132,6 +132,8 @@ fn cli_definition_is_valid() {
 #[case::execute_status_with_plan(&["ivar", "feature", "execute", "status", "checkout", "--plan", "custom/plan.md"], |command: &Command| matches!(command, Command::Feature(FeatureCommand::Execute(ExecuteCommand::Status(args))) if args.plan.as_deref() == Some("custom/plan.md")))]
 #[case::mcp_status_flags(&["ivar", "mcp", "status", "figma", "--provider", "claude-code", "--live"], |command: &Command| matches!(command, Command::Mcp(McpCommand::Status(args)) if args.server.as_deref() == Some("figma") && args.provider.as_deref() == Some("claude-code") && args.live))]
 #[case::mcp_status_defaults(&["ivar", "mcp", "status"], |command: &Command| matches!(command, Command::Mcp(McpCommand::Status(args)) if args.server.is_none() && args.provider.is_none() && !args.live))]
+#[case::mcp_add_preset(&["ivar", "mcp", "add", "figma"], |command: &Command| matches!(command, Command::Mcp(McpCommand::Add(args)) if args.name == "figma" && args.url.is_none()))]
+#[case::mcp_add_url(&["ivar", "mcp", "add", "sentry", "--url", "https://mcp.sentry.dev/mcp"], |command: &Command| matches!(command, Command::Mcp(McpCommand::Add(args)) if args.name == "sentry" && args.url.as_deref() == Some("https://mcp.sentry.dev/mcp")))]
 fn cli_parses_argv_into_command(#[case] argv: &[&str], #[case] expected: fn(&Command) -> bool) {
     let cli = Cli::try_parse_from(argv).unwrap_or_else(|error| panic!("{argv:?} refused: {error}"));
 
