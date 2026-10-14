@@ -215,9 +215,7 @@ fn persist_hall_paths(
 ) -> Result<Manifest, Failure> {
     for raw in paths {
         let dir = hall_paths::validate_hall_path(layout, &manifest, raw)?;
-        manifest = manifest
-            .with_graph_path_added(&dir)
-            .map_err(|e| Failure::blocked("graph.path_invalid", e.to_string()))?;
+        manifest = manifest.with_graph_path_added(&dir)?;
     }
     if !paths.is_empty() {
         Manifest::write(layout, &manifest)

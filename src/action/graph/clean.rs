@@ -118,9 +118,7 @@ fn clean_hall_path(layout: &Layout, db: &GraphDb, raw: &str) -> Outcome<CleanOut
         .map_err(|err| clean_failed(&err))?;
     db.watch_forget(&format!("hall:{dir}"))
         .map_err(|err| clean_failed(&err))?;
-    let manifest = manifest
-        .with_graph_path_removed(&dir)
-        .map_err(|err| Failure::failed("manifest.write_failed", err.to_string()))?;
+    let manifest = manifest.with_graph_path_removed(&dir)?;
     Manifest::write(layout, &manifest)
         .map_err(|err| Failure::failed("manifest.write_failed", err.to_string()))?;
     let repos_removed = if manifest.graph_paths().is_empty() {
