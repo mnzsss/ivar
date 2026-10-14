@@ -252,3 +252,29 @@ fn repo_skill_problems_is_empty_when_names_are_unique() {
 
     assert!(repo_skill_problems(&Layout::at(root), None).is_empty());
 }
+
+#[test]
+fn doctor_reports_no_not_a_symlink_for_synced_external_skill() {
+    let (_guard, root) = seeded_hall();
+    let dir = Layout::at(root.to_path_buf()).hall_skills().join("ext");
+    fs::ensure_dir(&dir).unwrap();
+    let content = "---\nname: ext\nsource:\n  repo: owner/repo\n  path: skills/ext\n  ref: main\n---\n\nBody.\n";
+    fs::write_text(&dir.join("SKILL.md"), content).unwrap();
+    let ctx = Ctx::new(root.clone());
+
+    let r1 = skill_sync::sync(&ctx).unwrap();
+    assert!(r1.is_clean());
+    assert_eq!(r1.value.steps, 1);
+
+    let outcome = doctor(&ctx).unwrap();
+    assert!(
+        !outcome
+            .value
+            .problems
+            .iter()
+            .any(|p| p.code == "skill.not_a_symlink"),
+        "doctor must not report skill.not_a_symlink for copied external skills, but got: {:?}",
+        outcome.value.problems
+    );
+    assert_eq!(outcome.value.count, 0);
+}

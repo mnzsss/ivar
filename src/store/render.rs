@@ -134,10 +134,28 @@ pub fn remove(step: &crate::domain::skill_sync::Step) -> Result<(), Error> {
 ///
 /// This is the planner's eyes on disk: it answers "should I create, update,
 /// or is everything fine?" without mutating anything.
-pub fn verify_status(path: &Utf8Path, expected_target: &Utf8Path) -> MaterialStatus {
+///
+/// In [`RenderMode::Copy`] mode, a real directory (not a symlink) is considered
+/// [`MaterialStatus::Ok`], an absent path is [`MaterialStatus::Missing`], and
+/// an existing symlink is [`MaterialStatus::NotLink`].
+/// In [`RenderMode::Symlink`] mode, symlink targets are inspected and matched against
+/// `expected_target`.
+pub fn verify_status(
+    path: &Utf8Path,
+    expected_target: &Utf8Path,
+    mode: RenderMode,
+) -> MaterialStatus {
     // Check if path exists at all.
     if !fs::exists(path).unwrap_or(false) {
         return MaterialStatus::Missing;
+    }
+
+    if mode == RenderMode::Copy {
+        return match fs::read_symlink(path) {
+            Ok(fs::SymlinkTarget::NotASymlink) => MaterialStatus::Ok,
+            Ok(fs::SymlinkTarget::Absent) => MaterialStatus::Missing,
+            Ok(fs::SymlinkTarget::Target(_)) | Err(_) => MaterialStatus::NotLink,
+        };
     }
 
     // Path exists — check if it's a symlink.
@@ -245,3 +263,7 @@ fn render_copy(step: &crate::domain::skill_sync::Step) -> Result<(), Error> {
 
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "../../tests/unit/store/render.rs"]
+mod tests;

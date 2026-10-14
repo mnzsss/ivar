@@ -144,7 +144,7 @@ fn build_sync_targets(
             let source_hash = compute_source_hash(&skill.dir);
             // The renderer symlinks the whole skill directory (step.source),
             // so verify the link against that same directory.
-            let status = render::verify_status(&path, &skill.dir);
+            let status = render::verify_status(&path, &skill.dir, skill.render_mode());
             targets.push(Target {
                 id: target_id,
                 skill: skill.id.clone(),

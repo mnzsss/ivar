@@ -284,3 +284,22 @@ fn sync_updates_the_state_lockfile() {
         .unwrap();
     assert!(state.installations.contains_key("persist"));
 }
+
+#[test]
+fn sync_external_skill_is_idempotent() {
+    let (_guard, root) = seeded_hall();
+    let dir = Layout::at(root.to_path_buf()).hall_skills().join("ext");
+    fs::ensure_dir(&dir).unwrap();
+    let content = "---\nname: ext\nsource:\n  repo: owner/repo\n  path: skills/ext\n  ref: main\n---\n\nBody.\n";
+    fs::write_text(&dir.join("SKILL.md"), content).unwrap();
+    let ctx = Ctx::new(root.clone());
+
+    let r1 = sync(&ctx).unwrap();
+    assert!(r1.is_clean());
+    assert_eq!(r1.value.steps, 1);
+    assert!(fs::is_real_dir(&root.join(".claude/skills/ext")).unwrap());
+
+    let r2 = sync(&ctx).unwrap();
+    assert!(r2.is_clean());
+    assert_eq!(r2.value.steps, 0);
+}

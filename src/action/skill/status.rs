@@ -98,7 +98,7 @@ pub fn status(ctx: &Ctx) -> Outcome<StatusOutcome> {
             let target_path = layout
                 .root()
                 .join(skill::target_path(target_id, skill.id.as_str()));
-            let current = render::verify_status(&target_path, &skill.dir);
+            let current = render::verify_status(&target_path, &skill.dir, skill.render_mode());
             targets.push(TargetStatus {
                 target: target_id.as_str().to_owned(),
                 status: material_status_label(&current),

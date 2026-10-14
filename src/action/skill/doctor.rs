@@ -118,7 +118,7 @@ fn build_doctor_targets(
             let path = layout
                 .root()
                 .join(skill::target_path(target_id, skill.id.as_str()));
-            let status = render::verify_status(&path, &skill.dir);
+            let status = render::verify_status(&path, &skill.dir, skill.render_mode());
             targets.push(Target {
                 id: target_id,
                 skill: skill.id.clone(),
