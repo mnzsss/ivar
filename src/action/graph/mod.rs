@@ -6,6 +6,7 @@ pub mod cross_repo;
 pub mod dead_code;
 pub mod explore;
 pub mod freshness;
+pub mod hall_paths;
 pub mod hierarchy;
 pub mod index;
 pub mod input;
@@ -213,7 +214,7 @@ fn persist_hall_paths(
     paths: &[String],
 ) -> Result<Manifest, Failure> {
     for raw in paths {
-        let dir = index::validate_hall_path(layout, &manifest, raw)?;
+        let dir = hall_paths::validate_hall_path(layout, &manifest, raw)?;
         manifest = manifest
             .with_graph_path_added(&dir)
             .map_err(|e| Failure::blocked("graph.path_invalid", e.to_string()))?;
