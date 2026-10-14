@@ -584,6 +584,19 @@ fn with_graph_path_added_normalises_dedupes_and_sorts() {
 }
 
 #[test]
+fn with_graph_path_added_collapses_empty_and_dot_segments() {
+    let manifest = empty_manifest()
+        .with_graph_path_added("docs//product")
+        .unwrap()
+        .with_graph_path_added("docs/./product")
+        .unwrap()
+        .with_graph_path_added("docs/product")
+        .unwrap();
+
+    assert_eq!(manifest.graph_paths(), ["docs/product"]);
+}
+
+#[test]
 fn with_graph_path_added_rejects_the_root_escapes_and_ivar() {
     for bad in [
         "",
@@ -594,7 +607,13 @@ fn with_graph_path_added_rejects_the_root_escapes_and_ivar() {
         "a/../../b",
         ".ivar/repos",
         ".ivar",
+        "./.ivar",
+        ".//.ivar/x",
         "a\\b",
+        "./.",
+        ".//.",
+        "a/..",
+        "a/./..",
     ] {
         let error = empty_manifest().with_graph_path_added(bad).unwrap_err();
         assert!(
@@ -656,6 +675,8 @@ fn graph_paths_that_are_not_normalised_or_repeated_are_rejected_on_read() {
         r#"["./brand"]"#,
         r#"["brand/"]"#,
         r#"["brand","brand"]"#,
+        r#"["docs//product"]"#,
+        r#"["docs/./product"]"#,
     ] {
         fs::write_text(&layout.manifest(), &manifest_with(bad)).unwrap();
         let error = Manifest::read(&layout).unwrap_err();

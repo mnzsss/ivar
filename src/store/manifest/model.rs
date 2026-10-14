@@ -642,24 +642,27 @@ pub(crate) fn normalise_graph_path(raw: &str) -> Result<String, Error> {
         path: raw.to_owned(),
         reason: reason.to_owned(),
     };
-    let trimmed = raw.trim().trim_start_matches("./").trim_end_matches('/');
-    if trimmed.is_empty() || trimmed == "." {
-        return Err(invalid("the hall root itself cannot be a graph path"));
-    }
+    let trimmed = raw.trim();
     if trimmed.starts_with('/') {
         return Err(invalid("must be relative to the hall root"));
     }
     if trimmed.contains('\\') {
         return Err(invalid("use `/` as the separator"));
     }
-    let mut components = trimmed.split('/');
-    if components.clone().any(|c| c == "..") {
+    let components: Vec<&str> = trimmed
+        .split('/')
+        .filter(|c| !c.is_empty() && *c != ".")
+        .collect();
+    if components.is_empty() {
+        return Err(invalid("the hall root itself cannot be a graph path"));
+    }
+    if components.contains(&"..") {
         return Err(invalid("must not leave the hall root"));
     }
-    if components.next() == Some(".ivar") {
+    if components.first() == Some(&".ivar") {
         return Err(invalid("`.ivar` is ivar's own state"));
     }
-    Ok(trimmed.to_owned())
+    Ok(components.join("/"))
 }
 
 /// Which harnesses a hall's shared skills materialise for.
