@@ -262,14 +262,22 @@ fn run_plan(fixture: &Fixture) -> Result<Vec<Step>, String> {
     let targets: Vec<Target> = fixture.input.targets.iter().map(build_target).collect();
     let state = build_state(&fixture.input.state);
 
+    let mut available: Vec<TargetId> = Vec::new();
+    for target in &targets {
+        if !available.contains(&target.id) {
+            available.push(target.id);
+        }
+    }
+
     let steps = match &fixture.input.options {
         Some(opts) => ivar::domain::skill_sync::plan_with_options(
             &skills,
             &targets,
             &state,
+            &available,
             &build_options(opts),
         ),
-        None => ivar::domain::skill_sync::plan(&skills, &targets, &state),
+        None => ivar::domain::skill_sync::plan(&skills, &targets, &state, &available),
     };
 
     Ok(steps)

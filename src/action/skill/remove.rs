@@ -87,6 +87,7 @@ pub fn remove(ctx: &Ctx, input: &RemoveInput) -> Outcome<RemoveOutcome> {
         if fs::exists(&target_path).unwrap_or(false) {
             let step = crate::domain::skill_sync::Step {
                 skill: skill.id.clone(),
+                target_id,
                 target: target_path,
                 source: skill.dir.clone(),
                 action: crate::domain::skill_sync::Action::Remove,

@@ -129,31 +129,18 @@ fn build_sync_targets(
     targets
 }
 
-// The planner is one-target-per-skill, so run it once per provider and
-// concatenate — a skill materialises to all native targets.
 fn compute_sync_steps(
     skills: &[crate::domain::skill::Skill],
     targets: &[Target],
     state: &State,
 ) -> Vec<Step> {
-    let mut steps = Vec::new();
-    for target_id in TargetId::ALL {
-        let provider_targets: Vec<Target> = targets
-            .iter()
-            .filter(|t| t.id == target_id)
-            .cloned()
-            .collect();
-        steps.extend(crate::domain::skill_sync::plan_with_options(
-            skills,
-            &provider_targets,
-            state,
-            &PlanOptions::default(),
-        ));
-    }
-    steps.sort_by(|a, b| {
-        (a.skill.as_str(), a.target.as_str()).cmp(&(b.skill.as_str(), b.target.as_str()))
-    });
-    steps
+    crate::domain::skill_sync::plan_with_options(
+        skills,
+        targets,
+        state,
+        &TargetId::ALL,
+        &PlanOptions::default(),
+    )
 }
 
 // Execute best-effort: failures become warnings, never abort.

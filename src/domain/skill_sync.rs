@@ -6,12 +6,13 @@
 //!
 //! Ported from `valhalla/packages/ragnar/src/sync-plan.ts`.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use camino::Utf8PathBuf;
 use serde::{Deserialize, Serialize};
 
 use crate::domain::name::RepoName;
+use crate::domain::provider::Provider;
 use crate::domain::skill::{RenderMode, Skill};
 
 /// The target harness a skill can be materialised for.
@@ -38,6 +39,16 @@ impl TargetId {
     }
 }
 
+impl From<Provider> for TargetId {
+    fn from(provider: Provider) -> Self {
+        match provider {
+            Provider::ClaudeCode => Self::Claude,
+            Provider::OpenCode => Self::OpenCode,
+            Provider::Omp => Self::Omp,
+        }
+    }
+}
+
 /// What the planner decided to do about one skill/target pair.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -57,6 +68,8 @@ pub enum Action {
 pub struct Step {
     /// The skill being planned.
     pub skill: RepoName,
+    /// Which provider target this step affects.
+    pub target_id: TargetId,
     /// The absolute path this step affects.
     pub target: Utf8PathBuf,
     /// The absolute source path the target should point at or duplicate.
@@ -140,10 +153,16 @@ pub struct PlanOptions {
 /// Plan the steps needed to reconcile declared skills with recorded state and
 /// materialised targets.
 ///
-/// `targets` must contain exactly one entry per skill in `skills` for the
-/// target being planned.
-pub fn plan(skills: &[Skill], targets: &[Target], state: &State) -> Vec<Step> {
-    plan_with_options(skills, targets, state, &PlanOptions::default())
+/// `targets` holds one entry per (skill, target id); every one is planned.
+/// Orphans — recorded targets of undeclared skills, and recorded targets of
+/// providers not in `available` — are planned exactly once.
+pub fn plan(
+    skills: &[Skill],
+    targets: &[Target],
+    state: &State,
+    available: &[TargetId],
+) -> Vec<Step> {
+    plan_with_options(skills, targets, state, available, &PlanOptions::default())
 }
 
 /// Plan with optional commit-sha short-circuit.
@@ -151,24 +170,59 @@ pub fn plan_with_options(
     skills: &[Skill],
     targets: &[Target],
     state: &State,
+    available: &[TargetId],
     opts: &PlanOptions,
 ) -> Vec<Step> {
-    let target_by_skill: HashMap<&str, &Target> = targets
+    let skill_by_id: HashMap<&str, &Skill> = skills
         .iter()
-        .map(|target| (target.skill.as_str(), target))
+        .map(|skill| (skill.id.as_str(), skill))
         .collect();
 
-    let mut steps: Vec<Step> = skills
+    let mut steps: Vec<Step> = targets
         .iter()
-        .filter_map(|skill| {
-            let target = target_by_skill.get(skill.id.as_str())?;
-            Some(plan_for_skill(skill, target, state, &opts.clone()))
+        .filter_map(|target| {
+            let skill = skill_by_id.get(target.skill.as_str())?;
+            Some(plan_for_skill(skill, target, state, opts))
         })
         .collect();
 
-    steps.extend(plan_deletes(skills, state, targets));
+    steps.extend(plan_orphans(skills, state, available));
 
-    steps.sort_by(|a, b| a.skill.as_str().cmp(b.skill.as_str()));
+    steps.sort_by(|a, b| {
+        (a.skill.as_str(), a.target.as_str()).cmp(&(b.skill.as_str(), b.target.as_str()))
+    });
+    steps
+}
+
+pub fn plan_orphans(skills: &[Skill], state: &State, available: &[TargetId]) -> Vec<Step> {
+    let declared: HashMap<&str, &Skill> = skills
+        .iter()
+        .map(|skill| (skill.id.as_str(), skill))
+        .collect();
+    let mut steps = Vec::new();
+
+    for (id, entry) in &state.installations {
+        let Ok(skill) = RepoName::new(id) else {
+            continue;
+        };
+        let is_declared = declared.contains_key(id.as_str());
+        for (target_id, provider) in &entry.providers {
+            if is_declared && available.contains(target_id) {
+                continue;
+            }
+            steps.push(Step {
+                skill: skill.clone(),
+                target_id: *target_id,
+                target: provider.target_path.clone(),
+                source: declared
+                    .get(id.as_str())
+                    .map_or_else(|| entry.source_path.clone(), |skill| skill.dir.clone()),
+                action: Action::Remove,
+                mode: provider.mode.unwrap_or_else(RenderMode::default_mode),
+                reason: None,
+            });
+        }
+    }
     steps
 }
 
@@ -180,6 +234,7 @@ fn plan_for_skill(skill: &Skill, target: &Target, state: &State, opts: &PlanOpti
         .and_then(|entry| entry.providers.get(&target.id));
     let base = Step {
         skill: skill.id.clone(),
+        target_id: target.id,
         target: target.path.clone(),
         source: target.source_path.clone(),
         action: Action::Unchanged,
@@ -252,41 +307,6 @@ fn plan_for_skill(skill: &Skill, target: &Target, state: &State, opts: &PlanOpti
             }
         }
     }
-}
-
-fn plan_deletes(skills: &[Skill], state: &State, targets: &[Target]) -> Vec<Step> {
-    let declared: HashSet<&str> = skills.iter().map(|skill| skill.id.as_str()).collect();
-    let target_by_skill: HashMap<&str, &Target> = targets
-        .iter()
-        .map(|target| (target.skill.as_str(), target))
-        .collect();
-    let mut steps = Vec::new();
-
-    for (id, entry) in &state.installations {
-        if declared.contains(id.as_str()) {
-            continue;
-        }
-        let Ok(skill) = RepoName::new(id) else {
-            continue;
-        };
-        for provider in entry.providers.values() {
-            let target_path = provider.target_path.clone();
-            let source_path = target_by_skill
-                .get(id.as_str())
-                .map(|target| target.source_path.clone())
-                .unwrap_or_else(|| entry.source_path.clone());
-            steps.push(Step {
-                skill: skill.clone(),
-                target: target_path,
-                source: source_path,
-                action: Action::Remove,
-                mode: provider.mode.unwrap_or_else(RenderMode::default_mode),
-                reason: None,
-            });
-        }
-    }
-
-    steps
 }
 
 #[cfg(test)]
