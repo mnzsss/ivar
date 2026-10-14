@@ -101,8 +101,8 @@ fn adding_a_provider_materialises_existing_hall_skills_for_it() {
     .unwrap();
 
     let report = add(&Ctx::new(root.clone()), &add_input("omp")).unwrap();
-
     assert!(report.warnings.is_empty(), "{:?}", report.warnings);
+    assert_eq!(report.value.skill_targets, 2);
     assert!(root.join(".omp/skills/audit").exists());
     assert!(root.join(".claude/skills/audit").exists());
 }
@@ -218,6 +218,7 @@ fn the_human_surface_names_the_registered_provider() {
         provider: Provider::OpenCode,
         available: vec![Provider::ClaudeCode, Provider::OpenCode],
         default: Provider::ClaudeCode,
+        skill_targets: 0,
     };
 
     let mut out = Vec::new();
@@ -228,4 +229,42 @@ fn the_human_surface_names_the_registered_provider() {
         "Registered provider `opencode` in /hall — available: claude-code, opencode \
              (default: claude-code).\n"
     );
+}
+
+#[test]
+fn the_human_surface_appends_skill_targets_when_positive() {
+    let outcome = AddOutcome {
+        root: Utf8PathBuf::from("/hall"),
+        provider: Provider::OpenCode,
+        available: vec![Provider::ClaudeCode, Provider::OpenCode],
+        default: Provider::ClaudeCode,
+        skill_targets: 1,
+    };
+
+    let mut out = Vec::new();
+    outcome.write_human(&mut out).unwrap();
+
+    assert_eq!(
+        String::from_utf8(out).unwrap(),
+        "Registered provider `opencode` in /hall — available: claude-code, opencode \
+             (default: claude-code). Skill targets changed: 1.\n"
+    );
+}
+
+#[test]
+fn add_reports_reconciled_skill_targets_when_hall_skill_exists() {
+    let (_guard, root) = seeded_hall();
+    let ctx = Ctx::new(root.clone());
+    let dir = Layout::at(root.clone()).hall_skills().join("audit");
+    fs::ensure_dir(&dir).unwrap();
+    fs::write_text(
+        &dir.join("SKILL.md"),
+        "---\nname: audit\ndescription: audit skill\n---\n\nBody.\n",
+    )
+    .unwrap();
+    crate::action::skill::sync::sync(&ctx).unwrap();
+
+    let report = add(&ctx, &add_input("opencode")).unwrap();
+
+    assert_eq!(report.value.skill_targets, 1);
 }

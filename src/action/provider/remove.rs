@@ -46,6 +46,8 @@ pub struct RemoveOutcome {
     pub available: Vec<Provider>,
     /// The hall's default provider after the removal.
     pub default: Provider,
+    /// Number of skill targets changed during reconciliation.
+    pub skill_targets: u64,
 }
 
 impl WriteHuman for RemoveOutcome {
@@ -56,11 +58,15 @@ impl WriteHuman for RemoveOutcome {
             .map(Provider::id)
             .collect::<Vec<_>>()
             .join(", ");
-        writeln!(
+        write!(
             w,
             "Removed provider `{}` from {} — available: {} (default: {}).",
             self.provider, self.root, rendered, self.default
-        )
+        )?;
+        if self.skill_targets > 0 {
+            write!(w, " Skill targets changed: {}.", self.skill_targets)?;
+        }
+        writeln!(w)
     }
 }
 
@@ -101,13 +107,18 @@ pub fn remove(ctx: &Ctx, input: &RemoveInput) -> Outcome<RemoveOutcome> {
 
     let mut entries = Vec::new();
     sync::sync_providers(&layout, &updated, &mut entries, &mut warnings);
-    if let Err(failure) = crate::action::skill::sync::reconcile(&layout, &updated, &mut warnings) {
-        warnings.push(Warning::new(
-            "provider.skill_reconcile_failed",
-            provider.id(),
-            failure.to_string(),
-        ));
-    }
+    let skill_targets =
+        match crate::action::skill::sync::reconcile(&layout, &updated, &mut warnings) {
+            Ok(count) => count,
+            Err(failure) => {
+                warnings.push(Warning::new(
+                    "provider.skill_reconcile_failed",
+                    provider.id(),
+                    failure.to_string(),
+                ));
+                0
+            }
+        };
 
     Ok(Report::with_warnings(
         RemoveOutcome {
@@ -115,6 +126,7 @@ pub fn remove(ctx: &Ctx, input: &RemoveInput) -> Outcome<RemoveOutcome> {
             provider,
             available,
             default,
+            skill_targets,
         },
         warnings,
     ))
