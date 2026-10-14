@@ -92,9 +92,14 @@ impl HallFacts {
     }
 
     #[must_use]
+    pub fn repo_is_declared(&self, repo: &str) -> bool {
+        self.declared.contains(repo)
+    }
+
+    #[must_use]
     pub fn scope_is_live(&self, key: &str) -> bool {
         if let Some(repo) = key.strip_prefix("base:") {
-            return self.declared.contains(repo);
+            return self.repo_is_declared(repo);
         }
         if let Some(dir) = key.strip_prefix("hall:") {
             return self.paths.contains(dir);
@@ -120,7 +125,7 @@ pub fn reconcile(
     let facts = HallFacts::gather(layout, manifest);
     let mut removed = Removed::default();
     for row in db.list_base_repos()? {
-        if row.id != HALL_REPO && !facts.scope_is_live(&format!("base:{}", row.id)) {
+        if row.id != HALL_REPO && !facts.repo_is_declared(&row.id) {
             db.forget_repo(&row.id)?;
             removed.repos.push(row.id);
         }

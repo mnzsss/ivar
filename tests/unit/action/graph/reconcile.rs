@@ -223,6 +223,8 @@ fn hall_facts_answer_liveness_per_scope_kind() {
 
     assert!(facts.scope_is_live("base:api"));
     assert!(!facts.scope_is_live("base:orca"));
+    assert!(facts.repo_is_declared("api"));
+    assert!(!facts.repo_is_declared("orca"));
     assert!(facts.scope_is_live("layer:alive:api"));
     assert!(!facts.scope_is_live("layer:dead:api"));
     assert!(!facts.scope_is_live("hall:brand"));
