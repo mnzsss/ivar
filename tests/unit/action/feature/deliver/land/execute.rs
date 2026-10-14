@@ -1732,8 +1732,7 @@ fn land_revalidates_head_movement_and_rolls_back() {
     let new_manifest = Manifest::new(
         manifest.name().clone(),
         manifest.providers().clone(),
-        repos,
-        None,
+        repos
     )
     .unwrap();
     Manifest::write(&layout, &new_manifest).unwrap();
@@ -1798,8 +1797,7 @@ fn land_revalidates_dirty_worktree_and_rolls_back() {
     let new_manifest = Manifest::new(
         manifest.name().clone(),
         manifest.providers().clone(),
-        repos,
-        None,
+        repos
     )
     .unwrap();
     Manifest::write(&layout, &new_manifest).unwrap();
@@ -1871,8 +1869,7 @@ fn land_revalidates_fast_forward_and_rolls_back() {
     let new_manifest = Manifest::new(
         manifest.name().clone(),
         manifest.providers().clone(),
-        repos,
-        None,
+        repos
     )
     .unwrap();
     Manifest::write(&layout, &new_manifest).unwrap();

@@ -50,8 +50,7 @@ pub(super) fn hall_with_promoted_feature() -> (tempfile::TempDir, Utf8PathBuf) {
             RepoName::new("api").unwrap(),
             origin.as_str(),
             BranchName::new("main").unwrap(),
-        )],
-        None,
+        )]
     )
     .unwrap();
     Manifest::write(&layout, &manifest).unwrap();

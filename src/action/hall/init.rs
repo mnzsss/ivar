@@ -156,7 +156,6 @@ pub fn init(ctx: &Ctx, input: &InitInput) -> Outcome<InitOutcome> {
         name.clone(),
         Providers::new(vec![provider], provider),
         Vec::new(),
-        None,
     )?;
 
     Manifest::write(&layout, &manifest)?;

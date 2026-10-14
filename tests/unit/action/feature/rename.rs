@@ -1191,8 +1191,7 @@ fn setup_test_hall(
             crate::domain::name::RepoName::new("api").unwrap(),
             origin.as_str(),
             BranchName::new("main").unwrap(),
-        )],
-        None,
+        )]
     )
     .unwrap();
     Manifest::write(&layout, &manifest).unwrap();

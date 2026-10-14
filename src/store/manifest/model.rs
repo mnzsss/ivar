@@ -5,9 +5,8 @@
 //! Reading and writing the file is [`persistence`](super::persistence)'s job;
 //! turning a violation into a user-facing `Failure` is
 //! [`error`](super::error)'s. This module owns what the other two build on:
-//! the `Manifest`, `Providers`, `Repo`, `Skills`, `Targets`, and `Graph` values, their
-//! accessors and builders, and `Manifest::validate` — the one place the value
-//! invariants live.
+//! the `Manifest`, `Providers`, `Repo`, and `Graph` values, their accessors
+//! and builders, and `Manifest::validate` — the one place the value invariants live.
 //!
 //! See `mod.rs` for the full schema, contract, and the "why explicit
 //! validate" decision that keeps invariant checks out of `Deserialize`.
@@ -28,8 +27,9 @@ use super::error::Error;
 /// hall integration defaults and each repo's ordered verification checks; v3
 /// adds `McpServerDef.oauth`, an optional pre-provisioned OAuth client
 /// registration; v4 adds `McpOauth.token_url` and `McpOauth.resource` so
-/// refresh metadata survives across sessions.
-pub(super) const CURRENT_VERSION: u32 = 4;
+/// refresh metadata survives across sessions; v5 drops `skills`, whose targets
+/// are derived from `providers.available`.
+pub(super) const CURRENT_VERSION: u32 = 5;
 
 /// The hall's identity, committed and team-shared. See the module doc comment
 /// for the full JSON shape, the contract, and how the invariants are
@@ -48,9 +48,6 @@ pub struct Manifest {
     /// The hall's integration defaults: the via/strategy a feature inherits
     /// when neither the CLI nor the feature itself overrides a field.
     integration: IntegrationPolicy,
-    /// The hall's shared skill home, if it has one.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    skills: Option<Skills>,
     #[serde(rename = "$schema", default)]
     schema: SchemaRef,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -127,27 +124,20 @@ impl Manifest {
     /// guarantee this module makes: any `Manifest` built through this
     /// constructor already satisfies every invariant.
     ///
-    /// The v1 call shape is preserved: a manifest built through this
-    /// constructor carries the embedded integration defaults
-    /// ([`IntegrationPolicy::default`], `local`/`squash`) and repos with no
-    /// checks, and the canonical manifest schema reference.
+    /// The constructor carries the embedded integration defaults
+    /// ([`IntegrationPolicy::default`], `local`/`squash`) and the canonical
+    /// manifest schema reference.
     ///
     /// # Errors
     ///
     /// Returns an [`Error`] if the built manifest fails validation.
-    pub fn new(
-        name: HallName,
-        providers: Providers,
-        repos: Vec<Repo>,
-        skills: Option<Skills>,
-    ) -> Result<Self, Error> {
+    pub fn new(name: HallName, providers: Providers, repos: Vec<Repo>) -> Result<Self, Error> {
         let manifest = Self {
             version: CURRENT_VERSION,
             name,
             providers,
             repos,
             integration: IntegrationPolicy::default(),
-            skills,
             schema: SchemaRef,
             mcp: None,
             graph: None,
@@ -188,11 +178,6 @@ impl Manifest {
         &self.repos
     }
 
-    /// The hall's shared skill home, if it has one.
-    #[must_use]
-    pub fn skills(&self) -> Option<&Skills> {
-        self.skills.as_ref()
-    }
 
     /// The hall-scoped MCP server definitions `ivar sync` materialises into
     /// each provider's config file at the hall root.
@@ -349,7 +334,7 @@ impl Manifest {
     }
 
     /// The common rebuild every `with_*` ends at: the same name, integration,
-    /// skills, MCP definitions, and graph paths as `self`, with `providers` and `repos`
+    /// MCP definitions, and graph paths as `self`, with `providers` and `repos`
     /// replaced — so no mutation can silently drop a field it is not about.
     /// Validates, because the new combination may violate an invariant.
     fn rebuild(&self, providers: Providers, repos: Vec<Repo>) -> Result<Self, Error> {
@@ -359,7 +344,6 @@ impl Manifest {
             providers,
             repos,
             integration: self.integration,
-            skills: self.skills.clone(),
             schema: self.schema,
             mcp: self.mcp.clone(),
             graph: self.graph.clone(),
@@ -601,26 +585,6 @@ pub fn local_ref_prefix(name: &RepoName) -> String {
     format!("repos/{name}/")
 }
 
-/// A hall's shared skill home: which harnesses skills materialise for.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct Skills {
-    targets: Targets,
-}
-
-impl Skills {
-    /// Build a `Skills` value.
-    #[must_use]
-    pub fn new(targets: Targets) -> Self {
-        Self { targets }
-    }
-
-    /// Which harnesses this hall's shared skills materialise for.
-    #[must_use]
-    pub fn targets(&self) -> &Targets {
-        &self.targets
-    }
-}
 
 /// Which hall-root directories `ivar graph index` keeps in the graph.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
@@ -665,35 +629,6 @@ pub(crate) fn normalise_graph_path(raw: &str) -> Result<String, Error> {
     Ok(components.join("/"))
 }
 
-/// Which harnesses a hall's shared skills materialise for.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct Targets {
-    /// Whether skills materialise at `.claude/skills/`.
-    claude: bool,
-    /// Whether skills materialise at `.opencode/skills/`.
-    opencode: bool,
-}
-
-impl Targets {
-    /// Build a `Targets` value.
-    #[must_use]
-    pub fn new(claude: bool, opencode: bool) -> Self {
-        Self { claude, opencode }
-    }
-
-    /// Whether skills materialise at `.claude/skills/`.
-    #[must_use]
-    pub fn claude(&self) -> bool {
-        self.claude
-    }
-
-    /// Whether skills materialise at `.opencode/skills/`.
-    #[must_use]
-    pub fn opencode(&self) -> bool {
-        self.opencode
-    }
-}
 
 /// The comma-joined provider ids in `providers`, for error messages.
 pub(super) fn provider_ids(providers: &[Provider]) -> String {

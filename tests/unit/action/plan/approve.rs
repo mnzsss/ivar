@@ -749,8 +749,7 @@ fn declare_api_repo(root: &Utf8PathBuf) {
             RepoName::new("api").unwrap(),
             "https://example.invalid/api.git",
             BranchName::new("main").unwrap(),
-        )],
-        None,
+        )]
     )
     .unwrap();
     Manifest::write(&layout, &manifest).unwrap();
@@ -907,8 +906,7 @@ fn declare_api_and_web_repos(root: &Utf8PathBuf) {
     let manifest = Manifest::new(
         HallName::new("acme").unwrap(),
         Providers::new(vec![Provider::ClaudeCode], Provider::ClaudeCode),
-        vec![repo("api"), repo("web")],
-        None,
+        vec![repo("api"), repo("web")]
     )
     .unwrap();
     Manifest::write(&layout, &manifest).unwrap();

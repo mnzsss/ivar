@@ -39,8 +39,7 @@ fn hall_with_repo() -> (tempfile::TempDir, Utf8PathBuf) {
             RepoName::new("api").unwrap(),
             origin.as_str(),
             BranchName::new("main").unwrap(),
-        )],
-        None,
+        )]
     )
     .unwrap();
     Manifest::write(&layout, &manifest).unwrap();
@@ -181,8 +180,7 @@ fn upstream_is_refused_when_the_clone_is_missing() {
             RepoName::new("api").unwrap(),
             origin.as_str(),
             BranchName::new("main").unwrap(),
-        )],
-        None,
+        )]
     )
     .unwrap();
     Manifest::write(&layout, &manifest).unwrap();

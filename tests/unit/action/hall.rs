@@ -64,7 +64,7 @@ fn migrate_on_a_current_hall_reports_nothing_to_do_and_writes_nothing() {
 
     let report = migrate(&ctx).unwrap();
 
-    assert_eq!(report.value.plan, MigrationPlan::Current { version: 4 });
+    assert_eq!(report.value.plan, MigrationPlan::Current { version: 5 });
     assert!(!report.value.migrated);
     assert!(report.is_clean());
     assert!(human(&report.value).contains("Nothing to do"));
@@ -99,13 +99,13 @@ fn migrate_refuses_a_file_newer_than_this_build_without_touching_it() {
         report.value.plan,
         MigrationPlan::TooNew {
             found: 99,
-            highest: 4
+            highest: 5
         }
     );
     assert!(!report.value.migrated);
     // The whole point of `plan` over `read`: a too-new hall gets described,
     // not refused into silence.
-    assert!(human(&report.value).contains("understands up to 4"));
+    assert!(human(&report.value).contains("understands up to 5"));
     // ...but describing it must not report success. A warning is what
     // makes `bin/ivar.rs` exit 1 instead of 0.
     assert!(!report.is_clean(), "a too-new hall must not exit clean");
@@ -136,10 +136,10 @@ fn migrate_reports_an_unversioned_file_as_unreachable_rather_than_adopting_it() 
     // the format contract forbids exactly that.
     assert_eq!(
         report.value.plan,
-        MigrationPlan::Unreachable { from: 0, to: 4 }
+        MigrationPlan::Unreachable { from: 0, to: 5 }
     );
     assert!(!report.value.migrated);
-    assert!(human(&report.value).contains("no migration to reach version 4"));
+    assert!(human(&report.value).contains("no migration to reach version 5"));
     assert!(
         !report.is_clean(),
         "an unreachable hall must not exit clean"
@@ -542,8 +542,7 @@ fn hall_with_repo() -> (tempfile::TempDir, Utf8PathBuf) {
             crate::domain::name::RepoName::new("api").unwrap(),
             origin.as_str(),
             crate::domain::name::BranchName::new("main").unwrap(),
-        )],
-        None,
+        )]
     )
     .unwrap();
     Manifest::write(&layout, &manifest).unwrap();
@@ -956,8 +955,7 @@ fn doctor_reports_stale_files_for_unavailable_provider(#[case] code: &str) {
             vec![Provider::ClaudeCode, Provider::OpenCode],
             Provider::ClaudeCode,
         ),
-        vec![],
-        None,
+        vec![]
     )
     .unwrap();
     Manifest::write(&layout, &both).unwrap();
@@ -965,8 +963,7 @@ fn doctor_reports_stale_files_for_unavailable_provider(#[case] code: &str) {
     let claude_only = Manifest::new(
         HallName::new("acme").unwrap(),
         Providers::new(vec![Provider::ClaudeCode], Provider::ClaudeCode),
-        vec![],
-        None,
+        vec![]
     )
     .unwrap();
     Manifest::write(&layout, &claude_only).unwrap();
@@ -1107,8 +1104,7 @@ fn doctor_names_a_stale_managed_block() {
             crate::domain::name::RepoName::new("api").unwrap(),
             origin.as_str(),
             crate::domain::name::BranchName::new("main").unwrap(),
-        )],
-        None,
+        )]
     )
     .unwrap();
     Manifest::write(&layout, &manifest).unwrap();
@@ -1132,8 +1128,7 @@ fn doctor_names_a_missing_enabled_alias() {
             vec![Provider::ClaudeCode, Provider::OpenCode],
             Provider::ClaudeCode,
         ),
-        vec![],
-        None,
+        vec![]
     )
     .unwrap();
     Manifest::write(&layout, &manifest).unwrap();
@@ -1208,8 +1203,7 @@ fn doctor_names_a_disabled_providers_leftover_alias() {
             vec![Provider::ClaudeCode, Provider::OpenCode],
             Provider::ClaudeCode,
         ),
-        vec![],
-        None,
+        vec![]
     )
     .unwrap();
     Manifest::write(&layout, &both).unwrap();
@@ -1217,8 +1211,7 @@ fn doctor_names_a_disabled_providers_leftover_alias() {
     let claude_only = Manifest::new(
         HallName::new("acme").unwrap(),
         Providers::new(vec![Provider::ClaudeCode], Provider::ClaudeCode),
-        vec![],
-        None,
+        vec![]
     )
     .unwrap();
     Manifest::write(&layout, &claude_only).unwrap();
@@ -1260,8 +1253,7 @@ fn doctor_returns_every_applicable_instruction_finding_in_one_run() {
             crate::domain::name::RepoName::new("api").unwrap(),
             origin.as_str(),
             crate::domain::name::BranchName::new("main").unwrap(),
-        )],
-        None,
+        )]
     )
     .unwrap();
     Manifest::write(&layout, &both).unwrap();

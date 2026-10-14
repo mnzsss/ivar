@@ -258,7 +258,7 @@ fn symlinked_worktree_and_control_dirs_classify_canonical_fs_events() {
     git(&real_repo, &["add", "."]);
     git(&real_repo, &["commit", "-m", "init"]);
     let manifest_content = r#"{
-  "version": 4,
+  "version": 5,
   "name": "symlink-hall",
   "providers": {
     "available": ["claude-code"],
@@ -453,8 +453,7 @@ fn hall_targets_come_from_the_manifest_paths_that_exist_on_disk() {
             vec![crate::domain::provider::Provider::ClaudeCode],
             crate::domain::provider::Provider::ClaudeCode,
         ),
-        vec![],
-        None,
+        vec![]
     )
     .unwrap()
     .with_graph_path_added("brand")

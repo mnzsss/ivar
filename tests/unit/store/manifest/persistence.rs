@@ -13,7 +13,7 @@ use super::*;
 use crate::domain::name::{BranchName, HallName, RepoName};
 use crate::domain::provider::Provider;
 use crate::infra::{fs, json};
-use crate::store::manifest::{Providers, Repo, Skills, Targets};
+use crate::store::manifest::{Providers, Repo};
 use crate::test_support::utf8_temp_dir;
 
 fn sample_manifest() -> Manifest {
@@ -27,10 +27,71 @@ fn sample_manifest() -> Manifest {
             RepoName::new("api").unwrap(),
             "git@github.com:acme/api.git",
             BranchName::new("main").unwrap(),
-        )],
-        Some(Skills::new(Targets::new(true, true))),
+        )]
     )
     .unwrap()
+}
+
+/// A v4 file as written by 0.16: carries the never-consumed `skills` key.
+fn v4_manifest_with_skills_bytes() -> &'static str {
+    r#"{"$schema":"https://ivar.run/schema/4.json","version":4,"name":"acme","integration":{"strategy":"squash","via":"local"},"providers":{"available":["claude-code","opencode"],"default":"claude-code"},"repos":[],"skills":{"targets":{"claude":true,"opencode":true}}}"#
+}
+
+#[test]
+fn a_v4_manifest_with_skills_reads_in_memory_without_rewriting_the_file() {
+    let (_dir, root) = utf8_temp_dir();
+    let layout = Layout::at(root);
+    fs::write_text(&layout.manifest(), v4_manifest_with_skills_bytes()).unwrap();
+
+    let manifest = Manifest::read(&layout).unwrap().unwrap();
+
+    assert_eq!(manifest.version(), 5);
+    assert_eq!(
+        fs::read_text(&layout.manifest()).unwrap().unwrap(),
+        v4_manifest_with_skills_bytes()
+    );
+}
+
+#[test]
+fn migrating_a_v4_manifest_drops_the_skills_key() {
+    let (_dir, root) = utf8_temp_dir();
+    let layout = Layout::at(root);
+    fs::write_text(&layout.manifest(), v4_manifest_with_skills_bytes()).unwrap();
+
+    let migrated = Manifest::migrate(&layout).unwrap().unwrap();
+    assert_eq!(migrated.version(), 5);
+
+    let on_disk: serde_json::Value =
+        serde_json::from_str(&fs::read_text(&layout.manifest()).unwrap().unwrap()).unwrap();
+    assert_eq!(on_disk.get("version"), Some(&serde_json::json!(5)));
+    assert_eq!(on_disk.get("skills"), None);
+    assert_eq!(
+        on_disk.get("$schema"),
+        Some(&serde_json::json!("https://ivar.run/schema/5.json"))
+    );
+}
+
+#[test]
+fn a_v5_manifest_carrying_skills_is_rejected_as_an_unknown_key() {
+    let (_dir, root) = utf8_temp_dir();
+    let layout = Layout::at(root);
+    let v5 = v4_manifest_with_skills_bytes()
+        .replace(r#""version":4"#, r#""version":5"#)
+        .replace("schema/4.json", "schema/5.json");
+    fs::write_text(&layout.manifest(), &v5).unwrap();
+
+    let error = Manifest::read(&layout).unwrap_err();
+    assert!(error.to_string().contains("skills"), "{error}");
+}
+
+#[test]
+fn migration_plan_reports_available_from_v4_to_v5() {
+    let (_dir, root) = utf8_temp_dir();
+    let layout = Layout::at(root);
+    fs::write_text(&layout.manifest(), v4_manifest_with_skills_bytes()).unwrap();
+
+    let plan = Manifest::plan(&layout).unwrap().unwrap();
+    assert_eq!(plan, MigrationPlan::Available { from: 4, to: 5 });
 }
 
 // -- round-trip: write, read back, exact bytes on disk -------------------
@@ -44,15 +105,14 @@ fn write_then_read_round_trips_and_writes_canonical_bytes() {
     Manifest::write(&layout, &manifest).unwrap();
 
     let expected = json::to_canonical_string(&serde_json::json!({
-        "version": 4,
+        "version": 5,
         "name": "acme",
-        "$schema": "https://ivar.run/schema/4.json",
+        "$schema": "https://ivar.run/schema/5.json",
         "integration": { "strategy": "squash", "via": "local" },
         "providers": { "available": ["claude-code", "opencode"], "default": "claude-code" },
         "repos": [
             { "name": "api", "url": "git@github.com:acme/api.git", "default_branch": "main" }
         ],
-        "skills": { "targets": { "claude": true, "opencode": true } },
     }))
     .unwrap();
     let on_disk = fs::read_text(&layout.manifest()).unwrap().unwrap();
@@ -65,24 +125,6 @@ fn write_then_read_round_trips_and_writes_canonical_bytes() {
     assert_eq!(read_back, manifest);
 }
 
-#[test]
-fn manifest_without_skills_omits_the_key_and_still_round_trips() {
-    let (_dir, root) = utf8_temp_dir();
-    let layout = Layout::at(root);
-    let manifest = Manifest::new(
-        HallName::new("acme").unwrap(),
-        Providers::new(vec![Provider::ClaudeCode], Provider::ClaudeCode),
-        vec![],
-        None,
-    )
-    .unwrap();
-
-    Manifest::write(&layout, &manifest).unwrap();
-
-    let on_disk = fs::read_text(&layout.manifest()).unwrap().unwrap();
-    assert!(!on_disk.contains("skills"));
-    assert_eq!(Manifest::read(&layout).unwrap(), Some(manifest));
-}
 
 #[test]
 fn write_stamps_the_version_it_wrote_over_a_legacy_schema_url() {
@@ -90,7 +132,7 @@ fn write_stamps_the_version_it_wrote_over_a_legacy_schema_url() {
     let layout = Layout::at(root);
     let legacy = json::to_canonical_string(&serde_json::json!({
         "$schema": "https://ivar.run/ivar.schema.json",
-        "version": 4,
+        "version": 5,
         "name": "acme",
         "integration": { "strategy": "squash", "via": "local" },
         "providers": { "available": ["claude-code"], "default": "claude-code" },
@@ -106,7 +148,7 @@ fn write_stamps_the_version_it_wrote_over_a_legacy_schema_url() {
     let value: serde_json::Value = serde_json::from_str(&on_disk).unwrap();
     assert_eq!(
         value["$schema"].as_str(),
-        Some("https://ivar.run/schema/4.json"),
+        Some("https://ivar.run/schema/5.json"),
         "a write must stamp the URL for the version it wrote, not carry the file's"
     );
 }
@@ -202,7 +244,7 @@ fn version_newer_than_current_is_refused_and_the_file_is_untouched() {
     match &error {
         Error::Store(versioned::Error::TooNew { found, highest, .. }) => {
             assert_eq!(*found, 99);
-            assert_eq!(*highest, 4);
+            assert_eq!(*highest, 5);
         }
         other => panic!("expected TooNew, got {other:?}"),
     }
@@ -289,7 +331,7 @@ fn a_v1_manifest_reads_in_memory_as_current_without_rewriting_the_file() {
 
     let manifest = Manifest::read(&layout).unwrap().unwrap();
 
-    assert_eq!(manifest.version(), 4);
+    assert_eq!(manifest.version(), 5);
     assert_eq!(
         manifest.integration(),
         crate::domain::feature::IntegrationPolicy::default()
@@ -317,7 +359,7 @@ fn a_v2_manifest_reads_in_memory_as_current_without_rewriting_the_file() {
 
     let manifest = Manifest::read(&layout).unwrap().unwrap();
 
-    assert_eq!(manifest.version(), 4);
+    assert_eq!(manifest.version(), 5);
     assert_eq!(manifest.repos().len(), 1);
     assert!(manifest.mcp_servers().is_empty());
 
@@ -336,11 +378,11 @@ fn migration_plan_available_for_v1_and_v2_and_unreachable_for_v0() {
 
     fs::write_text(&layout.manifest(), v1_manifest_bytes()).unwrap();
     let plan = Manifest::plan(&layout).unwrap().unwrap();
-    assert_eq!(plan, MigrationPlan::Available { from: 1, to: 4 });
+    assert_eq!(plan, MigrationPlan::Available { from: 1, to: 5 });
 
     fs::write_text(&layout.manifest(), v2_manifest_bytes()).unwrap();
     let plan = Manifest::plan(&layout).unwrap().unwrap();
-    assert_eq!(plan, MigrationPlan::Available { from: 2, to: 4 });
+    assert_eq!(plan, MigrationPlan::Available { from: 2, to: 5 });
 
     fs::write_text(
         &layout.manifest(),
@@ -348,7 +390,7 @@ fn migration_plan_available_for_v1_and_v2_and_unreachable_for_v0() {
     )
     .unwrap();
     let plan = Manifest::plan(&layout).unwrap().unwrap();
-    assert_eq!(plan, MigrationPlan::Unreachable { from: 0, to: 4 });
+    assert_eq!(plan, MigrationPlan::Unreachable { from: 0, to: 5 });
 }
 
 #[test]
@@ -365,17 +407,17 @@ fn a_plain_write_refuses_a_v1_file_and_explicit_migrate_writes_canonical_current
         Error::Store(versioned::Error::CommittedRefusesImplicitUpgrade { .. })
     ));
 
-    // The explicit migrate advances the committed file to canonical v3,
-    // stepping through v2 on the way.
+    // The explicit migrate advances the committed file to canonical v5,
+    // stepping through v2, v3, and v4 on the way.
     let migrated = Manifest::migrate(&layout).unwrap().unwrap();
-    assert_eq!(migrated.version(), 4);
+    assert_eq!(migrated.version(), 5);
     assert_eq!(migrated.repos().len(), 2);
 
     let on_disk = fs::read_text(&layout.manifest()).unwrap().unwrap();
     let expected = json::to_canonical_string(&serde_json::json!({
-        "version": 4,
+        "version": 5,
         "name": "acme",
-        "$schema": "https://ivar.run/schema/4.json",
+        "$schema": "https://ivar.run/schema/5.json",
         "integration": { "strategy": "squash", "via": "local" },
         "providers": { "available": ["claude-code", "opencode"], "default": "claude-code" },
         "repos": [
@@ -404,14 +446,14 @@ fn a_plain_write_refuses_a_v2_file_and_explicit_migrate_writes_canonical_current
     // advance the stamped version, and this hall's own repo (with no `mcp`
     // array at all) proves that round-trips exactly as it did before.
     let migrated = Manifest::migrate(&layout).unwrap().unwrap();
-    assert_eq!(migrated.version(), 4);
+    assert_eq!(migrated.version(), 5);
     assert!(migrated.mcp_servers().is_empty());
 
     let on_disk = fs::read_text(&layout.manifest()).unwrap().unwrap();
     let expected = json::to_canonical_string(&serde_json::json!({
-        "version": 4,
+        "version": 5,
         "name": "acme",
-        "$schema": "https://ivar.run/schema/4.json",
+        "$schema": "https://ivar.run/schema/5.json",
         "integration": { "strategy": "squash", "via": "local" },
         "providers": { "available": ["claude-code", "opencode"], "default": "claude-code" },
         "repos": [
@@ -456,10 +498,10 @@ fn a_v3_manifest_using_a_retired_transport_refuses_to_migrate_and_names_the_repl
 }
 
 /// A v3 file whose MCP entries already use the canonical vocabulary migrates
-/// to v4 with its `oauth` fields intact, and without fabricating a
+/// to v5 with its `oauth` fields intact, and without fabricating a
 /// `token_url` or `resource` that the v3 file never carried.
 #[test]
-fn a_v3_manifest_with_oauth_migrates_to_v4_with_fields_intact_and_no_fabricated_token_url() {
+fn a_v3_manifest_with_oauth_migrates_to_v5_with_fields_intact_and_no_fabricated_token_url() {
     let (_dir, root) = utf8_temp_dir();
     let layout = Layout::at(root);
     let original = v3_canonical_manifest_bytes();
@@ -472,7 +514,7 @@ fn a_v3_manifest_with_oauth_migrates_to_v4_with_fields_intact_and_no_fabricated_
     ));
 
     let migrated = Manifest::migrate(&layout).unwrap().unwrap();
-    assert_eq!(migrated.version(), 4);
+    assert_eq!(migrated.version(), 5);
     let servers = migrated.mcp_servers();
     assert_eq!(servers.len(), 1);
     let server = &servers[0];
@@ -488,9 +530,9 @@ fn a_v3_manifest_with_oauth_migrates_to_v4_with_fields_intact_and_no_fabricated_
 
     let on_disk = fs::read_text(&layout.manifest()).unwrap().unwrap();
     let expected = json::to_canonical_string(&serde_json::json!({
-        "version": 4,
+        "version": 5,
         "name": "acme",
-        "$schema": "https://ivar.run/schema/4.json",
+        "$schema": "https://ivar.run/schema/5.json",
         "integration": { "strategy": "squash", "via": "local" },
         "providers": { "available": ["claude-code", "opencode"], "default": "claude-code" },
         "repos": [
@@ -513,11 +555,11 @@ fn a_v3_manifest_with_oauth_migrates_to_v4_with_fields_intact_and_no_fabricated_
 }
 
 #[test]
-fn migration_plan_reports_available_from_v3_to_v4() {
+fn migration_plan_reports_available_from_v3_to_v5() {
     let (_dir, root) = utf8_temp_dir();
     let layout = Layout::at(root);
 
     fs::write_text(&layout.manifest(), v3_manifest_bytes()).unwrap();
     let plan = Manifest::plan(&layout).unwrap().unwrap();
-    assert_eq!(plan, MigrationPlan::Available { from: 3, to: 4 });
+    assert_eq!(plan, MigrationPlan::Available { from: 3, to: 5 });
 }

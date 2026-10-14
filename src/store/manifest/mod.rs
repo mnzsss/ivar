@@ -14,12 +14,9 @@
 //!   "providers": { "available": ["claude-code", "opencode"], "default": "claude-code" },
 //!   "repos": [
 //!     { "name": "api", "url": "git@github.com:acme/api.git", "default_branch": "main" }
-//!   ],
-//!   "skills": { "targets": { "claude": true, "opencode": true } }
+//!   ]
 //! }
 //! ```
-//!
-//! `skills` is optional — a hall without a shared skill home simply omits it.
 //!
 //! # Why v1 and not v2
 //!
@@ -104,6 +101,6 @@ mod schema;
 
 pub use error::Error;
 pub(crate) use model::normalise_graph_path;
-pub use model::{Graph, Manifest, Providers, Repo, Skills, Targets, local_ref_prefix};
+pub use model::{Graph, Manifest, Providers, Repo, local_ref_prefix};
 pub use persistence::MigrationPlan;
 pub use schema::generate;

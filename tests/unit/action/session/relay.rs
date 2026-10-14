@@ -50,8 +50,7 @@ fn hall_with_provider_session() -> (tempfile::TempDir, Utf8PathBuf) {
             RepoName::new("api").unwrap(),
             api_origin.as_str(),
             BranchName::new("main").unwrap(),
-        )],
-        None,
+        )]
     )
     .unwrap();
     Manifest::write(&layout, &manifest).unwrap();
@@ -352,8 +351,7 @@ fn relay_without_a_previous_session_is_blocked() {
             RepoName::new("api").unwrap(),
             api_origin.as_str(),
             BranchName::new("main").unwrap(),
-        )],
-        None,
+        )]
     )
     .unwrap();
     Manifest::write(&layout, &manifest).unwrap();

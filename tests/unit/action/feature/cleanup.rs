@@ -51,8 +51,7 @@ fn hall_with_feature(repos: &[&str], branch: Option<&str>) -> (tempfile::TempDir
     let manifest = Manifest::new(
         HallName::new("acme").unwrap(),
         Providers::new(vec![Provider::ClaudeCode], Provider::ClaudeCode),
-        manifest_repos,
-        None,
+        manifest_repos
     )
     .unwrap();
     Manifest::write(&layout, &manifest).unwrap();

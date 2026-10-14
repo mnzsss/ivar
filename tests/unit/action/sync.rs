@@ -51,8 +51,7 @@ fn hall_with(repos: &[(&str, &str)]) -> (tempfile::TempDir, Utf8PathBuf) {
         let manifest = Manifest::new(
             HallName::new("acme").unwrap(),
             Providers::new(vec![Provider::ClaudeCode], Provider::ClaudeCode),
-            declared,
-            None,
+            declared
         )
         .unwrap();
         Manifest::write(&layout, &manifest).unwrap();
@@ -181,8 +180,7 @@ fn an_unreachable_repo_becomes_a_warning_and_the_others_still_sync() {
     let manifest = Manifest::new(
         HallName::new("acme").unwrap(),
         Providers::new(vec![Provider::ClaudeCode], Provider::ClaudeCode),
-        repos,
-        None,
+        repos
     )
     .unwrap();
     Manifest::write(&layout, &manifest).unwrap();
@@ -272,8 +270,7 @@ fn a_branch_the_repo_does_not_have_names_the_repos_default_instead() {
             RepoName::new("api").unwrap(),
             url,
             BranchName::new("main").unwrap(),
-        )],
-        None,
+        )]
     )
     .unwrap();
     Manifest::write(&layout, &manifest).unwrap();
@@ -578,8 +575,7 @@ fn sync_materialises_the_opencode_config_when_opencode_is_available() {
             vec![Provider::ClaudeCode, Provider::OpenCode],
             Provider::ClaudeCode,
         ),
-        vec![],
-        None,
+        vec![]
     )
     .unwrap();
     Manifest::write(&layout, &manifest).unwrap();
@@ -803,8 +799,7 @@ fn hall_with_all_providers() -> (tempfile::TempDir, Utf8PathBuf) {
             vec![Provider::ClaudeCode, Provider::OpenCode, Provider::Omp],
             Provider::ClaudeCode,
         ),
-        vec![],
-        None,
+        vec![]
     )
     .unwrap();
     Manifest::write(&layout, &manifest).unwrap();
@@ -947,8 +942,7 @@ fn sync_removes_only_shipped_commands_for_unavailable_provider() {
     let manifest = Manifest::new(
         HallName::new("acme").unwrap(),
         Providers::new(vec![Provider::ClaudeCode], Provider::ClaudeCode),
-        vec![],
-        None,
+        vec![]
     )
     .unwrap();
     Manifest::write(&layout, &manifest).unwrap();
@@ -1078,8 +1072,7 @@ fn a_conflict_does_not_abort_repo_mcp_or_command_reconciliation() {
             vec![Provider::ClaudeCode, Provider::OpenCode],
             Provider::ClaudeCode,
         ),
-        Manifest::read(&layout).unwrap().unwrap().repos().to_vec(),
-        None,
+        Manifest::read(&layout).unwrap().unwrap().repos().to_vec()
     )
     .unwrap();
     Manifest::write(&layout, &manifest).unwrap();
@@ -1116,8 +1109,7 @@ fn removing_a_provider_by_hand_makes_sync_delete_its_regular_alias() {
     let manifest = Manifest::new(
         HallName::new("acme").unwrap(),
         Providers::new(vec![Provider::ClaudeCode], Provider::ClaudeCode),
-        vec![],
-        None,
+        vec![]
     )
     .unwrap();
     Manifest::write(&layout, &manifest).unwrap();
@@ -1180,8 +1172,7 @@ fn sync_report_groups_shared_alias_surfaces_into_single_entry() {
     let manifest = Manifest::new(
         HallName::new("acme").unwrap(),
         Providers::new(vec![Provider::OpenCode, Provider::Omp], Provider::OpenCode),
-        Vec::new(),
-        None,
+        Vec::new()
     )
     .unwrap();
     Manifest::write(&layout, &manifest).unwrap();
@@ -1351,8 +1342,7 @@ fn sync_removes_artifacts_when_provider_is_not_listed() {
     let manifest = Manifest::new(
         HallName::new("acme").unwrap(),
         Providers::new(vec![Provider::ClaudeCode], Provider::ClaudeCode),
-        vec![],
-        None,
+        vec![]
     )
     .unwrap();
     Manifest::write(&layout, &manifest).unwrap();
@@ -1465,8 +1455,7 @@ fn repeated_sync_preserves_prefixed_repo_refspec_and_config() {
     let manifest = Manifest::new(
         HallName::new("acme").unwrap(),
         Providers::new(vec![Provider::ClaudeCode], Provider::ClaudeCode),
-        vec![repo],
-        None,
+        vec![repo]
     )
     .unwrap();
     Manifest::write(&layout, &manifest).unwrap();

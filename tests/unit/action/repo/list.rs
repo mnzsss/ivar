@@ -43,8 +43,7 @@ fn hall_with(repos: &[(&str, &str)]) -> (tempfile::TempDir, Utf8PathBuf) {
         let manifest = Manifest::new(
             HallName::new("acme").unwrap(),
             Providers::new(vec![Provider::ClaudeCode], Provider::ClaudeCode),
-            declared,
-            None,
+            declared
         )
         .unwrap();
         Manifest::write(&layout, &manifest).unwrap();

@@ -260,8 +260,7 @@ fn land_runs_verification_gate_and_refuses_on_failure() {
     let new_manifest = Manifest::new(
         manifest.name().clone(),
         manifest.providers().clone(),
-        repos,
-        None,
+        repos
     )
     .unwrap();
     Manifest::write(&layout, &new_manifest).unwrap();

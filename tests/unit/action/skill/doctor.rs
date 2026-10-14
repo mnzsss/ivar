@@ -142,8 +142,7 @@ fn hall_with_repo_skill(repo_skill: &str) -> (tempfile::TempDir, camino::Utf8Pat
             RepoName::new("api").unwrap(),
             root.join("origin-api").as_str(),
             BranchName::new("main").unwrap(),
-        )],
-        None,
+        )]
     )
     .unwrap();
     Manifest::write(&layout, &manifest).unwrap();

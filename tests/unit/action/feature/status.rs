@@ -39,8 +39,7 @@ fn hall_with_feature() -> (tempfile::TempDir, Utf8PathBuf) {
             RepoName::new("api").unwrap(),
             origin.as_str(),
             BranchName::new("main").unwrap(),
-        )],
-        None,
+        )]
     )
     .unwrap();
     Manifest::write(&layout, &manifest).unwrap();
@@ -229,8 +228,7 @@ fn hall_with_two_branches(base: Option<&str>) -> (tempfile::TempDir, Utf8PathBuf
             RepoName::new("api").unwrap(),
             origin.as_str(),
             BranchName::new("main").unwrap(),
-        )],
-        None,
+        )]
     )
     .unwrap();
     Manifest::write(&layout, &manifest).unwrap();
