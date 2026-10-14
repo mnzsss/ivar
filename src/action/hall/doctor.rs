@@ -745,12 +745,18 @@ fn orphan_graph_diagnoses(db: &GraphDb, facts: &HallFacts) -> Vec<Diagnosis> {
         {
             continue;
         }
-        let counts = db.repo_counts(&row.id).unwrap_or_default();
+        let held = match db.repo_counts(&row.id) {
+            Ok(counts) => format!(
+                "{} files, {} symbols, {} edges",
+                counts.files, counts.symbols, counts.edges
+            ),
+            Err(error) => format!("counts unavailable: {error}"),
+        };
         findings.push(Diagnosis {
             code: "graph.repo_not_in_manifest",
             what: format!(
-                "graph still holds `{}` ({} files, {} symbols, {} edges) but `ivar.json` no longer declares it",
-                row.id, counts.files, counts.symbols, counts.edges
+                "graph still holds `{}` ({held}) but `ivar.json` no longer declares it",
+                row.id
             ),
             fix: format!(
                 "Run `ivar graph clean --repo {}`, or `ivar graph index` to reconcile everything.",

@@ -1632,6 +1632,26 @@ fn doctor_names_an_indexed_repo_the_manifest_no_longer_declares() {
 }
 
 #[test]
+fn doctor_says_counts_are_unavailable_when_an_orphan_repo_cannot_be_counted() {
+    let (_guard, root) = hall_with_indexed_graph();
+    let db =
+        crate::store::graph::db::GraphDb::open(root.join(".ivar/memory.db").as_std_path()).unwrap();
+    db.insert_repo("orca", "/x/orca", "main", None).unwrap();
+    db.conn().execute_batch("DROP TABLE edges;").unwrap();
+    drop(db);
+
+    let report = doctor(&Ctx::new(root)).unwrap();
+
+    let f = finding(&report.value, "graph.repo_not_in_manifest");
+    assert!(
+        f.what.contains("orca") && f.what.contains("counts unavailable"),
+        "was: {}",
+        f.what
+    );
+    assert!(!f.what.contains("0 files"), "was: {}", f.what);
+}
+
+#[test]
 fn doctor_names_a_layer_whose_feature_is_gone_and_its_scope_once() {
     let (_guard, root) = hall_with_indexed_graph();
     let db =
