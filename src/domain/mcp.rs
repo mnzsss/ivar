@@ -410,6 +410,33 @@ impl McpOauth {
     }
 }
 
+/// A curated, known remote MCP server that can be added by name.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct McpPreset {
+    /// The server's canonical preset name (e.g. `figma`, `linear`).
+    pub name: &'static str,
+    /// The canonical remote HTTP endpoint URL.
+    pub url: &'static str,
+}
+
+/// Curated remote MCP server presets.
+pub const MCP_PRESETS: &[McpPreset] = &[
+    McpPreset {
+        name: "figma",
+        url: "https://mcp.figma.com/mcp",
+    },
+    McpPreset {
+        name: "linear",
+        url: "https://mcp.linear.app/mcp",
+    },
+];
+
+/// Look up an MCP server preset by name.
+#[must_use]
+pub fn mcp_preset(name: &str) -> Option<&'static McpPreset> {
+    MCP_PRESETS.iter().find(|preset| preset.name == name)
+}
+
 #[cfg(test)]
 #[path = "../../tests/unit/domain/mcp.rs"]
 mod tests;

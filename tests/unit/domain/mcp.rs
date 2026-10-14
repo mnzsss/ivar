@@ -324,3 +324,35 @@ fn server_def_auth_requirement_classification() {
         AuthRequirement::Required
     );
 }
+
+// -- presets -------------------------------------------------------------
+
+#[test]
+fn mcp_preset_resolves_known_presets() {
+    let figma = mcp_preset("figma").expect("figma preset must exist");
+    assert_eq!(figma.name, "figma");
+    assert_eq!(figma.url, "https://mcp.figma.com/mcp");
+
+    let linear = mcp_preset("linear").expect("linear preset must exist");
+    assert_eq!(linear.name, "linear");
+    assert_eq!(linear.url, "https://mcp.linear.app/mcp");
+}
+
+#[test]
+fn mcp_preset_returns_none_for_unknown_preset() {
+    assert!(mcp_preset("slack").is_none());
+    assert!(mcp_preset("").is_none());
+}
+
+#[test]
+fn mcp_presets_constant_contains_valid_http_definitions() {
+    for preset in MCP_PRESETS {
+        let def = McpServerDef::new(preset.name, "http").url(preset.url);
+        assert!(
+            def.validate().is_ok(),
+            "preset `{}` url `{}` failed validation",
+            preset.name,
+            preset.url
+        );
+    }
+}
