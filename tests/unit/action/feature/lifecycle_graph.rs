@@ -83,3 +83,22 @@ fn test_rename_and_drop_feature_layers_in_graph_db() {
             .is_some()
     );
 }
+
+#[test]
+fn dropping_feature_layers_waits_for_the_index_lock() {
+    let (_dir, root) = crate::test_support::utf8_temp_dir();
+    let layout = crate::store::layout::Layout::at(root.clone());
+    let db_path = root.join(".ivar/memory.db");
+    let db = GraphDb::open(db_path.as_std_path()).unwrap();
+    db.ensure_layer_record("feat", "core", "/feat/core", "c1")
+        .unwrap();
+    drop(db);
+    let name = crate::domain::name::FeatureName::new("feat").unwrap();
+
+    crate::test_support::assert_waits_for_index_lock(&layout, || {
+        assert!(super::drop_layers_or_warn(&layout, &name).is_none());
+    });
+
+    let db = GraphDb::open(db_path.as_std_path()).unwrap();
+    assert!(db.get_layer_record("feat", "core").unwrap().is_none());
+}
