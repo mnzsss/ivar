@@ -7,7 +7,9 @@
 
 use super::*;
 use crate::action::skill::sync as skill_sync;
+use crate::domain::provider::Provider;
 use crate::store::layout::Layout;
+use crate::store::manifest::{Manifest, Providers};
 use crate::test_support::seeded_hall;
 
 fn write_skill(root: &camino::Utf8Path, id: &str) {
@@ -18,6 +20,15 @@ fn write_skill(root: &camino::Utf8Path, id: &str) {
         &format!("---\nname: {id}\ndescription: {id} skill\n---\n\nBody.\n"),
     )
     .unwrap();
+}
+
+fn set_providers(root: &camino::Utf8Path, available: Vec<Provider>) {
+    let layout = Layout::at(root.to_path_buf());
+    let manifest = Manifest::read(&layout).unwrap().unwrap();
+    let updated = manifest
+        .with_providers(Providers::new(available, Provider::ClaudeCode))
+        .unwrap();
+    Manifest::write(&layout, &updated).unwrap();
 }
 
 #[test]
@@ -32,6 +43,50 @@ fn doctor_reports_no_problems_in_a_fresh_synced_hall() {
     let outcome = doctor(&ctx).unwrap();
     assert_eq!(outcome.value.count, 0);
     assert!(outcome.value.problems.is_empty());
+}
+
+#[test]
+fn doctor_never_reports_targets_of_providers_the_hall_does_not_list() {
+    let (_guard, root) = seeded_hall();
+    write_skill(&root, "healthy");
+    let ctx = Ctx::new(root.clone());
+    let _ = skill_sync::sync(&ctx).unwrap();
+
+    let outcome = doctor(&ctx).unwrap();
+
+    assert!(
+        outcome.value.problems.is_empty(),
+        "{:?}",
+        outcome.value.problems.iter().map(|p| p.code).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn doctor_reports_a_recorded_target_of_a_removed_provider() {
+    let (_guard, root) = seeded_hall();
+    write_skill(&root, "kept");
+    set_providers(&root, vec![Provider::ClaudeCode, Provider::OpenCode]);
+    let ctx = Ctx::new(root.clone());
+    let _ = skill_sync::sync(&ctx).unwrap();
+    set_providers(&root, vec![Provider::ClaudeCode]);
+
+    let outcome = doctor(&ctx).unwrap();
+
+    let orphan = outcome
+        .value
+        .problems
+        .iter()
+        .find(|p| p.code == "skill.target_orphaned")
+        .expect("orphaned opencode target must be reported");
+    assert_eq!(orphan.subject, "kept@opencode");
+    assert_eq!(orphan.fix_action.command.as_deref(), Some("ivar skill sync"));
+    assert!(
+        !outcome
+            .value
+            .problems
+            .iter()
+            .any(|p| p.code == "skill.target_missing")
+    );
 }
 
 #[test]
@@ -62,6 +117,7 @@ fn doctor_detects_a_missing_target() {
 fn doctor_detects_a_missing_omp_target() {
     let (_guard, root) = seeded_hall();
     write_skill(&root, "broken_omp");
+    set_providers(&root, vec![Provider::ClaudeCode, Provider::Omp]);
     let ctx = Ctx::new(root.clone());
 
     // Sync once to create targets.

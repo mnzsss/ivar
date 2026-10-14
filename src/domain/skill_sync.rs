@@ -25,9 +25,6 @@ pub enum TargetId {
 }
 
 impl TargetId {
-    /// Every variant, for iteration across targets.
-    pub const ALL: [TargetId; 3] = [TargetId::Claude, TargetId::OpenCode, TargetId::Omp];
-
     /// The canonical string identifier used in state files.
     #[must_use]
     pub fn as_str(&self) -> &'static str {

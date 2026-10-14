@@ -76,14 +76,26 @@ pub fn remove(ctx: &Ctx, input: &RemoveInput) -> Outcome<RemoveOutcome> {
         ))
     })?;
 
-    // Tear down materialised targets best-effort.
+    // Tear down available targets and state-recorded targets, including those
+    // of providers removed from the manifest since the last sync.
+    let manifest = super::super::read_manifest(&layout)?;
+    let mut doomed: Vec<(TargetId, Utf8PathBuf)> = super::available_targets(&manifest)
+        .into_iter()
+        .map(|id| (id, skill::target_path(id, skill.id.as_str())))
+        .collect();
+    if let Ok(Some(state)) = skill::read(layout.root(), root)
+        && let Some(entry) = state.installations.get(skill.id.as_str())
+    {
+        for (id, provider) in &entry.providers {
+            if !doomed.iter().any(|(known, _)| known == id) {
+                doomed.push((*id, provider.target_path.clone()));
+            }
+        }
+    }
+
     let mut targets_removed = 0u64;
-    for target_id in TargetId::ALL {
-        // `target_path` is hall-relative; the renderer works on absolute
-        // paths, so join it onto the hall root before touching disk.
-        let target_path = layout
-            .root()
-            .join(skill::target_path(target_id, skill.id.as_str()));
+    for (target_id, relative) in doomed {
+        let target_path = layout.root().join(relative);
         if fs::exists(&target_path).unwrap_or(false) {
             let step = crate::domain::skill_sync::Step {
                 skill: skill.id.clone(),

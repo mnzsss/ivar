@@ -43,6 +43,21 @@ fn status_handles_an_empty_hall() {
 }
 
 #[test]
+fn status_lists_only_the_hall_providers_targets() {
+    let (_guard, root) = seeded_hall();
+    write_skill(&root, "audit", false);
+
+    let outcome = status(&Ctx::new(root)).unwrap();
+
+    let targets: Vec<&str> = outcome.value.skills.first().unwrap()
+        .targets
+        .iter()
+        .map(|t| t.target.as_str())
+        .collect();
+    assert_eq!(targets, vec!["claude"]);
+}
+
+#[test]
 fn material_status_label_maps_all_variants() {
     assert_eq!(material_status_label(&MaterialStatus::Missing), "missing");
     assert_eq!(material_status_label(&MaterialStatus::Ok), "ok");

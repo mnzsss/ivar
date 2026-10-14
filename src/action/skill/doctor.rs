@@ -12,7 +12,6 @@ use crate::action::Ctx;
 use crate::action::session::repo_skills;
 use crate::domain::skill_sync::{MaterialStatus, Target, TargetId};
 use crate::error::{FixAction, Outcome, Report, WriteHuman};
-#[cfg(test)]
 use crate::infra::fs;
 use crate::store::layout::Layout;
 use crate::store::manifest::Manifest;
@@ -71,6 +70,8 @@ impl WriteHuman for DoctorOutcome {
 /// Health diagnostics with fix actions.
 pub fn doctor(ctx: &Ctx) -> Outcome<DoctorOutcome> {
     let layout = discover_hall(ctx)?;
+    let manifest = super::super::read_manifest(&layout)?;
+    let available = super::available_targets(&manifest);
 
     // Both roots. A collision is a health problem by definition — the id is
     // declared twice and materialises nowhere — so it is reported rather than
@@ -85,12 +86,13 @@ pub fn doctor(ctx: &Ctx) -> Outcome<DoctorOutcome> {
         .installations
         .extend(read_state(&layout, crate::domain::skill::SkillRoot::Local).installations);
 
-    let targets = build_doctor_targets(&skills, &layout);
+    let targets = build_doctor_targets(&skills, &layout, &available);
 
     let mut problems = collision_problems(collisions);
     let home = crate::providers::user_home().ok();
     problems.extend(repo_skill_problems(&layout, home.as_deref()));
-    problems.extend(target_status_problems(&skills, &targets));
+    problems.extend(target_status_problems(&skills, &targets, &available));
+    problems.extend(orphaned_target_problems(&layout, &skills, &state, &available));
     problems.extend(orphaned_state_problems(&skills, &state));
     let count = problems.len() as u64;
 
@@ -104,10 +106,11 @@ pub fn doctor(ctx: &Ctx) -> Outcome<DoctorOutcome> {
 fn build_doctor_targets(
     skills: &[crate::domain::skill::Skill],
     layout: &crate::store::layout::Layout,
+    available: &[TargetId],
 ) -> Vec<Target> {
     let mut targets = Vec::new();
     for skill in skills {
-        for target_id in TargetId::ALL {
+        for &target_id in available {
             // `target_path` is hall-relative; join onto the hall root and
             // verify the whole-directory link the renderer actually creates.
             let path = layout
@@ -173,11 +176,12 @@ fn repo_skill_problems(layout: &Layout, home: Option<&Utf8Path>) -> Vec<Problem>
 fn target_status_problems(
     skills: &[crate::domain::skill::Skill],
     targets: &[Target],
+    available: &[TargetId],
 ) -> Vec<Problem> {
     let mut problems = Vec::new();
     for skill in skills {
         // Check each target.
-        for target_id in TargetId::ALL {
+        for &target_id in available {
             let target = targets
                 .iter()
                 .find(|t| t.skill == skill.id && t.id == target_id);
@@ -242,6 +246,43 @@ fn target_status_problems(
             }
         }
     }
+    problems
+}
+
+/// A declared skill's recorded target for a provider the hall no longer
+/// lists, still on disk. Undeclared skills are `skill.orphaned_state`.
+fn orphaned_target_problems(
+    layout: &Layout,
+    skills: &[crate::domain::skill::Skill],
+    state: &crate::domain::skill_sync::State,
+    available: &[TargetId],
+) -> Vec<Problem> {
+    let mut problems = Vec::new();
+    for skill in skills {
+        let Some(entry) = state.installations.get(skill.id.as_str()) else {
+            continue;
+        };
+        for (target_id, provider) in &entry.providers {
+            let path = layout.root().join(&provider.target_path);
+            if available.contains(target_id) || !fs::exists(&path).unwrap_or(false) {
+                continue;
+            }
+            problems.push(Problem {
+                code: "skill.target_orphaned",
+                subject: format!("{}@{}", skill.id, target_id.as_str()),
+                what: format!(
+                    "`{}` is materialised at `{path}` for a provider the hall no longer lists",
+                    skill.id
+                ),
+                fix_action: FixAction::safe(
+                    "skill.sync",
+                    "Run `ivar skill sync` to remove it.",
+                )
+                .command("ivar skill sync"),
+            });
+        }
+    }
+    problems.sort_by(|a, b| a.subject.cmp(&b.subject));
     problems
 }
 
