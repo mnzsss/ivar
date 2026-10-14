@@ -276,7 +276,13 @@ fn remove_reports_reconciled_skill_targets_when_hall_skill_exists() {
     let ctx = Ctx::new(root.clone());
     write_hall_skill(&root, "audit");
     crate::action::skill::sync::sync(&ctx).unwrap();
-    let add_report = add(&ctx, &AddInput { name: "opencode".to_owned() }).unwrap();
+    let add_report = add(
+        &ctx,
+        &AddInput {
+            name: "opencode".to_owned(),
+        },
+    )
+    .unwrap();
     assert_eq!(add_report.value.skill_targets, 1);
 
     let report = remove(&ctx, &input("opencode", None)).unwrap();

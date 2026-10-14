@@ -110,21 +110,18 @@ pub fn add(ctx: &Ctx, input: &AddInput) -> Outcome<AddOutcome> {
     // write failure is a warning (the manifest keeps the provider; sync is
     // the repair), never a rollback.
     let mut skill_warnings = Vec::new();
-    let skill_targets = match crate::action::skill::sync::reconcile(
-        &layout,
-        &updated,
-        &mut skill_warnings,
-    ) {
-        Ok(count) => count,
-        Err(failure) => {
-            skill_warnings.push(Warning::new(
-                "provider.skill_reconcile_failed",
-                provider.id(),
-                failure.to_string(),
-            ));
-            0
-        }
-    };
+    let skill_targets =
+        match crate::action::skill::sync::reconcile(&layout, &updated, &mut skill_warnings) {
+            Ok(count) => count,
+            Err(failure) => {
+                skill_warnings.push(Warning::new(
+                    "provider.skill_reconcile_failed",
+                    provider.id(),
+                    failure.to_string(),
+                ));
+                0
+            }
+        };
     let mut report = Report::new(AddOutcome {
         root: layout.root().to_path_buf(),
         provider,
