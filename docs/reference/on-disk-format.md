@@ -41,9 +41,9 @@ half-understood state file is worse than no state file.
   .claude/commands/ivar-*.md    local        derived workflow commands (Claude Code)
   .opencode/commands/ivar-*.md  local        derived workflow commands (OpenCode)
   .omp/commands/ivar-*.md       local        derived workflow commands (OMP)
-  .claude/skills/               local        derived materialised skills (Claude Code)
-  .opencode/skills/             local        derived materialised skills (OpenCode)
-  .omp/skills/                  local        derived materialised skills (OMP)
+  .claude/skills/               local        derived materialised skills (Claude Code, when listed)
+  .opencode/skills/             local        derived materialised skills (OpenCode, when listed)
+  .omp/skills/                  local        derived materialised skills (OMP, when listed)
   .omp/mcp.json                 local        derived MCP configuration (OMP)
 ```
 
@@ -405,8 +405,8 @@ at the document for the version it was written as:
 
 ```json
 {
-  "$schema": "https://ivar.run/schema/4.json",
-  "version": 4,
+  "$schema": "https://ivar.run/schema/5.json",
+  "version": 5,
   "graph": {
     "paths": ["brand"]
   },
@@ -422,6 +422,10 @@ list is empty.
 An editor that supports JSON Schema (VS Code, Cursor, Zed, OpenCode) uses that
 reference to validate the file, offer completion for every field and enum value,
 and flag a typo or a stale transport spelling before `ivar` ever sees the file.
+
+Version 5 removed the `skills` key (`skills.targets`), which nothing read:
+skill targets follow `providers.available`. A v4 file loads unchanged, and
+`ivar migrate` writes it as v5 without the key.
 
 The URL carries the version because the document pins `version` with `const`.
 One document could only describe one version, and an editor fetching it for any

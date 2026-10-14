@@ -8,9 +8,9 @@ use crate::action::provider::remove as provider_remove;
 pub enum ProviderCommand {
     /// List the hall's providers and the default one.
     List,
-    /// Register a new provider by name.
+    /// Register a new provider by name and materialise its config and skills.
     Add(ProviderAddArgs),
-    /// Unregister a provider and tear down its hall config.
+    /// Unregister a provider and tear down its hall config and skills.
     Remove(ProviderRemoveArgs),
 }
 

@@ -20,7 +20,8 @@ pub enum SkillCommand {
     Remove(SkillRemoveArgs),
     /// Convert an external skill into an authored (local) skill.
     Detach(SkillDetachArgs),
-    /// Materialise hall skills to native targets for other tools.
+    /// Materialise hall skills for the hall's providers and remove the ones
+    /// left behind by providers it no longer lists.
     Sync,
     /// Show skill installation state — which are external, authored, or stale.
     Status,
