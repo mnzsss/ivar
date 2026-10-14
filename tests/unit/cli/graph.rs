@@ -19,12 +19,14 @@ use crate::cli::root::{Cli, Command};
 #[case::callees(&["ivar", "graph", "callees", "42"], |command: &Command| matches!(command, Command::Graph(GraphCommand::Callees(args)) if args.symbol_id == 42))]
 #[case::file(&["ivar", "graph", "file", "core-repo", "src/main.rs"], |command: &Command| matches!(command, Command::Graph(GraphCommand::File(args)) if args.repo == "core-repo" && args.path == "src/main.rs"))]
 #[case::index(&["ivar", "graph", "index", "--repo", "my-repo", "--full"], |command: &Command| matches!(command, Command::Graph(GraphCommand::Index(args)) if args.repo.as_deref() == Some("my-repo") && args.full))]
+#[case::index_with_paths(&["ivar", "graph", "index", "--path", "brand", "--path", "docs/product"], |command: &Command| matches!(command, Command::Graph(GraphCommand::Index(args)) if args.path == ["brand", "docs/product"] && args.repo.is_none()))]
 #[case::stats(&["ivar", "graph", "stats"], |command: &Command| matches!(command, Command::Graph(GraphCommand::Stats)))]
 #[case::impact(&["ivar", "graph", "impact", "99", "--max-depth", "3"], |command: &Command| matches!(command, Command::Graph(GraphCommand::Impact(args)) if args.symbol_id == 99 && args.max_depth == Some(3)))]
 #[case::view_defaults(&["ivar", "graph", "view"], |command: &Command| matches!(command, Command::Graph(GraphCommand::View(args)) if args.repo.is_none() && args.symbol.is_none() && args.file.is_none() && args.impact.is_none() && args.depth.is_none() && args.limit.is_none() && !args.no_open))]
 #[case::view_with_seed_and_bounds(&["ivar", "graph", "view", "--symbol", "explore_query", "--depth", "2", "--limit", "300", "--no-open"], |command: &Command| matches!(command, Command::Graph(GraphCommand::View(args)) if args.symbol.as_deref() == Some("explore_query") && args.depth == Some(2) && args.limit == Some(300) && args.no_open))]
 #[case::clean_one_repo(&["ivar", "graph", "clean", "--repo", "my-repo"], |command: &Command| matches!(command, Command::Graph(GraphCommand::Clean(args)) if args.repo.as_deref() == Some("my-repo") && !args.all))]
 #[case::clean_all(&["ivar", "graph", "clean", "--all"], |command: &Command| matches!(command, Command::Graph(GraphCommand::Clean(args)) if args.repo.is_none() && args.all))]
+#[case::clean_path(&["ivar", "graph", "clean", "--path", "brand"], |command: &Command| matches!(command, Command::Graph(GraphCommand::Clean(args)) if args.path.as_deref() == Some("brand") && args.repo.is_none() && !args.all))]
 #[case::misses_filtered(&["ivar", "graph", "misses", "--kind", "followup", "--since", "7d", "--json"], |command: &Command| matches!(command, Command::Graph(GraphCommand::Misses(args)) if args.kind.as_deref() == Some("followup") && args.since.as_deref() == Some("7d")))]
 #[case::misses_defaults(&["ivar", "graph", "misses"], |command: &Command| matches!(command, Command::Graph(GraphCommand::Misses(args)) if args.kind.is_none() && args.since.is_none() && args.limit == 10))]
 #[case::misses_limit_25(&["ivar", "graph", "misses", "--limit", "25"], |command: &Command| matches!(command, Command::Graph(GraphCommand::Misses(args)) if args.limit == 25))]
@@ -71,4 +73,10 @@ fn test_cli_graph_view_mutually_exclusive_seeds() {
         "bar",
     ]);
     assert!(err.is_err(), "file and impact must conflict");
+}
+
+#[test]
+fn graph_index_refuses_repo_and_path_together() {
+    let err = Cli::try_parse_from(["ivar", "graph", "index", "--repo", "x", "--path", "brand"]);
+    assert!(err.is_err(), "repo and path must conflict");
 }

@@ -17,6 +17,10 @@ pub struct LayerRecord {
     pub indexed_at: i64,
 }
 
+/// Rows deleted per transaction while forgetting a repo, so a concurrent
+/// reader waits for one short write lock at a time, never the whole cascade.
+pub const FORGET_BATCH: usize = 2_000;
+
 const SESSION_TABLES: &str = "
     CREATE TEMP TABLE IF NOT EXISTS session_layers (
         repo TEXT PRIMARY KEY,
@@ -234,6 +238,33 @@ impl GraphDb {
         Ok(record)
     }
 
+    /// Every layer record, ordered by feature then repo.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GraphDbError`] if the query fails.
+    pub fn list_layer_records(&self) -> Result<Vec<LayerRecord>> {
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT id, feature, repo, worktree, base_commit, head_commit, fingerprint, indexed_at
+             FROM layers ORDER BY feature, repo",
+        )?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok(LayerRecord {
+                    id: row.get(0)?,
+                    feature: row.get(1)?,
+                    repo: row.get(2)?,
+                    worktree: row.get(3)?,
+                    base_commit: row.get(4)?,
+                    head_commit: row.get(5)?,
+                    fingerprint: row.get(6)?,
+                    indexed_at: row.get(7)?,
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
+    }
+
     /// Every path tombstoned for a layer.
     ///
     /// # Errors
@@ -322,33 +353,45 @@ impl GraphDb {
                 .conn
                 .prepare("SELECT id, repo FROM layers WHERE feature = ?1")?;
             let rows = stmt.query_map([feature], |r| Ok((r.get(0)?, r.get(1)?)))?;
-            let mut items = Vec::new();
-            for item in rows {
-                items.push(item?);
-            }
-            items
+            rows.collect::<std::result::Result<_, _>>()?
         };
         for (id, repo) in &layer_ids {
-            let _ = self.drop_layer(*id, repo);
+            self.drop_layer(*id, repo)?;
         }
         Ok(layer_ids.len())
     }
 
     /// Remove a repository and every layer built on it.
     ///
+    /// Layer repos go one transaction each: a layer holds only the files the
+    /// feature changed, so that transaction is short by construction.
+    ///
     /// # Errors
     ///
     /// Returns [`GraphDbError`] if a lookup, drop, or the final delete fails.
     pub fn forget_repo(&self, repo: &str) -> Result<()> {
-        let tx = self.conn.unchecked_transaction()?;
         let layer_ids: Vec<i64> = {
             let mut stmt = self.conn.prepare("SELECT id FROM layers WHERE repo = ?1")?;
             let rows = stmt.query_map([repo], |r| r.get(0))?;
             rows.collect::<std::result::Result<_, _>>()?
         };
         for id in layer_ids {
+            let tx = self.conn.unchecked_transaction()?;
             self.drop_layer(id, repo)?;
+            tx.commit()?;
         }
+        loop {
+            let tx = self.conn.unchecked_transaction()?;
+            let deleted = self.conn.execute(
+                "DELETE FROM files WHERE id IN (SELECT id FROM files WHERE repo = ?1 LIMIT ?2)",
+                params![repo, FORGET_BATCH],
+            )?;
+            tx.commit()?;
+            if deleted == 0 {
+                break;
+            }
+        }
+        let tx = self.conn.unchecked_transaction()?;
         self.delete_repo(repo)?;
         tx.commit()?;
         Ok(())

@@ -562,3 +562,131 @@ fn a_ref_prefix_that_is_not_repos_slash_name_is_refused() {
         other => panic!("expected InvalidRefPrefix, got {other:?}"),
     }
 }
+
+// -- graph.paths ----------------------------------------------------------
+
+#[test]
+fn a_manifest_without_graph_paths_reports_an_empty_slice() {
+    assert!(empty_manifest().graph_paths().is_empty());
+}
+
+#[test]
+fn with_graph_path_added_normalises_dedupes_and_sorts() {
+    let manifest = empty_manifest()
+        .with_graph_path_added("./docs/")
+        .unwrap()
+        .with_graph_path_added("brand")
+        .unwrap()
+        .with_graph_path_added("docs")
+        .unwrap();
+
+    assert_eq!(manifest.graph_paths(), ["brand", "docs"]);
+}
+
+#[test]
+fn with_graph_path_added_collapses_empty_and_dot_segments() {
+    let manifest = empty_manifest()
+        .with_graph_path_added("docs//product")
+        .unwrap()
+        .with_graph_path_added("docs/./product")
+        .unwrap()
+        .with_graph_path_added("docs/product")
+        .unwrap();
+
+    assert_eq!(manifest.graph_paths(), ["docs/product"]);
+}
+
+#[test]
+fn with_graph_path_added_rejects_the_root_escapes_and_ivar() {
+    for bad in [
+        "",
+        ".",
+        "./",
+        "/abs",
+        "../up",
+        "a/../../b",
+        ".ivar/repos",
+        ".ivar",
+        "./.ivar",
+        ".//.ivar/x",
+        "a\\b",
+        "./.",
+        ".//.",
+        "a/..",
+        "a/./..",
+    ] {
+        let error = empty_manifest().with_graph_path_added(bad).unwrap_err();
+        assert!(
+            matches!(error, Error::InvalidGraphPath { .. }),
+            "{bad}: {error:?}"
+        );
+    }
+}
+
+#[test]
+fn with_graph_path_removed_drops_the_entry_and_the_key_when_empty() {
+    let manifest = empty_manifest().with_graph_path_added("brand").unwrap();
+    let manifest = manifest.with_graph_path_removed("brand/").unwrap();
+    assert!(manifest.graph_paths().is_empty());
+
+    let (_dir, root) = utf8_temp_dir();
+    let layout = Layout::at(root);
+    Manifest::write(&layout, &manifest).unwrap();
+    let on_disk = fs::read_text(&layout.manifest()).unwrap().unwrap();
+    assert!(!on_disk.contains("\"graph\""), "{on_disk}");
+
+    assert!(matches!(
+        empty_manifest()
+            .with_graph_path_removed("brand")
+            .unwrap_err(),
+        Error::GraphPathNotFound { .. }
+    ));
+}
+
+#[test]
+fn graph_paths_round_trip_through_write_and_read_and_survive_other_builders() {
+    let (_dir, root) = utf8_temp_dir();
+    let layout = Layout::at(root);
+    let manifest = empty_manifest()
+        .with_graph_path_added("brand")
+        .unwrap()
+        .with_mcp_servers(vec![mcp_server("docs")])
+        .unwrap();
+    Manifest::write(&layout, &manifest).unwrap();
+
+    let read_back = Manifest::read(&layout).unwrap().unwrap();
+
+    assert_eq!(read_back, manifest);
+    assert_eq!(read_back.graph_paths(), ["brand"]);
+}
+
+#[test]
+fn graph_paths_that_are_not_normalised_or_repeated_are_rejected_on_read() {
+    let (_dir, root) = utf8_temp_dir();
+    let layout = Layout::at(root);
+    let manifest_with = |paths: &str| {
+        format!(
+            r#"{{"version":4,"name":"acme","providers":{{"available":["claude-code"],"default":"claude-code"}},"repos":[],"integration":{{"via":"local","strategy":"squash"}},"graph":{{"paths":{paths}}}}}"#
+        )
+    };
+
+    for bad in [
+        r#"["../x"]"#,
+        r#"["./brand"]"#,
+        r#"["brand/"]"#,
+        r#"["brand","brand"]"#,
+        r#"["docs//product"]"#,
+        r#"["docs/./product"]"#,
+    ] {
+        fs::write_text(&layout.manifest(), &manifest_with(bad)).unwrap();
+        let error = Manifest::read(&layout).unwrap_err();
+        assert!(
+            matches!(error, Error::InvalidGraphPath { .. }),
+            "{bad}: {error:?}"
+        );
+    }
+
+    fs::write_text(&layout.manifest(), &manifest_with(r#"["brand"]"#)).unwrap();
+    let manifest = Manifest::read(&layout).unwrap().unwrap();
+    assert_eq!(manifest.graph_paths(), ["brand"]);
+}

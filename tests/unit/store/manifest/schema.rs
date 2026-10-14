@@ -687,3 +687,19 @@ fn schema_artifact_is_package_included() {
         "{expected} must be included in cargo package output, got:\n{stdout}"
     );
 }
+
+#[test]
+fn the_schema_declares_graph_paths_as_an_optional_array_of_strings() {
+    let s = schema();
+    let property = &s["properties"]["graph"];
+    let referenced = property["anyOf"]
+        .as_array()
+        .and_then(|branches| branches.iter().find(|b| b.get("$ref").is_some()))
+        .unwrap_or(property);
+    let graph = follow_ref(&s, referenced);
+    let paths = &graph["properties"]["paths"];
+    assert_eq!(paths["type"], json!("array"), "{s}");
+    assert_eq!(paths["items"]["type"], json!("string"), "{s}");
+    let required = s["required"].as_array().cloned().unwrap_or_default();
+    assert!(!required.iter().any(|r| r == "graph"), "{required:?}");
+}

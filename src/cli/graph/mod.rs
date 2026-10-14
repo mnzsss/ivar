@@ -135,6 +135,10 @@ pub struct GraphIndexArgs {
     /// Do not declare the graph MCP server in ivar.json.
     #[arg(long)]
     pub no_mcp: bool,
+    /// Hall-root directory to index as well (repeatable). Saved to `graph.paths`
+    /// in `ivar.json`. A run with `--path` indexes hall paths only.
+    #[arg(long = "path", value_name = "DIR", conflicts_with = "repo")]
+    pub path: Vec<String>,
 }
 
 #[derive(Debug, Args)]
@@ -262,6 +266,9 @@ pub struct GraphCleanArgs {
     /// Remove all repositories and data from the graph database.
     #[arg(long)]
     pub all: bool,
+    /// Remove one hall directory from the index and from `graph.paths` in `ivar.json`.
+    #[arg(long, value_name = "DIR")]
+    pub path: Option<String>,
 }
 
 impl From<GraphCleanArgs> for crate::action::graph::input::CleanInput {
@@ -270,6 +277,7 @@ impl From<GraphCleanArgs> for crate::action::graph::input::CleanInput {
             repo: args.repo,
             feature: args.feature,
             all: args.all,
+            path: args.path,
         }
     }
 }

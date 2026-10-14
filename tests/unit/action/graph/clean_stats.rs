@@ -76,6 +76,7 @@ fn test_clean_feature_and_stats_reporting() {
             repo: None,
             feature: Some("feat-1".to_owned()),
             all: false,
+            path: None,
         },
     )
     .expect("clean feat-1");

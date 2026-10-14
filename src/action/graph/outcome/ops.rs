@@ -8,6 +8,7 @@ use crate::action::feature::workspace::OpenAttempt;
 use crate::action::graph::compact::{self, ToCompact};
 use crate::action::graph::index::{IndexOutcome, RepoFailure};
 use crate::action::graph::narrate::{MAX_LIST_ITEMS, MAX_OUTPUT_CHARS};
+use crate::action::graph::reconcile::Removed;
 use crate::action::graph::view::types::ViewSeed;
 use crate::domain::graph::{AffectedResult, ExploreResult, PathResult};
 use crate::error::WriteHuman;
@@ -290,6 +291,8 @@ pub struct IndexBatchOutcome {
     pub mcp_registration: McpRegistration,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub next_command: Option<&'static str>,
+    #[serde(skip_serializing_if = "Removed::is_empty")]
+    pub removed: Removed,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -331,6 +334,25 @@ impl WriteHuman for IndexBatchOutcome {
         }
         for failure in &self.repos_failed {
             writeln!(w, "  - {}: failed: {}", failure.repo, failure.reason)?;
+        }
+        if !self.removed.is_empty() {
+            writeln!(w, "  Removed stale graph state:")?;
+            for repo in &self.removed.repos {
+                writeln!(w, "    - repo {repo}")?;
+            }
+            for layer in &self.removed.layers {
+                writeln!(w, "    - layer {}/{}", layer.feature, layer.repo)?;
+            }
+            for scope in &self.removed.scopes {
+                writeln!(w, "    - scope {scope}")?;
+            }
+            if self.removed.hall_files > 0 {
+                writeln!(
+                    w,
+                    "    - {} hall files outside graph.paths",
+                    self.removed.hall_files
+                )?;
+            }
         }
         if self.cross_edges_linked > 0 {
             writeln!(w, "  Linked {} cross-repo edges.", self.cross_edges_linked)?;
@@ -418,6 +440,18 @@ impl ToCompact for IndexBatchOutcome {
         for failure in &self.repos_failed {
             let _ = write!(out, "\n{}|failed|{}", failure.repo, failure.reason);
         }
+        for repo in &self.removed.repos {
+            let _ = write!(out, "\n{repo}|removed|repo");
+        }
+        for layer in &self.removed.layers {
+            let _ = write!(out, "\n{}/{}|removed|layer", layer.feature, layer.repo);
+        }
+        for scope in &self.removed.scopes {
+            let _ = write!(out, "\n{scope}|removed|scope");
+        }
+        if self.removed.hall_files > 0 {
+            let _ = write!(out, "\n{}|removed|hall_files", self.removed.hall_files);
+        }
         out
     }
 }
@@ -472,6 +506,8 @@ pub struct CleanOutcome {
     pub repo: Option<String>,
     pub feature: Option<String>,
     pub all: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
     pub repos_removed: usize,
     pub files_removed: usize,
     pub symbols_removed: usize,

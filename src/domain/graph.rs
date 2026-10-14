@@ -404,6 +404,13 @@ pub struct MissRecord {
     pub reason: Option<String>,
 }
 
+/// Indexed file count for one configured hall path.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+pub struct HallPathStats {
+    pub path: String,
+    pub file_count: usize,
+}
+
 /// High-level statistics for the indexed codebase graph.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 pub struct GraphStats {
@@ -415,6 +422,8 @@ pub struct GraphStats {
     pub layers: Vec<LayerStats>,
     #[serde(default)]
     pub usage: Vec<UsageStats>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub hall_paths: Vec<HallPathStats>,
 }
 
 /// Snippet of code around a primary symbol.

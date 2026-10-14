@@ -338,6 +338,23 @@ fn remove_forgets_the_repo_in_the_graph() {
 }
 
 #[test]
+fn remove_waits_for_the_index_lock_before_forgetting_the_repo() {
+    let (_guard, root) = hall_with_repo();
+    let ctx = Ctx::new(root.clone());
+    let db_path = root.join(".ivar/memory.db");
+    let db = crate::store::graph::db::GraphDb::open(db_path.as_std_path()).unwrap();
+    db.insert_repo("api", "/api", "main", None).unwrap();
+    drop(db);
+
+    crate::test_support::assert_waits_for_index_lock(&Layout::at(root.clone()), || {
+        remove(&ctx, input("api", false)).unwrap();
+    });
+
+    let db = crate::store::graph::db::GraphDb::open(db_path.as_std_path()).unwrap();
+    assert!(db.get_repo("api").unwrap().is_none());
+}
+
+#[test]
 fn remove_forgets_the_repo_feature_layers_in_the_graph() {
     let (_guard, root) = hall_with_repo();
     let ctx = Ctx::new(root.clone());

@@ -3,7 +3,9 @@
 use rusqlite::{OptionalExtension, params};
 
 use super::GraphDb;
-use super::types::{CleanAllStats, FileRow, RepoCleanStats, RepoRow, Result, now_timestamp};
+use super::types::{
+    CleanAllStats, FileRow, RepoCleanStats, RepoCounts, RepoRow, Result, now_timestamp,
+};
 
 impl GraphDb {
     /// Inserts or updates repository metadata.
@@ -206,6 +208,47 @@ impl GraphDb {
         Ok(files)
     }
 
+    /// Every base repository row: ids never contain `/`, which the base views
+    /// reserve for feature layers.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GraphDbError`] if the query fails.
+    pub fn list_base_repos(&self) -> Result<Vec<RepoRow>> {
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT id, root_path, default_branch, last_indexed_commit, indexed_at
+             FROM repos WHERE id NOT LIKE '%/%' ORDER BY id",
+        )?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok(RepoRow {
+                    id: row.get(0)?,
+                    root_path: row.get(1)?,
+                    default_branch: row.get(2)?,
+                    last_indexed_commit: row.get(3)?,
+                    indexed_at: row.get(4)?,
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
+    }
+
+    /// Deletes every file of `repo` whose path is `prefix` itself or lies under
+    /// `prefix/`, returning how many rows went.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GraphDbError`] if the delete fails.
+    pub fn delete_files_under(&self, repo: &str, prefix: &str) -> Result<usize> {
+        let dir = prefix.trim_end_matches('/');
+        let pattern = super::under_dir_like(dir);
+        let removed = self.conn.execute(
+            "DELETE FROM files WHERE repo = ?1 AND (path = ?2 OR path LIKE ?3 ESCAPE '\\')",
+            params![repo, dir, pattern],
+        )?;
+        Ok(removed)
+    }
+
     /// Deletes a file record by repo and path. Cascades to symbols and edges.
     ///
     /// # Errors
@@ -260,6 +303,26 @@ impl GraphDb {
         self.delete_files_for_repo(repo)
     }
 
+    /// Counts the files, symbols and edges stored for `repo`; all zero when it is not indexed.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GraphDbError`] if any count query fails.
+    pub fn repo_counts(&self, repo: &str) -> Result<RepoCounts> {
+        let count = |table: &str| -> Result<usize> {
+            Ok(self.conn.query_row(
+                &format!("SELECT COUNT(*) FROM {table} WHERE repo = ?1"),
+                params![repo],
+                |r| r.get(0),
+            )?)
+        };
+        Ok(RepoCounts {
+            files: count("files")?,
+            symbols: count("symbols")?,
+            edges: count("edges")?,
+        })
+    }
+
     /// Deletes a repository and all associated files, symbols, and edges (via foreign key cascades).
     /// Returns the counts of removed items, or None if the repository was not found.
     ///
@@ -276,21 +339,7 @@ impl GraphDb {
             return Ok(None);
         }
 
-        let files_count: usize = self.conn.query_row(
-            "SELECT COUNT(*) FROM files WHERE repo = ?1",
-            params![repo],
-            |r| r.get(0),
-        )?;
-        let symbols_count: usize = self.conn.query_row(
-            "SELECT COUNT(*) FROM symbols WHERE repo = ?1",
-            params![repo],
-            |r| r.get(0),
-        )?;
-        let edges_count: usize = self.conn.query_row(
-            "SELECT COUNT(*) FROM edges WHERE repo = ?1",
-            params![repo],
-            |r| r.get(0),
-        )?;
+        let counts = self.repo_counts(repo)?;
 
         // Deleting from repos cascades to files, symbols, edges; symbols_ad cleans symbols_fts
         self.conn
@@ -298,9 +347,9 @@ impl GraphDb {
 
         Ok(Some(RepoCleanStats {
             repo: repo.to_owned(),
-            files_removed: files_count,
-            symbols_removed: symbols_count,
-            edges_removed: edges_count,
+            files_removed: counts.files,
+            symbols_removed: counts.symbols,
+            edges_removed: counts.edges,
         }))
     }
 

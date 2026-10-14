@@ -23,6 +23,13 @@ fn scope_keys_are_stable_and_distinct() {
         .key(),
         "layer:feat:api"
     );
+    assert_eq!(
+        Scope::Hall {
+            path: "brand".into()
+        }
+        .key(),
+        "hall:brand"
+    );
 }
 
 #[test]
@@ -170,4 +177,13 @@ fn session_directories_are_control_paths_not_scopes() {
         None
     );
     assert!(!set.is_control(Utf8Path::new("/hall/.ivar/features/feat/plan.md")));
+}
+
+#[test]
+fn a_control_file_is_control_but_its_siblings_are_not() {
+    let mut set = WatchSet::default();
+    set.add_control_file(Utf8Path::new("/hall/ivar.json"));
+    assert!(set.is_control(Utf8Path::new("/hall/ivar.json")));
+    assert!(!set.is_control(Utf8Path::new("/hall/HALL.md")));
+    assert!(!set.is_control(Utf8Path::new("/hall/.ivar/repos/api/main/src/lib.rs")));
 }

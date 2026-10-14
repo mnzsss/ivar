@@ -79,6 +79,14 @@ pub enum Error {
     /// An MCP server definition violates its transport invariants.
     #[error("MCP server `{name}` has an invalid configuration: {reason}")]
     InvalidMcpServerDefinition { name: String, reason: String },
+
+    /// A `graph.paths` entry is not a hall-relative directory inside the hall.
+    #[error("graph path `{path}` is invalid: {reason}")]
+    InvalidGraphPath { path: String, reason: String },
+
+    /// `ivar graph clean --path <dir>` named a directory `graph.paths` does not list.
+    #[error("graph path `{path}` is not in `ivar.json`")]
+    GraphPathNotFound { path: String },
 }
 
 #[expect(
@@ -192,6 +200,20 @@ impl From<Error> for Failure {
             .fix(FixAction::safe(
                 "manifest.fix_mcp_definition",
                 format!("Fix the configuration for `{name}`."),
+            )),
+            Error::InvalidGraphPath { path, reason } => Failure::blocked("manifest.invalid_graph_path", what)
+            .expected("a directory relative to the hall root, outside `.ivar`")
+            .actual(format!("`{path}`: {reason}"))
+            .fix(FixAction::safe(
+                "manifest.fix_graph_path",
+                format!("Give `graph.paths` a hall-relative directory such as `docs` instead of `{path}`."),
+            )),
+            Error::GraphPathNotFound { path } => Failure::blocked("manifest.graph_path_not_found", what)
+            .expected(format!("`{path}` to be listed in `graph.paths`"))
+            .actual(format!("`{path}` does not appear in ivar.json"))
+            .fix(FixAction::safe(
+                "manifest.add_graph_path_first",
+                format!("Add `{path}` with `ivar graph index --path <dir>`, or check the spelling."),
             )),
         }
     }

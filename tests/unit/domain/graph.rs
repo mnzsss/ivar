@@ -114,6 +114,7 @@ fn test_graph_stats_json_roundtrip() {
             p50_ms: 12,
             p95_ms: 40,
         }],
+        hall_paths: vec![],
     };
 
     let json = serde_json::to_string(&stats).expect("serialize stats");

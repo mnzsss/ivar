@@ -64,6 +64,14 @@ impl FileRow {
     }
 }
 
+/// How many rows a repository holds in each graph table.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct RepoCounts {
+    pub files: usize,
+    pub symbols: usize,
+    pub edges: usize,
+}
+
 /// Statistics from cleaning a single repository from the graph.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RepoCleanStats {

@@ -183,6 +183,68 @@ fn cleanup_removes_when_the_confirmation_seam_says_yes() {
 }
 
 #[test]
+fn cleanup_forgets_a_removed_repo_in_the_graph() {
+    let (_guard, root) = utf8_temp_dir();
+    let mut ctx = Ctx::new(root.clone());
+    ctx = ctx.with_confirm(crate::action::confirm::fixed(true));
+    init(&ctx, &fresh_input()).unwrap();
+    fs::ensure_dir(&root.join(".ivar/repos/stale")).unwrap();
+    {
+        let db = crate::store::graph::db::GraphDb::open(root.join(".ivar/memory.db").as_std_path())
+            .unwrap();
+        db.insert_repo("stale", "/x/stale", "main", None).unwrap();
+        db.insert_repo("api", "/x/api", "main", None).unwrap();
+    }
+
+    let report = cleanup(&ctx).unwrap();
+
+    assert_eq!(report.value.graph_forgotten, vec!["stale"]);
+    let db = crate::store::graph::db::GraphDb::open_read_only(
+        root.join(".ivar/memory.db").as_std_path(),
+    )
+    .unwrap();
+    assert!(db.get_repo("stale").unwrap().is_none());
+    assert!(db.get_repo("api").unwrap().is_some());
+}
+
+#[test]
+fn cleanup_warns_when_the_graph_cannot_forget_a_removed_repo() {
+    let (_guard, root) = utf8_temp_dir();
+    let mut ctx = Ctx::new(root.clone());
+    ctx = ctx.with_confirm(crate::action::confirm::fixed(true));
+    init(&ctx, &fresh_input()).unwrap();
+    fs::ensure_dir(&root.join(".ivar/repos/stale")).unwrap();
+    std::fs::write(root.join(".ivar/memory.db"), b"not a sqlite database").unwrap();
+
+    let report = cleanup(&ctx).unwrap();
+
+    assert!(
+        report
+            .warnings
+            .iter()
+            .any(|w| w.code == "graph.repo_not_forgotten" && w.subject == "stale"),
+        "{:?}",
+        report.warnings
+    );
+    assert!(report.value.graph_forgotten.is_empty());
+    assert!(!fs::exists(&root.join(".ivar/repos/stale")).unwrap());
+}
+
+#[test]
+fn cleanup_without_a_graph_database_still_removes_the_directory() {
+    let (_guard, root) = utf8_temp_dir();
+    let mut ctx = Ctx::new(root.clone());
+    ctx = ctx.with_confirm(crate::action::confirm::fixed(true));
+    init(&ctx, &fresh_input()).unwrap();
+    fs::ensure_dir(&root.join(".ivar/repos/stale")).unwrap();
+
+    let report = cleanup(&ctx).unwrap();
+
+    assert_eq!(report.value.removed.len(), 1);
+    assert!(report.value.graph_forgotten.is_empty());
+}
+
+#[test]
 fn init_creates_the_expected_on_disk_shape() {
     let (_guard, root) = utf8_temp_dir();
     let ctx = Ctx::new(root.clone());
@@ -1529,6 +1591,143 @@ fn doctor_names_a_scope_the_watcher_could_not_reindex() {
         "was: {}",
         failed.what
     );
+}
+
+#[test]
+fn doctor_names_an_indexed_repo_the_manifest_no_longer_declares() {
+    let (_guard, root) = hall_with_indexed_graph();
+    let db =
+        crate::store::graph::db::GraphDb::open(root.join(".ivar/memory.db").as_std_path()).unwrap();
+    db.insert_repo("orca", "/x/orca", "main", None).unwrap();
+    let file_id = db.upsert_file("orca", "a.rs", "h", 1, 1).unwrap();
+    db.insert_symbols(&[crate::domain::graph::Symbol {
+        id: None,
+        file_id: Some(file_id),
+        repo: "orca".into(),
+        name: "main".into(),
+        kind: crate::domain::graph::SymbolKind::Fn,
+        scope: None,
+        signature: None,
+        docstring: None,
+        span: crate::domain::graph::Span::new(1, 1, 2, 1),
+        is_exported: true,
+        complexity: None,
+    }])
+    .unwrap();
+    drop(db);
+
+    let report = doctor(&Ctx::new(root)).unwrap();
+
+    let f = finding(&report.value, "graph.repo_not_in_manifest");
+    assert!(
+        f.what.contains("orca") && f.what.contains("1 files") && f.what.contains("1 symbols"),
+        "was: {}",
+        f.what
+    );
+    assert!(
+        f.fix.contains("ivar graph clean --repo orca"),
+        "was: {}",
+        f.fix
+    );
+}
+
+#[test]
+fn doctor_says_counts_are_unavailable_when_an_orphan_repo_cannot_be_counted() {
+    let (_guard, root) = hall_with_indexed_graph();
+    let db =
+        crate::store::graph::db::GraphDb::open(root.join(".ivar/memory.db").as_std_path()).unwrap();
+    db.insert_repo("orca", "/x/orca", "main", None).unwrap();
+    db.conn().execute_batch("DROP TABLE edges;").unwrap();
+    drop(db);
+
+    let report = doctor(&Ctx::new(root)).unwrap();
+
+    let f = finding(&report.value, "graph.repo_not_in_manifest");
+    assert!(
+        f.what.contains("orca") && f.what.contains("counts unavailable"),
+        "was: {}",
+        f.what
+    );
+    assert!(!f.what.contains("0 files"), "was: {}", f.what);
+}
+
+#[test]
+fn doctor_names_a_layer_whose_feature_is_gone_and_its_scope_once() {
+    let (_guard, root) = hall_with_indexed_graph();
+    let db =
+        crate::store::graph::db::GraphDb::open(root.join(".ivar/memory.db").as_std_path()).unwrap();
+    let id = db
+        .ensure_layer_record("ghost", "api", "/g/api", "c1")
+        .unwrap();
+    db.insert_repo(&format!("api/{id}"), "/g/api", "ghost", None)
+        .unwrap();
+    db.watch_register("layer:ghost:api").unwrap();
+    db.watch_fail("layer:ghost:api", "worktree missing")
+        .unwrap();
+    drop(db);
+
+    let report = doctor(&Ctx::new(root)).unwrap();
+
+    let layer = finding(&report.value, "graph.layer_orphaned");
+    assert!(
+        layer.what.contains("ghost") && layer.fix.contains("ivar graph index"),
+        "{layer:?}"
+    );
+    let scope = finding(&report.value, "graph.watch_scope_orphaned");
+    assert!(scope.what.contains("layer:ghost:api"), "{scope:?}");
+    assert!(
+        !report
+            .value
+            .findings
+            .iter()
+            .any(|f| f.code == "graph.watch_scope_failed"),
+        "an orphan scope is not also reported as failed: {:?}",
+        report.value.findings
+    );
+}
+
+#[test]
+fn doctor_keeps_quiet_about_a_layer_scope_of_a_live_feature_without_a_session() {
+    let (_guard, root) = hall_with_indexed_graph();
+    let layout = Layout::at(root.clone());
+    let mut feature = crate::domain::feature::Feature::new(
+        FeatureName::new("quiet").unwrap(),
+        crate::domain::name::BranchName::new("quiet").unwrap(),
+    );
+    feature.promote(crate::domain::name::RepoName::new("api").unwrap());
+    feature.write(&layout).unwrap();
+    let db =
+        crate::store::graph::db::GraphDb::open(root.join(".ivar/memory.db").as_std_path()).unwrap();
+    db.watch_register("layer:quiet:api").unwrap();
+    db.watch_finish("layer:quiet:api", 0, true).unwrap();
+    drop(db);
+
+    let report = doctor(&Ctx::new(root)).unwrap();
+
+    assert!(
+        !report
+            .value
+            .findings
+            .iter()
+            .any(|f| f.code.starts_with("graph.")),
+        "{:?}",
+        report.value.findings
+    );
+}
+
+#[test]
+fn doctor_tells_a_failed_live_scope_that_the_watcher_retries() {
+    let (_guard, root) = hall_with_indexed_graph();
+    let db =
+        crate::store::graph::db::GraphDb::open(root.join(".ivar/memory.db").as_std_path()).unwrap();
+    db.watch_register("base:api").unwrap();
+    db.watch_fail("base:api", "disk full").unwrap();
+    drop(db);
+
+    let report = doctor(&Ctx::new(root)).unwrap();
+
+    let f = finding(&report.value, "graph.watch_scope_failed");
+    assert!(f.fix.contains("retries"), "was: {}", f.fix);
 }
 
 #[test]

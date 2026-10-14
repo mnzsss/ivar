@@ -15,6 +15,8 @@ pub enum IndexError {
     Git(#[from] crate::git::Error),
     #[error("Database error: {0}")]
     Db(#[from] GraphDbError),
+    #[error("walk error: {0}")]
+    Walk(#[from] walkdir::Error),
 }
 
 /// Statistics and outcome of an indexing run.
@@ -50,6 +52,8 @@ pub struct RepoFailure {
 pub struct HallIndex {
     pub repos: Vec<IndexOutcome>,
     pub repos_failed: Vec<RepoFailure>,
+    pub removed: crate::action::graph::reconcile::Removed,
+    pub reconcile_failed: Option<String>,
 }
 
 impl FileFailure {

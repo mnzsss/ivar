@@ -170,6 +170,18 @@ impl WriteHuman for StatsOutcome {
             }
             crate::infra::table::write(w, &table)?;
         }
+        if !s.hall_paths.is_empty() {
+            writeln!(w, "\nHall paths ({}):", s.hall_paths.len())?;
+            let mut table = crate::infra::table::new(&["PATH", "FILES"]);
+            if let Some(col) = table.column_mut(1) {
+                col.set_cell_alignment(comfy_table::CellAlignment::Right);
+            }
+            for p in &s.hall_paths {
+                let n = p.file_count.to_string();
+                table.add_row(vec![&p.path, &n]);
+            }
+            crate::infra::table::write(w, &table)?;
+        }
         if s.usage.is_empty() {
             writeln!(w, "\nUsage: none recorded")?;
         } else {

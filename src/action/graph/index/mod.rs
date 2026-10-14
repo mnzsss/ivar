@@ -22,7 +22,9 @@ use crate::store::graph::extractor::{ExtractedFile, extract_file};
 use crate::store::layout::Layout;
 use crate::store::manifest::Manifest;
 
+pub mod hall_path;
 pub mod types;
+pub use hall_path::{HALL_REPO, index_hall_path, walk_hall_dir};
 pub use types::{
     FileFailure, HallIndex, IndexError, IndexOutcome, RepoFailure, TextClassification,
     is_ignored_dir, is_ignored_file_path, is_ignored_path,
@@ -205,7 +207,7 @@ fn discover_changed_files(
     Ok((files_to_index, files_to_delete, listed_by_git_diff))
 }
 
-fn build_extract_jobs(
+pub(super) fn build_extract_jobs(
     db: &GraphDb,
     repo_id: &str,
     repo_path: &Path,
@@ -275,7 +277,7 @@ fn build_extract_jobs(
     Ok((jobs, files_failed))
 }
 
-fn run_extraction_jobs(
+pub(super) fn run_extraction_jobs(
     jobs: &[ExtractJob],
     repo_id: &str,
     db: &GraphDb,
@@ -362,7 +364,7 @@ fn run_extraction_jobs(
     ))
 }
 
-struct ExtractJob {
+pub(super) struct ExtractJob {
     rel_path: String,
     full_path: PathBuf,
     lang: Option<SupportedLanguage>,
@@ -440,6 +442,10 @@ pub fn index_hall(
     progress: &dyn Progress,
 ) -> HallIndex {
     let mut hall = HallIndex::default();
+    match crate::action::graph::reconcile::reconcile(db, layout, manifest) {
+        Ok(removed) => hall.removed = removed,
+        Err(error) => hall.reconcile_failed = Some(error.to_string()),
+    }
     for repo in manifest.repos() {
         let worktree = layout.repo_worktree(repo.name(), repo.default_branch());
         if !worktree.as_std_path().exists() {
@@ -459,7 +465,30 @@ pub fn index_hall(
             }),
         }
     }
+    index_hall_paths(db, layout, manifest, force_full, progress, &mut hall);
     hall
+}
+
+/// Indexes every `graph.paths` directory into the `hall` repo, one outcome per
+/// path. A directory that fails is recorded and the rest still index.
+pub fn index_hall_paths(
+    db: &GraphDb,
+    layout: &Layout,
+    manifest: &Manifest,
+    force_full: bool,
+    progress: &dyn Progress,
+    hall: &mut HallIndex,
+) {
+    for dir in manifest.graph_paths() {
+        match hall_path::index_hall_path(db, layout.root().as_std_path(), dir, force_full, progress)
+        {
+            Ok(outcome) => hall.repos.push(outcome),
+            Err(error) => hall.repos_failed.push(RepoFailure {
+                repo: format!("hall:{dir}"),
+                reason: error.to_string(),
+            }),
+        }
+    }
 }
 
 #[cfg(test)]

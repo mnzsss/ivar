@@ -1002,6 +1002,7 @@ Incrementally update or build the codebase graph index
 | `--repo` | `<REPO>` |  | Specific repository to index (indexes all declared repos if omitted) |
 | `--full` |  |  | Force full reindex regardless of last indexed commit |
 | `--no-mcp` |  |  | Do not declare the graph MCP server in ivar.json |
+| `--path` | `<DIR>` |  | Hall-root directory to index as well (repeatable). Saved to `graph.paths` in `ivar.json`. A run with `--path` indexes hall paths only |
 
 
 ##### `ivar graph stats`
@@ -1100,6 +1101,7 @@ Remove indexed repository data or clean the entire graph database
 | `--repo` | `<REPO>` |  | Specific repository to remove from the graph index |
 | `--feature` | `<FEATURE>` |  | Specific feature whose layers should be removed from the graph index |
 | `--all` |  |  | Remove all repositories and data from the graph database |
+| `--path` | `<DIR>` |  | Remove one hall directory from the index and from `graph.paths` in `ivar.json` |
 
 
 ##### `ivar graph misses`
@@ -1263,6 +1265,18 @@ Unix timestamp or `Nm`/`Nh`/`Nd`. `--limit <N>` (default 10, 0 for all) bounds
 the returned rows. `--json` prints a bare array of misses, newest first, not the usual report object.
 Misses and usage rows are kept for 30 days, so `ivar graph stats` reports a 30-day window; `ivar graph misses`,
 `ivar graph stats`, and the MCP server at startup prune older rows.
+
+**`ivar doctor` reports graph findings by code.** Graph findings and their fixes:
+
+| Code | Meaning | Fix |
+| --- | --- | --- |
+| `graph.repo_not_in_manifest` | an indexed repo `ivar.json` no longer declares | `ivar graph clean --repo <name>` or `ivar graph index` |
+| `graph.layer_orphaned` | a layer of a feature that no longer exists | `ivar graph index` |
+| `graph.watch_scope_orphaned` | a watcher scope with no repo, feature or path behind it | `ivar graph index` |
+| `graph.watch_scope_failed` | a scope with a live target the watcher could not reindex | `ivar graph index`; a leader retries once the scope is watched again |
+| `graph.repo_stale` | a repo indexed behind its worktree HEAD | `ivar graph index --repo <name>` |
+| `graph.schema_mismatch` | database schema older or newer than the binary | `ivar graph index` or `ivar upgrade` |
+
 **`ivar session start` is the one verb that takes over your terminal.** It opens
 a TUI. Everything else prints and exits.
 

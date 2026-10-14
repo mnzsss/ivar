@@ -43,6 +43,7 @@ fn compact_stats_print_the_real_empty_count_for_mcp_rows_too() {
             },
             usage(UsageSource::Cli),
         ],
+        hall_paths: vec![],
     });
     let compact = outcome.to_compact();
     assert!(
@@ -282,4 +283,26 @@ fn cli_explore_outcome_stops_appending_sections_when_exceeding_max_output_chars(
         !text.contains("Impact Summary:"),
         "impact summary should be omitted once buffer budget is exceeded"
     );
+}
+
+#[test]
+fn stats_list_hall_paths_with_their_file_counts() {
+    let outcome = StatsOutcome(GraphStats {
+        repo_count: 1,
+        file_count: 3,
+        symbol_count: 0,
+        edge_count: 0,
+        db_size_bytes: 0,
+        layers: vec![],
+        usage: vec![],
+        hall_paths: vec![crate::domain::graph::HallPathStats {
+            path: "brand".into(),
+            file_count: 3,
+        }],
+    });
+    let mut buf = Vec::new();
+    outcome.write_human(&mut buf).unwrap();
+    let text = String::from_utf8(buf).unwrap();
+    assert!(text.contains("Hall paths (1):"), "{text}");
+    assert!(text.contains("brand") && text.contains('3'), "{text}");
 }

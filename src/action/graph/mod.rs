@@ -6,6 +6,7 @@ pub mod cross_repo;
 pub mod dead_code;
 pub mod explore;
 pub mod freshness;
+pub mod hall_paths;
 pub mod hierarchy;
 pub mod index;
 pub mod input;
@@ -16,6 +17,7 @@ pub mod narrate;
 pub mod outcome;
 pub mod path;
 pub mod query;
+pub mod reconcile;
 pub mod session;
 pub mod usage;
 pub mod view;
@@ -206,13 +208,35 @@ pub fn refresh_base_graph(
     Ok(Some(hall))
 }
 
+fn persist_hall_paths(
+    layout: &Layout,
+    mut manifest: Manifest,
+    paths: &[String],
+) -> Result<Manifest, Failure> {
+    for raw in paths {
+        let dir = hall_paths::validate_hall_path(layout, &manifest, raw)?;
+        manifest = manifest.with_graph_path_added(&dir)?;
+    }
+    if !paths.is_empty() {
+        Manifest::write(layout, &manifest)
+            .map_err(|e| Failure::failed("manifest.write_failed", e.to_string()))?;
+    }
+    Ok(manifest)
+}
+
 // 8. index
 pub fn index_cmd(ctx: &Ctx, args: IndexInput) -> Outcome<IndexBatchOutcome> {
+    if args.repo.is_some() && !args.paths.is_empty() {
+        return Err(Failure::blocked(
+            "graph.index_conflict",
+            "Cannot combine `--repo` with `--path`.",
+        ));
+    }
     let layout = discover_hall(ctx)?;
     let _lock = lock_index(&layout)?;
 
     let db = open_graph_db(ctx)?;
-    let manifest = read_manifest(&layout)?;
+    let manifest = persist_hall_paths(&layout, read_manifest(&layout)?, &args.paths)?;
 
     let hall = if let Some(target_repo) = args.repo {
         let repo_decl = manifest
@@ -244,10 +268,21 @@ pub fn index_cmd(ctx: &Ctx, args: IndexInput) -> Outcome<IndexBatchOutcome> {
         .map_err(|err| Failure::failed("graph.index_failed", err.to_string()))?;
         HallIndex {
             repos: vec![outcome],
-            repos_failed: Vec::new(),
+            ..Default::default()
         }
-    } else {
+    } else if args.paths.is_empty() {
         index::index_hall(&db, &layout, &manifest, args.full, ctx.progress())
+    } else {
+        let mut hall = HallIndex::default();
+        index::index_hall_paths(
+            &db,
+            &layout,
+            &manifest,
+            args.full,
+            ctx.progress(),
+            &mut hall,
+        );
+        hall
     };
 
     // Relink only after the graph changed; dirty unsupported files must remain a no-op.
@@ -269,6 +304,21 @@ pub fn index_cmd(ctx: &Ctx, args: IndexInput) -> Outcome<IndexBatchOutcome> {
         (McpRegistration::Skipped, None)
     };
 
+    let mut warnings: Vec<crate::error::Warning> = warning.into_iter().collect();
+    if let Some(reason) = &hall.reconcile_failed {
+        warnings.push(crate::error::Warning::new(
+            "graph.reconcile_failed",
+            "graph",
+            format!("stale state was not reconciled: {reason}"),
+        ));
+    }
+    if let Some(reason) = &hall.removed.skipped {
+        warnings.push(crate::error::Warning::new(
+            "graph.reconcile_skipped",
+            "graph",
+            reason.clone(),
+        ));
+    }
     Ok(Report::with_warnings(
         IndexBatchOutcome {
             repos: hall.repos,
@@ -276,16 +326,22 @@ pub fn index_cmd(ctx: &Ctx, args: IndexInput) -> Outcome<IndexBatchOutcome> {
             cross_edges_linked,
             mcp_registration,
             next_command: (mcp_registration == McpRegistration::Registered).then_some("ivar sync"),
+            removed: hall.removed,
         },
-        warning.into_iter().collect(),
+        warnings,
     ))
 }
 
 // 9. stats
 pub fn stats_cmd(ctx: &Ctx) -> Outcome<StatsOutcome> {
+    let layout = discover_hall(ctx)?;
+    let manifest = read_manifest(&layout)?;
     let db = open_graph_db(ctx)?;
     let _ = db.prune(MISS_RETENTION_DAYS);
-    let stats = query::get_graph_stats(&db)
+    let mut stats = query::get_graph_stats(&db)
+        .map_err(|err| Failure::failed("graph.stats_failed", err.to_string()))?;
+    stats.hall_paths = db
+        .hall_path_stats(manifest.graph_paths())
         .map_err(|err| Failure::failed("graph.stats_failed", err.to_string()))?;
     Ok(Report::new(StatsOutcome(stats)))
 }
@@ -374,6 +430,7 @@ pub fn mcp_cmd(ctx: &Ctx, tools: mcp::ToolSurface) -> Outcome<McpOutcome> {
                     repo: repo.map(str::to_owned),
                     full: false,
                     register_mcp: false,
+                    paths: Vec::new(),
                 },
             )
             .map_err(|err| err.to_string())?;
@@ -449,3 +506,11 @@ mod clean_stats_tests;
 #[cfg(test)]
 #[path = "../../../tests/unit/action/graph/misses_cmd.rs"]
 mod misses_cmd_tests;
+
+#[cfg(test)]
+#[path = "../../../tests/unit/action/graph/index_cmd_reconcile.rs"]
+mod index_cmd_reconcile_tests;
+
+#[cfg(test)]
+#[path = "../../../tests/unit/action/graph/index_cmd_paths.rs"]
+mod index_cmd_paths_tests;

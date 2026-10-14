@@ -5,7 +5,7 @@
 //! Reading and writing the file is [`persistence`](super::persistence)'s job;
 //! turning a violation into a user-facing `Failure` is
 //! [`error`](super::error)'s. This module owns what the other two build on:
-//! the `Manifest`, `Providers`, `Repo`, `Skills`, and `Targets` values, their
+//! the `Manifest`, `Providers`, `Repo`, `Skills`, `Targets`, and `Graph` values, their
 //! accessors and builders, and `Manifest::validate` — the one place the value
 //! invariants live.
 //!
@@ -55,6 +55,9 @@ pub struct Manifest {
     schema: SchemaRef,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     mcp: Option<Vec<McpServerDef>>,
+    /// Hall-root directories the graph indexes on request.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    graph: Option<Graph>,
 }
 
 /// The canonical URL of the document describing manifest version `version`.
@@ -147,6 +150,7 @@ impl Manifest {
             skills,
             schema: SchemaRef,
             mcp: None,
+            graph: None,
         };
         manifest.validate()?;
         Ok(manifest)
@@ -225,6 +229,56 @@ impl Manifest {
         Ok(manifest)
     }
 
+    /// Hall-root directories the graph indexes on request; empty when none.
+    #[must_use]
+    pub fn graph_paths(&self) -> &[String] {
+        self.graph.as_ref().map_or(&[], |g| g.paths.as_slice())
+    }
+
+    /// Return a new `Manifest` with `dir` in `graph.paths`, normalised and sorted.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::InvalidGraphPath`] when `dir` is empty, the hall root,
+    /// absolute, leaves the hall, or enters `.ivar`; or any rebuild error.
+    pub fn with_graph_path_added(&self, dir: &str) -> Result<Self, Error> {
+        let dir = normalise_graph_path(dir)?;
+        let mut paths: Vec<String> = self.graph_paths().to_vec();
+        if !paths.contains(&dir) {
+            paths.push(dir);
+        }
+        paths.sort();
+        self.with_graph_paths(paths)
+    }
+
+    /// Return a new `Manifest` without `dir` in `graph.paths`; the key goes when the list empties.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::InvalidGraphPath`] for a malformed `dir`,
+    /// [`Error::GraphPathNotFound`] when it is not configured, or any rebuild error.
+    pub fn with_graph_path_removed(&self, dir: &str) -> Result<Self, Error> {
+        let dir = normalise_graph_path(dir)?;
+        let mut paths: Vec<String> = self.graph_paths().to_vec();
+        let before = paths.len();
+        paths.retain(|p| *p != dir);
+        if paths.len() == before {
+            return Err(Error::GraphPathNotFound { path: dir });
+        }
+        self.with_graph_paths(paths)
+    }
+
+    fn with_graph_paths(&self, paths: Vec<String>) -> Result<Self, Error> {
+        let mut manifest = self.rebuild(self.providers.clone(), self.repos.clone())?;
+        manifest.graph = if paths.is_empty() {
+            None
+        } else {
+            Some(Graph { paths })
+        };
+        manifest.validate()?;
+        Ok(manifest)
+    }
+
     /// Return a new `Manifest` with `repo` appended to `repos`.
     ///
     /// Returns [`Error::DuplicateRepoName`] if a repo with `repo.name()`
@@ -295,7 +349,7 @@ impl Manifest {
     }
 
     /// The common rebuild every `with_*` ends at: the same name, integration,
-    /// skills, and MCP definitions as `self`, with `providers` and `repos`
+    /// skills, MCP definitions, and graph paths as `self`, with `providers` and `repos`
     /// replaced — so no mutation can silently drop a field it is not about.
     /// Validates, because the new combination may violate an invariant.
     fn rebuild(&self, providers: Providers, repos: Vec<Repo>) -> Result<Self, Error> {
@@ -308,6 +362,7 @@ impl Manifest {
             skills: self.skills.clone(),
             schema: self.schema,
             mcp: self.mcp.clone(),
+            graph: self.graph.clone(),
         };
         manifest.validate()?;
         Ok(manifest)
@@ -377,6 +432,24 @@ impl Manifest {
                         name: server.name.clone(),
                         reason: format!("{reason}"),
                     })?;
+            }
+        }
+
+        if let Some(graph) = &self.graph {
+            let mut seen: HashSet<&str> = HashSet::new();
+            for path in &graph.paths {
+                if normalise_graph_path(path)? != *path {
+                    return Err(Error::InvalidGraphPath {
+                        path: path.clone(),
+                        reason: "must be written in normalised form".to_owned(),
+                    });
+                }
+                if !seen.insert(path.as_str()) {
+                    return Err(Error::InvalidGraphPath {
+                        path: path.clone(),
+                        reason: "listed more than once".to_owned(),
+                    });
+                }
             }
         }
         Ok(())
@@ -547,6 +620,49 @@ impl Skills {
     pub fn targets(&self) -> &Targets {
         &self.targets
     }
+}
+
+/// Which hall-root directories `ivar graph index` keeps in the graph.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct Graph {
+    /// Hall-relative directories, normalised and sorted.
+    paths: Vec<String>,
+}
+
+impl Graph {
+    #[must_use]
+    pub fn paths(&self) -> &[String] {
+        &self.paths
+    }
+}
+
+pub(crate) fn normalise_graph_path(raw: &str) -> Result<String, Error> {
+    let invalid = |reason: &str| Error::InvalidGraphPath {
+        path: raw.to_owned(),
+        reason: reason.to_owned(),
+    };
+    let trimmed = raw.trim();
+    if trimmed.starts_with('/') {
+        return Err(invalid("must be relative to the hall root"));
+    }
+    if trimmed.contains('\\') {
+        return Err(invalid("use `/` as the separator"));
+    }
+    let components: Vec<&str> = trimmed
+        .split('/')
+        .filter(|c| !c.is_empty() && *c != ".")
+        .collect();
+    if components.is_empty() {
+        return Err(invalid("the hall root itself cannot be a graph path"));
+    }
+    if components.contains(&"..") {
+        return Err(invalid("must not leave the hall root"));
+    }
+    if components.first() == Some(&".ivar") {
+        return Err(invalid("`.ivar` is ivar's own state"));
+    }
+    Ok(components.join("/"))
 }
 
 /// Which harnesses a hall's shared skills materialise for.

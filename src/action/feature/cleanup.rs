@@ -214,7 +214,9 @@ fn apply_cleanup(
     }
 
     // Complete success: remove feature directory, then update durable record outcome
-    remove_node_dir(&layout, &feature.name)?;
+    if let Some(warning) = remove_node_dir(&layout, &feature.name)? {
+        warnings.push(warning);
+    }
 
     let apply_outcome = CleanupApplyOutcome {
         feature: feature.name.clone(),
@@ -255,7 +257,10 @@ fn teardown_descendants(
         let mut removed = false;
         if worktrees_removed && branches_deleted {
             match remove_node_dir(layout, &node.name) {
-                Ok(()) => {
+                Ok(warning) => {
+                    if let Some(w) = warning {
+                        warnings.push(w);
+                    }
                     removed = true;
                 }
                 Err(failure) => {
@@ -305,20 +310,14 @@ fn write_record_outcome(
 fn remove_node_dir(
     layout: &crate::store::layout::Layout,
     name: &FeatureName,
-) -> Result<(), Failure> {
+) -> Result<Option<Warning>, Failure> {
     fs::remove_path(&layout.feature_dir(name)).map_err(|source| {
         Failure::failed(
             "feature.cleanup_dir_failed",
             format!("could not remove feature `{name}`: {source}"),
         )
     })?;
-    let db_path = layout.ivar_dir().join("memory.db");
-    if db_path.is_file()
-        && let Ok(db) = crate::store::graph::db::GraphDb::open(db_path.as_std_path())
-    {
-        let _ = db.drop_feature_layers(name.as_str());
-    }
-    Ok(())
+    Ok(super::drop_layers_or_warn(layout, name))
 }
 
 fn load_and_validate_record(

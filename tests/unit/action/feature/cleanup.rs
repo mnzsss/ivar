@@ -1327,3 +1327,58 @@ fn a_blocked_cleanup_names_the_preview_command() {
         "{err:?}"
     );
 }
+
+#[test]
+fn apply_warns_when_the_graph_database_cannot_drop_the_layers() {
+    let (_guard, root) = hall_with_feature(&["api"], None);
+    let preview = run_preview(&root);
+    let layout = Layout::at(root.clone());
+    fs::ensure_dir(&layout.docs_updates_dir()).unwrap();
+    let record_rel_path = Utf8PathBuf::from("docs/updates/001-checkout.cleanup.json");
+    fs::write_text(
+        &root.join(&record_rel_path),
+        &format!(
+            r#"{{
+                "schema_version": 1,
+                "feature": "checkout",
+                "branch": "checkout",
+                "fingerprint": "{}",
+                "approvals": {{
+                    "delivery": {{ "approved": true, "at": "2026-08-28T12:00:00Z" }},
+                    "documentation": {{ "decision": "written", "paths": ["docs/product/001-checkout.md"], "reason": null, "at": "2026-08-28T12:05:00Z" }},
+                    "teardown": {{ "approved": true, "at": "2026-08-28T12:10:00Z" }}
+                }},
+                "outcome": null
+            }}"#,
+            preview.fingerprint
+        ),
+    )
+    .unwrap();
+    std::fs::write(root.join(".ivar/memory.db"), b"not sqlite").unwrap();
+
+    let report = cleanup(
+        &Ctx::new(root.clone()),
+        CleanupInput {
+            feature: "checkout".to_owned(),
+            preview: false,
+            record: Some(record_rel_path),
+            session_id: None,
+        },
+    )
+    .unwrap();
+
+    assert!(
+        report
+            .value
+            .apply_outcome
+            .is_some_and(|a| a.feature_removed)
+    );
+    assert!(
+        report
+            .warnings
+            .iter()
+            .any(|w| w.code == "graph.layers_not_dropped" && w.subject == "checkout"),
+        "warnings: {:?}",
+        report.warnings
+    );
+}

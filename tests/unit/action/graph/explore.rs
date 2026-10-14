@@ -1028,3 +1028,42 @@ fn test_explore_ranged_path_slices_primary_symbols() {
     assert!(!sym.code.contains("19\t"));
     assert!(!sym.code.contains("31\t"));
 }
+
+#[test]
+fn a_hall_file_is_returned_by_its_hall_relative_path_and_by_content_with_repo_hall() {
+    let temp = tempdir().expect("create temp dir");
+    let root = temp.path();
+    fs::create_dir_all(root.join("brand")).unwrap();
+    fs::write(
+        root.join("brand/DESIGN.md"),
+        "# design\n\nthe chariot mark\n",
+    )
+    .unwrap();
+    let db = GraphDb::open_in_memory().unwrap();
+    db.ensure_views_base_mode().unwrap();
+    crate::action::graph::index::index_hall_path(
+        &db,
+        root,
+        "brand",
+        false,
+        &crate::infra::progress::Silent,
+    )
+    .unwrap();
+
+    let by_path = explore(&db, root, "brand/DESIGN.md", None).unwrap();
+    let hit = by_path
+        .file_matches
+        .iter()
+        .find(|f| f.file_path == "brand/DESIGN.md")
+        .expect("file match by path");
+    assert_eq!(hit.repo, "hall");
+
+    let by_content = explore(&db, root, "chariot mark", Some("hall")).unwrap();
+    assert!(
+        by_content
+            .file_matches
+            .iter()
+            .any(|f| f.file_path == "brand/DESIGN.md"),
+        "{by_content:?}"
+    );
+}

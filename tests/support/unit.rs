@@ -124,3 +124,30 @@ pub(crate) fn seed_protected_hall_paths(root: &Utf8Path) {
         crate::infra::fs::write_text(&root.join(file), "").unwrap();
     }
 }
+
+/// Runs `operation` while another thread holds the graph index lock for
+/// ~300 ms, and asserts it only returned after that holder let go.
+pub(crate) fn assert_waits_for_index_lock(
+    layout: &crate::store::layout::Layout,
+    operation: impl FnOnce(),
+) {
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    let released = AtomicBool::new(false);
+    let (locked_tx, locked_rx) = std::sync::mpsc::channel();
+    std::thread::scope(|scope| {
+        scope.spawn(|| {
+            let guard = crate::action::graph::lock_index(layout).unwrap();
+            locked_tx.send(()).unwrap();
+            std::thread::sleep(std::time::Duration::from_millis(300));
+            released.store(true, Ordering::SeqCst);
+            drop(guard);
+        });
+        locked_rx.recv().unwrap();
+        operation();
+        assert!(
+            released.load(Ordering::SeqCst),
+            "the operation finished while the index lock was still held"
+        );
+    });
+}

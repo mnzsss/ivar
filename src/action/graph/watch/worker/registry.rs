@@ -1,8 +1,9 @@
+use camino::{Utf8Path, Utf8PathBuf};
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 
-use crate::action::graph::watch::scopes::{Debouncer, WatchSet};
-use crate::action::graph::watch::worker::Target;
+use crate::action::graph::watch::scopes::{Debouncer, Scope, WatchSet};
 use crate::action::graph::watch::worker::reindex::reindex;
+use crate::action::graph::watch::worker::{Target, TargetKind};
 use crate::domain::name::FeatureName;
 use crate::git::{Git, System as GitSystem};
 use crate::store::graph::db::GraphDb;
@@ -25,7 +26,24 @@ pub(super) fn register_and_watch_target(
 
     let canonical_worktree = crate::infra::fs::canonicalize(&target.worktree)
         .unwrap_or_else(|_| target.worktree.clone());
-    let tracked = git.tracked_files(&canonical_worktree).unwrap_or_default();
+    let tracked: Vec<Utf8PathBuf> = match target.kind {
+        TargetKind::Hall => match &target.scope {
+            Scope::Hall { path } => {
+                crate::action::graph::index::walk_hall_dir(layout.root().as_std_path(), path)
+                    .unwrap_or_default()
+                    .into_iter()
+                    .filter_map(|p| {
+                        Utf8PathBuf::from(p)
+                            .strip_prefix(path)
+                            .ok()
+                            .map(Utf8Path::to_path_buf)
+                    })
+                    .collect()
+            }
+            _ => Vec::new(),
+        },
+        _ => git.tracked_files(&canonical_worktree).unwrap_or_default(),
+    };
     let wt_dirs = set.add_worktree(&target.scope, &canonical_worktree, &tracked);
     for dir in wt_dirs {
         let _ = watcher.watch(dir.as_std_path(), RecursiveMode::NonRecursive);
@@ -83,4 +101,9 @@ pub(super) fn add_control_dirs(
             }
         }
     }
+
+    let manifest = crate::infra::fs::canonicalize(&layout.root().join("ivar.json"))
+        .unwrap_or_else(|_| layout.root().join("ivar.json"));
+    let dir = set.add_control_file(&manifest);
+    let _ = watcher.watch(dir.as_std_path(), RecursiveMode::NonRecursive);
 }
