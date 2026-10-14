@@ -329,6 +329,22 @@ pub fn remove_file(path: &Utf8Path) -> Result<(), Error> {
         }),
     }
 }
+/// Remove an empty directory. Removing a directory that is already gone is
+/// success, not an error.
+/// # Errors
+///
+/// Returns [`Error`] if `path` exists and cannot be removed (including if the
+/// directory is not empty).
+pub fn remove_empty_dir(path: &Utf8Path) -> Result<(), Error> {
+    match fs_err::remove_dir(path.as_std_path()) {
+        Ok(()) => Ok(()),
+        Err(source) if is_not_found(&source) => Ok(()),
+        Err(source) => Err(Error::Remove {
+            path: path.to_owned(),
+            source,
+        }),
+    }
+}
 
 /// Remove whatever is at `path` — file, symlink, or directory tree —
 /// recursively. Removing something already gone is success, not an error.

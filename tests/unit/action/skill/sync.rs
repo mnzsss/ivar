@@ -1,4 +1,9 @@
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing
+)]
 
 use super::*;
 use crate::domain::provider::Provider;
@@ -134,6 +139,57 @@ fn a_recorded_copy_with_a_hall_relative_path_is_removed_under_the_hall_root() {
     assert_eq!(report.value.steps, 1);
     assert!(!fs::exists(&copy).unwrap());
     assert!(skill::read(&root, SkillRoot::Local).unwrap().is_none());
+}
+
+#[cfg(unix)]
+#[test]
+fn a_failed_orphan_removal_keeps_its_provider_record() {
+    let (_guard, root) = seeded_hall();
+    let skills_dir = root.join(".omp/skills");
+    let orphan = skills_dir.join("ghost");
+    fs::ensure_dir(&orphan).unwrap();
+    fs::write_text(&orphan.join("SKILL.md"), "copied\n").unwrap();
+    let original_mode = fs::unix_mode(&skills_dir).unwrap().unwrap();
+
+    let state = State {
+        installations: [(
+            "ghost".to_owned(),
+            InstallationEntry {
+                source_path: root.join(".ivar/skills-local/ghost"),
+                source_hash: "mtime:1".to_owned(),
+                installed_at: "1Z".to_owned(),
+                commit_sha: None,
+                providers: [(
+                    TargetId::Omp,
+                    ProviderEntry {
+                        target_path: camino::Utf8PathBuf::from(".omp/skills/ghost"),
+                        rendered_hash: "mtime:1".to_owned(),
+                        linked_at: "1Z".to_owned(),
+                        mode: Some(crate::domain::skill::RenderMode::Copy),
+                    },
+                )]
+                .into_iter()
+                .collect(),
+            },
+        )]
+        .into_iter()
+        .collect(),
+    };
+    skill::write(&root, SkillRoot::Local, &state).unwrap();
+    fs::chmod(&skills_dir, 0o555).unwrap();
+
+    let report = sync(&Ctx::new(root.clone()));
+    fs::chmod(&skills_dir, original_mode).unwrap();
+    let report = report.unwrap();
+
+    assert!(!report.warnings.is_empty());
+    assert!(fs::is_dir(&orphan).unwrap());
+    let persisted = skill::read(&root, SkillRoot::Local).unwrap().unwrap();
+    assert!(
+        persisted.installations["ghost"]
+            .providers
+            .contains_key(&TargetId::Omp)
+    );
 }
 
 #[test]

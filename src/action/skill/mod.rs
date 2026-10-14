@@ -6,9 +6,9 @@
 //! [`crate::store::layout::gitignore_lines`]), so a team's skills survive
 //! clones.
 //!
-//! This slice is local-only: list and create. No valhalla/ecbert sync — that
-//! is a later integration, and the `.gitignore` already treats `.ivar/skills/`
-//! as committed so a future `push`/`pull` has somewhere to put things.
+//! Commands in this module manage hall and local skills: adding, creating,
+//! detaching, listing, updating, synchronising to provider targets, checking
+//! status, doctoring, and removing skills.
 
 pub mod add;
 pub mod create;
@@ -33,10 +33,14 @@ use crate::store::layout::Layout;
 use crate::domain::skill_sync::TargetId;
 use crate::store::manifest::Manifest;
 
+/// Native provider targets supported for skill materialisation.
+pub(crate) const SKILL_TARGETS: [TargetId; 3] =
+    [TargetId::Claude, TargetId::OpenCode, TargetId::Omp];
+
 /// The skill targets of the hall's available providers, in `TargetId`
 /// order (Claude, OpenCode, Omp). The manifest is the single source.
 pub(crate) fn available_targets(manifest: &Manifest) -> Vec<TargetId> {
-    [TargetId::Claude, TargetId::OpenCode, TargetId::Omp]
+    SKILL_TARGETS
         .into_iter()
         .filter(|target| {
             manifest

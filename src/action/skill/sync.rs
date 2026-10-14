@@ -101,9 +101,21 @@ pub(crate) fn reconcile(
         }
     }
 
-    execute_steps(&steps, warnings);
+    let executed_successfully = execute_steps(&steps, warnings);
     if !steps.is_empty() {
-        persist_sync_state(layout, &state, &skills, &steps, &targets, warnings);
+        persist_sync_state(
+            PersistContext {
+                layout,
+                hall_state: &hall_state,
+                local_state: &local_state,
+                merged_state: &state,
+                skills: &skills,
+                targets: &targets,
+            },
+            &steps,
+            &executed_successfully,
+            warnings,
+        );
     }
     remove_emptied_skill_dirs(layout, &available, warnings);
 
@@ -146,31 +158,50 @@ fn build_sync_targets(
 }
 
 // Execute best-effort: failures become warnings, never abort.
-fn execute_steps(steps: &[Step], warnings: &mut Vec<Warning>) {
+// Returns a boolean flag per step indicating whether execution succeeded.
+fn execute_steps(steps: &[Step], warnings: &mut Vec<Warning>) -> Vec<bool> {
+    let mut success = Vec::with_capacity(steps.len());
     for step in steps {
-        if let Err(e) = execute_step(step) {
-            warnings.push(Warning::new(
-                "skill.sync.step_failed",
-                format!("{}@{}", step.skill, step.target),
-                e.to_string(),
-            ));
+        match execute_step(step) {
+            Ok(()) => success.push(true),
+            Err(e) => {
+                success.push(false);
+                warnings.push(Warning::new(
+                    "skill.sync.step_failed",
+                    format!("{}@{}", step.skill, step.target),
+                    e.to_string(),
+                ));
+            }
         }
     }
+    success
+}
+
+#[derive(Copy, Clone)]
+struct PersistContext<'a> {
+    layout: &'a Layout,
+    hall_state: &'a State,
+    local_state: &'a State,
+    merged_state: &'a State,
+    skills: &'a [crate::domain::skill::Skill],
+    targets: &'a [Target],
 }
 
 fn persist_sync_state(
-    layout: &Layout,
-    state: &State,
-    skills: &[crate::domain::skill::Skill],
+    ctx: PersistContext<'_>,
     steps: &[Step],
-    targets: &[Target],
+    executed_successfully: &[bool],
     warnings: &mut Vec<Warning>,
 ) {
-    let mut new_state = state.clone();
-    for step in steps {
+    let mut new_state = ctx.merged_state.clone();
+    for (step, &succeeded) in steps.iter().zip(executed_successfully) {
+        if !succeeded {
+            continue;
+        }
         match step.action {
             Action::Create | Action::Update => {
-                let hash = targets
+                let hash = ctx
+                    .targets
                     .iter()
                     .find(|t| t.skill == step.skill && t.id == step.target_id)
                     .map(|t| t.source_hash.clone())
@@ -185,16 +216,19 @@ fn persist_sync_state(
     // whole reason the states are separate: `.ivar/skills/` is un-ignored
     // by the hall's `.gitignore`, so anything recorded there is committed.
     // A personal skill's id must never reach it.
-    for root in [SkillRoot::Hall, SkillRoot::Local] {
-        let split = split_state(&new_state, skills, root);
-        let path = skill::state_path(layout.root(), root);
+    for (root, initial_state) in [
+        (SkillRoot::Hall, ctx.hall_state),
+        (SkillRoot::Local, ctx.local_state),
+    ] {
+        let split = split_state(&new_state, ctx.skills, root, initial_state);
+        let path = skill::state_path(ctx.layout.root(), root);
         if split.installations.is_empty() {
             // Nothing left for this root — drop the file rather than leave
             // an empty one, so `read` answers `None` (nothing installed).
             let _ = fs::remove_path(&path);
             continue;
         }
-        if let Err(e) = skill::write(layout.root(), root, &split) {
+        if let Err(e) = skill::write(ctx.layout.root(), root, &split) {
             warnings.push(Warning::new(
                 "skill.sync.state_write_failed",
                 path.to_string(),
@@ -234,14 +268,23 @@ fn merge_states(hall: &State, local: &State) -> State {
 /// A skill that is no longer declared in either root has no `SkillRoot` to
 /// consult, so its entry is attributed to the root whose state file already
 /// records it — that is where the delete has to be written.
-fn split_state(merged: &State, skills: &[crate::domain::skill::Skill], root: SkillRoot) -> State {
+fn split_state(
+    merged: &State,
+    skills: &[crate::domain::skill::Skill],
+    root: SkillRoot,
+    initial_state: &State,
+) -> State {
     let mut out = State::default();
     for (id, entry) in &merged.installations {
         let owner = skills
             .iter()
             .find(|skill| skill.id.as_str() == id)
             .map(|skill| skill.root);
-        if owner == Some(root) {
+        let belongs_here = match owner {
+            Some(o) => o == root,
+            None => initial_state.installations.contains_key(id),
+        };
+        if belongs_here {
             out.installations.insert(id.clone(), entry.clone());
         }
     }
@@ -317,7 +360,7 @@ fn remove_provider_entry(state: &mut State, step: &Step) {
 /// Remove `<config>/skills` of a provider the hall no longer lists, only
 /// when cleanup left it empty. Never its config dir or a sibling.
 fn remove_emptied_skill_dirs(layout: &Layout, available: &[TargetId], warnings: &mut Vec<Warning>) {
-    for target_id in [TargetId::Claude, TargetId::OpenCode, TargetId::Omp] {
+    for &target_id in &super::SKILL_TARGETS {
         if available.contains(&target_id) {
             continue;
         }
@@ -329,7 +372,7 @@ fn remove_emptied_skill_dirs(layout: &Layout, available: &[TargetId], warnings: 
         };
         if fs::is_real_dir(&dir).unwrap_or(false)
             && fs::read_dir(&dir).is_ok_and(|entries| entries.is_empty())
-            && let Err(e) = fs::remove_path(&dir)
+            && let Err(e) = fs::remove_empty_dir(&dir)
         {
             warnings.push(Warning::new(
                 "skill.sync.dir_remove_failed",
