@@ -113,6 +113,7 @@ impl From<ExecuteStartArgs> for start::StartInput {
             resume,
             restart,
             mode,
+            session: None,
         }
     }
 }

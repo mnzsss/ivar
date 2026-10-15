@@ -30,7 +30,10 @@ pub(crate) fn resolve_coordinator(
     feature: &FeatureName,
     receipt: &RunReceipt,
 ) -> Result<(SessionId, Provider), Failure> {
-    match lookup::resolve(layout, None, Some(feature.as_str())) {
+    let coordinator = receipt
+        .current_coordinator()
+        .map(|coordinator| coordinator.session.as_str());
+    match lookup::resolve_in_feature(layout, feature, coordinator) {
         Ok(session) => {
             if let Some(state) = session.state {
                 Ok((session.id, state.provider))

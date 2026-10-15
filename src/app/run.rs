@@ -328,6 +328,7 @@ pub fn run(cli: Cli) -> ExitCode {
                                     resume: args.resume,
                                     restart: args.restart,
                                     mode: args.mode,
+                                    session: session_id,
                                 },
                             ),
                             json,
