@@ -97,6 +97,7 @@ fn hall_with_session(promoted: &[&str]) -> (tempfile::TempDir, Utf8PathBuf) {
             provider: None,
             detached: true,
             relay: false,
+            prompt: None,
         },
     )
     .unwrap();
@@ -493,6 +494,7 @@ fn connect_with_an_ambiguous_prefix_is_blocked() {
             provider: None,
             detached: true,
             relay: false,
+            prompt: None,
         },
     )
     .unwrap();
@@ -529,6 +531,7 @@ fn connect_by_feature_names_discovery_sessions_as_convert_candidates() {
             provider: None,
             detached: true,
             relay: false,
+            prompt: None,
         },
     )
     .unwrap()

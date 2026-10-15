@@ -49,6 +49,7 @@ fn a_claude_launch_carries_the_halls_mcp_allowlist() {
         &session_id,
         None,
         false,
+        None,
         &[],
     )
     .expect("a claude launch must build");
@@ -81,6 +82,7 @@ fn a_launch_runs_in_the_view_dir_with_the_session_environment() {
         &session_id,
         Some(&feature),
         false,
+        None,
         &[],
     )
     .expect("a feature-session launch must build");
@@ -112,6 +114,7 @@ fn caller_arguments_come_after_the_generated_ones() {
         &session_id,
         None,
         false,
+        None,
         &["-p".to_owned(), "explain normalizeLedgerEntry".to_owned()],
     )
     .expect("a print-mode launch must build");
@@ -145,6 +148,7 @@ fn opencode_and_omp_keep_their_resume_argument() {
             &session_id,
             None,
             true,
+            None,
             &[],
         )
         .expect("a resumed launch must build");
@@ -162,4 +166,59 @@ fn a_program_that_is_not_the_session_provider_is_refused() {
 
     ensure_provider_binary(Provider::ClaudeCode, "claude")
         .expect("the session provider's own binary is accepted");
+}
+
+/// The prompt is the last argv: after Claude's `--`, any user argument would
+/// otherwise be read as prompt text.
+#[test]
+fn the_initial_prompt_follows_the_user_args() {
+    let layout = Layout::at(Utf8PathBuf::from("/tmp/acme"));
+    let manifest = manifest_with_graph_server();
+    let session_id = SessionId::new("6f0c9d5f-0000-4000-8000-000000000000").unwrap();
+    let view_dir = layout.discovery_session(&session_id);
+
+    let command = provider_command(
+        &layout,
+        &manifest,
+        Provider::ClaudeCode,
+        &view_dir,
+        &session_id,
+        None,
+        false,
+        Some("plan it"),
+        &["--verbose".to_owned()],
+    )
+    .expect("a prompted claude launch must build");
+
+    let args = command.arguments();
+    assert_eq!(&args[args.len() - 3..], &["--verbose", "--", "plan it"]);
+}
+
+/// Decision 3: prompt and resume compose; `--continue` stays a flag before
+/// Claude's `--`, and the prompt is last.
+#[test]
+fn a_resumed_launch_keeps_continue_before_the_prompt() {
+    let layout = Layout::at(Utf8PathBuf::from("/tmp/acme"));
+    let manifest = manifest_with_graph_server();
+    let session_id = SessionId::new("6f0c9d5f-0000-4000-8000-000000000000").unwrap();
+    let view_dir = layout.discovery_session(&session_id);
+
+    let command = provider_command(
+        &layout,
+        &manifest,
+        Provider::ClaudeCode,
+        &view_dir,
+        &session_id,
+        None,
+        true,
+        Some("carry on"),
+        &[],
+    )
+    .expect("a resumed, prompted claude launch must build");
+
+    let args = command.arguments();
+    let continue_at = args.iter().position(|arg| arg == "--continue").unwrap();
+    let separator_at = args.iter().position(|arg| arg == "--").unwrap();
+    assert!(continue_at < separator_at);
+    assert_eq!(&args[args.len() - 2..], &["--", "carry on"]);
 }

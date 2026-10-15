@@ -22,6 +22,9 @@ pub struct StartInput {
     pub resume: bool,
     pub restart: bool,
     pub mode: Option<String>,
+    /// The session this command runs in (`$IVAR_SESSION_ID`); preferred over
+    /// the feature's other live sessions when it is one of them.
+    pub session: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -56,7 +59,7 @@ pub fn start(ctx: &Ctx, input: StartInput) -> Outcome<StartOutcome> {
     let feature = FeatureName::new(input.feature)?;
     let plan = super::plan_path(ctx, &layout, &feature, input.plan.as_deref());
     super::import_legacy(&layout, &feature, plan.clone())?;
-    let session = lookup::resolve(&layout, None, Some(feature.as_str()))?;
+    let session = lookup::resolve_in_feature(&layout, &feature, input.session.as_deref())?;
     let state = session.state.ok_or_else(|| {
         Failure::blocked(
             "execute.session_state_missing",

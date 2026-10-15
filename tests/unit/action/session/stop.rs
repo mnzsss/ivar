@@ -77,6 +77,7 @@ fn hall_with_detached_session() -> (tempfile::TempDir, Utf8PathBuf) {
             provider: None,
             detached: true,
             relay: false,
+            prompt: None,
         },
     )
     .unwrap();
@@ -187,6 +188,7 @@ fn stop_all_stops_every_live_session() {
             provider: None,
             detached: true,
             relay: false,
+            prompt: None,
         },
     )
     .unwrap();

@@ -435,6 +435,7 @@ fn rename_updates_and_rematerialises_session() {
             provider: None,
             detached: true,
             relay: false,
+            prompt: None,
         },
     )
     .unwrap();
@@ -1231,6 +1232,7 @@ fn setup_test_hall(
             provider: None,
             detached: true,
             relay: false,
+            prompt: None,
         },
     )
     .unwrap();

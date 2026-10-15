@@ -510,6 +510,12 @@ Open a session: view dir over a feature's promoted repos, agent running in it, T
 | `--provider` | `<PROVIDER>` |  | The provider to run. Defaults to the hall's default provider |
 | `--detached` |  |  | Create the session without launching a provider. The view dir persists after this command returns, until an explicit stop |
 | `--relay` |  |  | Relay: a fresh session on the same feature under a different provider than the feature's most recent session. Requires `--provider` |
+| `--prompt` | `<PROMPT>` |  | The agent's first message: the session opens already working on it. Passed as one argument, never through a shell, and never persisted |
+
+
+##### `ivar session list`
+
+List every live session in the hall — discovery and feature sessions — oldest first. Read-only
 
 
 ##### `ivar session connect`

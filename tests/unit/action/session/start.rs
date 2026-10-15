@@ -281,6 +281,7 @@ fn detached_start_creates_the_view_dir_without_launching_a_provider() {
             provider: None,
             detached: true,
             relay: false,
+            prompt: None,
         },
     )
     .unwrap();
@@ -309,6 +310,7 @@ fn detached_start_reports_enforced_launch_command() {
             provider: Some("claude-code".to_owned()),
             detached: true,
             relay: false,
+            prompt: None,
         },
     )
     .unwrap();
@@ -344,6 +346,7 @@ fn a_detached_resume_reports_a_launch_command_that_resumes() {
             provider: Some("claude-code".to_owned()),
             detached: true,
             relay: false,
+            prompt: None,
         },
     )
     .unwrap();
@@ -356,6 +359,94 @@ fn a_detached_resume_reports_a_launch_command_that_resumes() {
     assert_eq!(
         outcome.launch_command.as_deref(),
         Some(expected_cmd.as_str())
+    );
+}
+
+/// `R-PROMPT-DETACHED` and `R-PROMPT-EPHEMERAL`: the printed launch carries
+/// the prompt shell-quoted, and the session record never holds it.
+#[test]
+fn a_detached_start_with_a_prompt_quotes_it_and_keeps_no_record_of_it() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let ctx = Ctx::new(root);
+    let prompt = "Use the ivar-execute skill on `checkout`; don't stop at $HOME";
+
+    let outcome = start(
+        &ctx,
+        StartInput {
+            feature: Some("checkout".to_owned()),
+            resume: false,
+            provider: Some("claude-code".to_owned()),
+            detached: true,
+            relay: false,
+            prompt: Some(prompt.to_owned()),
+        },
+    )
+    .unwrap()
+    .value;
+
+    let expected = format!(
+        r"ivar session sandbox --session {} --prompt='Use the ivar-execute skill on `checkout`; don'\''t stop at $HOME' -- claude",
+        outcome.session_id
+    );
+    assert_eq!(outcome.launch_command.as_deref(), Some(expected.as_str()));
+    let record = std::fs::read_to_string(outcome.view_dir.join("state.json")).unwrap();
+    assert!(
+        !record.contains("ivar-execute"),
+        "the prompt is never persisted: {record}"
+    );
+}
+
+/// `R-PROMPT-RESUME`: a prompted resume on OpenCode is refused before any
+/// view dir exists.
+#[test]
+fn a_prompted_resume_on_opencode_is_refused_before_the_view_dir() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let ctx = Ctx::new(root.clone());
+
+    let failure = start(
+        &ctx,
+        StartInput {
+            feature: Some("checkout".to_owned()),
+            resume: true,
+            provider: Some("opencode".to_owned()),
+            detached: true,
+            relay: false,
+            prompt: Some("go".to_owned()),
+        },
+    )
+    .unwrap_err();
+
+    assert_eq!(failure.code, "harness.no_resume_prompt");
+    let sessions = root.join(".ivar/features/checkout/sessions");
+    assert!(
+        std::fs::read_dir(&sessions).map_or(true, |mut entries| entries.next().is_none()),
+        "no view dir is created"
+    );
+}
+
+#[test]
+fn a_prompted_session_wraps_with_the_prompt_before_the_provider() {
+    let session_id = SessionId::new("6f0c9d5f-0000-4000-8000-000000000000").unwrap();
+
+    let wrapped = crate::action::session::start::wrap_with_sandbox(
+        Provider::Omp,
+        &session_id,
+        false,
+        Some("-go"),
+    )
+    .expect("wrapping with sandbox must succeed");
+
+    assert_eq!(
+        wrapped.arguments(),
+        &[
+            "session",
+            "sandbox",
+            "--session",
+            "6f0c9d5f-0000-4000-8000-000000000000",
+            "--prompt=-go",
+            "--",
+            "omp"
+        ]
     );
 }
 
@@ -374,6 +465,7 @@ fn start_without_a_tty_leaves_a_detached_session() {
             provider: None,
             detached: false,
             relay: false,
+            prompt: None,
         },
     )
     .unwrap();
@@ -402,6 +494,7 @@ fn start_without_a_feature_creates_a_discovery_session() {
             provider: None,
             detached: true,
             relay: false,
+            prompt: None,
         },
     )
     .unwrap();
@@ -446,6 +539,7 @@ fn a_started_discovery_session_can_be_converted() {
             provider: None,
             detached: true,
             relay: false,
+            prompt: None,
         },
     )
     .unwrap()
@@ -503,6 +597,7 @@ fn relay_without_a_feature_is_blocked() {
             provider: Some("opencode".to_owned()),
             detached: true,
             relay: true,
+            prompt: None,
         },
     )
     .unwrap_err();
@@ -543,6 +638,7 @@ fn smart_fetch_advances_default_branches_and_never_touches_feature_worktrees() {
             provider: None,
             detached: true,
             relay: false,
+            prompt: None,
         },
     )
     .unwrap();
@@ -591,6 +687,7 @@ fn smart_fetch_warns_and_continues_when_a_repo_fails() {
             provider: None,
             detached: true,
             relay: false,
+            prompt: None,
         },
     )
     .unwrap();
@@ -624,6 +721,7 @@ fn relay_starts_a_new_session_with_a_different_provider() {
             provider: None,
             detached: true,
             relay: false,
+            prompt: None,
         },
     )
     .unwrap()
@@ -637,6 +735,7 @@ fn relay_starts_a_new_session_with_a_different_provider() {
             provider: Some("opencode".to_owned()),
             detached: true,
             relay: true,
+            prompt: None,
         },
     )
     .unwrap();
@@ -672,6 +771,7 @@ fn relay_without_an_explicit_provider_is_blocked() {
             provider: None,
             detached: true,
             relay: true,
+            prompt: None,
         },
     )
     .unwrap_err();
@@ -691,6 +791,7 @@ fn relay_with_the_same_provider_as_the_previous_session_is_blocked() {
             provider: None, // claude-code, the hall default
             detached: true,
             relay: false,
+            prompt: None,
         },
     )
     .unwrap();
@@ -703,6 +804,7 @@ fn relay_with_the_same_provider_as_the_previous_session_is_blocked() {
             provider: Some("claude-code".to_owned()),
             detached: true,
             relay: true,
+            prompt: None,
         },
     )
     .unwrap_err();
@@ -724,6 +826,7 @@ fn relay_without_a_previous_session_is_blocked() {
             provider: Some("opencode".to_owned()),
             detached: true,
             relay: true,
+            prompt: None,
         },
     )
     .unwrap_err();
@@ -1530,9 +1633,13 @@ fn start_command_carries_the_session_environment() {
 fn the_sandbox_wrapper_names_the_provider_and_nothing_else() {
     let session_id = SessionId::new("6f0c9d5f-0000-4000-8000-000000000000").unwrap();
 
-    let wrapped =
-        crate::action::session::start::wrap_with_sandbox(Provider::ClaudeCode, &session_id, false)
-            .expect("wrapping with sandbox must succeed");
+    let wrapped = crate::action::session::start::wrap_with_sandbox(
+        Provider::ClaudeCode,
+        &session_id,
+        false,
+        None,
+    )
+    .expect("wrapping with sandbox must succeed");
 
     let current_exe = std::env::current_exe()
         .ok()
@@ -1558,9 +1665,13 @@ fn the_sandbox_wrapper_names_the_provider_and_nothing_else() {
 fn a_resumed_session_wraps_with_the_resume_flag() {
     let session_id = SessionId::new("6f0c9d5f-0000-4000-8000-000000000000").unwrap();
 
-    let wrapped =
-        crate::action::session::start::wrap_with_sandbox(Provider::OpenCode, &session_id, true)
-            .expect("wrapping with sandbox must succeed");
+    let wrapped = crate::action::session::start::wrap_with_sandbox(
+        Provider::OpenCode,
+        &session_id,
+        true,
+        None,
+    )
+    .expect("wrapping with sandbox must succeed");
 
     assert_eq!(
         wrapped.arguments(),
@@ -2353,6 +2464,7 @@ fn session_start_cuts_the_base_worktree_and_links_it() {
             provider: None,
             detached: true,
             relay: false,
+            prompt: None,
         },
     )
     .unwrap();
@@ -2386,6 +2498,7 @@ fn session_start_warns_and_links_the_default_when_the_base_is_absent() {
             provider: None,
             detached: true,
             relay: false,
+            prompt: None,
         },
     )
     .unwrap();

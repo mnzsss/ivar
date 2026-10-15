@@ -100,6 +100,7 @@ fn start_run(ctx: &Ctx, feature: &FeatureName, plan: &Utf8Path, resume: bool) {
             resume,
             restart: false,
             mode: None,
+            session: None,
         },
     )
     .unwrap();

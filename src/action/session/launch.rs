@@ -35,11 +35,15 @@ pub(crate) fn provider_command(
     session_id: &SessionId,
     feature: Option<&FeatureName>,
     resume: bool,
+    prompt: Option<&str>,
     user_args: &[String],
 ) -> Result<Command, Failure> {
     let allowlist = crate::domain::mcp::hall_mcp_allowlist(manifest.name(), manifest.mcp_servers());
-    let command = providers::start_command(provider, resume, &allowlist)?;
-    let command = command.args(user_args.iter().cloned());
+    let mut command =
+        providers::start_command(provider, resume, &allowlist)?.args(user_args.iter().cloned());
+    if let Some(prompt) = prompt {
+        command = command.args(providers::initial_prompt_args(provider, resume, prompt)?);
+    }
     let command = SessionEnv::build(layout, session_id, view_dir, provider, feature).apply(command);
     let command =
         crate::action::mcp::inject_session_mcp_secrets(command, layout, manifest, provider);

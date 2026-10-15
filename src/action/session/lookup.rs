@@ -109,6 +109,24 @@ pub(crate) fn resolve(
     }
 }
 
+/// The feature's session to act for: `preferred` when it names one of the
+/// feature's live sessions, otherwise whatever [`resolve`] finds for the
+/// feature (including its `session.ambiguous` refusal).
+pub(crate) fn resolve_in_feature(
+    layout: &Layout,
+    feature: &FeatureName,
+    preferred: Option<&str>,
+) -> Result<SessionRef, Failure> {
+    if let Some(id) = preferred
+        && let Some(session) = list_feature(layout, feature)?
+            .into_iter()
+            .find(|session| session.id.as_str() == id)
+    {
+        return Ok(session);
+    }
+    resolve(layout, None, Some(feature.as_str()))
+}
+
 /// Every live session bound to `feature`, most recent first by `started_at`.
 ///
 /// Sessions without a readable `state.json` are skipped — without a record

@@ -84,6 +84,8 @@ pub struct StartInput {
     /// Relay: a fresh session on the same feature under a different provider
     /// than the feature's most recent session. Requires `--provider`.
     pub relay: bool,
+    /// The agent's first message. Never written to `state.json`.
+    pub prompt: Option<String>,
 }
 
 /// What `ivar session start` did — a summary, since the interactive part
@@ -162,6 +164,9 @@ pub fn start(ctx: &Ctx, input: StartInput) -> Outcome<StartOutcome> {
         if !contract.capabilities.supports_resume {
             providers::start_command(provider, true, &[])?;
         }
+    }
+    if let Some(prompt) = input.prompt.as_deref() {
+        providers::initial_prompt_args(provider, input.resume, prompt)?;
     }
     if input.relay {
         let feature = feature.as_ref().ok_or_else(relay_needs_feature)?;
@@ -245,22 +250,22 @@ pub fn start(ctx: &Ctx, input: StartInput) -> Outcome<StartOutcome> {
     let detached =
         input.detached || !crate::infra::term::is_tty(crate::infra::term::Stream::Stdout);
     if !detached {
-        let command = wrap_with_sandbox(provider, &session_id, input.resume)?;
+        let command =
+            wrap_with_sandbox(provider, &session_id, input.resume, input.prompt.as_deref())?;
         let width = crate::infra::term::width();
         let height = 24;
 
         run_tui(command, &view_dir, &layout, width, height)?;
     }
 
-    let launch_command = if detached {
-        let binary = crate::providers::launch_contract(provider).binary;
-        let resume_flag = if input.resume { " --resume" } else { "" };
-        Some(format!(
-            "ivar session sandbox --session {session_id}{resume_flag} -- {binary}"
-        ))
-    } else {
-        None
-    };
+    let launch_command = detached.then(|| {
+        launch_command(
+            &session_id,
+            input.resume,
+            input.prompt.as_deref(),
+            crate::providers::launch_contract(provider).binary,
+        )
+    });
 
     Ok(Report::with_warnings(
         StartOutcome {
@@ -365,6 +370,7 @@ pub(crate) fn wrap_with_sandbox(
     provider: Provider,
     session_id: &SessionId,
     resume: bool,
+    prompt: Option<&str>,
 ) -> Result<Command, Failure> {
     let exe_path = std::env::current_exe().map_err(|e| {
         Failure::failed(
@@ -387,10 +393,39 @@ pub(crate) fn wrap_with_sandbox(
     if resume {
         wrapped = wrapped.arg("--resume");
     }
+    if let Some(prompt) = prompt {
+        wrapped = wrapped.arg(format!("--prompt={prompt}"));
+    }
     wrapped = wrapped.arg("--");
     wrapped = wrapped.arg(crate::providers::launch_contract(provider).binary);
 
     Ok(wrapped)
+}
+
+/// The detached launch, as a line a human pastes into a shell.
+fn launch_command(
+    session_id: &SessionId,
+    resume: bool,
+    prompt: Option<&str>,
+    binary: &str,
+) -> String {
+    let mut command = format!("ivar session sandbox --session {session_id}");
+    if resume {
+        command.push_str(" --resume");
+    }
+    if let Some(prompt) = prompt {
+        command.push_str(" --prompt=");
+        command.push_str(&shell_quote(prompt));
+    }
+    command.push_str(" -- ");
+    command.push_str(binary);
+    command
+}
+
+/// POSIX single-quoting: every byte is literal inside `'…'`, and a `'` is
+/// closed, escaped and reopened.
+fn shell_quote(text: &str) -> String {
+    format!("'{}'", text.replace('\'', r"'\''"))
 }
 
 /// Run the TUI over the agent's PTY: pump its output, render one frame, and

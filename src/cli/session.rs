@@ -12,6 +12,9 @@ pub enum SessionCommand {
     /// Open a session: view dir over a feature's promoted repos, agent
     /// running in it, TUI on top.
     Start(SessionStartArgs),
+    /// List every live session in the hall — discovery and feature
+    /// sessions — oldest first. Read-only.
+    List,
     /// Re-bind to an existing live session: locate it, re-materialise its
     /// view dir, and emit the binding as `IVAR_*` env vars.
     Connect(SessionConnectArgs),
@@ -43,6 +46,9 @@ pub struct SessionSandboxArgs {
     /// Resume the provider's previous conversation, where it supports it.
     #[arg(long)]
     pub resume: bool,
+    /// The agent's first message, handed to the provider in its native form.
+    #[arg(long, allow_hyphen_values = true)]
+    pub prompt: Option<String>,
     /// The command line to execute after applying the sandbox.
     #[arg(last = true, allow_hyphen_values = true)]
     pub command: Vec<String>,
@@ -68,6 +74,10 @@ pub struct SessionStartArgs {
     /// than the feature's most recent session. Requires `--provider`.
     #[arg(long)]
     pub relay: bool,
+    /// The agent's first message: the session opens already working on it.
+    /// Passed as one argument, never through a shell, and never persisted.
+    #[arg(long, allow_hyphen_values = true, value_parser = clap::builder::NonEmptyStringValueParser::new())]
+    pub prompt: Option<String>,
 }
 
 /// Arguments for `ivar session connect`.
@@ -143,6 +153,7 @@ impl From<SessionStartArgs> for session_start::StartInput {
             provider,
             detached,
             relay,
+            prompt,
         } = args;
         Self {
             feature,
@@ -150,6 +161,7 @@ impl From<SessionStartArgs> for session_start::StartInput {
             provider,
             detached,
             relay,
+            prompt,
         }
     }
 }

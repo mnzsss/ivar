@@ -381,6 +381,7 @@ pub fn run_launcher(
     ctx: &crate::action::Ctx,
     session_id_str: &str,
     resume: bool,
+    prompt: Option<&str>,
     argv: &[String],
 ) -> Result<(), Failure> {
     let Some((program, user_args)) = argv.split_first() else {
@@ -415,6 +416,7 @@ pub fn run_launcher(
         &session_ref.id,
         session_ref.feature.as_ref(),
         resume,
+        prompt,
         user_args,
     )?;
 

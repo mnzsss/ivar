@@ -15,6 +15,8 @@ fn launch_contract_returns_correct_binary_and_capabilities_for_all_providers() {
             supports_resume: true,
             supports_review: true,
             interactive: true,
+            initial_prompt: true,
+            resume_prompt: true,
         }
     );
 
@@ -26,6 +28,8 @@ fn launch_contract_returns_correct_binary_and_capabilities_for_all_providers() {
             supports_resume: true,
             supports_review: false,
             interactive: true,
+            initial_prompt: true,
+            resume_prompt: false,
         }
     );
 
@@ -37,6 +41,8 @@ fn launch_contract_returns_correct_binary_and_capabilities_for_all_providers() {
             supports_resume: true,
             supports_review: false,
             interactive: true,
+            initial_prompt: true,
+            resume_prompt: true,
         }
     );
 }
@@ -72,6 +78,79 @@ fn omp_fresh_start_and_resume_commands() {
     let display = resumed.display();
     assert!(display.starts_with("omp"), "was: {display}");
     assert!(display.contains("--continue"), "was: {display}");
+}
+
+/// `R-PROMPT-PROVIDERS`: each harness receives the prompt in its own native
+/// form, as discrete argv, even when the text starts with `-`.
+#[test]
+fn every_provider_takes_an_initial_prompt_in_its_native_form() {
+    let prompt = "-review the plan";
+
+    assert_eq!(
+        providers::initial_prompt_args(Provider::ClaudeCode, false, prompt).unwrap(),
+        ["--", "-review the plan"]
+    );
+    assert_eq!(
+        providers::initial_prompt_args(Provider::OpenCode, false, prompt).unwrap(),
+        ["--prompt=-review the plan"]
+    );
+    assert_eq!(
+        providers::initial_prompt_args(Provider::Omp, false, prompt).unwrap(),
+        ["--", "-review the plan"]
+    );
+}
+
+/// `R-PROMPT-UNSUPPORTED`: a harness that cannot take an initial prompt is
+/// refused with a fix that opens the session without one.
+#[test]
+fn a_harness_without_initial_prompt_is_refused_with_a_fix() {
+    let contract = providers::LaunchContract {
+        binary: "silent",
+        capabilities: Capabilities {
+            supports_resume: true,
+            supports_review: false,
+            interactive: true,
+            initial_prompt: false,
+            resume_prompt: true,
+        },
+    };
+
+    let failure = providers::require_initial_prompt(contract, false).unwrap_err();
+
+    assert_eq!(failure.code, "harness.no_initial_prompt");
+    assert!(
+        failure
+            .fix_actions
+            .iter()
+            .any(|fix| fix.code == "session.start_without_prompt")
+    );
+}
+
+/// `R-PROMPT-RESUME`: OpenCode drops a prompt when it continues a
+/// conversation, so a prompted resume is refused there and kept elsewhere.
+#[test]
+fn a_prompted_resume_is_refused_only_where_the_harness_drops_it() {
+    let failure = providers::initial_prompt_args(Provider::OpenCode, true, "go").unwrap_err();
+    assert_eq!(failure.code, "harness.no_resume_prompt");
+    assert!(
+        failure
+            .fix_actions
+            .iter()
+            .any(|fix| fix.code == "session.start_without_resume_or_prompt")
+    );
+
+    assert_eq!(
+        providers::initial_prompt_args(Provider::ClaudeCode, true, "go").unwrap(),
+        ["--", "go"]
+    );
+    assert_eq!(
+        providers::initial_prompt_args(Provider::Omp, true, "go").unwrap(),
+        ["--", "go"]
+    );
+    assert_eq!(
+        providers::initial_prompt_args(Provider::OpenCode, false, "go").unwrap(),
+        ["--prompt=go"]
+    );
 }
 
 // -- MCP allowlist (`--settings`) -----------------------------------------

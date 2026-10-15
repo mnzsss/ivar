@@ -559,6 +559,13 @@ fn every_review_loop_in_execute_has_a_round_cap() {
 }
 
 #[test]
+fn execute_recovery_covers_two_live_sessions() {
+    let execute = shipped("skills/ivar-execute/SKILL.md");
+    assert!(execute.contains("**Two live sessions on the feature:**"));
+    assert!(execute.contains("`$IVAR_SESSION_ID`"));
+}
+
+#[test]
 fn subfeatures_orchestrates_children_with_subagents_from_the_parent_session() {
     let skill = shipped("skills/ivar-subfeatures/SKILL.md");
     // The manual one-terminal-per-child flow is gone.

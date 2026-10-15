@@ -87,6 +87,7 @@ fn hall_with_provider_session() -> (tempfile::TempDir, Utf8PathBuf) {
             provider: None,
             detached: true,
             relay: false,
+            prompt: None,
         },
     )
     .unwrap();
@@ -146,6 +147,7 @@ fn relay_and_start_relay_produce_the_same_outcome() {
             provider: Some("opencode".to_owned()),
             detached: true,
             relay: true,
+            prompt: None,
         },
     )
     .unwrap();

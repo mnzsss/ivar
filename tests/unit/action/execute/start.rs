@@ -5,7 +5,7 @@
     clippy::indexing_slicing
 )]
 
-use camino::Utf8PathBuf;
+use camino::{Utf8Path, Utf8PathBuf};
 
 use super::*;
 use crate::action::execute::finish::{FinishInput, finish};
@@ -110,6 +110,7 @@ fn execute_start_pins_normalized_plan_fingerprint() {
             resume: false,
             restart: false,
             mode: None,
+            session: None,
         },
     )
     .unwrap();
@@ -150,6 +151,7 @@ fn execute_restart_accepts_an_approved_plan_with_recorded_progress() {
         resume: false,
         restart,
         mode: None,
+        session: None,
     };
 
     fs::write_text(
@@ -181,6 +183,7 @@ fn execute_start_without_plan_uses_the_feature_plan() {
             resume: false,
             restart: false,
             mode: None,
+            session: None,
         },
     )
     .expect("an omitted --plan must resolve to the feature's plan.md");
@@ -206,6 +209,7 @@ fn execute_start_records_specified_mode() {
             resume: false,
             restart: false,
             mode: Some("goal".to_owned()),
+            session: None,
         },
     )
     .unwrap();
@@ -240,6 +244,7 @@ fn execute_start_omitted_mode_defaults_to_default_mode() {
             resume: false,
             restart: false,
             mode: None,
+            session: None,
         },
     )
     .unwrap();
@@ -269,6 +274,7 @@ fn execute_resume_without_mode_preserves_existing_mode() {
             resume: false,
             restart: false,
             mode: Some("goal".to_owned()),
+            session: None,
         },
     )
     .unwrap();
@@ -281,6 +287,7 @@ fn execute_resume_without_mode_preserves_existing_mode() {
             resume: true,
             restart: false,
             mode: None,
+            session: None,
         },
     )
     .unwrap();
@@ -310,6 +317,7 @@ fn execute_resume_with_mode_switches_mode_and_appends_checkpoint() {
             resume: false,
             restart: false,
             mode: Some("goal".to_owned()),
+            session: None,
         },
     )
     .unwrap();
@@ -322,6 +330,7 @@ fn execute_resume_with_mode_switches_mode_and_appends_checkpoint() {
             resume: true,
             restart: false,
             mode: Some("default".to_owned()),
+            session: None,
         },
     )
     .unwrap();
@@ -364,9 +373,74 @@ fn execute_start_rejects_invalid_mode() {
             resume: false,
             restart: false,
             mode: Some("turbo".to_owned()),
+            session: None,
         },
     )
     .unwrap_err();
 
     assert_eq!(err.code, "execute.unknown_mode");
+}
+
+const AMBIENT: &str = "00000000-0000-4000-8000-000000000003";
+
+fn write_feature_session_with_id(layout: &Layout, feature: &FeatureName, id: &str) {
+    let view_dir = layout.feature_session(feature, &SessionId::new(id).unwrap());
+    fs::ensure_dir(&view_dir).unwrap();
+    let mut state = SessionState::new(Provider::OpenCode, "2026-01-02T00:00:00Z");
+    state.bind(feature.clone(), "2026-01-02T00:00:00Z");
+    state.write(&view_dir).unwrap();
+}
+
+fn hall_with_two_live_sessions() -> (tempfile::TempDir, Ctx, Layout, FeatureName, Utf8PathBuf) {
+    let (guard, root) = seeded_execution_hall();
+    let ctx = Ctx::new(root);
+    let layout = discover_hall(&ctx).unwrap();
+    let feature = FeatureName::new("child-feature").unwrap();
+    let plan = layout.plan_dir(&feature).join("plan.md");
+    fs::write_text(&plan, "# Plan\n\n- [ ] Execute task\n").unwrap();
+    approve_plan(&ctx);
+    write_feature_session(&layout, &feature);
+    write_feature_session_with_id(&layout, &feature, AMBIENT);
+    (guard, ctx, layout, feature, plan)
+}
+
+fn start_from(
+    feature: &FeatureName,
+    plan: &Utf8Path,
+    session: Option<&str>,
+) -> execute_start::StartInput {
+    execute_start::StartInput {
+        feature: feature.to_string(),
+        plan: Some(plan.to_string()),
+        resume: false,
+        restart: false,
+        mode: None,
+        session: session.map(str::to_owned),
+    }
+}
+
+#[test]
+fn execute_start_binds_the_ambient_session_when_the_feature_has_two() {
+    let (_guard, ctx, layout, feature, plan) = hall_with_two_live_sessions();
+
+    let receipt = execute_start::start(&ctx, start_from(&feature, &plan, Some(AMBIENT)))
+        .unwrap()
+        .value
+        .receipt;
+
+    assert_eq!(receipt.coordinators[0].session.as_str(), AMBIENT);
+    let (coordinator, provider) =
+        crate::action::execute::resolve_coordinator(&layout, &feature, &receipt).unwrap();
+    assert_eq!(coordinator.as_str(), AMBIENT);
+    assert_eq!(provider, Provider::OpenCode);
+}
+
+#[test]
+fn execute_start_without_a_matching_ambient_session_stays_ambiguous() {
+    let (_guard, ctx, _layout, feature, plan) = hall_with_two_live_sessions();
+
+    for ambient in [None, Some("00000000-0000-4000-8000-000000000099")] {
+        let failure = execute_start::start(&ctx, start_from(&feature, &plan, ambient)).unwrap_err();
+        assert_eq!(failure.code, "session.ambiguous");
+    }
 }
