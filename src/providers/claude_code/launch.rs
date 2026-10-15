@@ -5,6 +5,7 @@ const CAPABILITIES: Capabilities = Capabilities {
     supports_resume: true,
     supports_review: true,
     interactive: true,
+    initial_prompt: true,
 };
 
 const CONTRACT: LaunchContract = LaunchContract {
@@ -36,4 +37,10 @@ pub fn start_command(resume: bool, mcp_allowlist: &[String]) -> Command {
     }
     let settings = serde_json::json!({ "enabledMcpjsonServers": mcp_allowlist });
     command.arg("--settings").arg(settings.to_string())
+}
+
+/// Claude's positional prompt, after `--` so leading dashes stay text.
+#[must_use]
+pub fn prompt_args(prompt: &str) -> Vec<String> {
+    vec!["--".to_owned(), prompt.to_owned()]
 }

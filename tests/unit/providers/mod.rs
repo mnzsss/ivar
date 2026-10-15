@@ -15,6 +15,7 @@ fn launch_contract_returns_correct_binary_and_capabilities_for_all_providers() {
             supports_resume: true,
             supports_review: true,
             interactive: true,
+            initial_prompt: true,
         }
     );
 
@@ -26,6 +27,7 @@ fn launch_contract_returns_correct_binary_and_capabilities_for_all_providers() {
             supports_resume: true,
             supports_review: false,
             interactive: true,
+            initial_prompt: true,
         }
     );
 
@@ -37,6 +39,7 @@ fn launch_contract_returns_correct_binary_and_capabilities_for_all_providers() {
             supports_resume: true,
             supports_review: false,
             interactive: true,
+            initial_prompt: true,
         }
     );
 }
@@ -72,6 +75,51 @@ fn omp_fresh_start_and_resume_commands() {
     let display = resumed.display();
     assert!(display.starts_with("omp"), "was: {display}");
     assert!(display.contains("--continue"), "was: {display}");
+}
+
+/// `R-PROMPT-PROVIDERS`: each harness receives the prompt in its own native
+/// form, as discrete argv, even when the text starts with `-`.
+#[test]
+fn every_provider_takes_an_initial_prompt_in_its_native_form() {
+    let prompt = "-review the plan";
+
+    assert_eq!(
+        providers::initial_prompt_args(Provider::ClaudeCode, prompt).unwrap(),
+        ["--", "-review the plan"]
+    );
+    assert_eq!(
+        providers::initial_prompt_args(Provider::OpenCode, prompt).unwrap(),
+        ["--prompt=-review the plan"]
+    );
+    assert_eq!(
+        providers::initial_prompt_args(Provider::Omp, prompt).unwrap(),
+        ["-review the plan"]
+    );
+}
+
+/// `R-PROMPT-UNSUPPORTED`: a harness that cannot take an initial prompt is
+/// refused with a fix that opens the session without one.
+#[test]
+fn a_harness_without_initial_prompt_is_refused_with_a_fix() {
+    let contract = providers::LaunchContract {
+        binary: "silent",
+        capabilities: Capabilities {
+            supports_resume: true,
+            supports_review: false,
+            interactive: true,
+            initial_prompt: false,
+        },
+    };
+
+    let failure = providers::require_initial_prompt(contract).unwrap_err();
+
+    assert_eq!(failure.code, "harness.no_initial_prompt");
+    assert!(
+        failure
+            .fix_actions
+            .iter()
+            .any(|fix| fix.code == "session.start_without_prompt")
+    );
 }
 
 // -- MCP allowlist (`--settings`) -----------------------------------------
