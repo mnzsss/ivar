@@ -23,8 +23,8 @@ pub fn start_command(resume: bool) -> Command {
     super::super::resumable_start_command(CONTRACT.binary, resume)
 }
 
-/// OMP's positional initial message.
+/// OMP's positional initial message, after `--` so leading dashes stay text.
 #[must_use]
 pub fn prompt_args(prompt: &str) -> Vec<String> {
-    vec![prompt.to_owned()]
+    vec!["--".to_owned(), prompt.to_owned()]
 }

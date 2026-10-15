@@ -96,7 +96,7 @@ fn every_provider_takes_an_initial_prompt_in_its_native_form() {
     );
     assert_eq!(
         providers::initial_prompt_args(Provider::Omp, false, prompt).unwrap(),
-        ["-review the plan"]
+        ["--", "-review the plan"]
     );
 }
 
@@ -145,7 +145,7 @@ fn a_prompted_resume_is_refused_only_where_the_harness_drops_it() {
     );
     assert_eq!(
         providers::initial_prompt_args(Provider::Omp, true, "go").unwrap(),
-        ["go"]
+        ["--", "go"]
     );
     assert_eq!(
         providers::initial_prompt_args(Provider::OpenCode, false, "go").unwrap(),
