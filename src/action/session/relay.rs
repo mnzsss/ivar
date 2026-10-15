@@ -83,6 +83,7 @@ pub fn relay(ctx: &Ctx, input: RelayInput) -> Outcome<RelayOutcome> {
             provider: Some(input.provider),
             detached: true,
             relay: true,
+            prompt: None,
         },
     )?;
 

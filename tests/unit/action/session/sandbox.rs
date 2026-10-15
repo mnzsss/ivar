@@ -333,7 +333,8 @@ fn launcher_resolves_session_from_disk_and_builds_sandbox() {
 #[test]
 fn launcher_empty_command_fails_gracefully() {
     let ctx = crate::action::Ctx::new(Utf8PathBuf::from("/tmp"));
-    let result = crate::action::session::sandbox::run_launcher(&ctx, "some-session", false, &[]);
+    let result =
+        crate::action::session::sandbox::run_launcher(&ctx, "some-session", false, None, &[]);
     let err = result.expect_err("empty command should return error");
     assert_eq!(err.code, "sandbox.launcher_missing_command");
 }
@@ -355,6 +356,7 @@ fn launcher_refuses_a_program_that_is_not_the_session_provider() {
         &ctx,
         session_id.as_str(),
         false,
+        None,
         &["opencode".to_owned()],
     )
     .expect_err("the launcher runs this session's provider, nothing else");

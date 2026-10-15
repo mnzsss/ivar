@@ -182,6 +182,7 @@ fn hall_with_promoted_feature_and_session() -> (tempfile::TempDir, Utf8PathBuf, 
             provider: None,
             detached: true,
             relay: false,
+            prompt: None,
         },
     )
     .unwrap();
@@ -223,6 +224,7 @@ fn resolve_by_cwd_from_promoted_worktree_picks_most_recent_session() {
             provider: None,
             detached: true,
             relay: false,
+            prompt: None,
         },
     )
     .unwrap();

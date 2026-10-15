@@ -125,6 +125,7 @@ fn start_discovery_session(ctx: &Ctx) -> String {
             provider: None,
             detached: true,
             relay: false,
+            prompt: None,
         },
     )
     .unwrap()

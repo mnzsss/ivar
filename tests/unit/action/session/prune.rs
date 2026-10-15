@@ -77,6 +77,7 @@ fn hall_with_two_sessions() -> (tempfile::TempDir, Utf8PathBuf) {
             provider: None,
             detached: true,
             relay: false,
+            prompt: None,
         },
     )
     .unwrap();
@@ -88,6 +89,7 @@ fn hall_with_two_sessions() -> (tempfile::TempDir, Utf8PathBuf) {
             provider: None,
             detached: true,
             relay: false,
+            prompt: None,
         },
     )
     .unwrap();
@@ -279,6 +281,7 @@ fn hall_with_detached_session() -> (tempfile::TempDir, Utf8PathBuf) {
             provider: None,
             detached: true,
             relay: false,
+            prompt: None,
         },
     )
     .unwrap();

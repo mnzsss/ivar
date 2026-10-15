@@ -699,6 +699,7 @@ pub fn run(cli: Cli) -> ExitCode {
                     &ctx,
                     &args.session,
                     args.resume,
+                    args.prompt.as_deref(),
                     &args.command,
                 ) {
                     Ok(()) => std::process::ExitCode::SUCCESS,

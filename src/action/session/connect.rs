@@ -229,6 +229,7 @@ fn attach_or_create(
             provider: None,
             detached: true,
             relay: false,
+            prompt: None,
         },
     )?;
     let warnings = started.warnings;
