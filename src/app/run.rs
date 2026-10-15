@@ -47,8 +47,8 @@ use crate::action::repo::{
 use crate::action::review::comment as review_comment;
 use crate::action::session::{
     connect as session_connect, conversion as session_conversion, env_cmd as session_env_cmd,
-    guard_cmd as session_guard_cmd, prune as session_prune, relay as session_relay,
-    start as session_start, stop as session_stop,
+    guard_cmd as session_guard_cmd, list as session_list, prune as session_prune,
+    relay as session_relay, start as session_start, stop as session_stop,
 };
 use crate::action::skill::{
     add as skill_add, create as skill_create, detach as skill_detach, doctor as skill_doctor,
@@ -643,6 +643,9 @@ pub fn run(cli: Cli) -> ExitCode {
                 &mut stdout,
                 &mut stderr,
             ),
+            SessionCommand::List => {
+                respond(session_list::list(&ctx), json, &mut stdout, &mut stderr)
+            }
             SessionCommand::Connect(args) => respond(
                 session_connect::connect(&ctx, &args.into()),
                 json,

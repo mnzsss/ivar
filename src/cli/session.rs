@@ -12,6 +12,9 @@ pub enum SessionCommand {
     /// Open a session: view dir over a feature's promoted repos, agent
     /// running in it, TUI on top.
     Start(SessionStartArgs),
+    /// List every live session in the hall — discovery and feature
+    /// sessions — oldest first. Read-only.
+    List,
     /// Re-bind to an existing live session: locate it, re-materialise its
     /// view dir, and emit the binding as `IVAR_*` env vars.
     Connect(SessionConnectArgs),
