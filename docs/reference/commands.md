@@ -870,6 +870,19 @@ Health diagnostics for skills: find broken links, missing refs, and suggest fix_
 Authenticate the hall's declared MCP servers
 
 
+##### `ivar mcp add`
+
+Declare an HTTP MCP server in `ivar.json` and write it into every provider's MCP config. `figma` and `linear` are known names and need no URL; any other name takes `--url`. Adding a server already declared the same way changes nothing; the same name with a different URL is refused rather than overwritten. Prints the `ivar mcp auth` command to run next
+
+| argument | required | description |
+| --- | --- | --- |
+| `name` | yes | The server's name in `ivar.json`'s `mcp` array. A known name (`figma`, `linear`) fills in the URL |
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--url` | `<URL>` |  | The server's HTTP URL. Required for names ivar does not know |
+
+
 ##### `ivar mcp auth`
 
 Authenticate one MCP server. Resolves the server from `ivar.json`'s `mcp` array and the provider from the hall's default, `--provider`, or — with `--all-providers` — every provider the hall lists, run one at a time; where a provider's own dynamic client registration is known to be rejected by the server (Figma on OpenCode / OMP, today), pre-registers a client first for that provider — a registration is not an authentication, and is reported separately, per provider. Persists the OAuth client secret locally into `.ivar/secrets/mcp.env` and endpoint metadata into `ivar.json` so subsequent sessions and authentications do not require re-exporting. For OMP, runs ivar's internal OAuth flow, installs tokens via auth-broker, and renders the `auth` block in `.omp/mcp.json` so OMP can natively refresh credentials. Then hands off to each provider's login path (`claude mcp login <name>`, `opencode mcp auth <name>`, or ivar's internal flow), which prints a URL and waits on a browser. With `--all-providers`, every provider is attempted even after an earlier one fails, and the command reports which succeeded and which failed rather than stopping at the first problem

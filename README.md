@@ -16,7 +16,7 @@ Add an `avatarUrl` field to the user profile: the agent describes it in `shared-
   <img src="docs/assets/ivar-terminal-avatar-url.gif" alt="Terminal recording against a demo hall. ivar feature create avatar-url, then ivar feature promote avatar-url for api, web and shared-types, then ivar session start avatar-url. The agent's planning and implementation are elided. ivar feature deliver avatar-url --preview then shows a new pull request for api, shared-types and web, the plan gate approved, and nothing for infra, which stays read-only." width="1093">
 </p>
 
-- **Your harness:** Claude Code, OpenCode or OMP, with MCP servers declared once in `ivar.json`.
+- **Your harness:** Claude Code, OpenCode or OMP, with MCP servers declared once in `ivar.json` (`ivar mcp add figma`).
 - **Plan first:** `/ivar-plan` stops for your approval after requirements, analysis and plan.
 - **Code graph:** one local SQLite graph of every repo. In a two-repo benchmark, discovery took a median 460k tokens instead of 738k.
 - **On your disk:** single Rust binary, Apache-2.0, no account, macOS and Linux. Pull requests go through `gh`.

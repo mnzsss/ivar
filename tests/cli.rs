@@ -20,6 +20,9 @@ mod feature_cleanup;
 #[path = "cli/init.rs"]
 mod init;
 
+#[path = "cli/mcp_add.rs"]
+mod mcp_add;
+
 #[path = "cli/nested_subfeatures.rs"]
 mod nested_subfeatures;
 

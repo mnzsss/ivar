@@ -1,5 +1,6 @@
 use clap::{Args, Subcommand};
 
+use crate::action::mcp::add as mcp_add;
 use crate::action::mcp::auth as mcp_auth;
 use crate::action::mcp::status as mcp_status;
 
@@ -7,6 +8,12 @@ use crate::action::mcp::status as mcp_status;
 /// under the session's provider.
 #[derive(Debug, Subcommand)]
 pub enum McpCommand {
+    /// Declare an HTTP MCP server in `ivar.json` and write it into every
+    /// provider's MCP config. `figma` and `linear` are known names and need no
+    /// URL; any other name takes `--url`. Adding a server already declared the
+    /// same way changes nothing; the same name with a different URL is refused
+    /// rather than overwritten. Prints the `ivar mcp auth` command to run next.
+    Add(McpAddArgs),
     /// Authenticate one MCP server. Resolves the server from `ivar.json`'s
     /// `mcp` array and the provider from the hall's default, `--provider`, or
     /// — with `--all-providers` — every provider the hall lists, run one at a
@@ -26,6 +33,23 @@ pub enum McpCommand {
     Auth(McpAuthArgs),
     /// Report credential status across declared MCP servers and available providers.
     Status(McpStatusArgs),
+}
+/// Arguments for `ivar mcp add`.
+#[derive(Debug, Args)]
+pub struct McpAddArgs {
+    /// The server's name in `ivar.json`'s `mcp` array. A known name (`figma`,
+    /// `linear`) fills in the URL.
+    pub name: String,
+    /// The server's HTTP URL. Required for names ivar does not know.
+    #[arg(long)]
+    pub url: Option<String>,
+}
+
+impl From<McpAddArgs> for mcp_add::AddInput {
+    fn from(args: McpAddArgs) -> Self {
+        let McpAddArgs { name, url } = args;
+        Self { name, url }
+    }
 }
 
 /// Arguments for `ivar mcp auth`.

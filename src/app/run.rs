@@ -30,6 +30,7 @@ use crate::action::feature::{
 };
 use crate::action::feedback as feedback_action;
 use crate::action::hall;
+use crate::action::mcp::add as mcp_add;
 use crate::action::mcp::auth as mcp_auth;
 use crate::action::mcp::status as mcp_status;
 use crate::action::plan::approve::{self as plan_approve};
@@ -1078,6 +1079,12 @@ pub fn run(cli: Cli) -> ExitCode {
             }
         }
         Command::Mcp(cmd) => match cmd {
+            McpCommand::Add(args) => respond(
+                mcp_add::add(&ctx, &args.into()),
+                json,
+                &mut stdout,
+                &mut stderr,
+            ),
             McpCommand::Auth(args) => respond(
                 mcp_auth::auth(&ctx, &args.into()),
                 json,

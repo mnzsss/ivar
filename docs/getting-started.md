@@ -153,6 +153,21 @@ ivar repo setup api        # runs .ivar/setups/api.sh against api's worktree
 Commit it. It is part of the hall, and it is what makes your teammates' `ivar
 sync` produce a working checkout instead of a bare one.
 
+Declare the MCP servers your agents use. `figma` and `linear` are known
+names; any other HTTP server takes `--url`:
+
+```sh
+ivar mcp add figma
+ivar mcp add sentry --url https://mcp.sentry.dev/mcp
+ivar mcp auth figma --all-providers
+```
+
+`ivar mcp add` writes the server into `ivar.json` and into each provider's
+MCP config (`.mcp.json`, `opencode.json`, `.omp/mcp.json`). `ivar mcp auth`
+then logs in once per provider; where a provider's own registration is
+refused, as Figma refuses OpenCode's, it registers a client first. The
+client secret stays in `.ivar/secrets/mcp.env`, outside git.
+
 Then commit and push the hall:
 
 ```sh
