@@ -145,6 +145,7 @@ fn land_preview_names_the_target_and_the_mode() {
                 repo: RepoName::new("api").unwrap(),
                 local_branch: BranchName::new("land-on-default").unwrap(),
                 remote: "https://github.com/acme/api".to_owned(),
+                ref_prefix: None,
                 push_refspec: "land-on-default:refs/heads/land-on-default".to_owned(),
                 action: DeliveryAction::LandOnDefault,
                 base_branch: BranchName::new("main").unwrap(),

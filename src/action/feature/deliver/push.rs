@@ -379,23 +379,31 @@ fn force_with_lease_fix(
     repo: &crate::domain::feature::DeliveryRepo,
 ) -> FixAction {
     let branch = repo.local_branch.as_str();
+    let remote_branch = repo.remote_branch(branch);
+    // Unprefixed: the short name, exactly as before. Prefixed: the full ref,
+    // so the lease guards the same ref the push replaces.
+    let lease_ref = if repo.ref_prefix.is_some() {
+        format!("refs/heads/{remote_branch}")
+    } else {
+        branch.to_owned()
+    };
     let lease = git
         .remote_branch_tip(bare, &repo.remote, branch)
         .ok()
         .flatten()
         .map_or_else(
-            || format!("--force-with-lease={branch}"),
-            |tip| format!("--force-with-lease={branch}:{tip}"),
+            || format!("--force-with-lease={lease_ref}"),
+            |tip| format!("--force-with-lease={lease_ref}:{tip}"),
         );
     FixAction::unsafe_(
         "deliver.force_with_lease",
         format!(
-            "Review what `{}` already holds on `{branch}` — this replaces it. Then push it by hand.",
+            "Review what `{}` already holds on `{remote_branch}` — this replaces it. Then push it by hand.",
             repo.remote
         ),
     )
     .command(format!(
-        "git --git-dir {bare} push {lease} {} {branch}:refs/heads/{branch}",
+        "git --git-dir {bare} push {lease} {} {branch}:refs/heads/{remote_branch}",
         repo.remote
     ))
 }

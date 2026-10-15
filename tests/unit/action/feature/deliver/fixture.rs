@@ -49,6 +49,28 @@ pub(super) fn hall_with_promoted_on(
     base: Option<&str>,
     prepare_origin: impl Fn(&Utf8Path),
 ) -> (tempfile::TempDir, Utf8PathBuf) {
+    hall_with(repos, base, prepare_origin, |repo| repo)
+}
+
+/// One repo `name` stored inside the hall's own remote, as `ivar repo
+/// create` leaves a local repo: declared with `ref_prefix: repos/<name>/`,
+/// its origin carrying `repos/<name>/main` beside the hall's own `main`.
+pub(super) fn hall_with_prefixed_promoted(name: &str) -> (tempfile::TempDir, Utf8PathBuf) {
+    let prefixed_main = format!("repos/{name}/main");
+    hall_with(
+        &[name],
+        None,
+        |origin| git(origin, &["branch", prefixed_main.as_str()]),
+        |repo| repo.with_ref_prefix(format!("repos/{name}/")),
+    )
+}
+
+fn hall_with(
+    repos: &[&str],
+    base: Option<&str>,
+    prepare_origin: impl Fn(&Utf8Path),
+    declare: impl Fn(Repo) -> Repo,
+) -> (tempfile::TempDir, Utf8PathBuf) {
     let (guard, root) = hall_root();
     let ctx = Ctx::new(root.clone());
     hall::init(
@@ -67,11 +89,11 @@ pub(super) fn hall_with_promoted_on(
         .map(|name| {
             let origin = seeded_repo(&origins.join(name), "main");
             prepare_origin(&origin);
-            Repo::new(
+            declare(Repo::new(
                 RepoName::new(*name).unwrap(),
                 origin.as_str(),
                 BranchName::new("main").unwrap(),
-            )
+            ))
         })
         .collect();
     let layout = Layout::at(root.clone());
@@ -246,6 +268,7 @@ pub(super) fn delivery_repo(name: &str, dependencies: Vec<&str>) -> DeliveryRepo
         repo: RepoName::new(name).unwrap(),
         local_branch: BranchName::new("checkout").unwrap(),
         remote: "git@example.com:acme/api.git".to_owned(),
+        ref_prefix: None,
         push_refspec: "checkout:refs/heads/checkout".to_owned(),
         action: DeliveryAction::PushOnly,
         base_branch: BranchName::new("main").unwrap(),

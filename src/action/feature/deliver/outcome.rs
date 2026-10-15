@@ -119,7 +119,12 @@ fn write_human_push_preview(w: &mut impl io::Write, outcome: &DeliverOutcome) ->
         writeln!(w, "    {}  {}", paint(MUTED, "branch:"), repo.local_branch)?;
         writeln!(w, "    {}  {}", paint(MUTED, "remote:"), repo.remote)?;
         writeln!(w, "    {} {}", paint(MUTED, "refspec:"), repo.push_refspec)?;
-        writeln!(w, "    {}    {}", paint(MUTED, "base:"), repo.base_branch)?;
+        writeln!(
+            w,
+            "    {}    {}",
+            paint(MUTED, "base:"),
+            repo.remote_branch(repo.base_branch.as_str())
+        )?;
         if repo.draft == Some(DraftAction::ConvertToDraft) {
             writeln!(
                 w,
@@ -176,7 +181,11 @@ fn write_human_land_preview(w: &mut impl io::Write, outcome: &DeliverOutcome) ->
             "  {}  {} -> {}  {}",
             repo.repo, repo.local_branch, target, ff_verdict
         )?;
-        writeln!(w, "    then push {target} to {}", repo.remote)?;
+        let pushed = repo
+            .default_branch
+            .as_ref()
+            .map_or_else(|| "-".to_owned(), |b| repo.remote_branch(b.as_str()));
+        writeln!(w, "    then push {pushed} to {}", repo.remote)?;
         for blocker in &repo.blockers {
             writeln!(w, "    blocker: {blocker}")?;
         }
