@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.2](https://github.com/mnzsss/ivar/compare/v0.16.0...v0.16.2) - 2026-10-15
+
+### Added
+
+- add ivar mcp add to declare MCP servers ([#169](https://github.com/mnzsss/ivar/pull/169))
+
+### Fixed
+
+- skill sync follows the hall providers ([#168](https://github.com/mnzsss/ivar/pull/168))
+
 ## [0.16.0](https://github.com/mnzsss/ivar/compare/v0.15.0...v0.16.0) - 2026-10-14
 
 ### Added
