@@ -28,6 +28,7 @@ pub struct Capabilities {
     pub supports_review: bool,
     pub interactive: bool,
     pub initial_prompt: bool,
+    pub resume_prompt: bool,
 }
 
 /// The launch specification for a provider.
@@ -101,9 +102,14 @@ pub fn start_command(
 ///
 /// # Errors
 ///
-/// Returns [`Failure`] if `provider` cannot take an initial prompt.
-pub fn initial_prompt_args(provider: Provider, prompt: &str) -> Result<Vec<String>, Failure> {
-    require_initial_prompt(launch_contract(provider))?;
+/// Returns [`Failure`] if `provider` cannot take an initial prompt, or
+/// cannot take one when `resume` continues a conversation.
+pub fn initial_prompt_args(
+    provider: Provider,
+    resume: bool,
+    prompt: &str,
+) -> Result<Vec<String>, Failure> {
+    require_initial_prompt(launch_contract(provider), resume)?;
     Ok(match provider {
         Provider::ClaudeCode => claude_code::launch::prompt_args(prompt),
         Provider::OpenCode => opencode::launch::prompt_args(prompt),
@@ -111,20 +117,38 @@ pub fn initial_prompt_args(provider: Provider, prompt: &str) -> Result<Vec<Strin
     })
 }
 
-pub(crate) fn require_initial_prompt(contract: LaunchContract) -> Result<(), Failure> {
-    if contract.capabilities.initial_prompt {
-        return Ok(());
+pub(crate) fn require_initial_prompt(
+    contract: LaunchContract,
+    resume: bool,
+) -> Result<(), Failure> {
+    if !contract.capabilities.initial_prompt {
+        return Err(Failure::blocked(
+            "harness.no_initial_prompt",
+            format!("`{}` cannot take an initial prompt", contract.binary),
+        )
+        .expected("a harness whose capabilities include an initial prompt")
+        .actual("this harness's `initial_prompt` is false")
+        .fix(FixAction::safe(
+            "session.start_without_prompt",
+            "Start the session without `--prompt` and send the first message from inside the agent.",
+        )));
     }
-    Err(Failure::blocked(
-        "harness.no_initial_prompt",
-        format!("`{}` cannot take an initial prompt", contract.binary),
-    )
-    .expected("a harness whose capabilities include an initial prompt")
-    .actual("this harness's `initial_prompt` is false")
-    .fix(FixAction::safe(
-        "session.start_without_prompt",
-        "Start the session without `--prompt` and send the first message from inside the agent.",
-    )))
+    if resume && !contract.capabilities.resume_prompt {
+        return Err(Failure::blocked(
+            "harness.no_resume_prompt",
+            format!(
+                "`{}` ignores an initial prompt when it resumes a conversation",
+                contract.binary
+            ),
+        )
+        .expected("a harness that sends the prompt into the resumed conversation")
+        .actual("this harness's `resume_prompt` is false")
+        .fix(FixAction::safe(
+            "session.start_without_resume_or_prompt",
+            "Start a fresh session with `--prompt`, or resume without `--prompt` and send the message from inside the agent.",
+        )));
+    }
+    Ok(())
 }
 
 /// The root key under which MCP servers are configured in the provider config file.

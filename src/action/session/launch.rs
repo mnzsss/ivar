@@ -42,7 +42,7 @@ pub(crate) fn provider_command(
     let mut command =
         providers::start_command(provider, resume, &allowlist)?.args(user_args.iter().cloned());
     if let Some(prompt) = prompt {
-        command = command.args(providers::initial_prompt_args(provider, prompt)?);
+        command = command.args(providers::initial_prompt_args(provider, resume, prompt)?);
     }
     let command = SessionEnv::build(layout, session_id, view_dir, provider, feature).apply(command);
     let command =

@@ -166,7 +166,7 @@ pub fn start(ctx: &Ctx, input: StartInput) -> Outcome<StartOutcome> {
         }
     }
     if let Some(prompt) = input.prompt.as_deref() {
-        providers::initial_prompt_args(provider, prompt)?;
+        providers::initial_prompt_args(provider, input.resume, prompt)?;
     }
     if input.relay {
         let feature = feature.as_ref().ok_or_else(relay_needs_feature)?;

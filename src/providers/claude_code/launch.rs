@@ -6,6 +6,7 @@ const CAPABILITIES: Capabilities = Capabilities {
     supports_review: true,
     interactive: true,
     initial_prompt: true,
+    resume_prompt: true,
 };
 
 const CONTRACT: LaunchContract = LaunchContract {

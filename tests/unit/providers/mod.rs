@@ -16,6 +16,7 @@ fn launch_contract_returns_correct_binary_and_capabilities_for_all_providers() {
             supports_review: true,
             interactive: true,
             initial_prompt: true,
+            resume_prompt: true,
         }
     );
 
@@ -28,6 +29,7 @@ fn launch_contract_returns_correct_binary_and_capabilities_for_all_providers() {
             supports_review: false,
             interactive: true,
             initial_prompt: true,
+            resume_prompt: false,
         }
     );
 
@@ -40,6 +42,7 @@ fn launch_contract_returns_correct_binary_and_capabilities_for_all_providers() {
             supports_review: false,
             interactive: true,
             initial_prompt: true,
+            resume_prompt: true,
         }
     );
 }
@@ -84,15 +87,15 @@ fn every_provider_takes_an_initial_prompt_in_its_native_form() {
     let prompt = "-review the plan";
 
     assert_eq!(
-        providers::initial_prompt_args(Provider::ClaudeCode, prompt).unwrap(),
+        providers::initial_prompt_args(Provider::ClaudeCode, false, prompt).unwrap(),
         ["--", "-review the plan"]
     );
     assert_eq!(
-        providers::initial_prompt_args(Provider::OpenCode, prompt).unwrap(),
+        providers::initial_prompt_args(Provider::OpenCode, false, prompt).unwrap(),
         ["--prompt=-review the plan"]
     );
     assert_eq!(
-        providers::initial_prompt_args(Provider::Omp, prompt).unwrap(),
+        providers::initial_prompt_args(Provider::Omp, false, prompt).unwrap(),
         ["-review the plan"]
     );
 }
@@ -108,10 +111,11 @@ fn a_harness_without_initial_prompt_is_refused_with_a_fix() {
             supports_review: false,
             interactive: true,
             initial_prompt: false,
+            resume_prompt: true,
         },
     };
 
-    let failure = providers::require_initial_prompt(contract).unwrap_err();
+    let failure = providers::require_initial_prompt(contract, false).unwrap_err();
 
     assert_eq!(failure.code, "harness.no_initial_prompt");
     assert!(
@@ -119,6 +123,33 @@ fn a_harness_without_initial_prompt_is_refused_with_a_fix() {
             .fix_actions
             .iter()
             .any(|fix| fix.code == "session.start_without_prompt")
+    );
+}
+
+/// `R-PROMPT-RESUME`: OpenCode drops a prompt when it continues a
+/// conversation, so a prompted resume is refused there and kept elsewhere.
+#[test]
+fn a_prompted_resume_is_refused_only_where_the_harness_drops_it() {
+    let failure = providers::initial_prompt_args(Provider::OpenCode, true, "go").unwrap_err();
+    assert_eq!(failure.code, "harness.no_resume_prompt");
+    assert!(
+        failure
+            .fix_actions
+            .iter()
+            .any(|fix| fix.code == "session.start_without_resume_or_prompt")
+    );
+
+    assert_eq!(
+        providers::initial_prompt_args(Provider::ClaudeCode, true, "go").unwrap(),
+        ["--", "go"]
+    );
+    assert_eq!(
+        providers::initial_prompt_args(Provider::Omp, true, "go").unwrap(),
+        ["go"]
+    );
+    assert_eq!(
+        providers::initial_prompt_args(Provider::OpenCode, false, "go").unwrap(),
+        ["--prompt=go"]
     );
 }
 

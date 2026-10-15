@@ -396,6 +396,34 @@ fn a_detached_start_with_a_prompt_quotes_it_and_keeps_no_record_of_it() {
     );
 }
 
+/// `R-PROMPT-RESUME`: a prompted resume on OpenCode is refused before any
+/// view dir exists.
+#[test]
+fn a_prompted_resume_on_opencode_is_refused_before_the_view_dir() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let ctx = Ctx::new(root.clone());
+
+    let failure = start(
+        &ctx,
+        StartInput {
+            feature: Some("checkout".to_owned()),
+            resume: true,
+            provider: Some("opencode".to_owned()),
+            detached: true,
+            relay: false,
+            prompt: Some("go".to_owned()),
+        },
+    )
+    .unwrap_err();
+
+    assert_eq!(failure.code, "harness.no_resume_prompt");
+    let sessions = root.join(".ivar/features/checkout/sessions");
+    assert!(
+        std::fs::read_dir(&sessions).map_or(true, |mut entries| entries.next().is_none()),
+        "no view dir is created"
+    );
+}
+
 #[test]
 fn a_prompted_session_wraps_with_the_prompt_before_the_provider() {
     let session_id = SessionId::new("6f0c9d5f-0000-4000-8000-000000000000").unwrap();
