@@ -275,6 +275,7 @@ Housekeeping, when features pile up:
 
 ```sh
 ivar feature prune     # unattended mergedness-based batch deletion
+ivar session list      # every live session, discovery and feature
 ivar session prune     # sessions no longer bound to anything
 ivar cleanup           # top-level stale state reconciliation; asks before each deletion
 ```
