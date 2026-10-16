@@ -20,7 +20,9 @@ fn ivar_reaches_t3_only_through_its_public_binary() {
         .iter()
         .filter(|path| {
             let text = std::fs::read_to_string(path).unwrap();
-            text.contains(".t3/") || text.contains("T3CODE_HOME")
+            text.contains(".t3/")
+                || text.contains("T3CODE_HOME")
+                || text.contains("Command::new(\"t3\")")
         })
         .map(|path| path.display().to_string())
         .collect();

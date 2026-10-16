@@ -7,7 +7,7 @@
   "rules": [
     "A hall is a git repo that declares team repositories in ivar.json",
     "Repos not promoted into a feature are guarded; the guard is kernel-enforced only on Linux, for agents launched by ivar session start",
-    "Supported providers are Claude Code, OpenCode and OMP; Codex is not a provider",
+    "Supported harnesses are Claude Code, OpenCode and OMP; the t3 provider opens a session in T3 Code and runs Claude Code there, so it requires claude-code; Codex is not supported",
     "Opening pull requests requires GitHub and the gh CLI"
   ]
 }
