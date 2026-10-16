@@ -60,6 +60,15 @@ Print evidence to the transcript: each wave's validation output and result, each
 Process waves in plan order; never start Wave `K+1` before Wave `K` is checkpointed.
 
 1. **Dispatch:** send the wave's task packets to implementation subagents, each prompt built from `references/subagent.md` with absolute paths and the packet's `**Design ref:**`. The coordinator NEVER writes or edits feature code; subagents make every edit.
+   When the `t3-code` MCP tools `delegate_task` and `task_status` are available,
+   you may dispatch each packet with `delegate_task` instead of your harness's own
+   subagent tool, so the packet shows up as a child thread in T3 Code. Target the
+   `claudeAgent` provider instance (the one `orchestrator_capabilities` reports for
+   Claude, and the one you run on) and never set `isolation`: the ivar guard hook
+   runs only in Claude Code, and the feature's promoted worktrees are the only
+   writable code, so a child on another provider or in a separate checkout would
+   write unguarded or to code ivar does not track. Without those tools, dispatch
+   as before.
 2. **Lightweight validation:** run the wave's declared commands. `ivar graph affected <files...>` can point at affected tests; its output is advisory, so fall back to the declared commands or the project's test runner when it is empty or fails.
 3. **Green:**
    - Goal mode: print the proof and checkpoint.

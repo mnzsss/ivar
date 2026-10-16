@@ -74,6 +74,17 @@ refuses.
 6. Prefer the session directory's `CLAUDE.md` / `AGENTS.md` over hall-root
    files — it carries the hall's standing instructions plus the session
    bootstrap block.
+7. **T3 Code.** When the `t3-code` MCP tools `t3_project_list`,
+   `t3_project_create` and `t3_thread_launch` are available and this
+   conversation's working directory is not inside `$IVAR_SESSION_PATH`, this
+   thread is outside the write guard: the guard resolves a session from the
+   working directory. Say so, then ask one question: **(a) Continue here**,
+   **(b) Open a thread inside the session**. On (b), reuse the project from
+   `t3_project_list` whose `workspaceRoot` is `$IVAR_SESSION_PATH`, or create it
+   with `t3_project_create` (`workspaceRoot`: `$IVAR_SESSION_PATH`, `title`: the
+   feature name), then call `t3_thread_launch` with that `projectId`,
+   `workspaceStrategy` `{"type":"root"}` and a `message` that starts with
+   `/ivar-connect $ARGUMENTS`. Without those tools, skip this step.
 
 ## Continuing the feature's work
 
