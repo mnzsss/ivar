@@ -111,7 +111,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use crate::error::{Failure, FixAction};
 
 /// The comma-separated list of valid ids, for error messages. Kept next to
-/// `ALL` so the two are easy to keep in sync by eye.
+/// `SELECTABLE` so the two are easy to keep in sync by eye.
 const VALID_IDS: &str = "claude-code, opencode, omp, t3";
 
 /// A harness `ivar` can open a session in.

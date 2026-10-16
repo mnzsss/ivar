@@ -927,6 +927,7 @@ fn instruction_diagnosis(inspection: &instructions::Inspection) -> Option<Diagno
         }),
     }
 }
+
 /// Runs `t3` only for a hall that lists it. The probe path is never a T3 project, so a
 /// reachable server answers `ProjectNotFoundError`; the stopped-server answer is not
 /// measured and is treated as any other non-answer.

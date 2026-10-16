@@ -262,7 +262,7 @@ pub fn start(ctx: &Ctx, input: StartInput) -> Outcome<StartOutcome> {
             "{} app {view_dir}",
             providers::launch_contract(provider).binary
         ),
-        _ => launch_command(
+        Provider::ClaudeCode | Provider::OpenCode | Provider::Omp => launch_command(
             &session_id,
             input.resume,
             input.prompt.as_deref(),

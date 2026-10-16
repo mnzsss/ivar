@@ -135,7 +135,7 @@ fn invalid_provider_converts_to_a_blocked_failure_with_a_fix_naming_the_options(
     assert!(failure.fix_actions[0].what.contains("omp"));
 }
 
-// -- ALL is exhaustive -----------------------------------------------------
+// -- T3 -------------------------------------------------------------------
 
 #[test]
 fn t3_hosts_claude_code_so_it_answers_with_claudes_paths() {
@@ -174,6 +174,8 @@ fn from_str_and_serde_accept_t3_and_the_unknown_id_error_names_it() {
     let message = "claude".parse::<Provider>().unwrap_err().to_string();
     assert!(message.contains("claude-code, opencode, omp, t3"));
 }
+
+// -- SELECTABLE is exhaustive ---------------------------------------------
 
 /// The cheap way to make forgetting a new variant in `SELECTABLE` a compile
 /// error: this `match` has no wildcard arm, so adding a variant to
