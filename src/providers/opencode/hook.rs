@@ -54,7 +54,9 @@ export const IvarPlugin = async () => ({
     }
     const env = JSON.parse(result);
     for (const [key, value] of Object.entries(env)) {
-      output.env[key] = value;
+      if (key.startsWith("IVAR_")) {
+        output.env[key] = value;
+      }
     }
   },
 

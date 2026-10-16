@@ -133,3 +133,18 @@ fn shell_env_still_surfaces_a_failure_without_json_output() {
     );
     assert_eq!(out["env"], json!({}));
 }
+
+#[test]
+fn shell_env_injects_only_ivar_variables() {
+    let out = run_shell_env(
+        r#"{"ok":true,"IVAR_SESSION_ID":"s1","IVAR_PROVIDER":"opencode"}"#,
+        "",
+        0,
+    );
+
+    assert_eq!(
+        out["env"],
+        json!({"IVAR_SESSION_ID": "s1", "IVAR_PROVIDER": "opencode"}),
+        "the `ok` flag of the JSON envelope is not part of the session environment"
+    );
+}
