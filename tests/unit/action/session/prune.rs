@@ -15,7 +15,7 @@ use crate::domain::provider::Provider;
 use crate::infra::fs;
 use crate::store::layout::Layout;
 use crate::store::manifest::{Manifest, Providers, Repo};
-use crate::test_support::{hall_root, seeded_repo};
+use crate::test_support::{FakeT3, enable_t3_host, fake_t3_on_this_thread, hall_root, seeded_repo};
 
 fn hall_with_two_sessions() -> (tempfile::TempDir, Utf8PathBuf) {
     let (guard, root) = hall_root();
@@ -309,4 +309,24 @@ fn prune_keeps_the_doc_of_a_dead_discovery_session() {
     assert!(!dead.exists(), "the dead view dir is pruned");
     let doc = layout.discovery_doc(&FeatureName::new("notes").unwrap());
     assert!(fs::read_text(&doc).unwrap().unwrap().contains("kept"));
+}
+
+#[test]
+fn prune_closes_a_dead_session_by_path_only_when_the_hall_lists_t3() {
+    let (_guard, root) = hall_with_two_sessions();
+    let layout = Layout::at(root.clone());
+    let fake = FakeT3::install(&root);
+    let _t3 = fake_t3_on_this_thread(&fake);
+
+    let without = orphan_view_dir(&layout);
+    prune(&Ctx::new(root.clone())).unwrap();
+    assert!(!without.exists());
+    assert_eq!(fake.log(), "", "a hall without t3 never runs the binary");
+
+    enable_t3_host(&root, Provider::ClaudeCode);
+    let with = orphan_view_dir(&layout);
+    prune(&Ctx::new(root.clone())).unwrap();
+    assert!(!with.exists());
+    assert_eq!(fake.log(), format!("project remove {with}\n"));
+    unguard_worktrees(&root);
 }
