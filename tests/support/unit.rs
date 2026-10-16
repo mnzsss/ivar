@@ -60,7 +60,6 @@ pub(crate) fn fake_t3_on_this_thread(fake: &FakeT3) -> crate::infra::proc::Redir
 }
 
 /// Rewrites the hall manifest to list `claude-code` and `t3`, with `default` as the default.
-#[allow(dead_code)]
 pub(crate) fn enable_t3_host(root: &Utf8PathBuf, default: crate::domain::provider::Provider) {
     use crate::domain::provider::Provider;
     use crate::store::manifest::{Manifest, Providers};

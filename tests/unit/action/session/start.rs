@@ -19,7 +19,9 @@ use crate::action::session::env::SessionEnv;
 use crate::domain::name::{BranchName, HallName, RepoName};
 use crate::domain::provider::Provider;
 use crate::store::manifest::{Manifest, Providers, Repo};
-use crate::test_support::{git, hall_root, seeded_repo};
+use crate::test_support::{
+    FakeT3, enable_t3_host, fake_t3_command, fake_t3_on_this_thread, git, hall_root, seeded_repo,
+};
 
 fn hall_with_promoted_feature() -> (tempfile::TempDir, Utf8PathBuf) {
     let (guard, root) = hall_root();
@@ -2517,4 +2519,125 @@ fn session_start_warns_and_links_the_default_when_the_base_is_absent() {
         "an absent base falls back to the default worktree: {target}"
     );
     unguard_worktrees(&root);
+}
+
+fn t3_input(feature: &str) -> StartInput {
+    StartInput {
+        feature: Some(feature.to_owned()),
+        resume: false,
+        provider: Some("t3".to_owned()),
+        detached: false,
+        relay: false,
+        prompt: None,
+    }
+}
+
+#[test]
+fn a_t3_session_opens_its_view_dir_in_t3_even_without_a_tty() {
+    let (_guard, root) = hall_with_promoted_feature();
+    enable_t3_host(&root, Provider::ClaudeCode);
+    let fake = FakeT3::install(&root);
+    let _t3 = fake_t3_on_this_thread(&fake);
+
+    let report = start(&Ctx::new(root), t3_input("checkout")).unwrap();
+    let outcome = report.value;
+
+    assert_eq!(outcome.provider, Provider::T3);
+    assert!(outcome.opened_in_host);
+    assert!(!outcome.detached);
+    assert_eq!(fake.log(), format!("--version\napp {}\n", outcome.view_dir));
+    assert!(
+        report
+            .warnings
+            .iter()
+            .any(|warning| warning.code == "session.no_kernel_sandbox")
+    );
+    assert!(outcome.view_dir.join(".claude/settings.json").exists());
+    let state = SessionState::read(&outcome.view_dir).unwrap().unwrap();
+    assert_eq!(state.provider(), Provider::T3);
+}
+
+#[test]
+fn a_failing_open_keeps_the_session_and_says_how_to_retry() {
+    let (_guard, root) = hall_with_promoted_feature();
+    enable_t3_host(&root, Provider::ClaudeCode);
+    let fake = FakeT3::install(&root);
+    let _t3 = crate::infra::proc::redirect_on_this_thread(
+        "t3",
+        fake_t3_command(&fake).env("T3_FAKE_FAIL", "1"),
+    );
+
+    let report = start(&Ctx::new(root), t3_input("checkout")).unwrap();
+
+    assert!(report.value.view_dir.exists());
+    let warning = report
+        .warnings
+        .iter()
+        .find(|warning| warning.code == "session.t3_open_failed")
+        .expect("a failed `t3 app` is a warning");
+    assert!(
+        warning
+            .what
+            .contains("DesktopAppRequestFailedError: fake failure")
+    );
+    assert!(warning.what.contains("ivar session connect"));
+}
+
+#[test]
+fn a_missing_t3_binary_fails_before_any_view_dir_exists() {
+    let (_guard, root) = hall_with_promoted_feature();
+    enable_t3_host(&root, Provider::ClaudeCode);
+    let _gone = crate::infra::proc::redirect_on_this_thread(
+        "t3",
+        crate::infra::proc::Command::new("/nonexistent/t3"),
+    );
+
+    let failure = start(&Ctx::new(root.clone()), t3_input("checkout")).unwrap_err();
+
+    assert_eq!(failure.code, "t3.binary_missing");
+    let layout = Layout::at(root);
+    assert!(
+        crate::action::session::lookup::list_all(&layout)
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[test]
+fn a_detached_t3_start_opens_nothing_and_reports_the_t3_command() {
+    let (_guard, root) = hall_with_promoted_feature();
+    enable_t3_host(&root, Provider::ClaudeCode);
+    let fake = FakeT3::install(&root);
+    let _t3 = fake_t3_on_this_thread(&fake);
+    let mut input = t3_input("checkout");
+    input.detached = true;
+
+    let outcome = start(&Ctx::new(root), input).unwrap().value;
+
+    assert!(outcome.detached);
+    assert!(!outcome.opened_in_host);
+    assert_eq!(fake.log(), "");
+    assert_eq!(
+        outcome.launch_command,
+        Some(format!("t3 app {}", outcome.view_dir))
+    );
+}
+
+#[test]
+fn t3_refuses_resume_and_prompt_before_creating_anything() {
+    let (_guard, root) = hall_with_promoted_feature();
+    enable_t3_host(&root, Provider::ClaudeCode);
+    let mut resume = t3_input("checkout");
+    resume.resume = true;
+    let mut prompt = t3_input("checkout");
+    prompt.prompt = Some("hello".to_owned());
+
+    assert_eq!(
+        start(&Ctx::new(root.clone()), resume).unwrap_err().code,
+        "harness.no_resume"
+    );
+    assert_eq!(
+        start(&Ctx::new(root), prompt).unwrap_err().code,
+        "harness.no_initial_prompt"
+    );
 }
