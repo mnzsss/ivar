@@ -668,3 +668,34 @@ fn graph_paths_that_are_not_normalised_or_repeated_are_rejected_on_read() {
     let manifest = Manifest::read(&layout).unwrap().unwrap();
     assert_eq!(manifest.graph_paths(), ["brand"]);
 }
+
+#[test]
+fn a_hosted_provider_without_its_host_is_rejected() {
+    let error = Manifest::new(
+        HallName::new("acme").unwrap(),
+        Providers::new(vec![Provider::T3], Provider::T3),
+        vec![],
+    )
+    .unwrap_err();
+    assert!(matches!(
+        error,
+        Error::HostedProviderNeedsHost {
+            provider: Provider::T3,
+            host: Provider::ClaudeCode
+        }
+    ));
+}
+
+#[test]
+fn a_hosted_provider_with_its_host_is_accepted_and_is_not_a_config_owner() {
+    let manifest = Manifest::new(
+        HallName::new("acme").unwrap(),
+        Providers::new(vec![Provider::ClaudeCode, Provider::T3], Provider::T3),
+        vec![],
+    )
+    .unwrap();
+    assert_eq!(
+        manifest.providers().config_owners().collect::<Vec<_>>(),
+        vec![Provider::ClaudeCode]
+    );
+}

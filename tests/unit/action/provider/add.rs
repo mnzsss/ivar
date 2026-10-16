@@ -268,3 +268,21 @@ fn add_reports_reconciled_skill_targets_when_hall_skill_exists() {
 
     assert_eq!(report.value.skill_targets, 1);
 }
+
+#[test]
+fn add_t3_requires_claude_code_to_be_listed() {
+    let (_guard, root) = seeded_hall();
+    let ctx = Ctx::new(root.clone());
+    add(&ctx, &add_input("opencode")).unwrap();
+    crate::action::provider::remove::remove(
+        &ctx,
+        &crate::action::provider::remove::RemoveInput {
+            name: "claude-code".to_owned(),
+            default: Some("opencode".to_owned()),
+        },
+    )
+    .unwrap();
+    let failure = add(&ctx, &add_input("t3")).unwrap_err();
+    assert_eq!(failure.code, "manifest.hosted_provider_needs_host");
+    assert_eq!(persisted_available(&root), vec![Provider::OpenCode]);
+}
