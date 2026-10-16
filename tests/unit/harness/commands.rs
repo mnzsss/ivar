@@ -12,7 +12,7 @@ use std::collections::BTreeSet;
 #[test]
 fn catalog_is_complete_unique_and_current() {
     let commands = catalog();
-    assert_eq!(commands.len(), 12);
+    assert_eq!(commands.len(), 11);
 
     let ids = commands
         .iter()
@@ -42,7 +42,7 @@ fn catalog_is_complete_unique_and_current() {
 fn execute_is_not_in_shipped_commands_catalog() {
     let catalog = catalog();
     assert!(!catalog.iter().any(|c| c.id == "execute"));
-    assert_eq!(catalog.len(), 12);
+    assert_eq!(catalog.len(), 11);
 }
 
 #[test]
@@ -67,7 +67,7 @@ fn plan_is_a_shipped_skill_not_a_command() {
             .iter()
             .any(|skill| skill.id == "plan")
     );
-    assert_eq!(catalog().len(), 12);
+    assert_eq!(catalog().len(), 11);
 }
 
 #[test]
@@ -102,7 +102,7 @@ fn commands_without_a_bifrost_predecessor_carry_no_legacy_fingerprint() {
             .iter()
             .filter(|command| command.legacy_sha256.is_some())
             .count(),
-        8,
+        7,
         "every command with a Bifrost-era predecessor must keep its digest"
     );
     for command in commands
@@ -208,7 +208,7 @@ fn materialise_creates_repairs_and_then_becomes_idempotent() {
     let (_guard, dir) = commands_dir();
 
     let first = materialise(&dir).unwrap();
-    assert_eq!(first.len(), 12);
+    assert_eq!(first.len(), 11);
     assert!(first.iter().all(|change| change.change == Change::Created));
 
     fs::write_text(&dir.join("ivar-review.md"), "changed").unwrap();
@@ -220,7 +220,7 @@ fn materialise_creates_repairs_and_then_becomes_idempotent() {
     );
 
     let third = materialise(&dir).unwrap();
-    assert_eq!(third.len(), 12);
+    assert_eq!(third.len(), 11);
     assert!(
         third
             .iter()
@@ -268,7 +268,7 @@ fn remove_deletes_only_reserved_ivar_commands() {
 
     let changes = remove(&dir).unwrap();
 
-    assert_eq!(changes.len(), 12);
+    assert_eq!(changes.len(), 11);
     assert!(
         changes
             .iter()
@@ -338,7 +338,7 @@ fn inspect_sees_a_healthy_directory_as_current() {
 
     let inspections = inspect(&dir, true).unwrap();
 
-    assert_eq!(inspections.len(), 12);
+    assert_eq!(inspections.len(), 11);
     assert!(
         inspections
             .iter()
@@ -374,7 +374,7 @@ fn inspect_marks_leftover_files_stale_for_a_disabled_provider() {
 
     let inspections = inspect(&dir, false).unwrap();
 
-    assert_eq!(inspections.len(), 12);
+    assert_eq!(inspections.len(), 11);
     assert!(
         inspections
             .iter()
@@ -447,14 +447,31 @@ fn every_command_declaring_an_argument_hint_consumes_arguments() {
 }
 
 #[test]
-fn discovery_uses_graph_explore_with_fallback() {
-    let content = embedded("discovery");
-    assert!(content.contains("ivar graph explore"), "was: {content}");
-    assert!(content.contains("advisory"), "was: {content}");
+fn discovery_is_a_shipped_skill_not_a_command() {
+    assert!(!catalog().iter().any(|command| command.id == "discovery"));
     assert!(
-        content.contains("fallback") || content.contains("fall back"),
-        "was: {content}"
+        crate::harness::skills::catalog()
+            .iter()
+            .any(|skill| skill.id == "explore")
     );
+    assert_eq!(catalog().len(), 11);
+}
+
+#[test]
+fn materialise_removes_the_retired_discovery_command_and_keeps_user_files() {
+    let (_guard, dir) = commands_dir();
+    fs::ensure_dir(&dir).unwrap();
+    fs::write_text(&dir.join("ivar-discovery.md"), "old discovery").unwrap();
+    fs::write_text(&dir.join("discovery.md"), "my own command\n").unwrap();
+
+    let changes = materialise(&dir).unwrap();
+
+    assert_eq!(
+        change(&changes, "ivar-discovery.md").change,
+        Change::Removed
+    );
+    assert!(!fs::exists(&dir.join("ivar-discovery.md")).unwrap());
+    assert!(fs::exists(&dir.join("discovery.md")).unwrap());
 }
 
 #[test]

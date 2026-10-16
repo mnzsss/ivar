@@ -20,9 +20,8 @@ use camino::Utf8Path;
 use predicates::prelude::*;
 
 /// Every shipped command id, as `/ivar-<id>`.
-const SHIPPED_IDS: [&str; 12] = [
+const SHIPPED_IDS: [&str; 11] = [
     "connect",
-    "discovery",
     "feature-cleanup",
     "feature-create",
     "feature-status",
@@ -138,6 +137,8 @@ fn shipped_commands_encode_wave_completion_and_native_coordination() {
     assert!(plan.contains("Literal Code"));
     assert!(!root.join(".claude/commands/ivar-plan.md").exists());
     assert!(!root.join(".claude/commands/ivar-execute.md").exists());
+    assert!(root.join(".claude/skills/ivar-explore/SKILL.md").is_file());
+    assert!(!root.join(".claude/commands/ivar-discovery.md").exists());
 }
 
 /// `ivar provider add` materialises the new provider's commands immediately —
@@ -230,10 +231,12 @@ fn sync_materialises_shipped_skills_and_doctor_inspects_them() {
     ivar().current_dir(&root).arg("sync").assert().success();
 
     for dir in [".claude/skills", ".opencode/skills", ".omp/skills"] {
-        assert!(
-            root.join(dir).join("ivar-execute/SKILL.md").is_file(),
-            "expected {dir}/ivar-execute/SKILL.md to exist after sync"
-        );
+        for skill in ["ivar-execute", "ivar-explore"] {
+            assert!(
+                root.join(dir).join(skill).join("SKILL.md").is_file(),
+                "expected {dir}/{skill}/SKILL.md to exist after sync"
+            );
+        }
     }
 
     // Doctor on a healthy setup reports no skill findings
