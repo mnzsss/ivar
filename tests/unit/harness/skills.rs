@@ -76,11 +76,11 @@ fn explore_skill_routes_on_its_description() {
     );
     assert!(description.contains("not scoped yet"), "was: {description}");
     assert!(
-        description.contains("plain question about existing code"),
+        description.contains("Do not use it for a plain question about existing code"),
         "was: {description}"
     );
     assert!(
-        description.contains("Feature Session"),
+        description.contains("do not use it inside a Feature Session"),
         "was: {description}"
     );
 }
