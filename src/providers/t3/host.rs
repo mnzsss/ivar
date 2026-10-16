@@ -17,6 +17,7 @@ use crate::infra::proc::{self, Command};
 const NOT_REGISTERED: &str = "ProjectNotFoundError";
 const MIN_VERSION: (u64, u64, u64) = (0, 1, 0);
 const MIN_VERSION_TEXT: &str = "0.1.0";
+const UNRUNNABLE_SUMMARY: &str = "`t3` is not installed or does not run";
 pub const VERSION_ADVICE: &str = "Run ivar from inside T3 Code (it sets `T3CODE_CLI_PATH`), point `T3CODE_CLI_PATH` or PATH at t3 0.1.0 or newer, or start the session with another provider.";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -103,7 +104,7 @@ pub fn preflight() -> Result<(), Failure> {
         Ok(()) => Ok(()),
         Err(VersionCheck::Unrunnable) => Err(Failure::blocked(
             "t3.binary_missing",
-            "`t3` is not installed or does not run",
+            UNRUNNABLE_SUMMARY,
         )
         .expected("`t3 --version` to succeed")
         .actual("`t3` could not be run")
@@ -125,9 +126,20 @@ pub fn preflight() -> Result<(), Failure> {
     }
 }
 
+fn ensure_supported() -> Result<(), String> {
+    check_version().map_err(|check| {
+        let summary = match check {
+            VersionCheck::Unrunnable => UNRUNNABLE_SUMMARY.to_owned(),
+            VersionCheck::Unsupported(found) => unsupported_summary(&found),
+        };
+        format!("{summary}; skipped")
+    })
+}
+
 /// # Errors
-/// The first line of what `t3 app` said, or why it could not run.
+/// Why `t3` was skipped as unusable, the first line of what `t3 app` said, or why it could not run.
 pub fn open(view_dir: &Utf8Path) -> Result<(), String> {
+    ensure_supported()?;
     let output = proc::capture(&t3().arg("app").arg(view_dir.as_str()))
         .map_err(|error| error.to_string())?;
     if output.success() {
@@ -139,8 +151,10 @@ pub fn open(view_dir: &Utf8Path) -> Result<(), String> {
 /// Removes without `--force`: `--force` also deletes the project's threads.
 ///
 /// # Errors
-/// The first line of what `t3 project remove` said, or why it could not run.
+/// Why `t3` was skipped as unusable, the first line of what `t3 project remove` said, or why it
+/// could not run.
 pub fn close(view_dir: &Utf8Path) -> Result<(), String> {
+    ensure_supported()?;
     let output = remove(view_dir).map_err(|error| error.to_string())?;
     if output.success() || output.diagnostic().contains(NOT_REGISTERED) {
         return Ok(());

@@ -28,7 +28,10 @@ fn open_runs_t3_app_with_the_view_dir_and_is_idempotent() {
     host::open(&dir).unwrap();
     host::open(&dir).unwrap();
 
-    assert_eq!(fake.log(), format!("app {dir}\napp {dir}\n"));
+    assert_eq!(
+        fake.log(),
+        format!("--version\napp {dir}\n--version\napp {dir}\n")
+    );
     assert_eq!(fake.projects(), vec![dir.to_string()]);
 }
 
@@ -139,4 +142,31 @@ fn probe_stops_at_an_outdated_t3_without_running_a_project_command() {
         host::Probe::Outdated("0.0.45".to_owned())
     );
     assert_eq!(fake.log(), "--version\n");
+}
+
+#[test]
+fn open_and_close_skip_an_outdated_t3_without_running_an_app_or_project_command() {
+    let (_guard, root) = hall_root();
+    let fake = FakeT3::install(&root);
+    let dir = view_dir(&root);
+    let _t3 = redirect_t3(fake_t3_command(&fake).env("T3_FAKE_VERSION", "0.0.45"));
+
+    let opened = host::open(&dir).unwrap_err();
+    let closed = host::close(&dir).unwrap_err();
+
+    assert!(opened.contains("v0.0.45") && opened.contains("older than 0.1.0"));
+    assert!(closed.contains("v0.0.45") && closed.contains("older than 0.1.0"));
+    assert_eq!(fake.log(), "--version\n--version\n");
+    assert!(!fake.log().contains("app "));
+    assert!(!fake.log().contains("project "));
+}
+
+#[test]
+fn open_and_close_skip_a_t3_that_cannot_run() {
+    let (_guard, root) = hall_root();
+    let dir = view_dir(&root);
+    let _gone = redirect_t3(Command::new("/nonexistent/t3"));
+
+    assert!(host::open(&dir).unwrap_err().ends_with("; skipped"));
+    assert!(host::close(&dir).unwrap_err().ends_with("; skipped"));
 }

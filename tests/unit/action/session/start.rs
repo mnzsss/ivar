@@ -2545,7 +2545,10 @@ fn a_t3_session_opens_its_view_dir_in_t3_even_without_a_tty() {
     assert_eq!(outcome.provider, Provider::T3);
     assert!(outcome.opened_in_host);
     assert!(!outcome.detached);
-    assert_eq!(fake.log(), format!("--version\napp {}\n", outcome.view_dir));
+    assert_eq!(
+        fake.log(),
+        format!("--version\n--version\napp {}\n", outcome.view_dir)
+    );
     assert!(
         report
             .warnings
@@ -2633,7 +2636,11 @@ fn a_detached_t3_start_opens_nothing_and_reports_the_t3_command() {
     assert_eq!(fake.log(), "");
     assert_eq!(
         outcome.launch_command,
-        Some(format!("t3 app {}", outcome.view_dir))
+        Some(format!(
+            "{} app {}",
+            crate::providers::t3::host::program(),
+            outcome.view_dir
+        ))
     );
 }
 

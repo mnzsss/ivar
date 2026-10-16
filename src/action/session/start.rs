@@ -258,10 +258,7 @@ pub fn start(ctx: &Ctx, input: StartInput) -> Outcome<StartOutcome> {
     }
 
     let launch_command = detached.then(|| match provider {
-        Provider::T3 => format!(
-            "{} app {view_dir}",
-            providers::launch_contract(provider).binary
-        ),
+        Provider::T3 => format!("{} app {view_dir}", providers::t3::host::program()),
         Provider::ClaudeCode | Provider::OpenCode | Provider::Omp => launch_command(
             &session_id,
             input.resume,

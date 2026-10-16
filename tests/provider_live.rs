@@ -883,7 +883,6 @@ fn t3_command(args: &[&str]) -> std::process::Output {
 }
 
 fn wait_for_t3_project(view_dir: &Utf8PathBuf) {
-    // Wait for T3 to register the project.
     for _ in 0..15 {
         if t3_command(&["project", "rename", view_dir.as_str(), "ivar-live"])
             .status

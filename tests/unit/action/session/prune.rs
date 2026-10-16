@@ -327,6 +327,6 @@ fn prune_closes_a_dead_session_by_path_only_when_the_hall_lists_t3() {
     let with = orphan_view_dir(&layout);
     prune(&Ctx::new(root.clone())).unwrap();
     assert!(!with.exists());
-    assert_eq!(fake.log(), format!("project remove {with}\n"));
+    assert_eq!(fake.log(), format!("--version\nproject remove {with}\n"));
     unguard_worktrees(&root);
 }
