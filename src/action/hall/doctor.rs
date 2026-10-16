@@ -940,7 +940,7 @@ pub fn diagnose_mcp_auth(
         let url = server.url.as_deref().unwrap_or("");
         let materialised = format!("{hall}-{}", server.name);
 
-        for &provider in manifest.providers().available() {
+        for provider in manifest.providers().config_owners() {
             let state = state_of(provider, &materialised, url);
             if state == CredentialState::Missing {
                 findings.push(Diagnosis {

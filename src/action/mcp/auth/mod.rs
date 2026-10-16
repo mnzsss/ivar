@@ -375,7 +375,8 @@ pub fn auth(ctx: &Ctx, input: &AuthInput) -> Outcome<AuthOutcome> {
     let materialised_name = server.materialised_name(manifest.name());
 
     if input.all_providers {
-        let ordered = provider_order(manifest.providers().available());
+        let owners: Vec<Provider> = manifest.providers().config_owners().collect();
+        let ordered = provider_order(&owners);
         let server_url = server.url.as_deref().unwrap_or_default();
         let runs: Vec<ProviderRun> = ordered
             .iter()
@@ -387,7 +388,7 @@ pub fn auth(ctx: &Ctx, input: &AuthInput) -> Outcome<AuthOutcome> {
 
         if ran >= 2 {
             let mut after = std::collections::BTreeMap::new();
-            for &p in manifest.providers().available() {
+            for &p in &owners {
                 match p {
                     Provider::ClaudeCode | Provider::OpenCode | Provider::T3 => {
                         if let Some(Ok(map)) = crate::providers::live_states(p, layout.root())
