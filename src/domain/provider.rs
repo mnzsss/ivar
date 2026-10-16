@@ -1,6 +1,8 @@
 //! Which harnesses exist, and where each one keeps its config.
 //!
-//! The set is **closed and known at compile time** — Claude Code, OpenCode and OMP.
+//! The set is **closed and known at compile time** — Claude Code, OpenCode and OMP, plus
+//! T3, a hosted provider that runs Claude Code inside T3 Code and owns no config surface
+//! (`Provider::SELECTABLE` lists all four, `Provider::ALL` only the three that do).
 //! That is a deliberate modelling choice, not a limitation waiting to be fixed:
 //! adding a harness means writing an adapter, a config materialiser and a log
 //! parser, so it is a code change either way. A closed enum means the compiler

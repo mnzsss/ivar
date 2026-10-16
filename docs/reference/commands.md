@@ -597,7 +597,7 @@ Register a new provider by name and materialise its config and skills
 
 | argument | required | description |
 | --- | --- | --- |
-| `name` | yes | The provider's name (e.g. `claude-code`, `opencode`, `omp`) |
+| `name` | yes | The provider's name (e.g. `claude-code`, `opencode`, `omp`, `t3`) |
 
 
 ##### `ivar provider remove`
@@ -606,7 +606,7 @@ Unregister a provider and tear down its hall config and skills
 
 | argument | required | description |
 | --- | --- | --- |
-| `name` | yes | The provider's name (e.g. `claude-code`, `opencode`, `omp`) |
+| `name` | yes | The provider's name (e.g. `claude-code`, `opencode`, `omp`, `t3`) |
 
 | flag | value | default | description |
 | --- | --- | --- | --- |

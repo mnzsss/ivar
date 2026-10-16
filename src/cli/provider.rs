@@ -17,7 +17,7 @@ pub enum ProviderCommand {
 /// Arguments for `ivar provider add`.
 #[derive(Debug, Args)]
 pub struct ProviderAddArgs {
-    /// The provider's name (e.g. `claude-code`, `opencode`, `omp`).
+    /// The provider's name (e.g. `claude-code`, `opencode`, `omp`, `t3`).
     pub name: String,
 }
 
@@ -31,7 +31,7 @@ impl From<ProviderAddArgs> for provider_add::AddInput {
 /// Arguments for `ivar provider remove`.
 #[derive(Debug, Args)]
 pub struct ProviderRemoveArgs {
-    /// The provider's name (e.g. `claude-code`, `opencode`, `omp`).
+    /// The provider's name (e.g. `claude-code`, `opencode`, `omp`, `t3`).
     pub name: String,
     /// The provider to make the default. Required when removing the current default
     #[arg(long)]
