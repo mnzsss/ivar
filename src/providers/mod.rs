@@ -497,5 +497,9 @@ mod hook_tests;
 mod extension_tests;
 
 #[cfg(test)]
+#[path = "../../tests/unit/providers/opencode_plugin.rs"]
+mod opencode_plugin_tests;
+
+#[cfg(test)]
 #[path = "../../tests/unit/providers/auth.rs"]
 mod auth_tests;

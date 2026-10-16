@@ -13,9 +13,8 @@
 )]
 
 /// Every shipped command id, as `/ivar-<id>`.
-const SHIPPED_IDS: [&str; 12] = [
+const SHIPPED_IDS: [&str; 11] = [
     "connect",
-    "discovery",
     "feature-cleanup",
     "feature-create",
     "feature-status",
@@ -362,6 +361,19 @@ mod cited_invocations {
             .iter()
             .flat_map(|command| citations(&format!("{}.md", command.id), command.content))
             .collect();
+        found.extend(
+            ivar::harness::skills::catalog()
+                .iter()
+                .filter(|skill| skill.id == "explore")
+                .flat_map(|skill| {
+                    skill.files.iter().flat_map(move |file| {
+                        citations(
+                            &format!("{}/{}", skill.skill_dir_name(), file.path),
+                            file.content,
+                        )
+                    })
+                }),
+        );
 
         let hall = HallName::new("hall").unwrap();
         let repos = [RepoName::new("repo").unwrap()];
@@ -391,6 +403,18 @@ mod cited_invocations {
             found.len() >= 120,
             "expected at least 120 quoted invocations, found {} — the extractor is broken",
             found.len()
+        );
+    }
+
+    #[test]
+    fn the_explore_skill_citations_are_among_the_validated_sources() {
+        let found = all_citations();
+        assert!(
+            found
+                .iter()
+                .any(|citation| citation.source == "ivar-explore/SKILL.md"
+                    && citation.text.starts_with("ivar session convert")),
+            "the explore skill's invocations must be scanned"
         );
     }
 
@@ -716,7 +740,7 @@ fn phase_transitions_offer_approve_and_continue_and_templates_match_execute() {
 fn shipped_text_names_only_env_vars_ivar_exports() {
     for path in [
         "commands/feature-cleanup.md",
-        "commands/discovery.md",
+        "skills/ivar-explore/SKILL.md",
         "commands/connect.md",
     ] {
         assert!(
@@ -725,7 +749,7 @@ fn shipped_text_names_only_env_vars_ivar_exports() {
         );
     }
     assert!(
-        !shipped("commands/discovery.md").contains("look in `.claude/skills/`"),
+        !shipped("skills/ivar-explore/SKILL.md").contains("look in `.claude/skills/`"),
         "a view dir never holds the hall's ivar-plan skill"
     );
     assert!(

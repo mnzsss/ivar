@@ -1,43 +1,41 @@
 ---
-description: Guided discovery session — explore the codebase, understand a problem, and optionally create a Feature.
-argument-hint: [objective]
+name: ivar-explore
+description: Start or continue a guided Discovery Session when the user describes a problem, idea, decision or change that is not scoped yet and needs understanding before work begins. Do not use it for a plain question about existing code, and do not use it inside a Feature Session.
 ---
 
-# Discovery
+# Explore
 
-`/ivar-discovery` runs a guided Discovery Session. Use this when you need to
-understand a problem, explore the codebase, or make a decision before committing
-to a Feature.
+`ivar-explore` runs a guided Discovery Session: understand a problem, explore
+the code, or settle a decision before committing to a Feature. The user does
+not invoke it; load it when their request is a problem, idea, decision or
+change that is not scoped yet. Answer a plain question about existing code
+directly and open no session for it.
 
 ## Behavior
 
 - **No active session**: starts a new Discovery Session and begins the guided
-  discovery.
-- **Active Discovery Session**: continues the current discovery — re-running
-  `/ivar-discovery` does not start over.
-- **Active Feature Session**: rejects — conversion is irreversible and cannot
-  target a Feature session.
+  discovery, without asking for confirmation.
+- **Active Discovery Session**: continues the current discovery and
+  never starts a second one.
+- **Active Feature Session**: does nothing but explain — conversion is
+  irreversible and cannot target a Feature session.
 
 ## Steps
 
-1. **Check active session**
+1. **Check the active session**
    - `$IVAR_SESSION_ID` is the signal: no command lists sessions, and
      `ivar status` reports the hall's repo health, not its sessions.
    - If `$IVAR_SESSION_ID` is set and its session has no feature → continue the
      existing discovery.
-   - If `$IVAR_SESSION_ID` is set and its session is feature-bound → refuse:
-     "This session is already a Feature session. Conversion is irreversible.
-     Start a new Discovery Session if needed."
-   - If no session exists → proceed to step 2.
+   - If `$IVAR_SESSION_ID` is set and its session is feature-bound → stop and
+     say: "This session is already a Feature session. Conversion is
+     irreversible. Start a new Discovery Session if needed."
+   - If no session exists → step 2.
 
-2. **No active session — start Discovery**
-   - If `$ARGUMENTS` is provided, treat it as a provisional objective.
-   - If no `$ARGUMENTS` is provided, ask the user: "What would you like to
-     understand or decide?"
-   - Run `ivar session start` with no feature argument to create a Discovery
-     Session (a session with no feature).
-   - Parse output for `IVAR_SESSION_ID`, `IVAR_SESSION_PATH`.
-   - Export the env vars.
+2. **Start the Discovery Session**
+   - Treat the user's message as the provisional objective.
+   - Run `ivar session start` with no feature argument.
+   - Parse the output for `IVAR_SESSION_ID`, `IVAR_SESSION_PATH` and export them.
 
 3. **Discover**
    - Ask one question at a time. Never ask multiple questions in a single turn.
@@ -57,6 +55,7 @@ to a Feature.
      - Initial scope boundaries
      - Likely affected repos
      - Risks and blocking open questions
+
 4. **Conversion readiness check**
    Once you have identified all of the following, you may offer conversion:
    - Problem or opportunity statement
@@ -97,10 +96,10 @@ to a Feature.
         to choose a new or existing feature — the name follows from the brief,
         and `ivar feature create` beforehand is unnecessary.
      4. Parse the output. Export the binding env vars.
-     5. After successful conversion, ask: **(a) Plan it now** with
-        `/ivar-plan`, **(b) Stop here**. `ivar sync` ships `ivar-plan` to every
-        provider at the hall root, so do not look for it under the session
-        directory. Start `/ivar-plan` only on (a).
+     5. After successful conversion, ask: **(a) Plan it now**, **(b) Stop here**.
+        Load the `ivar-plan` skill only on (a). `ivar sync` ships `ivar-plan` to
+        every provider at the hall root, so do not look for it under the session
+        directory.
 
 ## Important
 

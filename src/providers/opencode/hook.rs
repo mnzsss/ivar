@@ -9,6 +9,8 @@ use crate::providers::ManagedArtifact;
 /// Hook signatures (from `opencode.ai/docs/plugins`):
 /// - `shell.env(input, output)` — `input.cwd` is the working directory;
 ///   `output.env` is a mutable object; set keys on it to inject env vars.
+///   Outside a session (`session.not_in_session`) it leaves the env alone;
+///   any other failure still throws.
 /// - `tool.execute.before(input, output)` — `input.tool` is the tool name;
 ///   `output.args` are the arguments. Throw to block execution.
 /// - `tool.execute.before(input, output)` also carries `input.sessionID`
@@ -33,13 +35,28 @@ const contexts = new Map();
 export const IvarPlugin = async () => ({
   "shell.env": async (input, output) => {
     const { execSync } = await import("child_process");
-    const result = execSync(
-      `ivar session env --json --cwd ${JSON.stringify(input.cwd)}`,
-      { encoding: "utf-8" }
-    );
+    let result;
+    try {
+      result = execSync(
+        `ivar session env --json --cwd ${JSON.stringify(input.cwd)}`,
+        { encoding: "utf-8" }
+      );
+    } catch (error) {
+      // Throwing here fails every shell command, and most run outside a session.
+      let code;
+      try {
+        code = JSON.parse(error.stdout).code;
+      } catch {}
+      if (code === "session.not_in_session") {
+        return;
+      }
+      throw error;
+    }
     const env = JSON.parse(result);
     for (const [key, value] of Object.entries(env)) {
-      output.env[key] = value;
+      if (key.startsWith("IVAR_")) {
+        output.env[key] = value;
+      }
     }
   },
 

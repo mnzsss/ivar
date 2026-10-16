@@ -20,10 +20,9 @@ use crate::common::{hall_root, ivar, seeded_repo};
 use camino::Utf8Path;
 use predicates::prelude::*;
 
-/// The twelve shipped command ids.
-const SHIPPED_IDS: [&str; 12] = [
+/// The eleven shipped command ids.
+const SHIPPED_IDS: [&str; 11] = [
     "connect",
-    "discovery",
     "feature-cleanup",
     "feature-create",
     "feature-status",

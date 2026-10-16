@@ -72,9 +72,10 @@ Ivar records the Run Receipt.
 ## Sessions
 
 **Discovery session** — a session with no bound feature, started by `ivar
-session start` with no feature named. Every repo is symlinked to its default
-branch, read-only, and promotion is disabled. For exploring and cross-repo
-reading. May convert exactly once into a feature session.
+session start` with no feature named, usually by the agent through the
+`ivar-explore` skill when a request is not scoped yet. Every repo is symlinked
+to its default branch, read-only, and promotion is disabled. For exploring and
+cross-repo reading. May convert exactly once into a feature session.
 
 **Session conversion** — one-way binding of a discovery session to a feature.
 Preserves the session's id, provider and start time, and moves its view dir from
