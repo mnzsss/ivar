@@ -278,7 +278,7 @@ not stop an existing tracked file from being modified in place.
   or `flock`.
 - **Platforms without Landlock.** On macOS and older Linux kernels (< 5.13), kernel
   sandboxing is unavailable; protection degrades gracefully to the advisory tool guard.
-- **T3 Code sessions.** A session opened with `ivar session start --provider t3` has no kernel sandbox on any platform, including Linux with Landlock; the lines above about shell writes and structured tools (155-157, 250) apply to it as they do to a platform without Landlock.
+- **T3 Code sessions.** A session opened with `ivar session start --provider t3` has no kernel sandbox on any platform, including Linux with Landlock; the notes on shell writes and structured tools in "Session write guard: Enforcing (Linux) vs Advisory (Everywhere)" and "What protects the default branch" apply to it as they do to a platform without Landlock.
 - **Repositories outside the hall.** Protection is installed by `ivar sync` on
   repos declared in `ivar.json`. A clone made by hand elsewhere has none of it.
 - **`git commit --no-verify`,** typed by a human or emitted by an agent. Git
