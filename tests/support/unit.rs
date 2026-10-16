@@ -44,6 +44,37 @@ pub(crate) fn fake_gh_on_this_thread(fake: &FakeGh) -> crate::infra::proc::Redir
     crate::infra::proc::redirect_on_this_thread("gh", fake_gh_command(fake))
 }
 
+#[path = "fake_t3.rs"]
+mod fake_t3;
+
+pub(crate) use fake_t3::FakeT3;
+
+pub(crate) fn fake_t3_command(fake: &FakeT3) -> crate::infra::proc::Command {
+    crate::infra::proc::Command::new(fake.dir.join("t3").as_str())
+        .env("T3_FAKE_PROJECTS", fake.projects.as_str())
+        .env("T3_FAKE_LOG", fake.log.as_str())
+}
+
+pub(crate) fn fake_t3_on_this_thread(fake: &FakeT3) -> crate::infra::proc::Redirect {
+    crate::infra::proc::redirect_on_this_thread("t3", fake_t3_command(fake))
+}
+
+/// Rewrites the hall manifest to list `claude-code` and `t3`, with `default` as the default.
+#[allow(dead_code)]
+pub(crate) fn enable_t3_host(root: &Utf8PathBuf, default: crate::domain::provider::Provider) {
+    use crate::domain::provider::Provider;
+    use crate::store::manifest::{Manifest, Providers};
+    let layout = crate::store::layout::Layout::at(root.clone());
+    let manifest = Manifest::read(&layout).unwrap().unwrap();
+    let updated = manifest
+        .with_providers(Providers::new(
+            vec![Provider::ClaudeCode, Provider::T3],
+            default,
+        ))
+        .unwrap();
+    Manifest::write(&layout, &updated).unwrap();
+}
+
 /// A canonicalised hall root with a freshly initialised hall named `acme`.
 ///
 /// Shared by every action-layer unit-test module that needs a real hall to
