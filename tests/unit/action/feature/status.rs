@@ -146,6 +146,7 @@ fn the_human_surface_lists_repos_and_their_states() {
             worktree_present: true,
             base: Some(BranchName::new("main").unwrap()),
             base_diverged: false,
+            outside_plan: false,
             pr_url: None,
             pr_state: None,
             reason: None,
@@ -180,6 +181,7 @@ fn the_human_surface_marks_a_diverged_base() {
             worktree_present: true,
             base: Some(BranchName::new("main").unwrap()),
             base_diverged: true,
+            outside_plan: false,
             pr_url: None,
             pr_state: None,
             reason: None,
@@ -405,6 +407,7 @@ fn feature_status_json_omits_none_parent_and_none_pr_url() {
             worktree_present: true,
             base: Some(BranchName::new("main").unwrap()),
             base_diverged: false,
+            outside_plan: false,
             pr_url: None,
             pr_state: None,
             reason: None,
@@ -548,4 +551,71 @@ fn status_subtree_human_output_renders_tree_glyphs() {
             "  └── child-b  state integrated  plan approved  repos 0  no run  sessions 0"
         )
     );
+}
+
+fn promoted_checkout_with_plan(repos: Option<&str>) -> (tempfile::TempDir, Utf8PathBuf, Ctx) {
+    let (guard, root) = hall_with_feature();
+    let ctx = Ctx::new(root.clone());
+    promote::promote(
+        &ctx,
+        PromoteInput {
+            feature: "checkout".to_owned(),
+            repo: "api".to_owned(),
+            base: None,
+        },
+    )
+    .unwrap();
+    if let Some(repos) = repos {
+        let layout = Layout::at(root.clone());
+        let plan_dir = layout.plan_dir(&FeatureName::new("checkout").unwrap());
+        std::fs::create_dir_all(&plan_dir).unwrap();
+        std::fs::write(
+            plan_dir.join("plan.md"),
+            format!("---\nrepos: [{repos}]\n---\n# Plan\n"),
+        )
+        .unwrap();
+    }
+    (guard, root, ctx)
+}
+
+fn api_outside_plan(ctx: &Ctx) -> bool {
+    let report = status(
+        ctx,
+        StatusInput {
+            feature: "checkout".to_owned(),
+            recursive: false,
+        },
+    )
+    .unwrap();
+    assert!(report.is_clean());
+    report.value.repos[0].outside_plan
+}
+
+#[test]
+fn status_flags_a_clean_promotion_the_plan_leaves_out() {
+    let (_guard, _root, ctx) = promoted_checkout_with_plan(Some("web"));
+
+    assert!(api_outside_plan(&ctx));
+}
+
+#[test]
+fn status_does_not_flag_a_repo_the_plan_lists() {
+    let (_guard, _root, ctx) = promoted_checkout_with_plan(Some("api"));
+
+    assert!(!api_outside_plan(&ctx));
+}
+
+#[test]
+fn status_does_not_flag_when_the_plan_declares_no_repos() {
+    let (_guard, _root, ctx) = promoted_checkout_with_plan(None);
+
+    assert!(!api_outside_plan(&ctx));
+}
+
+#[test]
+fn status_does_not_flag_a_left_out_repo_that_carries_work() {
+    let (_guard, root, ctx) = promoted_checkout_with_plan(Some("web"));
+    std::fs::write(root.join(".ivar/repos/api/checkout/wip.txt"), "wip\n").unwrap();
+
+    assert!(!api_outside_plan(&ctx));
 }
