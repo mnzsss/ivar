@@ -177,7 +177,7 @@ fn all_object_types_in_defs_are_closed() {
 
 // -- provider and integration enums --------------------------------------
 
-/// The published enum is every variant `Provider::ALL` carries, not a subset.
+/// The published enum is every variant `Provider::SELECTABLE` carries, not a subset.
 /// Asserting membership of a few literals is what let `omp` ship missing:
 /// the schema rejected a provider `Provider::from_str` accepts.
 #[test]
@@ -192,7 +192,7 @@ fn provider_enum_is_exactly_every_supported_provider() {
         .map(|arr| arr.iter().filter_map(Value::as_str).collect())
         .unwrap_or_default();
 
-    let supported: Vec<&str> = crate::domain::provider::Provider::ALL
+    let supported: Vec<&str> = crate::domain::provider::Provider::SELECTABLE
         .iter()
         .map(|provider| provider.id())
         .collect();

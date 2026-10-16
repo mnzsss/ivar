@@ -571,3 +571,56 @@ fn omp_and_opencode_allow_body_is_the_context_and_deny_ignores_it() {
         assert_eq!(slice.body, "ctx", "{provider:?}");
     }
 }
+
+#[test]
+fn t3_cannot_resume_or_take_a_prompt() {
+    let t3 = providers::launch_contract(Provider::T3);
+    assert_eq!(t3.binary, "t3");
+    assert!(!t3.capabilities.supports_resume);
+    assert!(!t3.capabilities.initial_prompt);
+    assert!(!t3.capabilities.interactive);
+    assert_eq!(
+        providers::start_command(Provider::T3, true, &[])
+            .unwrap_err()
+            .code,
+        "harness.no_resume"
+    );
+    assert_eq!(
+        providers::initial_prompt_args(Provider::T3, false, "x")
+            .unwrap_err()
+            .code,
+        "harness.no_initial_prompt"
+    );
+}
+
+#[test]
+fn t3_resolves_credentials_and_login_through_claude_code() {
+    assert_eq!(
+        providers::credential_state(Provider::T3, "acme-docs", "https://example.test/mcp"),
+        providers::credential_state(
+            Provider::ClaudeCode,
+            "acme-docs",
+            "https://example.test/mcp"
+        )
+    );
+    assert_eq!(
+        providers::login_subcommand(Provider::T3),
+        providers::login_subcommand(Provider::ClaudeCode)
+    );
+}
+
+#[test]
+fn t3_renders_mcp_projections_and_guard_input_like_claude_code() {
+    assert_eq!(
+        providers::mcp_root_key(Provider::T3),
+        providers::mcp_root_key(Provider::ClaudeCode)
+    );
+    assert_eq!(
+        providers::session_projections(Provider::T3),
+        providers::session_projections(Provider::ClaudeCode)
+    );
+    assert_eq!(
+        providers::managed_artifacts(Provider::T3),
+        providers::managed_artifacts(Provider::ClaudeCode)
+    );
+}

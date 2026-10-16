@@ -209,7 +209,7 @@ fn materialise_session_settings(
     view_dir: &Utf8Path,
     report: &mut MaterialiseReport,
 ) {
-    if provider != Provider::ClaudeCode {
+    if provider.config_owner() != Provider::ClaudeCode {
         return;
     }
     let hall_settings = layout.root().join(Provider::CLAUDE_SETTINGS);

@@ -4,6 +4,7 @@ pub mod claude_code;
 pub mod omp;
 pub mod opencode;
 pub(crate) mod search;
+pub mod t3;
 
 use crate::domain::guard::{GuardDecision, GuardOutcome, ToolRequest};
 use crate::domain::mcp::{CredentialState, McpServerDef, McpTransport};
@@ -57,6 +58,7 @@ pub fn launch_contract(provider: Provider) -> LaunchContract {
         Provider::ClaudeCode => claude_code::launch::contract(),
         Provider::OpenCode => opencode::launch::contract(),
         Provider::Omp => omp::launch::contract(),
+        Provider::T3 => t3::launch::contract(),
     }
 }
 
@@ -94,6 +96,7 @@ pub fn start_command(
         Provider::ClaudeCode => Ok(claude_code::launch::start_command(resume, mcp_allowlist)),
         Provider::OpenCode => Ok(opencode::launch::start_command(resume)),
         Provider::Omp => Ok(omp::launch::start_command(resume)),
+        Provider::T3 => Ok(t3::launch::start_command()),
     }
 }
 
@@ -114,6 +117,7 @@ pub fn initial_prompt_args(
         Provider::ClaudeCode => claude_code::launch::prompt_args(prompt),
         Provider::OpenCode => opencode::launch::prompt_args(prompt),
         Provider::Omp => omp::launch::prompt_args(prompt),
+        Provider::T3 => Vec::new(),
     })
 }
 
@@ -155,7 +159,7 @@ pub(crate) fn require_initial_prompt(
 #[must_use]
 pub fn mcp_root_key(provider: Provider) -> &'static str {
     match provider {
-        Provider::ClaudeCode => claude_code::mcp::ROOT_KEY,
+        Provider::ClaudeCode | Provider::T3 => claude_code::mcp::ROOT_KEY,
         Provider::OpenCode => opencode::mcp::ROOT_KEY,
         Provider::Omp => omp::mcp::ROOT_KEY,
     }
@@ -167,7 +171,7 @@ pub fn mcp_root_key(provider: Provider) -> &'static str {
 pub fn legacy_mcp_config(provider: Provider) -> Option<&'static str> {
     match provider {
         Provider::Omp => Some(omp::mcp::LEGACY_ROOT_CONFIG),
-        Provider::ClaudeCode | Provider::OpenCode => None,
+        Provider::ClaudeCode | Provider::OpenCode | Provider::T3 => None,
     }
 }
 
@@ -184,7 +188,9 @@ pub fn mcp_server_doc(
     transport: McpTransport,
 ) -> serde_json::Value {
     match provider {
-        Provider::ClaudeCode => claude_code::mcp::server_doc(name, server, transport),
+        Provider::ClaudeCode | Provider::T3 => {
+            claude_code::mcp::server_doc(name, server, transport)
+        }
         Provider::OpenCode => opencode::mcp::server_doc(name, server, transport),
         Provider::Omp => omp::mcp::server_doc(name, server, transport),
     }
@@ -194,7 +200,7 @@ pub fn mcp_server_doc(
 #[must_use]
 pub fn managed_artifacts(provider: Provider) -> Vec<ManagedArtifact> {
     match provider {
-        Provider::ClaudeCode => claude_code::hook::managed_artifacts(),
+        Provider::ClaudeCode | Provider::T3 => claude_code::hook::managed_artifacts(),
         Provider::OpenCode => opencode::hook::managed_artifacts(),
         Provider::Omp => omp::managed_artifacts(),
     }
@@ -220,7 +226,7 @@ pub fn session_projections(provider: Provider) -> Vec<SessionProjection> {
         config_relative_dest: Utf8PathBuf::from("commands"),
     }];
     match provider {
-        Provider::ClaudeCode | Provider::OpenCode => {}
+        Provider::ClaudeCode | Provider::OpenCode | Provider::T3 => {}
         Provider::Omp => projections.extend(omp::session::extra_projections()),
     }
     projections
@@ -248,7 +254,7 @@ pub fn parse_tool_request(
     stdin_json: &str,
 ) -> Result<(ToolRequest, Option<Utf8PathBuf>), Failure> {
     match provider {
-        Provider::ClaudeCode => claude_code::guard::parse_tool_request(stdin_json),
+        Provider::ClaudeCode | Provider::T3 => claude_code::guard::parse_tool_request(stdin_json),
         Provider::OpenCode => opencode::guard::parse_tool_request(stdin_json),
         Provider::Omp => omp::guard::parse_tool_request(stdin_json),
     }
@@ -263,7 +269,9 @@ pub fn render_decision(
     context: Option<&str>,
 ) -> GuardOutcome {
     match provider {
-        Provider::ClaudeCode => claude_code::guard::render_decision(decision, context),
+        Provider::ClaudeCode | Provider::T3 => {
+            claude_code::guard::render_decision(decision, context)
+        }
         Provider::OpenCode => opencode::guard::render_decision(decision, context),
         Provider::Omp => omp::guard::render_decision(decision, context),
     }
@@ -274,7 +282,7 @@ pub fn render_decision(
 #[must_use]
 pub fn render_context(provider: Provider, context: Option<&str>) -> GuardOutcome {
     match provider {
-        Provider::ClaudeCode => claude_code::guard::render_context(context),
+        Provider::ClaudeCode | Provider::T3 => claude_code::guard::render_context(context),
         Provider::OpenCode | Provider::Omp => GuardOutcome {
             body: context.unwrap_or_default().to_owned(),
             exit_zero: true,
@@ -325,7 +333,7 @@ pub fn install_credentials(
     credential: &Credential<'_>,
 ) -> Result<bool, Failure> {
     match provider {
-        Provider::ClaudeCode => Ok(false),
+        Provider::ClaudeCode | Provider::T3 => Ok(false),
         Provider::OpenCode => opencode::auth::install_credentials(name, credential).map(|()| true),
         Provider::Omp => omp::auth::install_credentials(name, credential).map(|()| true),
     }
@@ -342,7 +350,7 @@ pub fn credential_state(provider: Provider, name: &str, server_url: &str) -> Cre
     let now_s = now.as_secs_f64();
 
     match provider {
-        Provider::ClaudeCode => match claude_code::auth::config_dir() {
+        Provider::ClaudeCode | Provider::T3 => match claude_code::auth::config_dir() {
             Ok(dir) => claude_code::auth::credential_state_under(&dir, name, server_url, now_ms),
             Err(_) => CredentialState::Unknown,
         },
@@ -372,7 +380,7 @@ pub fn live_states(
 ) -> Option<Result<std::collections::BTreeMap<String, CredentialState>, Failure>> {
     match provider {
         Provider::Omp => None,
-        Provider::ClaudeCode => {
+        Provider::ClaudeCode | Provider::T3 => {
             let cmd = Command::new("claude").args(["mcp", "list"]).cwd(cwd);
             let output = match crate::infra::proc::capture(&cmd) {
                 Ok(out) => out,
@@ -411,7 +419,7 @@ pub fn live_states(
 /// rather than a command that would fail at spawn.
 pub fn login_subcommand(provider: Provider) -> Option<[&'static str; 2]> {
     match provider {
-        Provider::ClaudeCode => Some(claude_code::auth::LOGIN_SUBCOMMAND),
+        Provider::ClaudeCode | Provider::T3 => Some(claude_code::auth::LOGIN_SUBCOMMAND),
         Provider::OpenCode => Some(opencode::auth::LOGIN_SUBCOMMAND),
         Provider::Omp => None,
     }
@@ -424,7 +432,7 @@ pub fn login_subcommand(provider: Provider) -> Option<[&'static str; 2]> {
 /// Returns [`Failure`] if the provider's own verification fails.
 pub fn verify_authenticated(provider: Provider, name: &str) -> Result<(), Failure> {
     match provider {
-        Provider::ClaudeCode => Ok(()),
+        Provider::ClaudeCode | Provider::T3 => Ok(()),
         Provider::OpenCode => opencode::auth::verify_authenticated(name),
         Provider::Omp => omp::auth::verify_authenticated(name),
     }

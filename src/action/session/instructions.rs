@@ -268,7 +268,7 @@ pub(crate) fn instruction_chain(
 /// The instruction file read when a directory has no provider-native one.
 const fn fallback_file(provider: Provider) -> &'static str {
     match provider {
-        Provider::ClaudeCode => "AGENTS.md",
+        Provider::ClaudeCode | Provider::T3 => "AGENTS.md",
         Provider::OpenCode | Provider::Omp => "CLAUDE.md",
     }
 }

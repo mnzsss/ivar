@@ -110,7 +110,7 @@ use crate::error::{Failure, FixAction};
 
 /// The comma-separated list of valid ids, for error messages. Kept next to
 /// `ALL` so the two are easy to keep in sync by eye.
-const VALID_IDS: &str = "claude-code, opencode, omp";
+const VALID_IDS: &str = "claude-code, opencode, omp, t3";
 
 /// A harness `ivar` can open a session in.
 ///
@@ -125,13 +125,34 @@ pub enum Provider {
     OpenCode,
     /// Oh My Pi (OMP).
     Omp,
+    /// T3 Code hosting Claude Code: it opens a session in T3 and owns no config surface.
+    T3,
 }
 
 impl Provider {
-    /// Every variant, for iteration. Kept exhaustive by
+    /// The providers that own a config surface. Every sync, doctor and alias loop
+    /// iterates this, so a hosted provider must never appear here.
+    pub const ALL: [Provider; 3] = [Provider::ClaudeCode, Provider::OpenCode, Provider::Omp];
+
+    /// Every provider id a user can name. Kept exhaustive by
     /// `tests::all_is_exhaustive`, which fails to compile if a variant is added
     /// here without being added there too.
-    pub const ALL: [Provider; 3] = [Provider::ClaudeCode, Provider::OpenCode, Provider::Omp];
+    pub const SELECTABLE: [Provider; 4] = [
+        Provider::ClaudeCode,
+        Provider::OpenCode,
+        Provider::Omp,
+        Provider::T3,
+    ];
+
+    /// The provider whose config surface this one reads and writes.
+    #[must_use]
+    pub const fn config_owner(&self) -> Provider {
+        match self {
+            Self::ClaudeCode | Self::T3 => Self::ClaudeCode,
+            Self::OpenCode => Self::OpenCode,
+            Self::Omp => Self::Omp,
+        }
+    }
 
     /// The stable wire string: as it appears in `ivar.json` and in
     /// `--provider`. Kebab-case, never reworded.
@@ -140,6 +161,7 @@ impl Provider {
             Self::ClaudeCode => "claude-code",
             Self::OpenCode => "opencode",
             Self::Omp => "omp",
+            Self::T3 => "t3",
         }
     }
 
@@ -147,7 +169,7 @@ impl Provider {
     #[must_use]
     pub const fn config_dir(&self) -> &'static str {
         match self {
-            Self::ClaudeCode => ".claude",
+            Self::ClaudeCode | Self::T3 => ".claude",
             Self::OpenCode => ".opencode",
             Self::Omp => ".omp",
         }
@@ -157,7 +179,7 @@ impl Provider {
     #[must_use]
     pub const fn instruction_file(&self) -> &'static str {
         match self {
-            Self::ClaudeCode => "CLAUDE.md",
+            Self::ClaudeCode | Self::T3 => "CLAUDE.md",
             Self::OpenCode | Self::Omp => "AGENTS.md",
         }
     }
@@ -170,7 +192,7 @@ impl Provider {
     #[must_use]
     pub const fn commands_dir(&self) -> &'static str {
         match self {
-            Self::ClaudeCode => ".claude/commands",
+            Self::ClaudeCode | Self::T3 => ".claude/commands",
             Self::OpenCode => ".opencode/commands",
             Self::Omp => ".omp/commands",
         }
@@ -180,7 +202,7 @@ impl Provider {
     #[must_use]
     pub const fn skills_dir(&self) -> &'static str {
         match self {
-            Self::ClaudeCode => ".claude/skills",
+            Self::ClaudeCode | Self::T3 => ".claude/skills",
             Self::OpenCode => ".opencode/skills",
             Self::Omp => ".omp/skills",
         }
@@ -191,7 +213,7 @@ impl Provider {
     #[must_use]
     pub const fn plugins_dir(&self) -> Option<&'static str> {
         match self {
-            Self::ClaudeCode => None,
+            Self::ClaudeCode | Self::T3 => None,
             Self::OpenCode => Some(Self::OPENCODE_PLUGINS_DIR),
             Self::Omp => None,
         }
@@ -214,7 +236,7 @@ impl Provider {
     #[must_use]
     pub const fn hook_config_paths(&self) -> &'static [&'static str] {
         match self {
-            Self::ClaudeCode => &[Self::CLAUDE_SETTINGS, Self::CLAUDE_LOCAL_SETTINGS],
+            Self::ClaudeCode | Self::T3 => &[Self::CLAUDE_SETTINGS, Self::CLAUDE_LOCAL_SETTINGS],
             Self::OpenCode => &[Self::OPENCODE_PLUGINS_DIR, ".opencode/node_modules"],
             Self::Omp => &[Self::OMP_HOOKS_DIR, Self::OMP_EXTENSIONS_DIR],
         }
@@ -234,7 +256,7 @@ impl Provider {
     #[must_use]
     pub const fn mcp_config_path(&self) -> &'static str {
         match self {
-            Self::ClaudeCode => ".mcp.json",
+            Self::ClaudeCode | Self::T3 => ".mcp.json",
             Self::OpenCode => "opencode.json",
             Self::Omp => ".omp/mcp.json",
         }
@@ -256,11 +278,14 @@ impl JsonSchema for Provider {
     }
 
     fn json_schema(_generator: &mut schemars::SchemaGenerator) -> Schema {
-        // Derived from `ALL`, never written out. A hand-kept second copy of
+        // Derived from `SELECTABLE`, never written out. A hand-kept second copy of
         // the wire strings is the drift this type exists to prevent, and the
         // copy that stood here had already lost `omp`: the binary accepted a
         // provider the published schema rejected.
-        let ids: Vec<&'static str> = Self::ALL.iter().map(|provider| provider.id()).collect();
+        let ids: Vec<&'static str> = Self::SELECTABLE
+            .iter()
+            .map(|provider| provider.id())
+            .collect();
         json_schema!({
             "type": "string",
             "enum": ids,
@@ -276,7 +301,7 @@ impl FromStr for Provider {
     /// `--provider`, and shares its error (and therefore its message and fix
     /// action) with [`Deserialize`].
     fn from_str(value: &str) -> Result<Self, Self::Err> {
-        Self::ALL
+        Self::SELECTABLE
             .into_iter()
             .find(|provider| provider.id() == value)
             .ok_or_else(|| InvalidProvider::UnknownId {

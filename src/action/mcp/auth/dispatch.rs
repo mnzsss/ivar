@@ -49,7 +49,7 @@ fn provider_is_internal_flow(provider: Provider, server: &McpServerDef) -> bool 
     match provider {
         Provider::Omp => true,
         Provider::OpenCode => host_of(url).is_some_and(figma::needs_preregistration),
-        Provider::ClaudeCode => false,
+        Provider::ClaudeCode | Provider::T3 => false,
     }
 }
 

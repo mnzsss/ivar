@@ -111,7 +111,8 @@
       "enum": [
         "claude-code",
         "opencode",
-        "omp"
+        "omp",
+        "t3"
       ],
       "type": "string"
     },

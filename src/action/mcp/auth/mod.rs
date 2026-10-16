@@ -389,7 +389,7 @@ pub fn auth(ctx: &Ctx, input: &AuthInput) -> Outcome<AuthOutcome> {
             let mut after = std::collections::BTreeMap::new();
             for &p in manifest.providers().available() {
                 match p {
-                    Provider::ClaudeCode | Provider::OpenCode => {
+                    Provider::ClaudeCode | Provider::OpenCode | Provider::T3 => {
                         if let Some(Ok(map)) = crate::providers::live_states(p, layout.root())
                             && let Some(&st) = map.get(&materialised_name)
                         {

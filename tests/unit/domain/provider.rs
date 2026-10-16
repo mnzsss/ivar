@@ -137,7 +137,45 @@ fn invalid_provider_converts_to_a_blocked_failure_with_a_fix_naming_the_options(
 
 // -- ALL is exhaustive -----------------------------------------------------
 
-/// The cheap way to make forgetting a new variant in `ALL` a compile
+#[test]
+fn t3_hosts_claude_code_so_it_answers_with_claudes_paths() {
+    let provider = Provider::T3;
+    assert_eq!(provider.id(), "t3");
+    assert_eq!(provider.config_owner(), Provider::ClaudeCode);
+    assert_eq!(provider.config_dir(), ".claude");
+    assert_eq!(provider.instruction_file(), "CLAUDE.md");
+    assert_eq!(provider.commands_dir(), ".claude/commands");
+    assert_eq!(provider.skills_dir(), ".claude/skills");
+    assert_eq!(provider.mcp_config_path(), ".mcp.json");
+    assert_eq!(provider.plugins_dir(), None);
+    assert_eq!(
+        provider.hook_config_paths(),
+        Provider::ClaudeCode.hook_config_paths()
+    );
+}
+
+#[test]
+fn all_holds_exactly_the_providers_that_own_their_config() {
+    for provider in Provider::SELECTABLE {
+        assert_eq!(
+            Provider::ALL.contains(&provider),
+            provider.config_owner() == provider,
+            "{provider}"
+        );
+    }
+    assert_eq!(Provider::ALL.len(), 3);
+    assert_eq!(Provider::SELECTABLE.len(), 4);
+}
+
+#[test]
+fn from_str_and_serde_accept_t3_and_the_unknown_id_error_names_it() {
+    assert_eq!("t3".parse::<Provider>().unwrap(), Provider::T3);
+    assert_eq!(serde_json::to_string(&Provider::T3).unwrap(), r#""t3""#);
+    let message = "claude".parse::<Provider>().unwrap_err().to_string();
+    assert!(message.contains("claude-code, opencode, omp, t3"));
+}
+
+/// The cheap way to make forgetting a new variant in `SELECTABLE` a compile
 /// error: this `match` has no wildcard arm, so adding a variant to
 /// `Provider` without adding it here fails to compile, forcing the two to
 /// stay in lockstep.
@@ -145,12 +183,11 @@ fn invalid_provider_converts_to_a_blocked_failure_with_a_fix_naming_the_options(
 fn all_is_exhaustive() {
     fn covers_every_variant(provider: Provider) {
         match provider {
-            Provider::ClaudeCode | Provider::OpenCode | Provider::Omp => {}
+            Provider::ClaudeCode | Provider::OpenCode | Provider::Omp | Provider::T3 => {}
         }
     }
 
-    for provider in Provider::ALL {
+    for provider in Provider::SELECTABLE {
         covers_every_variant(provider);
     }
-    assert_eq!(Provider::ALL.len(), 3);
 }
