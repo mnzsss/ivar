@@ -875,6 +875,20 @@ fn t3_command(args: &[&str]) -> std::process::Output {
     Command::new("t3").args(args).output().unwrap()
 }
 
+fn wait_for_t3_project(view_dir: &Utf8PathBuf) {
+    // `t3 app` returns before T3 registers the project.
+    for _ in 0..15 {
+        if t3_command(&["project", "rename", view_dir.as_str(), "ivar-live"])
+            .status
+            .success()
+        {
+            return;
+        }
+        std::thread::sleep(Duration::from_secs(1));
+    }
+    panic!("T3 did not register {view_dir} within 15 seconds");
+}
+
 fn t3_hall() -> (tempfile::TempDir, Utf8PathBuf, String, Utf8PathBuf) {
     let (guard, root) = hall_root();
     run_ok(&root, &["init"]);
@@ -895,18 +909,7 @@ fn t3_session_registers_and_unregisters_its_view_dir() {
         return;
     }
     let (_guard, root, id, view_dir) = t3_hall();
-    // `t3 app` returns before T3 registers the project.
-    std::thread::sleep(Duration::from_secs(3));
-
-    let again = t3_command(&["project", "add", view_dir.as_str()]);
-    assert!(
-        !again.status.success(),
-        "the view dir must already be a project"
-    );
-    assert!(
-        String::from_utf8_lossy(&again.stderr).contains("ProjectAlreadyExistsError")
-            || String::from_utf8_lossy(&again.stdout).contains("ProjectAlreadyExistsError")
-    );
+    wait_for_t3_project(&view_dir);
 
     let stopped = real_ivar(&root, &["session", "stop", &id]);
     assert_eq!(stopped["ok"], true, "{stopped}");
@@ -916,9 +919,14 @@ fn t3_session_registers_and_unregisters_its_view_dir() {
     );
 
     let gone = t3_command(&["project", "remove", view_dir.as_str()]);
+    let output = format!(
+        "{}{}",
+        String::from_utf8_lossy(&gone.stdout),
+        String::from_utf8_lossy(&gone.stderr)
+    );
     assert!(
-        !gone.status.success(),
-        "the project must be gone after stop"
+        !gone.status.success() && output.contains("ProjectNotFoundError"),
+        "the project must be gone after stop: {output}"
     );
     unguard(&root);
 }
