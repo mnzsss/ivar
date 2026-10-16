@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.0](https://github.com/mnzsss/ivar/compare/v0.16.2...v0.17.0) - 2026-10-16
+
+### Added
+
+- remove a demoted repo's worktree and flag stray promotions ([#178](https://github.com/mnzsss/ivar/pull/178))
+- add t3 as a provider hosting Claude Code ([#177](https://github.com/mnzsss/ivar/pull/177))
+- ship discovery as the ivar-explore skill ([#176](https://github.com/mnzsss/ivar/pull/176))
+- list sessions and start one with an initial prompt ([#171](https://github.com/mnzsss/ivar/pull/171))
+
+### Fixed
+
+- *(deliver)* name prefixed remote refs in preview and lease recovery ([#174](https://github.com/mnzsss/ivar/pull/174))
+
 ## [0.16.2](https://github.com/mnzsss/ivar/compare/v0.16.0...v0.16.2) - 2026-10-15
 
 ### Added
