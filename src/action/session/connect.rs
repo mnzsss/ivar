@@ -16,6 +16,7 @@ use serde::Serialize;
 use crate::action::feature::promote::{self, PromoteInput};
 use crate::domain::feature::{Feature, GateState};
 use crate::domain::name::{FeatureName, RepoName};
+use crate::domain::provider::Provider;
 use crate::domain::session::{SessionRef, SessionState};
 use crate::error::{Failure, FixAction, Outcome, Report, Warning, WriteHuman};
 use crate::git;
@@ -172,6 +173,16 @@ pub fn connect(ctx: &Ctx, input: &ConnectInput) -> Outcome<ConnectOutcome> {
     )?;
 
     warnings.extend(materialise_report.warnings);
+    if provider == Provider::T3
+        && !input.create
+        && let Err(reason) = providers::t3::host::open(&session.view_dir)
+    {
+        warnings.push(Warning::new(
+            "session.t3_open_failed",
+            session.id.as_str(),
+            format!("{reason}; the binding is intact, open the project from T3 Code"),
+        ));
+    }
     Ok(Report::with_warnings(
         ConnectOutcome {
             session_id: session.id.to_string(),

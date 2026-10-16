@@ -18,7 +18,9 @@ use crate::domain::provider::Provider;
 use crate::infra::fs;
 use crate::store::layout::Layout;
 use crate::store::manifest::{Manifest, Providers, Repo};
-use crate::test_support::{git, hall_root, seeded_repo};
+use crate::test_support::{
+    FakeT3, enable_t3_host, fake_t3_command, fake_t3_on_this_thread, git, hall_root, seeded_repo,
+};
 
 /// A hall with two registered repos — `api` promoted into `checkout`,
 /// `web` left read-only — plus a detached session on `checkout`.
@@ -949,4 +951,91 @@ fn connect_with_create_reports_an_absent_base_once() {
         .count();
     assert_eq!(absent, 1, "warnings: {:?}", report.warnings);
     unguard_worktrees(&root);
+}
+
+fn detached_t3_session(root: &Utf8PathBuf) -> String {
+    let started = session_start::start(
+        &Ctx::new(root.clone()),
+        StartInput {
+            feature: Some("checkout".to_owned()),
+            resume: false,
+            provider: Some("t3".to_owned()),
+            detached: true,
+            relay: false,
+            prompt: None,
+        },
+    )
+    .unwrap();
+    started.value.session_id
+}
+
+#[test]
+fn connecting_to_a_t3_session_reopens_its_view_dir_without_registering_twice() {
+    let (_guard, root) = hall_with_detached_session();
+    enable_t3_host(&root, Provider::ClaudeCode);
+    let session_id = detached_t3_session(&root);
+    let fake = FakeT3::install(&root);
+    let _t3 = fake_t3_on_this_thread(&fake);
+    let input = ConnectInput {
+        session_id: Some(session_id),
+        feature: None,
+        create: false,
+    };
+
+    let first = connect(&Ctx::new(root.clone()), &input).unwrap().value;
+    connect(&Ctx::new(root), &input).unwrap();
+
+    assert_eq!(fake.projects(), vec![first.view_dir.to_string()]);
+    assert_eq!(fake.log().matches("app ").count(), 2);
+}
+
+#[test]
+fn connect_create_never_opens_t3_even_when_t3_is_the_default_provider() {
+    let (_guard, root) = hall_with_detached_session();
+    enable_t3_host(&root, Provider::T3);
+    detached_t3_session(&root);
+    let fake = FakeT3::install(&root);
+    let _t3 = fake_t3_on_this_thread(&fake);
+
+    connect(
+        &Ctx::new(root),
+        &ConnectInput {
+            session_id: None,
+            feature: Some("checkout".to_owned()),
+            create: true,
+        },
+    )
+    .unwrap();
+
+    assert_eq!(fake.log(), "");
+}
+
+#[test]
+fn a_failing_reopen_is_a_warning_and_leaves_the_binding_intact() {
+    let (_guard, root) = hall_with_detached_session();
+    enable_t3_host(&root, Provider::ClaudeCode);
+    let session_id = detached_t3_session(&root);
+    let fake = FakeT3::install(&root);
+    let _t3 = crate::infra::proc::redirect_on_this_thread(
+        "t3",
+        fake_t3_command(&fake).env("T3_FAKE_FAIL", "1"),
+    );
+
+    let report = connect(
+        &Ctx::new(root),
+        &ConnectInput {
+            session_id: Some(session_id.clone()),
+            feature: None,
+            create: false,
+        },
+    )
+    .unwrap();
+
+    assert_eq!(report.value.session_id, session_id);
+    assert!(
+        report
+            .warnings
+            .iter()
+            .any(|warning| warning.code == "session.t3_open_failed")
+    );
 }
