@@ -29,7 +29,8 @@ pub enum FeatureCommand {
     /// A branch that already exists is adopted as-is; one that does not is
     /// created off the repo's effective base.
     Promote(FeaturePromoteArgs),
-    /// Remove a repo from a feature. Its worktree stays on disk.
+    /// Remove a repo from a feature. Its worktree stays on disk unless
+    /// `--remove-worktree` is passed.
     Demote(FeatureDemoteArgs),
     /// Show one feature in detail: every promoted repo and its state, and —
     /// with `--recursive` — its whole subtree's health.

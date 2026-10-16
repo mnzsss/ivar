@@ -240,12 +240,16 @@ Promote a repo onto a feature's branch and materialise its worktree. A branch th
 
 ##### `ivar feature demote`
 
-Remove a repo from a feature. Its worktree stays on disk
+Remove a repo from a feature. Its worktree stays on disk unless `--remove-worktree` is passed
 
 | argument | required | description |
 | --- | --- | --- |
 | `feature` | no | The feature to demote from |
 | `repo` | yes | The repo to demote |
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--remove-worktree` |  |  | Also remove the repo's worktree and local branch. Refuses when the worktree is dirty, the branch has commits beyond its base, or it is published on the remote |
 
 
 ##### `ivar feature status`

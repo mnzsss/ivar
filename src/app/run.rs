@@ -231,6 +231,7 @@ pub fn run(cli: Cli) -> ExitCode {
                             demote::DemoteInput {
                                 feature,
                                 repo: args.repo,
+                                remove_worktree: args.remove_worktree,
                             },
                         ),
                         json,

@@ -58,6 +58,11 @@ pub struct FeatureDemoteArgs {
     pub feature: Option<String>,
     /// The repo to demote.
     pub repo: String,
+    /// Also remove the repo's worktree and local branch. Refuses when the
+    /// worktree is dirty, the branch has commits beyond its base, or it is
+    /// published on the remote.
+    #[arg(long)]
+    pub remove_worktree: bool,
 }
 
 /// Arguments for `ivar feature status`.
@@ -229,10 +234,15 @@ impl From<FeaturePromoteArgs> for promote::PromoteInput {
 
 impl From<FeatureDemoteArgs> for demote::DemoteInput {
     fn from(args: FeatureDemoteArgs) -> Self {
-        let FeatureDemoteArgs { feature, repo } = args;
+        let FeatureDemoteArgs {
+            feature,
+            repo,
+            remove_worktree,
+        } = args;
         Self {
             feature: feature.unwrap_or_default(),
             repo,
+            remove_worktree,
         }
     }
 }

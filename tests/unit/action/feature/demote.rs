@@ -15,7 +15,7 @@ use crate::action::hall::{self, InitInput};
 use crate::domain::feature::Feature;
 use crate::domain::name::{BranchName, HallName};
 use crate::domain::provider::Provider;
-use crate::error::Status;
+use crate::error::{Outcome, Status};
 use crate::store::layout::Layout;
 use crate::store::manifest::{Manifest, Providers, Repo};
 use crate::test_support::{hall_root, seeded_repo};
@@ -86,6 +86,7 @@ fn demote_removes_the_promotion_record_and_keeps_the_worktree() {
         DemoteInput {
             feature: "checkout".to_owned(),
             repo: "api".to_owned(),
+            remove_worktree: false,
         },
     )
     .unwrap();
@@ -114,6 +115,7 @@ fn demote_is_rejected_when(#[case] feature: &str, #[case] code: &str) {
         DemoteInput {
             feature: feature.to_owned(),
             repo: "api".to_owned(),
+            remove_worktree: false,
         },
     )
     .unwrap_err();
@@ -170,6 +172,7 @@ fn demote_refuses_a_promotion_locked_by_a_successful_receipt() {
         DemoteInput {
             feature: "checkout".to_owned(),
             repo: "api".to_owned(),
+            remove_worktree: false,
         },
     )
     .unwrap_err();
@@ -198,6 +201,8 @@ fn the_human_surface_says_the_worktree_stays() {
         root: Utf8PathBuf::from("/hall"),
         feature: FeatureName::new("checkout").unwrap(),
         repo: RepoName::new("api").unwrap(),
+        worktree_removed: false,
+        branch_deleted: false,
     };
 
     let mut out = Vec::new();
@@ -205,6 +210,115 @@ fn the_human_surface_says_the_worktree_stays() {
 
     assert_eq!(
         String::from_utf8(out).unwrap(),
-        "Demoted `api` from feature `checkout`. Its worktree stays on disk — `ivar cleanup` can remove it.\n"
+        "Demoted `api` from feature `checkout`. Its worktree stays on disk — `ivar cleanup` can remove it, or demote with `--remove-worktree`.\n"
     );
+}
+
+fn promoted_checkout() -> (tempfile::TempDir, Utf8PathBuf, Ctx) {
+    let (guard, root) = hall_with_feature();
+    let ctx = Ctx::new(root.clone());
+    promote::promote(
+        &ctx,
+        PromoteInput {
+            feature: "checkout".to_owned(),
+            repo: "api".to_owned(),
+            base: None,
+        },
+    )
+    .unwrap();
+    (guard, root, ctx)
+}
+
+fn demote_removing_worktree(ctx: &Ctx) -> Outcome<DemoteOutcome> {
+    demote(
+        ctx,
+        DemoteInput {
+            feature: "checkout".to_owned(),
+            repo: "api".to_owned(),
+            remove_worktree: true,
+        },
+    )
+}
+
+fn git_in(dir: &Utf8PathBuf, args: &[&str]) {
+    let output = std::process::Command::new("git")
+        .args([
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@t",
+            "-C",
+            dir.as_str(),
+        ])
+        .args(args)
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "git {args:?}: {output:?}");
+}
+
+fn branch_exists(root: &Utf8PathBuf, branch: &str) -> bool {
+    std::process::Command::new("git")
+        .args(["--git-dir", root.join(".ivar/repos/api/.bare").as_str()])
+        .args(["rev-parse", "--verify", "--quiet", branch])
+        .output()
+        .unwrap()
+        .status
+        .success()
+}
+
+#[test]
+fn demote_with_remove_worktree_drops_a_clean_unpublished_worktree_and_its_branch() {
+    let (_guard, root, ctx) = promoted_checkout();
+
+    let report = demote_removing_worktree(&ctx).unwrap();
+
+    assert!(report.is_clean());
+    assert!(report.value.worktree_removed);
+    assert!(report.value.branch_deleted);
+    assert!(!root.join(".ivar/repos/api/checkout").exists());
+    assert!(!branch_exists(&root, "checkout"));
+    assert!(branch_exists(&root, "main"));
+    assert!(root.join(".ivar/repos/api/main").exists());
+}
+
+#[rstest]
+#[case::uncommitted_changes("dirty", "uncommitted or untracked")]
+#[case::commits_beyond_the_base("ahead", "beyond `main`")]
+#[case::a_published_branch("published", "published on the remote")]
+fn demote_with_remove_worktree_refuses_and_removes_nothing_with(
+    #[case] state: &str,
+    #[case] blocker: &str,
+) {
+    let (_guard, root, ctx) = promoted_checkout();
+    let worktree = root.join(".ivar/repos/api/checkout");
+    match state {
+        "dirty" => std::fs::write(worktree.join("scratch.txt"), "wip\n").unwrap(),
+        "ahead" => {
+            std::fs::write(worktree.join("feat.txt"), "feature\n").unwrap();
+            git_in(&worktree, &["add", "feat.txt"]);
+            git_in(&worktree, &["commit", "-m", "feature work"]);
+        }
+        _ => {
+            let origin = root.parent().unwrap().join("origins").join("api");
+            git_in(
+                &worktree,
+                &["push", origin.as_str(), "checkout:refs/heads/checkout"],
+            );
+        }
+    }
+
+    let failure = demote_removing_worktree(&ctx).unwrap_err();
+
+    assert_eq!(failure.status, Status::Blocked);
+    assert_eq!(failure.code, "feature.demote_worktree_not_removable");
+    assert!(failure.actual.unwrap().contains(blocker));
+    assert!(worktree.exists());
+    assert!(branch_exists(&root, "checkout"));
+    let feature = Feature::read(
+        &Layout::at(root.clone()),
+        &FeatureName::new("checkout").unwrap(),
+    )
+    .unwrap()
+    .unwrap();
+    assert!(feature.is_promoted(&RepoName::new("api").unwrap()));
 }

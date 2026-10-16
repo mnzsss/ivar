@@ -35,7 +35,9 @@ accident. Promoting later is a single command, so there is no cost to starting
 narrow, and there is a real cost to starting wide.
 
 Re-promoting is a no-op. `ivar feature demote checkout web` reverses it; the
-worktree stays on disk, so nothing is lost.
+worktree stays on disk, so nothing is lost. Add `--remove-worktree` to drop the
+worktree and its local branch too — it refuses while the worktree is dirty, the
+branch has commits beyond its base, or the branch is published.
 
 ## Work
 
