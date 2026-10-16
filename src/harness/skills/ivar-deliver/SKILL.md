@@ -106,6 +106,17 @@ so PR metadata is rejected.
    generated one. Pushes each accepted repo's branch and creates or updates
    its PR.
 
+## Link pull requests to the T3 Code thread
+
+When this session has the `t3-code` MCP tools `link_pull_request` and
+`list_thread_pull_requests`, call `link_pull_request` with the full URL of each
+pull request that apply created or updated, one call per repo, right after
+apply. Before you finish, call `list_thread_pull_requests` and link any pull
+request from this delivery that is missing. Never link a pull request that is
+only background. If a call fails, report the failure instead of saying the pull
+request is linked. If those tools are not available, skip this section:
+delivery is complete without it.
+
 ## Important
 
 - **Never add AI attribution** to `--name`, `--body` or the feature's commits

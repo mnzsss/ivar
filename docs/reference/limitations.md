@@ -83,7 +83,7 @@ feature session can, at the kernel level, write any feature's record under
 default-branch checkout, whose write bits are cleared on its root only. Edit and Write
 stay limited to the feature's subtree by `ivar guard`. On non-Linux platforms (such as
 macOS) or older kernels, Ivar runs without kernel sandboxing and relies on the advisory
-tool guard.
+tool guard. A session opened with the `t3` provider never has the Landlock sandbox on any platform: its agent is a child of T3 Code, not of Ivar, so only the tool guard hook enforces the writable set.
 Ivar does not control or schedule native provider subagents. The active provider
 creates, schedules, monitors, and synthesizes subagents. The Run Receipt records exact
 baseline and final snapshot evidence for audit, but it neither attributes individual
@@ -278,6 +278,7 @@ not stop an existing tracked file from being modified in place.
   or `flock`.
 - **Platforms without Landlock.** On macOS and older Linux kernels (< 5.13), kernel
   sandboxing is unavailable; protection degrades gracefully to the advisory tool guard.
+- **T3 Code sessions.** A session opened with `ivar session start --provider t3` has no kernel sandbox on any platform, including Linux with Landlock; the notes on shell writes and structured tools in "Session write guard: Enforcing (Linux) vs Advisory (Everywhere)" and "What protects the default branch" apply to it as they do to a platform without Landlock.
 - **Repositories outside the hall.** Protection is installed by `ivar sync` on
   repos declared in `ivar.json`. A clone made by hand elsewhere has none of it.
 - **`git commit --no-verify`,** typed by a human or emitted by an agent. Git

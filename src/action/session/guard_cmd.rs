@@ -28,7 +28,7 @@ impl GuardInput {
     ///
     /// Returns [`Failure`] when `slice` is set for omp or opencode.
     pub fn new(provider: Provider, slice: Option<usize>) -> Result<Self, Failure> {
-        if slice.is_some() && provider != Provider::ClaudeCode {
+        if slice.is_some() && provider.config_owner() != Provider::ClaudeCode {
             return Err(Failure::blocked(
                 "guard.invalid_slice",
                 "`--slice` is only for claude-code",

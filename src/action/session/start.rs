@@ -105,6 +105,9 @@ pub struct StartOutcome {
     /// Command to launch provider under enforcement (set when detached).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub launch_command: Option<String>,
+    /// Whether `session start` opened the view dir in a host application (T3 Code).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub opened_in_host: bool,
 }
 
 impl WriteHuman for StartOutcome {
@@ -113,6 +116,13 @@ impl WriteHuman for StartOutcome {
             Some(feature) => format!("Session `{}` for feature `{feature}`", self.session_id),
             None => format!("Discovery session `{}`", self.session_id),
         };
+        if self.opened_in_host {
+            return writeln!(
+                w,
+                "{subject} opened in T3 Code. View dir: {}",
+                self.view_dir
+            );
+        }
         if self.detached {
             writeln!(
                 w,
@@ -173,32 +183,18 @@ pub fn start(ctx: &Ctx, input: StartInput) -> Outcome<StartOutcome> {
         check_relay(&layout, &feature.name, input.provider.as_deref(), provider)?;
     }
 
+    let opens_in_host = provider == Provider::T3 && !input.detached;
+    if opens_in_host {
+        providers::t3::host::preflight()?;
+    }
+
     // 1. Smart Fetch, before the view dir exists: refresh every registered
     //    repo's default branch, best-effort per repo (valhalla's Smart Fetch).
     //    The refresh is fetch-and-fast-forward of the read-only default
     //    worktree — never a promoted repo's feature worktree — and a fetch
     //    that lands new files needs a writable target, so this runs before
     //    the guard-applying materialisation below.
-    let mut warnings: Vec<Warning> =
-        pull::refresh_all(&git::System, &layout, &manifest, ctx.progress())
-            .into_iter()
-            .filter_map(|(repo, status)| match status {
-                pull::PullStatus::Refreshed => None,
-                // The Smart Fetch sweep never resolves — that is a `repo pull
-                // --resolve` action, not a session start.
-                pull::PullStatus::Resolved => None,
-                pull::PullStatus::Failed { reason } => Some(Warning::new(
-                    "session.smart_fetch_failed",
-                    repo.to_string(),
-                    reason,
-                )),
-                pull::PullStatus::Skipped { reason, .. } => Some(Warning::new(
-                    "session.smart_fetch_skipped",
-                    repo.to_string(),
-                    reason,
-                )),
-            })
-            .collect();
+    let mut warnings = smart_fetch_warnings(&layout, &manifest, ctx);
 
     // 1b. The base view, also before the view dir: every repo the feature
     //     does not promote whose root feature declares an explicit base gets
@@ -247,9 +243,12 @@ pub fn start(ctx: &Ctx, input: StartInput) -> Outcome<StartOutcome> {
     // 4. The agent command — skipped entirely for a detached session, and
     //    also when stdout is not a tty (there is no TUI to run it under, and
     //    spawning without one just leaves an agent with no one attached).
-    let detached =
-        input.detached || !crate::infra::term::is_tty(crate::infra::term::Stream::Stdout);
-    if !detached {
+    let detached = input.detached
+        || (provider != Provider::T3
+            && !crate::infra::term::is_tty(crate::infra::term::Stream::Stdout));
+    if opens_in_host {
+        warnings.extend(open_in_t3(&session_id, &view_dir));
+    } else if !detached {
         let command =
             wrap_with_sandbox(provider, &session_id, input.resume, input.prompt.as_deref())?;
         let width = crate::infra::term::width();
@@ -258,13 +257,14 @@ pub fn start(ctx: &Ctx, input: StartInput) -> Outcome<StartOutcome> {
         run_tui(command, &view_dir, &layout, width, height)?;
     }
 
-    let launch_command = detached.then(|| {
-        launch_command(
+    let launch_command = detached.then(|| match provider {
+        Provider::T3 => format!("{} app {view_dir}", providers::t3::host::program()),
+        Provider::ClaudeCode | Provider::OpenCode | Provider::Omp => launch_command(
             &session_id,
             input.resume,
             input.prompt.as_deref(),
-            crate::providers::launch_contract(provider).binary,
-        )
+            providers::launch_contract(provider).binary,
+        ),
     });
 
     Ok(Report::with_warnings(
@@ -275,9 +275,49 @@ pub fn start(ctx: &Ctx, input: StartInput) -> Outcome<StartOutcome> {
             session_id: session_id.to_string(),
             detached,
             launch_command,
+            opened_in_host: opens_in_host,
         },
         warnings,
     ))
+}
+
+fn smart_fetch_warnings(layout: &Layout, manifest: &Manifest, ctx: &Ctx) -> Vec<Warning> {
+    pull::refresh_all(&git::System, layout, manifest, ctx.progress())
+        .into_iter()
+        .filter_map(|(repo, status)| match status {
+            pull::PullStatus::Refreshed => None,
+            // The Smart Fetch sweep never resolves — that is a `repo pull
+            // --resolve` action, not a session start.
+            pull::PullStatus::Resolved => None,
+            pull::PullStatus::Failed { reason } => Some(Warning::new(
+                "session.smart_fetch_failed",
+                repo.to_string(),
+                reason,
+            )),
+            pull::PullStatus::Skipped { reason, .. } => Some(Warning::new(
+                "session.smart_fetch_skipped",
+                repo.to_string(),
+                reason,
+            )),
+        })
+        .collect()
+}
+
+/// Opens the view dir in T3 Code; a failed open is a warning so the session survives.
+fn open_in_t3(session_id: &SessionId, view_dir: &camino::Utf8Path) -> Vec<Warning> {
+    let mut warnings = vec![Warning::new(
+        "session.no_kernel_sandbox",
+        session_id.as_str(),
+        "a t3 session has no kernel sandbox: the agent is a child of T3 Code, so the guard hook is the only enforcement and Bash can write outside the session's writable set",
+    )];
+    if let Err(reason) = providers::t3::host::open(view_dir) {
+        warnings.push(Warning::new(
+            "session.t3_open_failed",
+            session_id.as_str(),
+            format!("{reason}; open the session later with `ivar session connect {session_id}`"),
+        ));
+    }
+    warnings
 }
 
 /// A relay hands one feature's work to a different provider. With no feature

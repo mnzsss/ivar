@@ -44,6 +44,7 @@ other terminal or session is launched by hand.
 | Provider | Dispatch | Concurrency |
 | --- | --- | --- |
 | Claude Code | the Task tool with a general-purpose subagent | several Task calls in one message |
+| t3 (Claude Code in T3 Code) | the Task tool with a general-purpose subagent | several Task calls in one message |
 | OpenCode | the `general` subagent (full tool access); never `explore` for edits | several subagent calls at once |
 | omp | the task tool, one task per subagent; do not rely on its nesting or agent messaging | a `tasks` batch |
 

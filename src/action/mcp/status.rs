@@ -142,7 +142,7 @@ pub fn status(ctx: &Ctx, input: &StatusInput) -> Outcome<StatusOutcome> {
     let providers: Vec<Provider> = if let Some(provider_raw) = &input.provider {
         vec![resolve_provider(&manifest, Some(provider_raw))?]
     } else {
-        manifest.providers().available().to_vec()
+        manifest.providers().config_owners().collect()
     };
     let mut rows = local_rows(
         manifest.name().as_str(),

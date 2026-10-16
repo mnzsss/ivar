@@ -1573,3 +1573,49 @@ fn a_graph_that_cannot_be_opened_warns_without_failing_sync() {
         report.warnings
     );
 }
+
+#[test]
+fn listing_t3_adds_no_sync_entry_and_removing_it_strips_nothing() {
+    let (_guard, root) = hall_with(&[]);
+    let ctx = Ctx::new(root.clone());
+    sync(&ctx, &SyncInput::default()).unwrap();
+    let claude_commands = root.join(".claude/commands/ivar-review.md");
+    let claude_skill = root.join(".claude/skills/ivar-execute/SKILL.md");
+    assert!(fs::is_file(&claude_commands).unwrap());
+    assert!(fs::is_file(&claude_skill).unwrap());
+
+    crate::action::provider::add::add(
+        &ctx,
+        &crate::action::provider::add::AddInput {
+            name: "t3".to_owned(),
+        },
+    )
+    .unwrap();
+    let listed = sync(&ctx, &SyncInput::default()).unwrap();
+    assert!(
+        listed
+            .value
+            .entries
+            .iter()
+            .all(|entry| entry.change != Change::Failed),
+        "listing t3 must not make any sync step fail"
+    );
+
+    crate::action::provider::remove::remove(
+        &ctx,
+        &crate::action::provider::remove::RemoveInput {
+            name: "t3".to_owned(),
+            default: None,
+        },
+    )
+    .unwrap();
+    sync(&ctx, &SyncInput::default()).unwrap();
+    assert!(
+        fs::is_file(&claude_commands).unwrap(),
+        "claude-code commands survive"
+    );
+    assert!(
+        fs::is_file(&claude_skill).unwrap(),
+        "claude-code skills survive"
+    );
+}

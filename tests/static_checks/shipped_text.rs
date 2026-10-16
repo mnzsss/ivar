@@ -758,3 +758,37 @@ fn shipped_text_names_only_env_vars_ivar_exports() {
     );
     assert!(shipped("commands/sync.md").contains(".omp/commands/"));
 }
+
+#[test]
+fn deliver_links_pull_requests_to_the_t3_thread_when_the_tools_exist() {
+    let deliver = shipped("skills/ivar-deliver/SKILL.md");
+    assert!(deliver.contains("## Link pull requests to the T3 Code thread"));
+    assert!(deliver.contains("`link_pull_request`"));
+    assert!(deliver.contains("`list_thread_pull_requests`"));
+    assert!(deliver.contains("If those tools are not available"));
+}
+
+#[test]
+fn execute_delegates_only_to_the_claude_provider_and_never_isolates_in_a_t3_worktree() {
+    let execute = shipped("skills/ivar-execute/SKILL.md");
+    assert!(execute.contains("`delegate_task`"));
+    assert!(execute.contains("`claudeAgent`"));
+    assert!(execute.contains("never set `isolation`"));
+}
+
+#[test]
+fn subfeatures_dispatches_a_t3_session_like_claude_code() {
+    let subfeatures = shipped("skills/ivar-subfeatures/SKILL.md");
+    assert!(subfeatures.contains(
+        "| t3 (Claude Code in T3 Code) | the Task tool with a general-purpose subagent |"
+    ));
+}
+
+#[test]
+fn connect_offers_a_guarded_t3_thread_when_the_session_is_outside_the_view_dir() {
+    let connect = shipped("commands/connect.md");
+    assert!(connect.contains("`t3_project_create`"));
+    assert!(connect.contains("`t3_thread_launch`"));
+    assert!(connect.contains("outside the write guard"));
+    assert!(connect.contains("**(a) Continue here**"));
+}

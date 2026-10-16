@@ -10,7 +10,7 @@ use crate::action::mcp::{resolve_provider, resolve_server};
 use crate::domain::mcp::{CredentialState, McpServerDef};
 use crate::error::Status;
 use crate::store::layout::Layout;
-use crate::store::manifest::Manifest;
+use crate::store::manifest::{Manifest, Providers};
 use crate::test_support::seeded_hall;
 
 /// Declare one MCP server on the seeded hall's manifest and write it back.
@@ -297,6 +297,17 @@ fn provider_order_puts_claude_code_first_if_present() {
         order,
         vec![Provider::ClaudeCode, Provider::OpenCode, Provider::Omp]
     );
+}
+
+#[test]
+fn provider_order_for_a_hall_listing_t3_never_probes_it_twice() {
+    let owners: Vec<Provider> = Providers::new(
+        vec![Provider::ClaudeCode, Provider::T3],
+        Provider::ClaudeCode,
+    )
+    .config_owners()
+    .collect();
+    assert_eq!(provider_order(&owners), vec![Provider::ClaudeCode]);
 }
 
 #[test]

@@ -17,7 +17,10 @@ use crate::error::{Status, WriteHuman};
 use crate::infra::fs;
 use crate::store::layout::Layout;
 use crate::store::manifest::{Manifest, MigrationPlan, Providers};
-use crate::test_support::{hall_root, hall_root as utf8_temp_dir};
+use crate::test_support::{
+    FakeT3, enable_t3_host, fake_t3_command, fake_t3_on_this_thread, hall_root,
+    hall_root as utf8_temp_dir,
+};
 
 fn fresh_input() -> InitInput {
     InitInput {
@@ -598,6 +601,90 @@ fn doctor_finds_nothing_in_a_healthy_hall() {
     let report = doctor(&ctx).unwrap();
 
     assert!(report.value.findings.is_empty());
+}
+
+#[test]
+fn doctor_never_runs_t3_for_a_hall_that_does_not_list_it() {
+    let (_guard, root) = hall_with_repo();
+    let ctx = Ctx::new(root.clone());
+    crate::action::sync::sync(&ctx, &Default::default()).unwrap();
+    let fake = FakeT3::install(&root);
+    let _t3 = fake_t3_on_this_thread(&fake);
+
+    let report = doctor(&ctx).unwrap();
+
+    assert!(report.value.findings.is_empty());
+    assert_eq!(fake.log(), "");
+}
+
+#[test]
+fn doctor_is_clean_when_t3_answers() {
+    let (_guard, root) = hall_with_repo();
+    let ctx = Ctx::new(root.clone());
+    crate::action::sync::sync(&ctx, &Default::default()).unwrap();
+    enable_t3_host(&root, Provider::ClaudeCode);
+    let fake = FakeT3::install(&root);
+    let _t3 = fake_t3_on_this_thread(&fake);
+
+    let report = doctor(&ctx).unwrap();
+
+    assert!(report.value.findings.is_empty());
+    assert!(fake.log().starts_with("--version\nproject remove "));
+}
+
+#[test]
+fn doctor_reports_an_outdated_t3_and_runs_no_project_command() {
+    let (_guard, root) = hall_with_repo();
+    let ctx = Ctx::new(root.clone());
+    crate::action::sync::sync(&ctx, &Default::default()).unwrap();
+    enable_t3_host(&root, Provider::ClaudeCode);
+    let fake = FakeT3::install(&root);
+    let _t3 =
+        crate::test_support::redirect_t3(fake_t3_command(&fake).env("T3_FAKE_VERSION", "0.0.45"));
+
+    let findings = doctor(&ctx).unwrap().value.findings;
+
+    let finding = findings
+        .iter()
+        .find(|finding| finding.code == "t3.version_unsupported")
+        .expect("an outdated t3 is reported");
+    assert!(finding.what.contains("v0.0.45"));
+    assert!(finding.fix.contains("T3CODE_CLI_PATH"));
+    assert_eq!(fake.log(), "--version\n");
+}
+
+#[test]
+fn doctor_names_an_unreachable_t3_server_and_a_missing_t3_binary() {
+    let (_guard, root) = hall_with_repo();
+    let ctx = Ctx::new(root.clone());
+    crate::action::sync::sync(&ctx, &Default::default()).unwrap();
+    enable_t3_host(&root, Provider::ClaudeCode);
+    let fake = FakeT3::install(&root);
+
+    {
+        let _t3 = crate::test_support::redirect_t3(fake_t3_command(&fake).env("T3_FAKE_FAIL", "1"));
+        let findings = doctor(&ctx).unwrap().value.findings;
+        let finding = findings
+            .iter()
+            .find(|finding| finding.code == "t3.server_unreachable")
+            .expect("an unanswered probe is reported");
+        assert!(
+            finding
+                .what
+                .contains("DesktopAppRequestFailedError: fake failure")
+        );
+        assert!(finding.fix.contains("Start the T3 Code desktop app"));
+    }
+    {
+        let _gone =
+            crate::test_support::redirect_t3(crate::infra::proc::Command::new("/nonexistent/t3"));
+        let findings = doctor(&ctx).unwrap().value.findings;
+        assert!(
+            findings
+                .iter()
+                .any(|finding| finding.code == "t3.binary_missing")
+        );
+    }
 }
 
 #[test]

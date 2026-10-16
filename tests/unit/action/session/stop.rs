@@ -14,7 +14,9 @@ use crate::domain::name::{BranchName, FeatureName, HallName, RepoName};
 use crate::domain::provider::Provider;
 use crate::store::layout::Layout;
 use crate::store::manifest::{Manifest, Providers, Repo};
-use crate::test_support::{hall_root, seeded_repo};
+use crate::test_support::{
+    FakeT3, enable_t3_host, fake_t3_command, fake_t3_on_this_thread, hall_root, seeded_repo,
+};
 use camino::Utf8PathBuf;
 
 /// A hall with `api` promoted into `checkout`, plus a detached session.
@@ -235,4 +237,156 @@ fn stop_emits_human_output() {
     let text = String::from_utf8(out).unwrap();
     assert!(text.contains("Stopped 1 session"), "was: {text}");
     unguard_worktrees(&root);
+}
+
+fn start_t3_session(root: &Utf8PathBuf) -> (String, Utf8PathBuf) {
+    let started = session_start::start(
+        &Ctx::new(root.clone()),
+        StartInput {
+            feature: Some("checkout".to_owned()),
+            resume: false,
+            provider: Some("t3".to_owned()),
+            detached: false,
+            relay: false,
+            prompt: None,
+        },
+    )
+    .unwrap()
+    .value;
+    (started.session_id, started.view_dir)
+}
+
+#[test]
+fn stopping_a_t3_session_removes_its_project_and_then_its_view_dir() {
+    let (_guard, root) = hall_with_detached_session();
+    enable_t3_host(&root, Provider::ClaudeCode);
+    let fake = FakeT3::install(&root);
+    let _t3 = fake_t3_on_this_thread(&fake);
+    let (id, view_dir) = start_t3_session(&root);
+    assert_eq!(fake.projects(), vec![view_dir.to_string()]);
+
+    let report = stop(
+        &Ctx::new(root),
+        &StopInput {
+            session: Some(id),
+            all: false,
+        },
+    )
+    .unwrap();
+
+    assert_eq!(report.value.stopped, 1);
+    assert!(report.is_clean());
+    assert!(!view_dir.exists());
+    assert!(fake.projects().is_empty());
+    assert!(!fake.log().contains("--force"));
+}
+
+#[test]
+fn a_project_that_cannot_be_removed_is_a_warning_and_the_session_still_stops() {
+    let (_guard, root) = hall_with_detached_session();
+    enable_t3_host(&root, Provider::ClaudeCode);
+    let fake = FakeT3::install(&root);
+    let (id, view_dir) = {
+        let _t3 = fake_t3_on_this_thread(&fake);
+        start_t3_session(&root)
+    };
+    let _threads =
+        crate::test_support::redirect_t3(fake_t3_command(&fake).env("T3_FAKE_THREADS", "1"));
+
+    let report = stop(
+        &Ctx::new(root),
+        &StopInput {
+            session: Some(id),
+            all: false,
+        },
+    )
+    .unwrap();
+
+    assert_eq!(report.value.stopped, 1);
+    assert!(!view_dir.exists());
+    let warning = report
+        .warnings
+        .iter()
+        .find(|warning| warning.code == "session.t3_project_left")
+        .expect("the leftover project is named");
+    assert!(warning.what.contains("t3 project remove"));
+    assert_eq!(fake.projects(), vec![view_dir.to_string()]);
+}
+
+#[test]
+fn an_outdated_t3_leaves_the_project_alone_and_the_session_still_stops() {
+    let (_guard, root) = hall_with_detached_session();
+    enable_t3_host(&root, Provider::ClaudeCode);
+    let fake = FakeT3::install(&root);
+    let (id, view_dir) = {
+        let _t3 = fake_t3_on_this_thread(&fake);
+        start_t3_session(&root)
+    };
+    let _outdated =
+        crate::test_support::redirect_t3(fake_t3_command(&fake).env("T3_FAKE_VERSION", "0.0.45"));
+
+    let report = stop(
+        &Ctx::new(root),
+        &StopInput {
+            session: Some(id),
+            all: false,
+        },
+    )
+    .unwrap();
+
+    assert_eq!(report.value.stopped, 1);
+    assert!(!view_dir.exists());
+    assert!(
+        report
+            .warnings
+            .iter()
+            .any(|warning| warning.code == "session.t3_project_left")
+    );
+    assert!(!fake.log().contains("project remove"));
+    assert_eq!(fake.projects(), vec![view_dir.to_string()]);
+}
+
+#[test]
+fn stop_all_removes_the_project_of_every_t3_session() {
+    let (_guard, root) = hall_with_detached_session();
+    enable_t3_host(&root, Provider::ClaudeCode);
+    let fake = FakeT3::install(&root);
+    let _t3 = fake_t3_on_this_thread(&fake);
+    let (_, view_dir) = start_t3_session(&root);
+    assert_eq!(fake.projects(), vec![view_dir.to_string()]);
+
+    let report = stop(
+        &Ctx::new(root),
+        &StopInput {
+            session: None,
+            all: true,
+        },
+    )
+    .unwrap();
+
+    assert_eq!(
+        report.value.stopped, 2,
+        "the detached claude session and the t3 session"
+    );
+    assert!(fake.projects().is_empty());
+    assert!(report.is_clean());
+}
+
+#[test]
+fn stopping_a_claude_code_session_never_runs_t3_even_when_the_hall_lists_it() {
+    let (_guard, root) = hall_with_detached_session();
+    enable_t3_host(&root, Provider::ClaudeCode);
+    let fake = FakeT3::install(&root);
+    let _t3 = fake_t3_on_this_thread(&fake);
+
+    stop(
+        &Ctx::new(root.clone()),
+        &StopInput {
+            session: Some(session_id_of(&root)),
+            all: false,
+        },
+    )
+    .unwrap();
+
+    assert_eq!(fake.log(), "");
 }

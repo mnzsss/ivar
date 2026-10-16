@@ -289,3 +289,25 @@ fn remove_reports_reconciled_skill_targets_when_hall_skill_exists() {
 
     assert_eq!(report.value.skill_targets, 1);
 }
+
+#[test]
+fn remove_refuses_the_host_while_t3_is_listed() {
+    let (_guard, root) = seeded_hall();
+    let ctx = Ctx::new(root.clone());
+    crate::action::provider::add::add(
+        &ctx,
+        &crate::action::provider::add::AddInput {
+            name: "t3".to_owned(),
+        },
+    )
+    .unwrap();
+    let failure = remove(
+        &ctx,
+        &RemoveInput {
+            name: "claude-code".to_owned(),
+            default: Some("t3".to_owned()),
+        },
+    )
+    .unwrap_err();
+    assert_eq!(failure.code, "manifest.hosted_provider_needs_host");
+}

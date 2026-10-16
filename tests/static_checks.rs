@@ -16,3 +16,6 @@ mod shipped_text;
 
 #[path = "static_checks/skill.rs"]
 mod skill;
+
+#[path = "static_checks/t3_boundary.rs"]
+mod t3_boundary;

@@ -70,3 +70,16 @@ fn store_error_delegates_its_failure_conversion() {
     .into();
     assert_eq!(failure.code, "store.version_too_new");
 }
+
+#[test]
+fn the_hosting_failure_names_both_ways_out() {
+    let failure: Failure = Error::HostedProviderNeedsHost {
+        provider: Provider::T3,
+        host: Provider::ClaudeCode,
+    }
+    .into();
+    assert_eq!(failure.code, "manifest.hosted_provider_needs_host");
+    let fix = &failure.fix_actions[0].what;
+    assert!(fix.contains("ivar provider add claude-code"));
+    assert!(fix.contains("ivar provider remove t3"));
+}

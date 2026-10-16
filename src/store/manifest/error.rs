@@ -37,6 +37,10 @@ pub enum Error {
         available: Vec<Provider>,
     },
 
+    /// A hosted provider is listed without the provider that hosts it.
+    #[error("provider `{provider}` needs `{host}` in `providers.available`")]
+    HostedProviderNeedsHost { provider: Provider, host: Provider },
+
     /// `providers.available` is empty.
     #[error("`providers.available` must not be empty")]
     NoAvailableProviders,
@@ -120,6 +124,17 @@ impl From<Error> for Failure {
                     "manifest.fix_default_provider",
                     format!(
                         "Add `{default}` to `providers.available`, or change `providers.default` to one of: {ids}."
+                    ),
+                ))
+            }
+            Error::HostedProviderNeedsHost { provider, host } => {
+                Failure::blocked("manifest.hosted_provider_needs_host", what)
+                .expected(format!("`{host}` listed whenever `{provider}` is"))
+                .actual(format!("`{provider}` is listed without `{host}`"))
+                .fix(FixAction::safe(
+                    "manifest.list_the_host",
+                    format!(
+                        "Run `ivar provider add {host}`, or `ivar provider remove {provider}` first when you are removing `{host}`."
                     ),
                 ))
             }

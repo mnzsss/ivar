@@ -54,7 +54,7 @@ git. If the agent dies or the process is killed, you have lost a conversation.
 Some variations:
 
 ```sh
-ivar session start checkout --provider opencode   # a specific harness (claude-code, opencode, omp)
+ivar session start checkout --provider opencode   # a specific harness (claude-code, opencode, omp, t3)
 ivar session start checkout --detached            # no harness; view dir persists
 ivar session connect --feature checkout           # re-bind after a restart
 ```

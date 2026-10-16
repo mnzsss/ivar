@@ -220,3 +220,37 @@ fn table_rendering_formats_kebab_case_and_aligns_long_server_names() {
         "SERVER                    PROVIDER     STATE (SOURCE)\ncloudflare-observability  claude-code  not-applicable\nfigma                     opencode     authenticated (live)\n"
     );
 }
+
+#[test]
+fn status_lists_no_row_for_a_hosted_provider() {
+    let (_guard, root) = crate::test_support::seeded_hall();
+    let ctx = crate::action::Ctx::new(root.clone());
+    crate::action::provider::add::add(
+        &ctx,
+        &crate::action::provider::add::AddInput {
+            name: "t3".to_owned(),
+        },
+    )
+    .unwrap();
+    let layout = crate::store::layout::Layout::at(root);
+    let manifest = crate::store::manifest::Manifest::read(&layout)
+        .unwrap()
+        .unwrap();
+    let with_server = manifest
+        .with_mcp_servers(vec![McpServerDef::new("docs", "local").command("npx")])
+        .unwrap();
+    crate::store::manifest::Manifest::write(&layout, &with_server).unwrap();
+
+    let report = crate::action::mcp::status::status(
+        &ctx,
+        &crate::action::mcp::status::StatusInput {
+            server: None,
+            provider: None,
+            live: false,
+        },
+    )
+    .unwrap();
+
+    let providers: Vec<Provider> = report.value.rows.iter().map(|row| row.provider).collect();
+    assert_eq!(providers, vec![Provider::ClaudeCode]);
+}

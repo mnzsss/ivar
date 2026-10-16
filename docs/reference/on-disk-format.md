@@ -71,6 +71,7 @@ Aliases are never sources and never workflow edit targets.
 - A provider **absent** from `providers.available` has its alias path entirely
   managed by `ivar`: the next `sync` removes whatever is there, including a
   regular file. This is deliberately destructive — never remove `HALL.md`.
+- `t3` hosts Claude Code inside T3 Code, so it is accepted only while `claude-code` is listed too.
 
 Session view dirs also carry a provider-native instruction file, but that file
 is **derived** from `HALL.md` (canonical content, plus the session bootstrap

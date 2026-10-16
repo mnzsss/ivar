@@ -509,3 +509,43 @@ fn relay_materialises_the_relayed_providers_config() {
     );
     unguard_worktrees(&root);
 }
+
+#[test]
+fn relay_from_claude_code_to_t3_opens_the_new_session_and_back_is_allowed() {
+    let (_guard, root) = hall_with_provider_session();
+    crate::test_support::enable_t3_host(&root, Provider::ClaudeCode);
+    let fake = crate::test_support::FakeT3::install(&root);
+    let _t3 = crate::test_support::fake_t3_on_this_thread(&fake);
+    let ctx = Ctx::new(root.clone());
+
+    let to_t3 = session_start::start(
+        &ctx,
+        StartInput {
+            feature: Some("checkout".to_owned()),
+            resume: false,
+            provider: Some("t3".to_owned()),
+            detached: false,
+            relay: true,
+            prompt: None,
+        },
+    )
+    .unwrap()
+    .value;
+    assert_eq!(to_t3.provider, Provider::T3);
+    assert!(to_t3.opened_in_host);
+
+    let back = session_start::start(
+        &ctx,
+        StartInput {
+            feature: Some("checkout".to_owned()),
+            resume: false,
+            provider: Some("claude-code".to_owned()),
+            detached: true,
+            relay: true,
+            prompt: None,
+        },
+    )
+    .unwrap()
+    .value;
+    assert_eq!(back.provider, Provider::ClaudeCode);
+}

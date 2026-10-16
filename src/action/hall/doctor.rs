@@ -93,6 +93,7 @@ pub fn doctor(ctx: &Ctx) -> Outcome<DoctorOutcome> {
     findings.extend(diagnose_orphan_worktrees(&layout, &manifest, &git));
     findings.extend(diagnose_feature_state(&layout, &git));
     findings.extend(diagnose_mcp_auth(&manifest, &providers::credential_state));
+    findings.extend(diagnose_t3_host(&manifest, &layout));
     check_legacy_working_docs(&layout, &mut findings)?;
 
     let graph_watch_leader = crate::action::graph::watch::lease::leader_pid(&layout);
@@ -926,6 +927,36 @@ fn instruction_diagnosis(inspection: &instructions::Inspection) -> Option<Diagno
         }),
     }
 }
+
+/// Runs `t3` only for a hall that lists it. The probe path is never a T3 project, so a
+/// reachable server answers `ProjectNotFoundError`; the stopped-server answer is not
+/// measured and is treated as any other non-answer.
+fn diagnose_t3_host(manifest: &Manifest, layout: &Layout) -> Vec<Diagnosis> {
+    if !manifest.providers().available().contains(&Provider::T3) {
+        return Vec::new();
+    }
+    let never_a_project = layout.ivar_dir().join("doctor-probe");
+    match providers::t3::host::probe(&never_a_project) {
+        providers::t3::host::Probe::Ready => Vec::new(),
+        providers::t3::host::Probe::Missing => vec![Diagnosis {
+            code: "t3.binary_missing",
+            what: "`t3` is listed as a provider but is not installed or does not run".to_owned(),
+            fix: "Install T3 Code and put `t3` on PATH, or run `ivar provider remove t3`."
+                .to_owned(),
+        }],
+        providers::t3::host::Probe::Outdated(found) => vec![Diagnosis {
+            code: "t3.version_unsupported",
+            what: providers::t3::host::unsupported_summary(&found),
+            fix: providers::t3::host::VERSION_ADVICE.to_owned(),
+        }],
+        providers::t3::host::Probe::Unreachable(reason) => vec![Diagnosis {
+            code: "t3.server_unreachable",
+            what: format!("T3 Code did not answer: {reason}"),
+            fix: "Start the T3 Code desktop app, then run `ivar doctor` again.".to_owned(),
+        }],
+    }
+}
+
 pub fn diagnose_mcp_auth(
     manifest: &Manifest,
     state_of: &dyn Fn(Provider, &str, &str) -> CredentialState,
@@ -940,7 +971,7 @@ pub fn diagnose_mcp_auth(
         let url = server.url.as_deref().unwrap_or("");
         let materialised = format!("{hall}-{}", server.name);
 
-        for &provider in manifest.providers().available() {
+        for provider in manifest.providers().config_owners() {
             let state = state_of(provider, &materialised, url);
             if state == CredentialState::Missing {
                 findings.push(Diagnosis {

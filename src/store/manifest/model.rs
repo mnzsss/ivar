@@ -364,6 +364,15 @@ impl Manifest {
                 available: self.providers.available.clone(),
             });
         }
+        for provider in &self.providers.available {
+            let host = provider.config_owner();
+            if host != *provider && !self.providers.available.contains(&host) {
+                return Err(Error::HostedProviderNeedsHost {
+                    provider: *provider,
+                    host,
+                });
+            }
+        }
 
         let mut seen: HashSet<&RepoName> = HashSet::new();
         for repo in &self.repos {
@@ -476,6 +485,14 @@ impl Providers {
     #[must_use]
     pub fn default_provider(&self) -> Provider {
         self.default
+    }
+
+    /// The listed providers that own their harness config, hosted ones excluded.
+    pub fn config_owners(&self) -> impl Iterator<Item = Provider> + '_ {
+        self.available
+            .iter()
+            .copied()
+            .filter(|provider| provider.config_owner() == *provider)
     }
 }
 

@@ -21,6 +21,12 @@
 //! - opencode: a read in a linked repo gets the instructions appended to the tool output,
 //!   and a write outside the writable set is blocked. Asserted from the tool output, never
 //!   from the answer: the default model may answer poorly on long context.
+//!
+//! t3: `IVAR_LIVE_T3=1 cargo test --profile e2e --test provider_live t3_session_registers -- --ignored`
+//! with the T3 Code desktop app open; `IVAR_LIVE_T3_CLOSED=1 … t3_session_start_with_the_desktop_app_closed`
+//! with it closed. Manual guard check, once per release: in the T3 project that `ivar session
+//! start --provider t3` opened, start a thread, ask it to write `.ivar/probe.txt`, and expect the
+//! `PreToolUse` denial naming the writable set.
 
 #![cfg(unix)]
 #![allow(
@@ -831,5 +837,124 @@ fn opencode_write_outside_the_writable_set_is_blocked_by_the_plugin() {
             "rep{rep}: the plugin never blocked the write: {events:?}"
         );
     }
+    unguard(&root);
+}
+
+// -- t3 --------------------------------------------------------------------
+
+/// `ivar <args> --json` with the developer's real HOME, so the `t3` it spawns finds the
+/// running server, and with no inherited ivar session.
+fn real_ivar(root: &Utf8Path, args: &[&str]) -> Value {
+    let mut command = common::ivar();
+    for key in [
+        "IVAR_SESSION_ID",
+        "IVAR_SESSION_PATH",
+        "IVAR_FEATURE",
+        "IVAR_HALL",
+        "IVAR_PROVIDER",
+    ] {
+        command.env_remove(key);
+    }
+    let output = command
+        .env("IVAR_NO_UPDATE_CHECK", "1")
+        .current_dir(root)
+        .args(args)
+        .arg("--json")
+        .output()
+        .unwrap();
+    serde_json::from_slice(&output.stdout).unwrap_or_else(|error| {
+        panic!(
+            "`ivar {}` printed no JSON ({error}): {}",
+            args.join(" "),
+            String::from_utf8_lossy(&output.stderr)
+        )
+    })
+}
+
+fn t3_program() -> String {
+    std::env::var("T3CODE_CLI_PATH")
+        .ok()
+        .filter(|path| !path.is_empty())
+        .unwrap_or_else(|| "t3".to_owned())
+}
+
+fn t3_command(args: &[&str]) -> std::process::Output {
+    Command::new(t3_program()).args(args).output().unwrap()
+}
+
+fn wait_for_t3_project(view_dir: &Utf8PathBuf) {
+    for _ in 0..15 {
+        if t3_command(&["project", "rename", view_dir.as_str(), "ivar-live"])
+            .status
+            .success()
+        {
+            return;
+        }
+        std::thread::sleep(Duration::from_secs(1));
+    }
+    panic!("T3 did not register {view_dir} within 15 seconds");
+}
+
+fn t3_hall() -> (tempfile::TempDir, Utf8PathBuf, String, Utf8PathBuf) {
+    let (guard, root) = hall_root();
+    run_ok(&root, &["init"]);
+    run_ok(&root, &["provider", "add", "t3"]);
+    run_ok(&root, &["sync"]);
+    run_ok(&root, &["feature", "create", "t3-live"]);
+    let started = real_ivar(&root, &["session", "start", "t3-live", "--provider", "t3"]);
+    assert_eq!(started["ok"], true, "{started}");
+    let id = started["session_id"].as_str().unwrap().to_owned();
+    let view_dir = Utf8PathBuf::from(started["view_dir"].as_str().unwrap());
+    (guard, root, id, view_dir)
+}
+
+#[test]
+#[ignore = "needs a running T3 Code desktop app"]
+fn t3_session_registers_and_unregisters_its_view_dir() {
+    if std::env::var("IVAR_LIVE_T3").is_err() {
+        return;
+    }
+    let (_guard, root, id, view_dir) = t3_hall();
+    wait_for_t3_project(&view_dir);
+
+    let stopped = real_ivar(&root, &["session", "stop", &id]);
+    assert_eq!(stopped["ok"], true, "{stopped}");
+    assert!(
+        !stopped.to_string().contains("session.t3_project_left"),
+        "an empty project is removed without --force: {stopped}"
+    );
+
+    let gone = t3_command(&["project", "remove", view_dir.as_str()]);
+    let output = format!(
+        "{}{}",
+        String::from_utf8_lossy(&gone.stdout),
+        String::from_utf8_lossy(&gone.stderr)
+    );
+    assert!(
+        !gone.status.success() && output.contains("ProjectNotFoundError"),
+        "the project must be gone after stop: {output}"
+    );
+    unguard(&root);
+}
+
+#[test]
+#[ignore = "needs the T3 Code desktop app to be closed"]
+fn t3_session_start_with_the_desktop_app_closed_keeps_the_session() {
+    if std::env::var("IVAR_LIVE_T3_CLOSED").is_err() {
+        return;
+    }
+    let (_guard, root) = hall_root();
+    run_ok(&root, &["init"]);
+    run_ok(&root, &["provider", "add", "t3"]);
+    run_ok(&root, &["feature", "create", "t3-live"]);
+
+    let started = real_ivar(&root, &["session", "start", "t3-live", "--provider", "t3"]);
+
+    assert_eq!(started["ok"], true, "{started}");
+    assert!(
+        started.to_string().contains("session.t3_open_failed"),
+        "the closed-app failure is a warning: {started}"
+    );
+    assert!(Utf8PathBuf::from(started["view_dir"].as_str().unwrap()).exists());
     unguard(&root);
 }

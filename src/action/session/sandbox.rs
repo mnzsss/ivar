@@ -260,6 +260,7 @@ fn provider_runtime_roots(provider: Provider) -> Vec<Utf8PathBuf> {
     let home = std::env::var("HOME").ok().map(Utf8PathBuf::from);
 
     match provider {
+        Provider::T3 => {}
         Provider::ClaudeCode => {
             if let Some(home) = &home {
                 dirs.push(home.join(".claude"));

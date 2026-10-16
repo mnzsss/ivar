@@ -272,27 +272,36 @@ fn the_command_reference_matches_the_binary() {
 }
 
 #[test]
-fn documented_provider_set_equals_all_providers() {
+fn documented_provider_set_equals_selectable_providers() {
     let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let arch_path = manifest_dir.join("ARCHITECTURE.md");
     let content = std::fs::read_to_string(&arch_path).unwrap();
 
-    // Ensure ARCHITECTURE.md environment table lists all three providers
     assert!(
-        content.contains("`claude-code`, `opencode`, or `omp`"),
-        "ARCHITECTURE.md must document all three providers in IVAR_PROVIDER description"
+        content.contains("`claude-code`, `opencode`, `omp`, or `t3`"),
+        "ARCHITECTURE.md must document every selectable provider in IVAR_PROVIDER description"
     );
 
-    // Verify Provider::ALL coverage
-    let providers = ivar::domain::provider::Provider::ALL;
+    let selectable = ivar::domain::provider::Provider::SELECTABLE;
     assert_eq!(
-        providers.len(),
-        3,
-        "Provider::ALL must contain exactly 3 providers"
+        selectable.len(),
+        4,
+        "Provider::SELECTABLE must contain exactly 4 providers"
     );
-    assert!(providers.contains(&ivar::domain::provider::Provider::ClaudeCode));
-    assert!(providers.contains(&ivar::domain::provider::Provider::OpenCode));
-    assert!(providers.contains(&ivar::domain::provider::Provider::Omp));
+    for provider in selectable {
+        assert!(
+            content.contains(&format!("`{}`", provider.id())),
+            "ARCHITECTURE.md must mention `{}`",
+            provider.id()
+        );
+    }
+
+    let config_owning = ivar::domain::provider::Provider::ALL;
+    assert_eq!(
+        config_owning.len(),
+        3,
+        "Provider::ALL is the config-owning set; a hosted provider must not join it"
+    );
 }
 
 /// A relative link in the documentation must point at a file that exists.

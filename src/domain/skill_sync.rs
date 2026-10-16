@@ -39,7 +39,7 @@ impl TargetId {
 impl From<Provider> for TargetId {
     fn from(provider: Provider) -> Self {
         match provider {
-            Provider::ClaudeCode => Self::Claude,
+            Provider::ClaudeCode | Provider::T3 => Self::Claude,
             Provider::OpenCode => Self::OpenCode,
             Provider::Omp => Self::Omp,
         }

@@ -6,6 +6,7 @@ use serde::Serialize;
 
 use crate::action::{Ctx, discover_hall, read_manifest};
 use crate::domain::mcp::{MCP_PRESETS, McpServerDef, mcp_preset};
+use crate::domain::provider::Provider;
 use crate::error::{Failure, FixAction, Outcome, Report, WriteHuman};
 use crate::harness::config;
 use crate::store::manifest::Manifest;
@@ -130,7 +131,7 @@ pub fn add(ctx: &Ctx, input: &AddInput) -> Outcome<McpAdded> {
     };
 
     let default_provider = manifest.providers().default_provider();
-    let available_providers = manifest.providers().available().to_vec();
+    let available_providers: Vec<Provider> = manifest.providers().config_owners().collect();
     let provider_names: Vec<String> = available_providers.iter().map(|p| p.to_string()).collect();
 
     if changed {

@@ -23,7 +23,8 @@ have their write bits cleared (`mode & ~0o222`) on the worktree root — one pat
 never the tree below it, for a reason `docs/reference/limitations.md` spells out.
 On Linux with Landlock, an agent launched by `ivar session start` with a TTY runs
 in a sandbox where the kernel refuses writes outside the promoted repos; on macOS,
-on kernels without Landlock and under `ivar session connect` there is no such
+on kernels without Landlock, under `ivar session connect` and in a `t3` session
+(its agent is a child of T3 Code) there is no such
 sandbox, and `docs/reference/limitations.md` lists those cases. Harness hooks are
 the *error message* that names the way out — `ivar feature promote` — never the
 barrier. So: supporting a new harness is never blocked on whether it exposes a
@@ -547,12 +548,14 @@ hermetic, and tests the thing that actually ships.
 
 ### 5. `providers` facade — closed provider-first dispatch with shared orchestration
 
-The set of harnesses is known at compile time (`Provider::ALL`), so dispatch is
-a match over a closed enum via the `providers` facade (`src/providers/mod.rs`),
-not an open vtable or direct cross-module coupling. Action modules never import
-concrete provider modules (`claude_code`, `opencode`, `omp`) directly; all
-provider-native facts (launch argv, MCP schemas, hook scripts, guard encodings,
-and auth broker interactions) are private to their respective provider modules.
+The set of harnesses is known at compile time (`Provider::SELECTABLE`; `Provider::ALL`
+is the subset that owns a config surface, and a hosted provider such as `t3` stays out
+of it), so dispatch is a match over a closed enum via the `providers` facade
+(`src/providers/mod.rs`), not an open vtable or direct cross-module coupling. Action
+modules never import concrete provider modules (`claude_code`, `opencode`, `omp`, `t3`)
+directly; all provider-native facts (launch argv, MCP schemas, hook scripts, guard
+encodings, and auth broker interactions) are private to their respective provider
+modules.
 
 Capabilities are **explicit flags**, not inferred: `supports_resume`,
 `supports_review`, and so on. A harness that cannot do something declares that,
@@ -772,7 +775,7 @@ contract** — a user's committed `.ivar/setups/<repo>.sh` breaks if they move.
 | `IVAR_FEATURE` | feature worktrees only | ✓ | the feature name |
 | `IVAR_SESSION_ID` | — | ✓ | the session id |
 | `IVAR_SESSION_PATH` | — | ✓ | the view dir |
-| `IVAR_PROVIDER` | — | ✓ | the active harness provider (`claude-code`, `opencode`, or `omp`) |
+| `IVAR_PROVIDER` | — | ✓ | the active harness provider (`claude-code`, `opencode`, `omp`, or `t3`) |
 
 The three worktree variables were added when slice 2 landed the setup-script
 runner: a script's whole job is to bootstrap *this* repo on *this* branch, and

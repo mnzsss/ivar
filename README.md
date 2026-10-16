@@ -152,6 +152,7 @@ mcp-name: io.github.mnzsss/ivar
 symlinks. WSL is untested.
 
 Supported agent harness providers: **Claude Code**, **OpenCode**, and **OMP** (Oh My Pi).
+The `t3` provider opens a session in T3 Code and runs Claude Code there, so it requires `claude-code`.
 
 ## Documentation
 
