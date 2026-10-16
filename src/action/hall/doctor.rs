@@ -944,6 +944,11 @@ fn diagnose_t3_host(manifest: &Manifest, layout: &Layout) -> Vec<Diagnosis> {
             fix: "Install T3 Code and put `t3` on PATH, or run `ivar provider remove t3`."
                 .to_owned(),
         }],
+        providers::t3::host::Probe::Outdated(found) => vec![Diagnosis {
+            code: "t3.version_unsupported",
+            what: providers::t3::host::unsupported_summary(&found),
+            fix: providers::t3::host::VERSION_ADVICE.to_owned(),
+        }],
         providers::t3::host::Probe::Unreachable(reason) => vec![Diagnosis {
             code: "t3.server_unreachable",
             what: format!("T3 Code did not answer: {reason}"),

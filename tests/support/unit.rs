@@ -50,13 +50,18 @@ mod fake_t3;
 pub(crate) use fake_t3::FakeT3;
 
 pub(crate) fn fake_t3_command(fake: &FakeT3) -> crate::infra::proc::Command {
-    crate::infra::proc::Command::new(fake.dir.join("t3").as_str())
+    crate::infra::proc::Command::new("/bin/sh")
+        .arg(fake.dir.join("t3").as_str())
         .env("T3_FAKE_PROJECTS", fake.projects.as_str())
         .env("T3_FAKE_LOG", fake.log.as_str())
 }
 
+pub(crate) fn redirect_t3(to: crate::infra::proc::Command) -> crate::infra::proc::Redirect {
+    crate::infra::proc::redirect_on_this_thread(&crate::providers::t3::host::program(), to)
+}
+
 pub(crate) fn fake_t3_on_this_thread(fake: &FakeT3) -> crate::infra::proc::Redirect {
-    crate::infra::proc::redirect_on_this_thread("t3", fake_t3_command(fake))
+    redirect_t3(fake_t3_command(fake))
 }
 
 /// Rewrites the hall manifest to list `claude-code` and `t3`, with `default` as the default.

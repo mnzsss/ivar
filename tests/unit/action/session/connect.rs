@@ -1016,10 +1016,7 @@ fn a_failing_reopen_is_a_warning_and_leaves_the_binding_intact() {
     enable_t3_host(&root, Provider::ClaudeCode);
     let session_id = detached_t3_session(&root);
     let fake = FakeT3::install(&root);
-    let _t3 = crate::infra::proc::redirect_on_this_thread(
-        "t3",
-        fake_t3_command(&fake).env("T3_FAKE_FAIL", "1"),
-    );
+    let _t3 = crate::test_support::redirect_t3(fake_t3_command(&fake).env("T3_FAKE_FAIL", "1"));
 
     let report = connect(
         &Ctx::new(root),

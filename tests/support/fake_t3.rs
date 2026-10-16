@@ -10,7 +10,7 @@ use camino::{Utf8Path, Utf8PathBuf};
 
 const FAKE_T3: &str = r#"#!/bin/sh
 printf '%s\n' "$*" >> "$T3_FAKE_LOG"
-if [ "$1" = "--version" ]; then echo "0.1.0"; exit 0; fi
+if [ "$1" = "--version" ]; then echo "t3 v${T3_FAKE_VERSION:-0.1.0}"; exit 0; fi
 if [ -n "$T3_FAKE_FAIL" ]; then
   printf 'DesktopAppRequestFailedError: fake failure\n    at fake (fake.mjs:1:1)\n' >&2
   exit 1

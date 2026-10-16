@@ -290,10 +290,8 @@ fn a_project_that_cannot_be_removed_is_a_warning_and_the_session_still_stops() {
         let _t3 = fake_t3_on_this_thread(&fake);
         start_t3_session(&root)
     };
-    let _threads = crate::infra::proc::redirect_on_this_thread(
-        "t3",
-        fake_t3_command(&fake).env("T3_FAKE_THREADS", "1"),
-    );
+    let _threads =
+        crate::test_support::redirect_t3(fake_t3_command(&fake).env("T3_FAKE_THREADS", "1"));
 
     let report = stop(
         &Ctx::new(root),

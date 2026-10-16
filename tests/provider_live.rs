@@ -871,12 +871,19 @@ fn real_ivar(root: &Utf8Path, args: &[&str]) -> Value {
     })
 }
 
+fn t3_program() -> String {
+    std::env::var("T3CODE_CLI_PATH")
+        .ok()
+        .filter(|path| !path.is_empty())
+        .unwrap_or_else(|| "t3".to_owned())
+}
+
 fn t3_command(args: &[&str]) -> std::process::Output {
-    Command::new("t3").args(args).output().unwrap()
+    Command::new(t3_program()).args(args).output().unwrap()
 }
 
 fn wait_for_t3_project(view_dir: &Utf8PathBuf) {
-    // `t3 app` returns before T3 registers the project.
+    // Wait for T3 to register the project.
     for _ in 0..15 {
         if t3_command(&["project", "rename", view_dir.as_str(), "ivar-live"])
             .status

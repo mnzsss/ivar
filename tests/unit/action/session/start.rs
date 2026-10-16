@@ -2562,10 +2562,7 @@ fn a_failing_open_keeps_the_session_and_says_how_to_retry() {
     let (_guard, root) = hall_with_promoted_feature();
     enable_t3_host(&root, Provider::ClaudeCode);
     let fake = FakeT3::install(&root);
-    let _t3 = crate::infra::proc::redirect_on_this_thread(
-        "t3",
-        fake_t3_command(&fake).env("T3_FAKE_FAIL", "1"),
-    );
+    let _t3 = crate::test_support::redirect_t3(fake_t3_command(&fake).env("T3_FAKE_FAIL", "1"));
 
     let report = start(&Ctx::new(root), t3_input("checkout")).unwrap();
 
@@ -2587,14 +2584,31 @@ fn a_failing_open_keeps_the_session_and_says_how_to_retry() {
 fn a_missing_t3_binary_fails_before_any_view_dir_exists() {
     let (_guard, root) = hall_with_promoted_feature();
     enable_t3_host(&root, Provider::ClaudeCode);
-    let _gone = crate::infra::proc::redirect_on_this_thread(
-        "t3",
-        crate::infra::proc::Command::new("/nonexistent/t3"),
-    );
+    let _gone =
+        crate::test_support::redirect_t3(crate::infra::proc::Command::new("/nonexistent/t3"));
 
     let failure = start(&Ctx::new(root.clone()), t3_input("checkout")).unwrap_err();
 
     assert_eq!(failure.code, "t3.binary_missing");
+    let layout = Layout::at(root);
+    assert!(
+        crate::action::session::lookup::list_all(&layout)
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[test]
+fn an_outdated_t3_fails_before_any_view_dir_exists() {
+    let (_guard, root) = hall_with_promoted_feature();
+    enable_t3_host(&root, Provider::ClaudeCode);
+    let fake = FakeT3::install(&root);
+    let _t3 =
+        crate::test_support::redirect_t3(fake_t3_command(&fake).env("T3_FAKE_VERSION", "0.0.45"));
+
+    let failure = start(&Ctx::new(root.clone()), t3_input("checkout")).unwrap_err();
+
+    assert_eq!(failure.code, "t3.version_unsupported");
     let layout = Layout::at(root);
     assert!(
         crate::action::session::lookup::list_all(&layout)
