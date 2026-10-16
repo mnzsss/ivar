@@ -210,7 +210,7 @@ fn the_human_surface_says_the_worktree_stays() {
 
     assert_eq!(
         String::from_utf8(out).unwrap(),
-        "Demoted `api` from feature `checkout`. Its worktree stays on disk — `ivar cleanup` can remove it, or demote with `--remove-worktree`.\n"
+        "Demoted `api` from feature `checkout`. Its worktree stays on disk; remove it with `ivar feature demote checkout api --remove-worktree`.\n"
     );
 }
 
@@ -321,4 +321,35 @@ fn demote_with_remove_worktree_refuses_and_removes_nothing_with(
     .unwrap()
     .unwrap();
     assert!(feature.is_promoted(&RepoName::new("api").unwrap()));
+}
+
+#[test]
+fn demote_with_remove_worktree_finishes_a_plain_demote_left_on_disk() {
+    let (_guard, root, ctx) = promoted_checkout();
+    demote(
+        &ctx,
+        DemoteInput {
+            feature: "checkout".to_owned(),
+            repo: "api".to_owned(),
+            remove_worktree: false,
+        },
+    )
+    .unwrap();
+
+    let report = demote_removing_worktree(&ctx).unwrap();
+
+    assert!(report.value.worktree_removed);
+    assert!(report.value.branch_deleted);
+    assert!(!root.join(".ivar/repos/api/checkout").exists());
+    assert!(!branch_exists(&root, "checkout"));
+}
+
+#[test]
+fn demote_with_remove_worktree_still_reports_a_repo_never_promoted() {
+    let (_guard, root) = hall_with_feature();
+    let ctx = Ctx::new(root);
+
+    let failure = demote_removing_worktree(&ctx).unwrap_err();
+
+    assert_eq!(failure.code, "feature.not_promoted");
 }

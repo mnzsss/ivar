@@ -10,7 +10,7 @@ use std::io;
 use camino::Utf8PathBuf;
 use serde::Serialize;
 
-use crate::domain::feature::Feature;
+use crate::domain::feature::{Feature, effective_base};
 use crate::domain::name::{FeatureName, RepoName};
 use crate::error::{Failure, FixAction, Outcome, Report, Warning, WriteHuman};
 use crate::git::{self, Git};
@@ -63,8 +63,8 @@ impl WriteHuman for DemoteOutcome {
         } else {
             writeln!(
                 w,
-                "Demoted `{}` from feature `{}`. Its worktree stays on disk — `ivar cleanup` can remove it, or demote with `--remove-worktree`.",
-                self.repo, self.feature,
+                "Demoted `{}` from feature `{}`. Its worktree stays on disk; remove it with `ivar feature demote {} {} --remove-worktree`.",
+                self.repo, self.feature, self.feature, self.repo,
             )
         }
     }
@@ -83,35 +83,37 @@ pub fn demote(ctx: &Ctx, input: DemoteInput) -> Outcome<DemoteOutcome> {
     let git = git::System;
 
     let removal_target = if input.remove_worktree {
-        Feature::read(&layout, &feature_name)?
-            .filter(|feature| feature.is_promoted(&repo_name))
-            .map(|feature| ensure_removable(&layout, &git, &feature, &repo_name).map(|()| feature))
-            .transpose()?
+        removal_target(&layout, &git, &feature_name, &repo_name)?
     } else {
         None
     };
+    let already_demoted = removal_target
+        .as_ref()
+        .is_some_and(|feature| !feature.is_promoted(&repo_name));
 
-    Feature::update(&layout, &feature_name, |feature| {
-        // Removing a repo is a membership change — frozen once this promotion
-        // carries a successful receipt, and by the whole-child `integrated`
-        // close.
-        super::mutation::ensure_promotion_mutable(&layout, feature, &repo_name)?;
+    if !already_demoted {
+        Feature::update(&layout, &feature_name, |feature| {
+            // Removing a repo is a membership change — frozen once this promotion
+            // carries a successful receipt, and by the whole-child `integrated`
+            // close.
+            super::mutation::ensure_promotion_mutable(&layout, feature, &repo_name)?;
 
-        if feature.demote(&repo_name) {
-            Ok(())
-        } else {
-            Err(Failure::blocked(
-                "feature.not_promoted",
-                format!("`{repo_name}` is not promoted into `{feature_name}`"),
-            )
-            .expected("a repo currently promoted into this feature")
-            .actual("this repo has no promotion record here")
-            .fix(FixAction::safe(
-                "feature.promote_first",
-                format!("Run `ivar feature promote {feature_name} {repo_name}` first."),
-            )))
-        }
-    })?;
+            if feature.demote(&repo_name) {
+                Ok(())
+            } else {
+                Err(Failure::blocked(
+                    "feature.not_promoted",
+                    format!("`{repo_name}` is not promoted into `{feature_name}`"),
+                )
+                .expected("a repo currently promoted into this feature")
+                .actual("this repo has no promotion record here")
+                .fix(FixAction::safe(
+                    "feature.promote_first",
+                    format!("Run `ivar feature promote {feature_name} {repo_name}` first."),
+                )))
+            }
+        })?;
+    }
 
     let (worktree_removed, branch_deleted, warnings) = match &removal_target {
         Some(feature) => remove_worktree_and_branch(&layout, &git, feature, &repo_name),
@@ -128,6 +130,30 @@ pub fn demote(ctx: &Ctx, input: DemoteInput) -> Outcome<DemoteOutcome> {
         },
         warnings,
     ))
+}
+
+/// The feature whose `repo` worktree `--remove-worktree` should drop, once
+/// removing it is proven safe. A promoted repo qualifies; so does one demoted
+/// earlier whose worktree is still on disk, so a plain `demote` can be
+/// finished later. `None` leaves the record update to report what is wrong.
+fn removal_target(
+    layout: &Layout,
+    git: &impl Git,
+    feature_name: &FeatureName,
+    repo: &RepoName,
+) -> Result<Option<Feature>, Failure> {
+    let Some(feature) = Feature::read(layout, feature_name)? else {
+        return Ok(None);
+    };
+    let leftover_worktree = || {
+        git::lookup_worktree(git, &layout.repo_bare(repo), feature.branch.as_str())
+            .is_ok_and(|worktree| worktree.is_some())
+    };
+    if !feature.is_promoted(repo) && !leftover_worktree() {
+        return Ok(None);
+    }
+    ensure_removable(layout, git, &feature, repo)?;
+    Ok(Some(feature))
 }
 
 /// Refuses unless dropping `repo`'s worktree and branch loses nothing: a clean
@@ -147,9 +173,6 @@ fn ensure_removable(
         .expected("a repo declared in ivar.json, so its base and remote are known")
         .actual("the repo is not declared"));
     };
-    let Some(promotion) = feature.promotions.get(repo) else {
-        return Ok(());
-    };
     let bare = layout.repo_bare(repo);
     let branch = feature.branch.as_str();
     let mut blockers = Vec::new();
@@ -167,7 +190,11 @@ fn ensure_removable(
     }
 
     if git.revision_commit(&bare, branch).is_ok() {
-        let base = base::resolve(feature, promotion, manifest_repo.default_branch());
+        let default_branch = manifest_repo.default_branch();
+        let base = match feature.promotions.get(repo) {
+            Some(promotion) => base::resolve(feature, promotion, default_branch),
+            None => effective_base(feature.base.as_ref(), default_branch),
+        };
         match base::unmerged_commits(git, &bare, base.as_str(), branch) {
             Ok(0) => {}
             Ok(ahead) => blockers.push(format!("the branch has {ahead} commit(s) beyond `{base}`")),
@@ -201,7 +228,7 @@ fn ensure_removable(
 }
 
 /// Best-effort, after the record is gone: a failure becomes a warning and the
-/// leftover is still reachable through `ivar cleanup`.
+/// leftover is removable by rerunning with `--remove-worktree`.
 fn remove_worktree_and_branch(
     layout: &Layout,
     git: &impl Git,
