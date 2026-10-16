@@ -879,6 +879,7 @@ fn t3_hall() -> (tempfile::TempDir, Utf8PathBuf, String, Utf8PathBuf) {
     let (guard, root) = hall_root();
     run_ok(&root, &["init"]);
     run_ok(&root, &["provider", "add", "t3"]);
+    run_ok(&root, &["sync"]);
     run_ok(&root, &["feature", "create", "t3-live"]);
     let started = real_ivar(&root, &["session", "start", "t3-live", "--provider", "t3"]);
     assert_eq!(started["ok"], true, "{started}");
@@ -894,6 +895,8 @@ fn t3_session_registers_and_unregisters_its_view_dir() {
         return;
     }
     let (_guard, root, id, view_dir) = t3_hall();
+    // `t3 app` returns before T3 registers the project.
+    std::thread::sleep(Duration::from_secs(3));
 
     let again = t3_command(&["project", "add", view_dir.as_str()]);
     assert!(

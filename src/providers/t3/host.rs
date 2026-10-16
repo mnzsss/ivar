@@ -1,9 +1,11 @@
 //! The only place ivar runs `t3`. The contract is measured against `t3` 0.1.0 with the
 //! desktop app running: `t3 app <dir>` registers and opens a project in one idempotent
 //! call and exits 1 for a directory it cannot open; `t3 project remove <path>` exits 0 for
-//! a project and 1 with `ProjectNotFoundError` for an unknown one. The refusal to remove a
-//! project that still holds threads is assumed, not measured, so every other failure is
-//! reported as "left behind".
+//! a project and 1 with `ProjectNotFoundError` for an unknown one. Without `--force`, removing
+//! a project that holds threads exits 1 with `ProjectLiveServerDeclaredResponseError`, so
+//! every failure other than `ProjectNotFoundError` is reported as "left behind". `t3 app`
+//! returns before the project is registered, so a remove issued right after it can find
+//! nothing. `t3 app` with the desktop app stopped is unmeasured.
 
 use camino::Utf8Path;
 

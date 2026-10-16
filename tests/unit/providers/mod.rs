@@ -586,6 +586,12 @@ fn t3_cannot_resume_or_take_a_prompt() {
         "harness.no_resume"
     );
     assert_eq!(
+        providers::start_command(Provider::T3, false, &[])
+            .unwrap_err()
+            .code,
+        "harness.host_launched"
+    );
+    assert_eq!(
         providers::initial_prompt_args(Provider::T3, false, "x")
             .unwrap_err()
             .code,

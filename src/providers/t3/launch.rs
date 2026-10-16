@@ -1,4 +1,3 @@
-use crate::infra::proc::Command;
 use crate::providers::{Capabilities, LaunchContract};
 
 const CONTRACT: LaunchContract = LaunchContract {
@@ -15,9 +14,4 @@ const CONTRACT: LaunchContract = LaunchContract {
 #[must_use]
 pub const fn contract() -> LaunchContract {
     CONTRACT
-}
-
-#[must_use]
-pub fn start_command() -> Command {
-    Command::new(CONTRACT.binary)
 }

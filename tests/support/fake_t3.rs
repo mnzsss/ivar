@@ -33,7 +33,7 @@ case "$1" in
     case " $* " in
       *" --force "*) ;;
       *) if [ -n "$T3_FAKE_THREADS" ]; then
-           printf 'ProjectHasThreadsError: assumed refusal, not measured\n' >&2
+           printf 'ProjectLiveServerDeclaredResponseError: Server request failed (invalid_request, trace 00000000000000000000000000000000).\n' >&2
            exit 1
          fi ;;
     esac

@@ -96,7 +96,16 @@ pub fn start_command(
         Provider::ClaudeCode => Ok(claude_code::launch::start_command(resume, mcp_allowlist)),
         Provider::OpenCode => Ok(opencode::launch::start_command(resume)),
         Provider::Omp => Ok(omp::launch::start_command(resume)),
-        Provider::T3 => Ok(t3::launch::start_command()),
+        Provider::T3 => Err(Failure::blocked(
+            "harness.host_launched",
+            "`t3` sessions are opened in T3 Code, not launched by ivar",
+        )
+        .expected("a harness that ivar launches")
+        .actual("`t3` is hosted by the T3 Code desktop app")
+        .fix(FixAction::safe(
+            "session.start_t3",
+            "Run `ivar session start --provider t3` or `ivar session connect` to open it in T3 Code.",
+        ))),
     }
 }
 
