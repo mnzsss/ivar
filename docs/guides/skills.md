@@ -147,9 +147,11 @@ the sharing.
 
 ## Shipped skills and workflow commands
 
-Alongside hall skills, `ivar` ships built-in **shipped skills** (`ivar-plan`, `ivar-execute`, `ivar-deliver`, `ivar-subfeatures`, and `ivar-feedback`) and **workflow commands** (such as `/ivar-sync` and other official workflows).
+Alongside hall skills, `ivar` ships built-in **shipped skills** (`ivar-explore`, `ivar-plan`, `ivar-execute`, `ivar-deliver`, `ivar-subfeatures`, and `ivar-feedback`) and **workflow commands** (such as `/ivar-sync` and other official workflows).
 
 `ivar-execute` is distributed as an official shipped skill rather than a prompt command because complex wave execution, subagent dispatch, review barriers, and delivery gates require rich skill instructions and isolation.
+
+`ivar-explore` is a skill rather than a command because nobody should have to ask for it: the agent loads it from its description when a request describes a problem, idea, decision or change that is not scoped yet, and opens a Discovery Session. A plain question about existing code is answered directly, and the skill does nothing inside a Feature Session.
 
 They are a separate surface with a separate lifecycle:
 
