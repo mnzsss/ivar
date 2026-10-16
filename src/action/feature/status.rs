@@ -17,6 +17,7 @@ use crate::domain::feature::{ApprovalState, Gate, GateState, WorktreeState, effe
 use crate::domain::name::{BranchName, FeatureName, RepoName};
 use crate::error::{Outcome, Report, Warning, WriteHuman};
 use crate::git::{self, Git, TargetState};
+use crate::store::layout::Layout;
 
 /// One promoted repo's status within a feature.
 #[derive(Debug, Clone, Serialize)]
@@ -40,6 +41,9 @@ pub struct RepoDetail {
     /// `feature.base_absent` warning covers, surfaced here where it does not
     /// scroll off screen.
     pub base_diverged: bool,
+    /// Whether the approved plan's `repos:` leaves this repo out while its
+    /// worktree carries no work, so the promotion looks like a stray.
+    pub outside_plan: bool,
     /// The URL of the pull request opened or found for this repo's promotion,
     /// or from the integration receipt if already integrated.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -118,6 +122,13 @@ impl WriteHuman for StatusOutcome {
                 if let Some(retry) = &detail.retry {
                     writeln!(w, "  {} retry: {retry}", detail.repo)?;
                 }
+                if detail.outside_plan {
+                    writeln!(
+                        w,
+                        "  {} outside plan: not in plan.md `repos:` and has no changes; remove it: ivar feature demote {} {} --remove-worktree",
+                        detail.repo, self.name, detail.repo
+                    )?;
+                }
             }
         }
         if self.every_pr_merged() {
@@ -187,6 +198,41 @@ fn state_word(state: WorktreeState) -> &'static str {
     }
 }
 
+/// The repos the plan's `repos:` names; unreadable frontmatter becomes a
+/// warning and an empty list, which disables the outside-plan check.
+fn planned_repos(
+    layout: &Layout,
+    feature: &FeatureName,
+    warnings: &mut Vec<Warning>,
+) -> Vec<RepoName> {
+    crate::action::plan::plan_declared_repos(layout, feature).unwrap_or_else(|failure| {
+        warnings.push(Warning::new(
+            "feature.plan_repos_unreadable",
+            feature.as_str(),
+            failure.what,
+        ));
+        Vec::new()
+    })
+}
+
+/// A clean worktree with nothing beyond `base`. Anything git cannot answer
+/// counts as work, so a stray is never reported on a guess.
+fn carries_no_work(
+    git: &impl Git,
+    layout: &Layout,
+    repo: &RepoName,
+    branch: &BranchName,
+    base: &BranchName,
+) -> bool {
+    matches!(
+        git.worktree_dirty(&layout.repo_worktree(repo, branch)),
+        Ok(false)
+    ) && matches!(
+        base::unmerged_commits(git, &layout.repo_bare(repo), base.as_str(), branch.as_str()),
+        Ok(0)
+    )
+}
+
 /// Show `input.feature` in detail.
 ///
 /// `worktree_present` is a live probe — the record may say `Ready` while the
@@ -203,8 +249,10 @@ pub fn status(ctx: &Ctx, input: StatusInput) -> Outcome<StatusOutcome> {
 
     let feature = super::relations::read_feature(&layout, &name)?;
 
-    let mut repos = Vec::new();
     let mut warnings = Vec::new();
+    let planned_repos = planned_repos(&layout, &name, &mut warnings);
+
+    let mut repos = Vec::new();
     for (repo, promotion) in &feature.promotions {
         let worktree = layout.repo_worktree(repo, &feature.branch);
         let present = matches!(
@@ -252,6 +300,13 @@ pub fn status(ctx: &Ctx, input: StatusInput) -> Outcome<StatusOutcome> {
             _ => None,
         };
 
+        let outside_plan = present
+            && !planned_repos.is_empty()
+            && !planned_repos.contains(repo)
+            && base
+                .as_ref()
+                .is_some_and(|base| carries_no_work(&git, &layout, repo, &feature.branch, base));
+
         let retry = (promotion.worktree == WorktreeState::Failed || !present)
             .then(|| format!("ivar feature promote {name} {repo}"));
 
@@ -262,6 +317,7 @@ pub fn status(ctx: &Ctx, input: StatusInput) -> Outcome<StatusOutcome> {
             worktree_present: present,
             base,
             base_diverged,
+            outside_plan,
             pr_url,
             pr_state,
             reason: promotion.reason.clone(),
