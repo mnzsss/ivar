@@ -106,7 +106,13 @@ pub struct DeliveryRepo {
     /// The remote the branch is pushed to — the repo's `url` from the
     /// manifest.
     pub remote: String,
-    /// The refspec the push uses, `local_branch:refs/heads/local_branch`.
+    /// The repo's `ref_prefix` from `ivar.json` — `repos/<name>/` for a repo
+    /// stored inside the hall's own remote. Every branch this repo has on
+    /// the remote lives under it; see [`Self::remote_branch`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ref_prefix: Option<String>,
+    /// The refspec the push uses,
+    /// `local_branch:refs/heads/<ref_prefix>local_branch`.
     pub push_refspec: String,
     /// What delivering this repo means — create a new pull request, update an
     /// existing one, or push only (the branch already exists on the remote but
@@ -316,6 +322,15 @@ impl DeliveryRepo {
             &self.base_branch,
             default_branch,
         )
+    }
+
+    /// `branch` as the remote names it: `<ref_prefix><branch>`, or `branch`
+    /// itself for a repo without a prefix. The push itself is mapped the
+    /// same way by `git::exec::push` from the bare's `ivar.refprefix`; this
+    /// is what every human-facing line uses so the two agree.
+    #[must_use]
+    pub fn remote_branch(&self, branch: &str) -> String {
+        format!("{}{branch}", self.ref_prefix.as_deref().unwrap_or_default())
     }
 }
 

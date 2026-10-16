@@ -312,11 +312,12 @@ fn build_repo_entry(
         }
     });
 
-    Ok(DeliveryRepo {
+    let mut repo = DeliveryRepo {
         repo: repo_name.clone(),
         local_branch: feature.branch.clone(),
         remote: declared.url().to_owned(),
-        push_refspec: format!("{}:refs/heads/{}", feature.branch, feature.branch),
+        ref_prefix: declared.ref_prefix().map(str::to_owned),
+        push_refspec: String::new(),
         action,
         base_branch: base::resolve(feature, promotion, declared.default_branch()),
         dependencies: Vec::new(),
@@ -329,7 +330,13 @@ fn build_repo_entry(
         pr_title: metadata.title,
         pr_body: metadata.body,
         draft: draft_action,
-    })
+    };
+    repo.push_refspec = format!(
+        "{}:refs/heads/{}",
+        repo.local_branch,
+        repo.remote_branch(repo.local_branch.as_str())
+    );
+    Ok(repo)
 }
 
 pub(crate) fn push_repo(

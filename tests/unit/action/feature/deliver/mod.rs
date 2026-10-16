@@ -15,6 +15,7 @@ mod land;
 mod metadata;
 mod ordering;
 mod pr_metadata;
+mod prefixed;
 mod preview;
 mod pull_request;
 mod push;
