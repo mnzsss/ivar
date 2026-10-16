@@ -11,7 +11,7 @@ use std::collections::BTreeSet;
 #[test]
 fn catalog_is_complete_unique_and_current() {
     let skills = catalog();
-    assert_eq!(skills.len(), 5);
+    assert_eq!(skills.len(), 6);
 
     let ids = skills.iter().map(|skill| skill.id).collect::<BTreeSet<_>>();
     assert_eq!(ids.len(), skills.len());
@@ -53,6 +53,78 @@ fn feedback_skill_publishes_only_through_an_approved_preview() {
     let content = skill.skill_md();
     assert!(content.contains("ivar feedback submit <id> --preview"));
     assert!(content.contains("--fingerprint <fingerprint>"));
+}
+
+fn explore() -> ShippedSkill {
+    *catalog()
+        .iter()
+        .find(|skill| skill.id == "explore")
+        .expect("explore is shipped")
+}
+
+#[test]
+fn explore_skill_routes_on_its_description() {
+    let content = explore().skill_md();
+    assert!(content.contains("name: ivar-explore"));
+    let description = content
+        .lines()
+        .find_map(|line| line.strip_prefix("description: "))
+        .expect("description is a single frontmatter line");
+    assert!(
+        description.contains("Discovery Session"),
+        "was: {description}"
+    );
+    assert!(description.contains("not scoped yet"), "was: {description}");
+    assert!(
+        description.contains("plain question about existing code"),
+        "was: {description}"
+    );
+    assert!(
+        description.contains("Feature Session"),
+        "was: {description}"
+    );
+}
+
+#[test]
+fn explore_skill_walks_the_discovery_flow() {
+    let content = explore().skill_md();
+    for step in [
+        "$IVAR_SESSION_ID",
+        "ivar session start",
+        "ivar discovery create",
+        "ivar discovery amend",
+        "ivar session convert",
+        "irreversible",
+        "`ivar-plan`",
+        "one question at a time",
+        "Never convert automatically",
+        "Never write to repositories during discovery",
+        "never starts a second one",
+        "This session is already a Feature session",
+        "Never create or modify session files",
+    ] {
+        assert!(
+            content.to_lowercase().contains(&step.to_lowercase()),
+            "missing: {step}"
+        );
+    }
+    assert!(!content.contains("/ivar-discovery"));
+    assert!(!content.contains("$ARGUMENTS"));
+}
+
+#[test]
+fn explore_skill_uses_graph_explore_with_fallback() {
+    let content = explore()
+        .skill_md()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert!(content.contains("ivar graph explore"), "was: {content}");
+    assert!(content.contains("advisory"), "was: {content}");
+    assert!(
+        content.contains("fallback") || content.contains("fall back"),
+        "was: {content}"
+    );
 }
 
 #[test]
