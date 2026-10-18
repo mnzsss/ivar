@@ -23,6 +23,9 @@ mod init;
 #[path = "cli/mcp_add.rs"]
 mod mcp_add;
 
+#[path = "cli/mcp_edit_remove.rs"]
+mod mcp_edit_remove;
+
 #[path = "cli/nested_subfeatures.rs"]
 mod nested_subfeatures;
 

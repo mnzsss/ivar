@@ -2,6 +2,7 @@ use clap::{Args, Subcommand};
 
 use crate::action::mcp::add as mcp_add;
 use crate::action::mcp::auth as mcp_auth;
+use crate::action::mcp::edit as mcp_edit;
 use crate::action::mcp::status as mcp_status;
 
 /// The `ivar mcp` surface: authenticating and inspecting the hall's declared MCP servers
@@ -15,6 +16,11 @@ pub enum McpCommand {
     /// definition is refused rather than overwritten. Prints the command to run
     /// next.
     Add(McpAddArgs),
+    /// Replace a declared MCP server's definition — its HTTP URL or its stdio
+    /// command — and rewrite every provider's MCP config. Changing the URL or
+    /// the transport drops the server's OAuth registration, so run
+    /// `ivar mcp auth` again; an identical definition changes nothing.
+    Edit(McpEditArgs),
     /// Authenticate one MCP server. Resolves the server from `ivar.json`'s
     /// `mcp` array and the provider from the hall's default, `--provider`, or
     /// — with `--all-providers` — every provider the hall lists, run one at a
@@ -56,6 +62,40 @@ pub struct McpAddArgs {
 impl From<McpAddArgs> for mcp_add::AddInput {
     fn from(args: McpAddArgs) -> Self {
         let McpAddArgs {
+            name,
+            url,
+            command,
+            args,
+        } = args;
+        Self {
+            name,
+            url,
+            command,
+            args,
+        }
+    }
+}
+
+/// Arguments for `ivar mcp edit`.
+#[derive(Debug, Args)]
+#[command(group(clap::ArgGroup::new("definition").required(true).args(["url", "command"])))]
+pub struct McpEditArgs {
+    /// The server's name, as declared in `ivar.json`'s `mcp` array.
+    pub name: String,
+    /// The server's new HTTP URL.
+    #[arg(long)]
+    pub url: Option<String>,
+    /// Make it a stdio (`local`) server spawned with this executable.
+    #[arg(long)]
+    pub command: Option<String>,
+    /// Arguments for `--command`, after `--`.
+    #[arg(last = true, allow_hyphen_values = true, requires = "command")]
+    pub args: Vec<String>,
+}
+
+impl From<McpEditArgs> for mcp_edit::EditInput {
+    fn from(args: McpEditArgs) -> Self {
+        let McpEditArgs {
             name,
             url,
             command,

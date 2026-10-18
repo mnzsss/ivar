@@ -138,6 +138,7 @@ fn cli_definition_is_valid() {
 #[case::mcp_add_preset(&["ivar", "mcp", "add", "figma"], |command: &Command| matches!(command, Command::Mcp(McpCommand::Add(args)) if args.name == "figma" && args.url.is_none()))]
 #[case::mcp_add_url(&["ivar", "mcp", "add", "sentry", "--url", "https://mcp.sentry.dev/mcp"], |command: &Command| matches!(command, Command::Mcp(McpCommand::Add(args)) if args.name == "sentry" && args.url.as_deref() == Some("https://mcp.sentry.dev/mcp")))]
 #[case::mcp_add_stdio(&["ivar", "mcp", "add", "files", "--command", "npx", "--", "-y", "@mcp/fs"], |command: &Command| matches!(command, Command::Mcp(McpCommand::Add(args)) if args.command.as_deref() == Some("npx") && args.args == ["-y", "@mcp/fs"] && args.url.is_none()))]
+#[case::mcp_edit_url(&["ivar", "mcp", "edit", "x", "--url", "https://x.test/mcp"], |command: &Command| matches!(command, Command::Mcp(McpCommand::Edit(args)) if args.name == "x" && args.url.as_deref() == Some("https://x.test/mcp") && args.command.is_none()))]
 fn cli_parses_argv_into_command(#[case] argv: &[&str], #[case] expected: fn(&Command) -> bool) {
     let cli = Cli::try_parse_from(argv).unwrap_or_else(|error| panic!("{argv:?} refused: {error}"));
 
