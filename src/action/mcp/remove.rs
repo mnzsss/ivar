@@ -6,7 +6,7 @@ use serde::Serialize;
 
 use crate::action::{Ctx, discover_hall, read_manifest};
 use crate::domain::mcp::McpServerDef;
-use crate::error::{Outcome, Report, Warning, WriteHuman};
+use crate::error::{Outcome, Report, WriteHuman};
 use crate::store::manifest::Manifest;
 use crate::store::mcp_secrets::{Change, McpSecrets};
 
@@ -38,7 +38,10 @@ impl WriteHuman for McpRemoved {
         if let Some(var) = &self.secret_removed {
             writeln!(w, "Deleted its client secret `{var}`.")?;
         }
-        Ok(())
+        writeln!(
+            w,
+            "Tokens the providers stored for this server (in their own credential stores) were left there."
+        )
     }
 }
 
@@ -63,19 +66,11 @@ pub fn remove(ctx: &Ctx, input: &RemoveInput) -> Outcome<McpRemoved> {
         Some(var) if McpSecrets::remove_and_write(&layout, &var)? == Change::Updated => Some(var),
         _ => None,
     };
-    let kept = Warning::new(
-        "mcp.provider_credentials_kept",
-        input.name.as_str(),
-        "tokens the providers stored for this server (claude, opencode, omp) were left in their own stores",
-    );
-    Ok(Report::with_warnings(
-        McpRemoved {
-            name: input.name.clone(),
-            secret_removed,
-            providers,
-        },
-        vec![kept],
-    ))
+    Ok(Report::new(McpRemoved {
+        name: input.name.clone(),
+        secret_removed,
+        providers,
+    }))
 }
 
 fn client_secret_env(server: &McpServerDef) -> Option<&String> {

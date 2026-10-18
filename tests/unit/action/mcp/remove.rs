@@ -76,12 +76,7 @@ fn remove_drops_the_server_from_manifest_config_and_secrets() {
         McpSecrets::read(&layout).unwrap().get("IVAR_MCP_X_SECRET"),
         None
     );
-    assert!(
-        report
-            .warnings
-            .iter()
-            .any(|w| w.code == "mcp.provider_credentials_kept")
-    );
+    assert!(report.is_clean());
 }
 
 #[test]
