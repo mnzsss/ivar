@@ -33,8 +33,9 @@ pub struct ToggleOutcome {
     pub root: Utf8PathBuf,
     /// The skill's id.
     pub id: RepoName,
-    /// The skills root that owns the skill.
-    pub origin: SkillRoot,
+    /// The skills root that owns the skill; absent when its folder is gone.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub origin: Option<SkillRoot>,
     /// Whether the skill is enabled after the command.
     pub enabled: bool,
     /// Whether the command changed the skill's state.
@@ -51,12 +52,13 @@ impl WriteHuman for ToggleOutcome {
         }
         let verb = if self.enabled { "Enabled" } else { "Disabled" };
         let origin = match self.origin {
-            SkillRoot::Hall => "hall",
-            SkillRoot::Local => "local",
+            Some(SkillRoot::Hall) => " (hall)",
+            Some(SkillRoot::Local) => " (local)",
+            None => "",
         };
         writeln!(
             w,
-            "{verb} skill `{}` ({origin}). Targets changed: {}.",
+            "{verb} skill `{}`{origin}. Targets changed: {}.",
             self.id, self.skill_targets
         )
     }
@@ -77,10 +79,12 @@ fn set_enabled(ctx: &Ctx, input: &ToggleInput, enabled: bool) -> Outcome<ToggleO
     let manifest = read_manifest(&layout)?;
     let id =
         RepoName::new(&input.skill).map_err(|_| super::skill_not_found(&layout, &input.skill))?;
-    let Some((_dir, origin)) = super::enumerate::resolve(&layout, id.as_str())? else {
-        return Err(super::skill_not_found(&layout, id.as_str()));
-    };
     let mut disabled = skill::read_disabled(layout.root())?;
+    let origin = match super::enumerate::resolve(&layout, id.as_str())? {
+        Some((_dir, origin)) => Some(origin),
+        None if enabled && disabled.disabled.contains(id.as_str()) => None,
+        None => return Err(super::skill_not_found(&layout, id.as_str())),
+    };
     let changed = if enabled {
         disabled.disabled.remove(id.as_str())
     } else {

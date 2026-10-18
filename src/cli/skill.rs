@@ -24,8 +24,7 @@ pub enum SkillCommand {
     Enable(SkillToggleArgs),
     /// Turn a skill off without deleting it: its provider targets are removed
     /// and `ivar skill sync` leaves it out until it is enabled again. The
-    /// choice is personal (`.ivar/skills-local/disabled.json`) and applies
-    /// from the next session.
+    /// choice is personal (`.ivar/skills-local/disabled.json`).
     Disable(SkillToggleArgs),
     /// Materialise hall skills for the hall's providers and remove the ones
     /// left behind by providers it no longer lists.

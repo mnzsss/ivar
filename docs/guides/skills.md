@@ -124,8 +124,7 @@ choice is yours alone: it is recorded in `.ivar/skills-local/disabled.json`,
 which never enters git, so the skill stays enabled for your teammates.
 Disabling a hall skill does drop its entry from `.ivar/skills/state.json`,
 as any `skill sync` rewrites that file; a teammate's next `skill sync`
-adopts the target again. A running session sees the change from its next
-start. `skill list` and `skill status` show `enabled` for each skill.
+adopts the target again. `skill list` and `skill status` show `enabled` for each skill.
 
 ## Removing
 

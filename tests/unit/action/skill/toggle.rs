@@ -54,7 +54,7 @@ fn disable_removes_the_targets_and_keeps_the_source() {
 
     assert!(outcome.changed);
     assert!(!outcome.enabled);
-    assert_eq!(outcome.origin, SkillRoot::Hall);
+    assert_eq!(outcome.origin, Some(SkillRoot::Hall));
     for target in TARGETS {
         assert!(!fs::exists(&root.join(target)).unwrap(), "{target}");
     }
@@ -103,4 +103,36 @@ fn an_unknown_or_unsafe_id_is_refused() {
         "skill.not_found"
     );
     assert!(disable(&ctx, &input("../skills")).is_err());
+}
+
+#[test]
+fn enable_clears_the_entry_of_a_skill_that_is_gone() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root.clone());
+    write_skill(layout.hall_skills(), "audit");
+    let ctx = Ctx::new(root.clone());
+    disable(&ctx, &input("audit")).unwrap();
+    fs::remove_path(&layout.hall_skills().join("audit")).unwrap();
+
+    let outcome = enable(&ctx, &input("audit")).unwrap().value;
+
+    assert!(outcome.changed);
+    assert!(outcome.enabled);
+    assert_eq!(outcome.origin, None);
+    assert!(!fs::exists(&root.join(".ivar/skills-local/disabled.json")).unwrap());
+}
+
+#[test]
+fn disable_of_a_skill_that_is_gone_is_still_refused() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root.clone());
+    write_skill(layout.hall_skills(), "audit");
+    let ctx = Ctx::new(root.clone());
+    disable(&ctx, &input("audit")).unwrap();
+    fs::remove_path(&layout.hall_skills().join("audit")).unwrap();
+
+    assert_eq!(
+        disable(&ctx, &input("audit")).unwrap_err().code,
+        "skill.not_found"
+    );
 }

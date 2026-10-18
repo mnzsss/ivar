@@ -880,7 +880,7 @@ Turn a skill back on and materialise it for the hall's providers
 
 ##### `ivar skill disable`
 
-Turn a skill off without deleting it: its provider targets are removed and `ivar skill sync` leaves it out until it is enabled again. The choice is personal (`.ivar/skills-local/disabled.json`) and applies from the next session
+Turn a skill off without deleting it: its provider targets are removed and `ivar skill sync` leaves it out until it is enabled again. The choice is personal (`.ivar/skills-local/disabled.json`)
 
 | argument | required | description |
 | --- | --- | --- |
