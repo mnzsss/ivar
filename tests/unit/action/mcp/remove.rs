@@ -122,3 +122,27 @@ fn removing_an_undeclared_server_is_refused_without_writing() {
         before
     );
 }
+
+#[test]
+fn a_malformed_secrets_file_is_refused_without_writing() {
+    let (_guard, root) = seeded_hall();
+    let ctx = Ctx::new(root.clone());
+    declare(&ctx, "x");
+    let secrets = Layout::at(root.clone()).mcp_secrets_env();
+    std::fs::create_dir_all(secrets.parent().unwrap()).unwrap();
+    std::fs::write(&secrets, "NOT_AN_ASSIGNMENT\n").unwrap();
+    let before = std::fs::read_to_string(root.join("ivar.json")).unwrap();
+
+    remove(
+        &ctx,
+        &RemoveInput {
+            name: "x".to_owned(),
+        },
+    )
+    .unwrap_err();
+
+    assert_eq!(
+        std::fs::read_to_string(root.join("ivar.json")).unwrap(),
+        before
+    );
+}

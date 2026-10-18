@@ -88,16 +88,34 @@ pub(crate) fn materialise_all(
     layout: &Layout,
     manifest: &Manifest,
 ) -> Result<Vec<String>, Failure> {
-    let owners: Vec<Provider> = manifest.providers().config_owners().collect();
-    for provider in &owners {
+    for provider in manifest.providers().config_owners() {
         config::materialise_mcp(
-            &layout.mcp_config(provider),
-            *provider,
+            &layout.mcp_config(&provider),
+            provider,
             manifest.mcp_servers(),
             manifest.name(),
         )?;
     }
-    Ok(owners.iter().map(ToString::to_string).collect())
+    Ok(owner_ids(manifest))
+}
+
+pub(crate) fn owner_ids(manifest: &Manifest) -> Vec<String> {
+    manifest
+        .providers()
+        .config_owners()
+        .map(|p| p.to_string())
+        .collect()
+}
+
+pub(crate) fn describe_target(url: Option<&str>, command: Option<&str>, args: &[String]) -> String {
+    match (url, command) {
+        (Some(url), _) => url.to_owned(),
+        (None, Some(command)) => std::iter::once(command)
+            .chain(args.iter().map(String::as_str))
+            .collect::<Vec<_>>()
+            .join(" "),
+        (None, None) => String::new(),
+    }
 }
 
 fn unknown_preset(name: &str) -> Failure {
@@ -111,7 +129,7 @@ fn unknown_preset(name: &str) -> Failure {
         .fix(FixAction::safe(
             "mcp.use_preset_or_url",
             format!(
-                "Run with a known preset or provide `--url`: `ivar mcp add {name} --url <URL>`"
+                "Run with a known preset, provide `--url`: `ivar mcp add {name} --url <URL>`, or provide `--command`: `ivar mcp add {name} --command <EXECUTABLE>`"
             ),
         ))
 }
@@ -123,7 +141,10 @@ fn invalid_definition(error: &McpValidationError) -> Failure {
     )
     .expected("a valid definition: an `http` URL, or a `local` command")
     .actual(format!("validation failed: {error}"))
-    .fix(FixAction::safe("mcp.fix_url", "Specify a valid HTTP URL."))
+    .fix(FixAction::safe(
+        "mcp.fix_definition",
+        "Specify a valid HTTP URL with `--url`, or an executable with `--command`.",
+    ))
 }
 
 pub(crate) fn resolve_provider(

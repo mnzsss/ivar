@@ -4,10 +4,10 @@ use std::io;
 
 use serde::Serialize;
 
-use super::add::describe_target;
+use super::describe_target;
 use crate::action::{Ctx, discover_hall, read_manifest};
 use crate::domain::mcp::McpServerDef;
-use crate::error::{Outcome, Report, Warning, WriteHuman};
+use crate::error::{Outcome, Report, WriteHuman};
 use crate::store::manifest::Manifest;
 
 /// Input arguments for editing an MCP server.
@@ -36,6 +36,8 @@ pub struct McpEdited {
     pub changed: bool,
     pub oauth_dropped: bool,
     pub providers: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next: Option<String>,
 }
 
 impl McpEdited {
@@ -53,6 +55,7 @@ impl McpEdited {
             changed,
             oauth_dropped,
             providers,
+            next: oauth_dropped.then(|| format!("ivar mcp auth {}", def.name)),
         }
     }
 }
@@ -66,14 +69,18 @@ impl WriteHuman for McpEdited {
                 "Updated MCP server `{}` ({target}) for: {}.",
                 self.name,
                 self.providers.join(", ")
-            )
+            )?;
         } else {
             writeln!(
                 w,
                 "MCP server `{}` already has this definition ({target}).",
                 self.name
-            )
+            )?;
         }
+        if let Some(next) = &self.next {
+            writeln!(w, "Next: {next}")?;
+        }
+        Ok(())
     }
 }
 
@@ -81,7 +88,7 @@ impl WriteHuman for McpEdited {
 pub fn edit(ctx: &Ctx, input: &EditInput) -> Outcome<McpEdited> {
     let layout = discover_hall(ctx)?;
     let manifest = read_manifest(&layout)?;
-    let existing = super::resolve_server(&manifest, &input.name)?.clone();
+    let existing = super::resolve_server(&manifest, &input.name)?;
     let mut new_def = super::server_def(
         &input.name,
         input.url.as_deref(),
@@ -89,12 +96,12 @@ pub fn edit(ctx: &Ctx, input: &EditInput) -> Outcome<McpEdited> {
         &input.args,
     )?;
     new_def.env.clone_from(&existing.env);
-    if super::same_definition(&existing, &new_def) {
+    if super::same_definition(existing, &new_def) {
         return Ok(Report::new(McpEdited::from_def(
-            &existing,
+            existing,
             false,
             false,
-            owners(&manifest),
+            super::owner_ids(&manifest),
         )));
     }
     let same_origin = existing.type_ == new_def.type_ && existing.url == new_def.url;
@@ -116,33 +123,12 @@ pub fn edit(ctx: &Ctx, input: &EditInput) -> Outcome<McpEdited> {
     let updated = manifest.with_mcp_servers(servers)?;
     Manifest::write(&layout, &updated)?;
     let providers = super::materialise_all(&layout, &updated)?;
-    let warnings = if oauth_dropped {
-        vec![reauth_required(&input.name)]
-    } else {
-        vec![]
-    };
-    Ok(Report::with_warnings(
-        McpEdited::from_def(&new_def, true, oauth_dropped, providers),
-        warnings,
-    ))
-}
-
-fn owners(manifest: &Manifest) -> Vec<String> {
-    manifest
-        .providers()
-        .config_owners()
-        .map(|p| p.to_string())
-        .collect()
-}
-
-fn reauth_required(name: &str) -> Warning {
-    Warning::new(
-        "mcp.reauth_required",
-        name,
-        format!(
-            "`{name}` changed origin, so its OAuth registration was dropped; run `ivar mcp auth {name}`"
-        ),
-    )
+    Ok(Report::new(McpEdited::from_def(
+        &new_def,
+        true,
+        oauth_dropped,
+        providers,
+    )))
 }
 
 #[cfg(test)]

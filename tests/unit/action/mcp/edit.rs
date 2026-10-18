@@ -71,7 +71,8 @@ fn edit_replaces_the_url_drops_oauth_and_asks_for_reauth() {
 
     assert!(report.value.changed);
     assert!(report.value.oauth_dropped);
-    assert_eq!(report.warnings[0].code, "mcp.reauth_required");
+    assert!(report.is_clean());
+    assert_eq!(report.value.next.as_deref(), Some("ivar mcp auth x"));
     let saved = server(&root, "x");
     assert_eq!(saved.url.as_deref(), Some("https://new.test/mcp"));
     assert!(saved.oauth.is_none());

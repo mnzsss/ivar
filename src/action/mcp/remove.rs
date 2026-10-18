@@ -49,15 +49,17 @@ impl WriteHuman for McpRemoved {
 pub fn remove(ctx: &Ctx, input: &RemoveInput) -> Outcome<McpRemoved> {
     let layout = discover_hall(ctx)?;
     let manifest = read_manifest(&layout)?;
-    let removed = super::resolve_server(&manifest, &input.name)?.clone();
+    let removed = super::resolve_server(&manifest, &input.name)?;
+    let secrets = McpSecrets::read(&layout)?;
     let servers: Vec<McpServerDef> = manifest
         .mcp_servers()
         .iter()
         .filter(|s| s.name != input.name)
         .cloned()
         .collect();
-    let orphan_secret = client_secret_env(&removed)
+    let orphan_secret = client_secret_env(removed)
         .filter(|var| !servers.iter().any(|s| client_secret_env(s) == Some(var)))
+        .filter(|var| secrets.contains_key(var))
         .cloned();
     let updated = manifest.with_mcp_servers(servers)?;
     Manifest::write(&layout, &updated)?;

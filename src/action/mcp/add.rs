@@ -40,18 +40,7 @@ pub struct McpAdded {
 
 impl McpAdded {
     fn target(&self) -> String {
-        describe_target(self.url.as_deref(), self.command.as_deref(), &self.args)
-    }
-}
-
-pub(crate) fn describe_target(url: Option<&str>, command: Option<&str>, args: &[String]) -> String {
-    match (url, command) {
-        (Some(url), _) => url.to_owned(),
-        (None, Some(command)) => std::iter::once(command)
-            .chain(args.iter().map(String::as_str))
-            .collect::<Vec<_>>()
-            .join(" "),
-        (None, None) => String::new(),
+        super::describe_target(self.url.as_deref(), self.command.as_deref(), &self.args)
     }
 }
 
@@ -100,11 +89,7 @@ pub fn add(ctx: &Ctx, input: &AddInput) -> Outcome<McpAdded> {
         Manifest::write(&layout, &updated)?;
         super::materialise_all(&layout, &updated)?
     } else {
-        manifest
-            .providers()
-            .config_owners()
-            .map(|p| p.to_string())
-            .collect()
+        super::owner_ids(&manifest)
     };
 
     let next = match new_def.transport() {
@@ -127,17 +112,6 @@ pub fn add(ctx: &Ctx, input: &AddInput) -> Outcome<McpAdded> {
     }))
 }
 
-fn describe_def(def: &McpServerDef) -> String {
-    match (&def.url, &def.command) {
-        (_, Some(command)) => format!("type=`{}`, command=`{command}`", def.type_),
-        (url, None) => format!(
-            "type=`{}`, url=`{}`",
-            def.type_,
-            url.as_deref().unwrap_or("<none>")
-        ),
-    }
-}
-
 fn server_conflict(existing: &McpServerDef, new: &McpServerDef) -> Failure {
     Failure::blocked(
         "mcp.server_conflict",
@@ -146,11 +120,30 @@ fn server_conflict(existing: &McpServerDef, new: &McpServerDef) -> Failure {
             new.name
         ),
     )
-    .expected(format!("existing definition: {}", describe_def(existing)))
-    .actual(format!("new definition: {}", describe_def(new)))
+    .expected(format!(
+        "existing definition: type=`{}`, target=`{}`",
+        existing.type_,
+        super::describe_target(
+            existing.url.as_deref(),
+            existing.command.as_deref(),
+            existing.args.as_deref().unwrap_or_default()
+        )
+    ))
+    .actual(format!(
+        "new definition: type=`{}`, target=`{}`",
+        new.type_,
+        super::describe_target(
+            new.url.as_deref(),
+            new.command.as_deref(),
+            new.args.as_deref().unwrap_or_default()
+        )
+    ))
     .fix(FixAction::safe(
         "mcp.resolve_conflict",
-        "Keep the existing definition or remove it from ivar.json before adding.",
+        format!(
+            "Keep the existing definition, or change it with `ivar mcp edit {name}` or drop it with `ivar mcp remove {name}`.",
+            name = new.name
+        ),
     ))
 }
 

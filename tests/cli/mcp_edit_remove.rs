@@ -33,7 +33,7 @@ fn edit_requires_a_url_or_a_command() {
 }
 
 #[test]
-fn edit_reports_the_new_definition_and_the_reauth_warning() {
+fn edit_reports_the_new_definition_as_json() {
     let (_guard, root) = hall_root();
     ivar().current_dir(&root).arg("init").assert().success();
     json(
