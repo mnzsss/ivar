@@ -49,3 +49,18 @@ fn toggling_an_unknown_skill_exits_two() {
 
     assert_eq!(value["code"], "skill.not_found");
 }
+
+#[test]
+fn skill_list_json_carries_enabled() {
+    let (_guard, root) = hall_root();
+    ivar().current_dir(&root).arg("init").assert().success();
+    json(&root, &["skill", "create", "demo", "--description", "d"], 0);
+    json(&root, &["skill", "disable", "demo"], 0);
+
+    let value = json(&root, &["skill", "list"], 0);
+
+    let skills = value["skills"].as_array().unwrap();
+    assert_eq!(skills.len(), 1, "{value}");
+    assert_eq!(skills[0]["id"], "demo");
+    assert_eq!(skills[0]["enabled"], false);
+}

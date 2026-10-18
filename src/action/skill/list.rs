@@ -10,6 +10,7 @@ use crate::domain::skill::SkillRoot;
 use crate::error::{Outcome, Report, WriteHuman};
 use crate::infra::frontmatter;
 use crate::infra::fs;
+use crate::store::skill;
 
 use super::super::discover_hall;
 use crate::action::Ctx;
@@ -24,6 +25,8 @@ pub struct SkillSummary {
     /// Which root defines it — the committed hall directory, or the personal
     /// one that never enters git.
     pub root: SkillRoot,
+    /// `false` when `ivar skill disable` turned it off.
+    pub enabled: bool,
 }
 
 /// What `ivar skill list` found.
@@ -44,9 +47,11 @@ impl WriteHuman for ListOutcome {
         writeln!(w, "Skills in {}:", self.root)?;
         let mut table = crate::infra::table::new(&["SKILL", "DESCRIPTION", "ORIGIN"]);
         for skill in &self.skills {
-            let origin = match skill.root {
-                SkillRoot::Hall => "hall",
-                SkillRoot::Local => "local",
+            let origin = match (skill.root, skill.enabled) {
+                (SkillRoot::Hall, true) => "hall",
+                (SkillRoot::Hall, false) => "hall (disabled)",
+                (SkillRoot::Local, true) => "local",
+                (SkillRoot::Local, false) => "local (disabled)",
             };
             table.add_row(vec![skill.id.as_str(), &skill.description, origin]);
         }
@@ -68,6 +73,7 @@ impl WriteHuman for ListOutcome {
 /// hidden — `sync` is where the refusal belongs.
 pub fn list(ctx: &Ctx) -> Outcome<ListOutcome> {
     let layout = discover_hall(ctx)?;
+    let disabled = skill::read_disabled(layout.root())?;
     let mut skills = Vec::new();
 
     for (dir, root) in [
@@ -78,6 +84,9 @@ pub fn list(ctx: &Ctx) -> Outcome<ListOutcome> {
             continue;
         }
         for entry in fs::read_dir(&dir)? {
+            if !fs::is_dir(&entry)? {
+                continue;
+            }
             let Some(name) = entry.file_name() else {
                 continue;
             };
@@ -86,6 +95,7 @@ pub fn list(ctx: &Ctx) -> Outcome<ListOutcome> {
             };
             skills.push(SkillSummary {
                 description: read_description(&dir.join(name)),
+                enabled: !disabled.disabled.contains(id.as_str()),
                 id,
                 root,
             });

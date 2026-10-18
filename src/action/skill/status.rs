@@ -26,6 +26,9 @@ pub struct SkillStatus {
     pub id: RepoName,
     /// Whether the skill is authored locally or points to an upstream repo.
     pub source: String,
+    /// `false` when `ivar skill disable` turned it off; a disabled skill has
+    /// no targets.
+    pub enabled: bool,
     /// Material status for each target provider.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub targets: Vec<TargetStatus>,
@@ -62,7 +65,8 @@ impl WriteHuman for StatusOutcome {
                 "external" => "E",
                 _ => "?",
             };
-            writeln!(w, "  [{kind}] {}", skill.id)?;
+            let state = if skill.enabled { "" } else { " (disabled)" };
+            writeln!(w, "  [{kind}] {}{state}", skill.id)?;
             for target in &skill.targets {
                 writeln!(w, "       {}: {}", target.target, target.status)?;
             }
@@ -81,6 +85,7 @@ pub fn status(ctx: &Ctx) -> Outcome<StatusOutcome> {
     // drops it: neither copy can be materialised, so neither has a status.
     let (skills, _warnings) =
         super::enumerate::enumerate_both(&layout.hall_skills(), &layout.hall_skills_local())?;
+    let disabled = skill::read_disabled(layout.root())?;
 
     // Build status entries.
     let mut skill_statuses = Vec::new();
@@ -90,24 +95,28 @@ pub fn status(ctx: &Ctx) -> Outcome<StatusOutcome> {
             crate::domain::skill::Source::External(_) => "external".to_owned(),
         };
 
+        let enabled = !disabled.disabled.contains(skill.id.as_str());
         let mut targets = Vec::new();
-        for &target_id in &available {
-            // `target_path` is hall-relative; join it onto the hall root, and
-            // verify against the skill directory the renderer actually links —
-            // not its `SKILL.md`, which is a file inside that directory.
-            let target_path = layout
-                .root()
-                .join(skill::target_path(target_id, skill.id.as_str()));
-            let current = render::verify_status(&target_path, &skill.dir, skill.render_mode());
-            targets.push(TargetStatus {
-                target: target_id.as_str().to_owned(),
-                status: material_status_label(&current),
-            });
+        if enabled {
+            for &target_id in &available {
+                // `target_path` is hall-relative; join it onto the hall root, and
+                // verify against the skill directory the renderer actually links —
+                // not its `SKILL.md`, which is a file inside that directory.
+                let target_path = layout
+                    .root()
+                    .join(skill::target_path(target_id, skill.id.as_str()));
+                let current = render::verify_status(&target_path, &skill.dir, skill.render_mode());
+                targets.push(TargetStatus {
+                    target: target_id.as_str().to_owned(),
+                    status: material_status_label(&current),
+                });
+            }
         }
 
         skill_statuses.push(SkillStatus {
             id: skill.id.clone(),
             source: source_label,
+            enabled,
             targets,
         });
     }

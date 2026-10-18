@@ -65,6 +65,7 @@ fn the_human_surface_lists_skills_with_descriptions() {
             id: RepoName::new("audit").unwrap(),
             description: "Review a codebase".to_owned(),
             root: SkillRoot::Hall,
+            enabled: true,
         }],
     };
 
@@ -76,5 +77,54 @@ fn the_human_surface_lists_skills_with_descriptions() {
     assert_eq!(
         stripped,
         "Skills in /hall:\nSKILL  DESCRIPTION        ORIGIN\naudit  Review a codebase  hall\n"
+    );
+}
+
+#[test]
+fn list_ignores_files_beside_the_skill_folders() {
+    let (_guard, root) = seeded_hall();
+    write_skill(&root, "audit", "Review a codebase");
+    fs::write_text(
+        &Layout::at(root.clone()).hall_skills().join("state.json"),
+        "{}\n",
+    )
+    .unwrap();
+    fs::ensure_dir(&root.join(".ivar/skills-local")).unwrap();
+    fs::write_text(
+        &root.join(".ivar/skills-local/disabled.json"),
+        "{\"disabled\":[]}\n",
+    )
+    .unwrap();
+
+    let report = list(&Ctx::new(root)).unwrap();
+
+    let ids: Vec<&str> = report.value.skills.iter().map(|s| s.id.as_str()).collect();
+    assert_eq!(ids, vec!["audit"]);
+}
+
+#[test]
+fn list_reports_whether_each_skill_is_enabled() {
+    let (_guard, root) = seeded_hall();
+    write_skill(&root, "audit", "Review a codebase");
+    write_skill(&root, "lint", "Lint");
+    let mut disabled = crate::store::skill::DisabledSkills::default();
+    disabled.disabled.insert("lint".to_owned());
+    crate::store::skill::write_disabled(&root, &disabled).unwrap();
+
+    let skills = list(&Ctx::new(root)).unwrap().value.skills;
+
+    assert!(
+        skills
+            .iter()
+            .find(|s| s.id.as_str() == "audit")
+            .unwrap()
+            .enabled
+    );
+    assert!(
+        !skills
+            .iter()
+            .find(|s| s.id.as_str() == "lint")
+            .unwrap()
+            .enabled
     );
 }
