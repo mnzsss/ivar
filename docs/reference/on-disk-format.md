@@ -29,6 +29,7 @@ half-understood state file is worse than no state file.
                                              symlinks to HALL.md (CLAUDE.md for Claude
                                              Code; AGENTS.md for OpenCode and OMP)
   .ivar/skills/                 committed    skills the team shares
+  .ivar/skills-local/           local        personal skills, plus disabled.json (skills you turned off)
   .ivar/setups/<repo>.sh        committed    per-repo worktree bootstrap
   .ivar/setups/<repo>.session.sh committed   per-repo session hook
   .ivar/secrets/                local        secret material (hand-maintained files, plus mcp.env)
