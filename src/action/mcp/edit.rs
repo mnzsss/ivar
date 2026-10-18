@@ -9,6 +9,7 @@ use crate::action::{Ctx, discover_hall, read_manifest};
 use crate::domain::mcp::McpServerDef;
 use crate::error::{Outcome, Report, WriteHuman};
 use crate::store::manifest::Manifest;
+use crate::store::mcp_secrets::{Change, McpSecrets};
 
 /// Input arguments for editing an MCP server.
 #[derive(Debug, Clone)]
@@ -35,6 +36,9 @@ pub struct McpEdited {
     pub args: Vec<String>,
     pub changed: bool,
     pub oauth_dropped: bool,
+    /// The env var name whose stored value was deleted — never the value.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub secret_removed: Option<String>,
     pub providers: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub next: Option<String>,
@@ -45,6 +49,7 @@ impl McpEdited {
         def: &McpServerDef,
         changed: bool,
         oauth_dropped: bool,
+        secret_removed: Option<String>,
         providers: Vec<String>,
     ) -> Self {
         Self {
@@ -54,6 +59,7 @@ impl McpEdited {
             args: def.args.clone().unwrap_or_default(),
             changed,
             oauth_dropped,
+            secret_removed,
             providers,
             next: oauth_dropped.then(|| format!("ivar mcp auth {}", def.name)),
         }
@@ -76,6 +82,9 @@ impl WriteHuman for McpEdited {
                 "MCP server `{}` already has this definition ({target}).",
                 self.name
             )?;
+        }
+        if let Some(var) = &self.secret_removed {
+            writeln!(w, "Deleted its client secret `{var}`.")?;
         }
         if let Some(next) = &self.next {
             writeln!(w, "Next: {next}")?;
@@ -101,6 +110,7 @@ pub fn edit(ctx: &Ctx, input: &EditInput) -> Outcome<McpEdited> {
             existing,
             false,
             false,
+            None,
             super::owner_ids(&manifest),
         )));
     }
@@ -109,7 +119,7 @@ pub fn edit(ctx: &Ctx, input: &EditInput) -> Outcome<McpEdited> {
     if same_origin {
         new_def.oauth.clone_from(&existing.oauth);
     }
-    let servers = manifest
+    let servers: Vec<McpServerDef> = manifest
         .mcp_servers()
         .iter()
         .map(|s| {
@@ -120,13 +130,24 @@ pub fn edit(ctx: &Ctx, input: &EditInput) -> Outcome<McpEdited> {
             }
         })
         .collect();
+    let secrets = McpSecrets::read(&layout)?;
+    let orphan = if oauth_dropped {
+        super::orphan_secret(existing, &servers, &secrets)
+    } else {
+        None
+    };
     let updated = manifest.with_mcp_servers(servers)?;
     Manifest::write(&layout, &updated)?;
     let providers = super::materialise_all(&layout, &updated)?;
+    let secret_removed = match orphan {
+        Some(var) => (secrets.remove_and_write(&layout, &var)? == Change::Updated).then_some(var),
+        None => None,
+    };
     Ok(Report::new(McpEdited::from_def(
         &new_def,
         true,
         oauth_dropped,
+        secret_removed,
         providers,
     )))
 }

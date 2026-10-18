@@ -12,6 +12,7 @@ use crate::domain::mcp::McpOauth;
 use crate::domain::provider::Provider;
 use crate::store::layout::Layout;
 use crate::store::manifest::Manifest;
+use crate::store::mcp_secrets::McpSecrets;
 use crate::test_support::seeded_hall;
 
 fn http(name: &str, url: &str) -> AddInput {
@@ -136,5 +137,45 @@ fn editing_an_undeclared_server_is_refused_without_writing() {
     assert_eq!(
         std::fs::read_to_string(root.join("ivar.json")).unwrap(),
         before
+    );
+}
+
+#[test]
+fn dropping_oauth_deletes_its_orphan_secret() {
+    let (_guard, root) = seeded_hall();
+    let ctx = Ctx::new(root.clone());
+    add(&ctx, &http("x", "https://old.test/mcp")).unwrap();
+    with_oauth(&root, "x");
+    let layout = Layout::at(root.clone());
+    McpSecrets::set_and_write(&layout, "IVAR_MCP_X_SECRET", "secret-value").unwrap();
+
+    let report = edit(&ctx, &to_url("x", "https://new.test/mcp")).unwrap();
+
+    assert!(report.is_clean());
+    assert_eq!(
+        report.value.secret_removed.as_deref(),
+        Some("IVAR_MCP_X_SECRET")
+    );
+    assert_eq!(
+        McpSecrets::read(&layout).unwrap().get("IVAR_MCP_X_SECRET"),
+        None
+    );
+}
+
+#[test]
+fn an_unchanged_edit_keeps_the_secret() {
+    let (_guard, root) = seeded_hall();
+    let ctx = Ctx::new(root.clone());
+    add(&ctx, &http("x", "https://same.test/mcp")).unwrap();
+    with_oauth(&root, "x");
+    let layout = Layout::at(root.clone());
+    McpSecrets::set_and_write(&layout, "IVAR_MCP_X_SECRET", "secret-value").unwrap();
+
+    let report = edit(&ctx, &to_url("x", "https://same.test/mcp")).unwrap();
+
+    assert_eq!(report.value.secret_removed, None);
+    assert_eq!(
+        McpSecrets::read(&layout).unwrap().get("IVAR_MCP_X_SECRET"),
+        Some("secret-value")
     );
 }

@@ -118,6 +118,34 @@ pub(crate) fn describe_target(url: Option<&str>, command: Option<&str>, args: &[
     }
 }
 
+pub(crate) fn describe_def(def: &McpServerDef) -> String {
+    format!(
+        "type=`{}`, target=`{}`",
+        def.type_,
+        describe_target(
+            def.url.as_deref(),
+            def.command.as_deref(),
+            def.args.as_deref().unwrap_or_default()
+        )
+    )
+}
+
+pub(crate) fn client_secret_env(server: &McpServerDef) -> Option<&String> {
+    server.oauth.as_ref()?.client_secret_env.as_ref()
+}
+
+/// The client secret `gone` referenced, when no `remaining` server shares it and it is stored.
+pub(crate) fn orphan_secret(
+    gone: &McpServerDef,
+    remaining: &[McpServerDef],
+    secrets: &McpSecrets,
+) -> Option<String> {
+    client_secret_env(gone)
+        .filter(|var| !remaining.iter().any(|s| client_secret_env(s) == Some(*var)))
+        .filter(|var| secrets.contains_key(var))
+        .cloned()
+}
+
 fn unknown_preset(name: &str) -> Failure {
     let preset_names: Vec<&str> = MCP_PRESETS.iter().map(|p| p.name).collect();
     Failure::blocked("mcp.unknown_preset", format!("unknown MCP preset `{name}`"))
@@ -129,7 +157,8 @@ fn unknown_preset(name: &str) -> Failure {
         .fix(FixAction::safe(
             "mcp.use_preset_or_url",
             format!(
-                "Run with a known preset, provide `--url`: `ivar mcp add {name} --url <URL>`, or provide `--command`: `ivar mcp add {name} --command <EXECUTABLE>`"
+                "Run with a known preset, provide `--url`: `ivar mcp add {name} --url <URL>`, \
+                 or provide `--command`: `ivar mcp add {name} --command <EXECUTABLE>`"
             ),
         ))
 }

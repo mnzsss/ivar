@@ -57,26 +57,19 @@ pub fn remove(ctx: &Ctx, input: &RemoveInput) -> Outcome<McpRemoved> {
         .filter(|s| s.name != input.name)
         .cloned()
         .collect();
-    let orphan_secret = client_secret_env(removed)
-        .filter(|var| !servers.iter().any(|s| client_secret_env(s) == Some(var)))
-        .filter(|var| secrets.contains_key(var))
-        .cloned();
+    let orphan = super::orphan_secret(removed, &servers, &secrets);
     let updated = manifest.with_mcp_servers(servers)?;
     Manifest::write(&layout, &updated)?;
     let providers = super::materialise_all(&layout, &updated)?;
-    let secret_removed = match orphan_secret {
-        Some(var) if McpSecrets::remove_and_write(&layout, &var)? == Change::Updated => Some(var),
-        _ => None,
+    let secret_removed = match orphan {
+        Some(var) => (secrets.remove_and_write(&layout, &var)? == Change::Updated).then_some(var),
+        None => None,
     };
     Ok(Report::new(McpRemoved {
         name: input.name.clone(),
         secret_removed,
         providers,
     }))
-}
-
-fn client_secret_env(server: &McpServerDef) -> Option<&String> {
-    server.oauth.as_ref()?.client_secret_env.as_ref()
 }
 
 #[cfg(test)]

@@ -121,27 +121,15 @@ fn server_conflict(existing: &McpServerDef, new: &McpServerDef) -> Failure {
         ),
     )
     .expected(format!(
-        "existing definition: type=`{}`, target=`{}`",
-        existing.type_,
-        super::describe_target(
-            existing.url.as_deref(),
-            existing.command.as_deref(),
-            existing.args.as_deref().unwrap_or_default()
-        )
+        "existing definition: {}",
+        super::describe_def(existing)
     ))
-    .actual(format!(
-        "new definition: type=`{}`, target=`{}`",
-        new.type_,
-        super::describe_target(
-            new.url.as_deref(),
-            new.command.as_deref(),
-            new.args.as_deref().unwrap_or_default()
-        )
-    ))
+    .actual(format!("new definition: {}", super::describe_def(new)))
     .fix(FixAction::safe(
         "mcp.resolve_conflict",
         format!(
-            "Keep the existing definition, or change it with `ivar mcp edit {name}` or drop it with `ivar mcp remove {name}`.",
+            "Keep the existing definition, or change it with `ivar mcp edit {name}` \
+             or drop it with `ivar mcp remove {name}`.",
             name = new.name
         ),
     ))

@@ -180,11 +180,17 @@ fn remove_and_write_drops_only_that_key() {
     McpSecrets::set_and_write(&layout, "KEY_B", "b").unwrap();
 
     assert_eq!(
-        McpSecrets::remove_and_write(&layout, "KEY_A").unwrap(),
+        McpSecrets::read(&layout)
+            .unwrap()
+            .remove_and_write(&layout, "KEY_A")
+            .unwrap(),
         Change::Updated
     );
     assert_eq!(
-        McpSecrets::remove_and_write(&layout, "KEY_A").unwrap(),
+        McpSecrets::read(&layout)
+            .unwrap()
+            .remove_and_write(&layout, "KEY_A")
+            .unwrap(),
         Change::Unchanged
     );
 
@@ -199,7 +205,10 @@ fn removing_the_last_key_deletes_the_file() {
     let layout = Layout::at(root);
     McpSecrets::set_and_write(&layout, "KEY_A", "a").unwrap();
 
-    McpSecrets::remove_and_write(&layout, "KEY_A").unwrap();
+    McpSecrets::read(&layout)
+        .unwrap()
+        .remove_and_write(&layout, "KEY_A")
+        .unwrap();
 
     assert!(!fs::exists(&layout.mcp_secrets_env()).unwrap());
 }
