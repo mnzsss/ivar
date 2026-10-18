@@ -67,3 +67,31 @@ fn editing_an_unknown_server_exits_two() {
 
     assert_eq!(value["code"], "mcp.server_not_found");
 }
+
+#[test]
+fn remove_reports_json_and_clears_the_manifest() {
+    let (_guard, root) = hall_root();
+    ivar().current_dir(&root).arg("init").assert().success();
+    json(&root, &["mcp", "add", "files", "--command", "npx"], 0);
+
+    let value = json(&root, &["mcp", "remove", "files"], 1);
+
+    assert_eq!(value["ok"], true);
+    assert_eq!(value["name"], "files");
+    assert_eq!(
+        value["warnings"][0]["code"],
+        "mcp.provider_credentials_kept"
+    );
+    let manifest = std::fs::read_to_string(root.join("ivar.json")).unwrap();
+    assert!(!manifest.contains("\"files\""), "{manifest}");
+}
+
+#[test]
+fn removing_an_unknown_server_exits_two() {
+    let (_guard, root) = hall_root();
+    ivar().current_dir(&root).arg("init").assert().success();
+
+    let value = json(&root, &["mcp", "remove", "ghost"], 2);
+
+    assert_eq!(value["code"], "mcp.server_not_found");
+}

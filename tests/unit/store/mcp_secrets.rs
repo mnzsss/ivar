@@ -171,3 +171,35 @@ fn debug_formatting_redacts_secret_values() {
     assert!(debug_str.contains("SECRET_KEY_NAME"));
     assert!(!debug_str.contains("SUPER_SECRET_VALUE"));
 }
+
+#[test]
+fn remove_and_write_drops_only_that_key() {
+    let (_dir, root) = utf8_temp_dir();
+    let layout = Layout::at(root);
+    McpSecrets::set_and_write(&layout, "KEY_A", "a").unwrap();
+    McpSecrets::set_and_write(&layout, "KEY_B", "b").unwrap();
+
+    assert_eq!(
+        McpSecrets::remove_and_write(&layout, "KEY_A").unwrap(),
+        Change::Updated
+    );
+    assert_eq!(
+        McpSecrets::remove_and_write(&layout, "KEY_A").unwrap(),
+        Change::Unchanged
+    );
+
+    let secrets = McpSecrets::read(&layout).unwrap();
+    assert_eq!(secrets.get("KEY_A"), None);
+    assert_eq!(secrets.get("KEY_B"), Some("b"));
+}
+
+#[test]
+fn removing_the_last_key_deletes_the_file() {
+    let (_dir, root) = utf8_temp_dir();
+    let layout = Layout::at(root);
+    McpSecrets::set_and_write(&layout, "KEY_A", "a").unwrap();
+
+    McpSecrets::remove_and_write(&layout, "KEY_A").unwrap();
+
+    assert!(!fs::exists(&layout.mcp_secrets_env()).unwrap());
+}

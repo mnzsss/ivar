@@ -3,6 +3,7 @@ use clap::{Args, Subcommand};
 use crate::action::mcp::add as mcp_add;
 use crate::action::mcp::auth as mcp_auth;
 use crate::action::mcp::edit as mcp_edit;
+use crate::action::mcp::remove as mcp_remove;
 use crate::action::mcp::status as mcp_status;
 
 /// The `ivar mcp` surface: authenticating and inspecting the hall's declared MCP servers
@@ -21,6 +22,11 @@ pub enum McpCommand {
     /// the transport drops the server's OAuth registration, so run
     /// `ivar mcp auth` again; an identical definition changes nothing.
     Edit(McpEditArgs),
+    /// Remove a declared MCP server from `ivar.json` and from every provider's
+    /// MCP config, and delete its client secret from `.ivar/secrets/mcp.env`
+    /// unless another server still uses it. Tokens a provider stored in its own
+    /// credential store are left there.
+    Remove(McpRemoveArgs),
     /// Authenticate one MCP server. Resolves the server from `ivar.json`'s
     /// `mcp` array and the provider from the hall's default, `--provider`, or
     /// — with `--all-providers` — every provider the hall lists, run one at a
@@ -107,6 +113,20 @@ impl From<McpEditArgs> for mcp_edit::EditInput {
             command,
             args,
         }
+    }
+}
+
+/// Arguments for `ivar mcp remove`.
+#[derive(Debug, Args)]
+pub struct McpRemoveArgs {
+    /// The server's name, as declared in `ivar.json`'s `mcp` array.
+    pub name: String,
+}
+
+impl From<McpRemoveArgs> for mcp_remove::RemoveInput {
+    fn from(args: McpRemoveArgs) -> Self {
+        let McpRemoveArgs { name } = args;
+        Self { name }
     }
 }
 

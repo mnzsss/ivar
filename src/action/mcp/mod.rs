@@ -5,6 +5,7 @@
 pub mod add;
 pub mod auth;
 pub mod edit;
+pub mod remove;
 pub mod status;
 
 use crate::domain::mcp::{MCP_PRESETS, McpServerDef, McpValidationError, mcp_preset};

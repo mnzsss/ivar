@@ -33,6 +33,7 @@ use crate::action::hall;
 use crate::action::mcp::add as mcp_add;
 use crate::action::mcp::auth as mcp_auth;
 use crate::action::mcp::edit as mcp_edit;
+use crate::action::mcp::remove as mcp_remove;
 use crate::action::mcp::status as mcp_status;
 use crate::action::plan::approve::{self as plan_approve};
 use crate::action::plan::{
@@ -1094,6 +1095,12 @@ pub fn run(cli: Cli) -> ExitCode {
             ),
             McpCommand::Edit(args) => respond(
                 mcp_edit::edit(&ctx, &args.into()),
+                json,
+                &mut stdout,
+                &mut stderr,
+            ),
+            McpCommand::Remove(args) => respond(
+                mcp_remove::remove(&ctx, &args.into()),
                 json,
                 &mut stdout,
                 &mut stderr,
