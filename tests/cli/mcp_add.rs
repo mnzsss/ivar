@@ -94,3 +94,55 @@ fn an_unknown_name_without_url_is_blocked_with_exit_two() {
     assert_eq!(value["kind"], "blocked");
     assert_eq!(value["code"], "mcp.unknown_preset");
 }
+
+#[test]
+fn url_and_command_together_are_a_usage_error() {
+    let (_guard, root) = hall_root();
+    ivar().current_dir(&root).arg("init").assert().success();
+
+    ivar()
+        .current_dir(&root)
+        .args([
+            "mcp",
+            "add",
+            "x",
+            "--url",
+            "https://x.test/mcp",
+            "--command",
+            "npx",
+        ])
+        .assert()
+        .failure()
+        .code(2);
+}
+
+#[test]
+fn add_stdio_reports_the_definition_as_json() {
+    let (_guard, root) = hall_root();
+    ivar().current_dir(&root).arg("init").assert().success();
+
+    let output = ivar()
+        .current_dir(&root)
+        .args([
+            "--json",
+            "mcp",
+            "add",
+            "files",
+            "--command",
+            "npx",
+            "--",
+            "-y",
+            "@mcp/fs",
+        ])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let value: serde_json::Value = serde_json::from_slice(&output).expect("valid json");
+    assert_eq!(value["command"], "npx");
+    assert_eq!(value["args"], serde_json::json!(["-y", "@mcp/fs"]));
+    assert_eq!(value["changed"], true);
+    let manifest = std::fs::read_to_string(root.join("ivar.json")).unwrap();
+    assert!(manifest.contains("\"type\": \"local\""), "{manifest}");
+}

@@ -8,11 +8,12 @@ use crate::action::mcp::status as mcp_status;
 /// under the session's provider.
 #[derive(Debug, Subcommand)]
 pub enum McpCommand {
-    /// Declare an HTTP MCP server in `ivar.json` and write it into every
-    /// provider's MCP config. `figma` and `linear` are known names and need no
-    /// URL; any other name takes `--url`. Adding a server already declared the
-    /// same way changes nothing; the same name with a different URL is refused
-    /// rather than overwritten. Prints the `ivar mcp auth` command to run next.
+    /// Declare an MCP server in `ivar.json` — HTTP (`--url`, or a known name:
+    /// `figma`, `linear`) or stdio (`--command`, its arguments after `--`) — and
+    /// write it into every provider's MCP config. Adding a server already
+    /// declared the same way changes nothing; the same name with a different
+    /// definition is refused rather than overwritten. Prints the command to run
+    /// next.
     Add(McpAddArgs),
     /// Authenticate one MCP server. Resolves the server from `ivar.json`'s
     /// `mcp` array and the provider from the hall's default, `--provider`, or
@@ -40,15 +41,32 @@ pub struct McpAddArgs {
     /// The server's name in `ivar.json`'s `mcp` array. A known name (`figma`,
     /// `linear`) fills in the URL.
     pub name: String,
-    /// The server's HTTP URL. Required for names ivar does not know.
-    #[arg(long)]
+    /// The server's HTTP URL. Required for names ivar does not know, unless
+    /// `--command` declares a stdio server instead.
+    #[arg(long, conflicts_with = "command")]
     pub url: Option<String>,
+    /// Declare a stdio (`local`) server spawned with this executable.
+    #[arg(long)]
+    pub command: Option<String>,
+    /// Arguments for `--command`, after `--`.
+    #[arg(last = true, allow_hyphen_values = true, requires = "command")]
+    pub args: Vec<String>,
 }
 
 impl From<McpAddArgs> for mcp_add::AddInput {
     fn from(args: McpAddArgs) -> Self {
-        let McpAddArgs { name, url } = args;
-        Self { name, url }
+        let McpAddArgs {
+            name,
+            url,
+            command,
+            args,
+        } = args;
+        Self {
+            name,
+            url,
+            command,
+            args,
+        }
     }
 }
 

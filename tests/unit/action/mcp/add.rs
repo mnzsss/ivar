@@ -38,13 +38,15 @@ fn add_figma_preset_writes_manifest_and_materialises_opencode_config() {
     let input = AddInput {
         name: "figma".to_owned(),
         url: None,
+        command: None,
+        args: vec![],
     };
 
     let report = add(&ctx, &input).expect("add figma should succeed");
     let outcome = report.value;
 
     assert_eq!(outcome.name, "figma");
-    assert_eq!(outcome.url, "https://mcp.figma.com/mcp");
+    assert_eq!(outcome.url.as_deref(), Some("https://mcp.figma.com/mcp"));
     assert!(outcome.changed);
     assert_eq!(outcome.next, "ivar mcp auth figma --provider opencode");
 
@@ -73,12 +75,14 @@ fn add_custom_url_writes_entry_and_materialises() {
     let input = AddInput {
         name: "custom".to_owned(),
         url: Some("https://mcp.example.com/sse".to_owned()),
+        command: None,
+        args: vec![],
     };
 
     let report = add(&ctx, &input).expect("add custom server should succeed");
     let outcome = report.value;
     assert_eq!(outcome.name, "custom");
-    assert_eq!(outcome.url, "https://mcp.example.com/sse");
+    assert_eq!(outcome.url.as_deref(), Some("https://mcp.example.com/sse"));
     assert!(outcome.changed);
 
     let layout = Layout::at(root.clone());
@@ -98,6 +102,8 @@ fn add_unknown_preset_without_url_is_blocked_and_leaves_manifest_untouched() {
     let input = AddInput {
         name: "slack".to_owned(),
         url: None,
+        command: None,
+        args: vec![],
     };
 
     let err = add(&ctx, &input).expect_err("unknown preset must be blocked");
@@ -116,13 +122,15 @@ fn add_same_definition_is_idempotent_and_reports_changed_false() {
     let input = AddInput {
         name: "figma".to_owned(),
         url: None,
+        command: None,
+        args: vec![],
     };
 
     let first = add(&ctx, &input).unwrap().value;
     assert!(first.changed);
     let second = add(&ctx, &input).unwrap().value;
     assert_eq!(second.name, "figma");
-    assert_eq!(second.url, "https://mcp.figma.com/mcp");
+    assert_eq!(second.url.as_deref(), Some("https://mcp.figma.com/mcp"));
     assert!(!second.changed);
 }
 
@@ -136,6 +144,8 @@ fn add_after_auth_metadata_is_still_idempotent() {
     let input = AddInput {
         name: "figma".to_owned(),
         url: None,
+        command: None,
+        args: vec![],
     };
     add(&ctx, &input).unwrap();
 
@@ -163,12 +173,16 @@ fn add_conflicting_definition_is_blocked_and_leaves_manifest_untouched() {
     let first_input = AddInput {
         name: "myserver".to_owned(),
         url: Some("https://mcp.one.com/mcp".to_owned()),
+        command: None,
+        args: vec![],
     };
     add(&ctx, &first_input).unwrap();
 
     let conflicting_input = AddInput {
         name: "myserver".to_owned(),
         url: Some("https://mcp.two.com/mcp".to_owned()),
+        command: None,
+        args: vec![],
     };
     let err = add(&ctx, &conflicting_input).expect_err("conflicting server must be blocked");
     assert_eq!(err.status, Status::Blocked);
@@ -182,4 +196,73 @@ fn add_conflicting_definition_is_blocked_and_leaves_manifest_untouched() {
         .find(|s| s.name == "myserver")
         .unwrap();
     assert_eq!(server.url.as_deref(), Some("https://mcp.one.com/mcp"));
+}
+
+fn stdio(name: &str, command: &str, args: &[&str]) -> AddInput {
+    AddInput {
+        name: name.to_owned(),
+        url: None,
+        command: Some(command.to_owned()),
+        args: args.iter().map(|a| (*a).to_owned()).collect(),
+    }
+}
+
+#[test]
+fn add_stdio_declares_a_local_server_and_materialises_it() {
+    let (_guard, root) = seeded_hall();
+    let ctx = Ctx::new(root.clone());
+
+    let outcome = add(&ctx, &stdio("files", "npx", &["-y", "@mcp/fs"]))
+        .unwrap()
+        .value;
+
+    assert!(outcome.changed);
+    assert_eq!(outcome.url, None);
+    assert_eq!(outcome.command.as_deref(), Some("npx"));
+    assert_eq!(outcome.args, vec!["-y".to_owned(), "@mcp/fs".to_owned()]);
+    let layout = Layout::at(root.clone());
+    let manifest = Manifest::read(&layout).unwrap().unwrap();
+    let server = manifest
+        .mcp_servers()
+        .iter()
+        .find(|s| s.name == "files")
+        .unwrap();
+    assert_eq!(server.type_, "local");
+    assert_eq!(server.command.as_deref(), Some("npx"));
+    assert_eq!(
+        server.args.as_deref(),
+        Some(&["-y".to_owned(), "@mcp/fs".to_owned()][..])
+    );
+    let claude = std::fs::read_to_string(layout.mcp_config(&Provider::ClaudeCode)).unwrap();
+    assert!(claude.contains("\"npx\""), "{claude}");
+    assert!(claude.contains("@mcp/fs"), "{claude}");
+}
+
+#[test]
+fn adding_the_same_stdio_server_twice_changes_nothing() {
+    let (_guard, root) = seeded_hall();
+    let ctx = Ctx::new(root.clone());
+    add(&ctx, &stdio("files", "npx", &["@mcp/fs"])).unwrap();
+    let before = std::fs::read_to_string(root.join("ivar.json")).unwrap();
+
+    let outcome = add(&ctx, &stdio("files", "npx", &["@mcp/fs"]))
+        .unwrap()
+        .value;
+
+    assert!(!outcome.changed);
+    assert_eq!(
+        std::fs::read_to_string(root.join("ivar.json")).unwrap(),
+        before
+    );
+}
+
+#[test]
+fn the_same_name_with_other_args_is_a_conflict() {
+    let (_guard, root) = seeded_hall();
+    let ctx = Ctx::new(root);
+    add(&ctx, &stdio("files", "npx", &["@mcp/fs"])).unwrap();
+
+    let failure = add(&ctx, &stdio("files", "npx", &["@mcp/other"])).unwrap_err();
+
+    assert_eq!(failure.code, "mcp.server_conflict");
 }

@@ -6,9 +6,10 @@ pub mod add;
 pub mod auth;
 pub mod status;
 
-use crate::domain::mcp::McpServerDef;
+use crate::domain::mcp::{MCP_PRESETS, McpServerDef, McpValidationError, mcp_preset};
 use crate::domain::provider::Provider;
 use crate::error::{Failure, FixAction};
+use crate::harness::config;
 use crate::infra::proc::Command;
 use crate::store::layout::Layout;
 use crate::store::manifest::Manifest;
@@ -44,6 +45,83 @@ pub(crate) fn resolve_server<'a>(
                 "Check the `mcp` array in ivar.json for the server's declared name.",
             ))
         })
+}
+
+pub(crate) fn server_def(
+    name: &str,
+    url: Option<&str>,
+    command: Option<&str>,
+    args: &[String],
+) -> Result<McpServerDef, Failure> {
+    let def = match (url, command) {
+        (_, Some(command)) => {
+            let def = McpServerDef::new(name, "local").command(command);
+            if args.is_empty() {
+                def
+            } else {
+                def.args(args.to_vec())
+            }
+        }
+        (Some(url), None) => McpServerDef::new(name, "http").url(url),
+        (None, None) => match mcp_preset(name) {
+            Some(preset) => McpServerDef::new(name, "http").url(preset.url),
+            None => return Err(unknown_preset(name)),
+        },
+    };
+    def.validate().map_err(|error| invalid_definition(&error))?;
+    Ok(def)
+}
+
+/// OAuth metadata is written by `ivar mcp auth` after declaration, so it is
+/// not part of what makes two definitions the same.
+pub(crate) fn same_definition(a: &McpServerDef, b: &McpServerDef) -> bool {
+    a.type_ == b.type_
+        && a.url == b.url
+        && a.command == b.command
+        && a.args == b.args
+        && a.env == b.env
+}
+
+pub(crate) fn materialise_all(
+    layout: &Layout,
+    manifest: &Manifest,
+) -> Result<Vec<String>, Failure> {
+    let owners: Vec<Provider> = manifest.providers().config_owners().collect();
+    for provider in &owners {
+        config::materialise_mcp(
+            &layout.mcp_config(provider),
+            *provider,
+            manifest.mcp_servers(),
+            manifest.name(),
+        )?;
+    }
+    Ok(owners.iter().map(ToString::to_string).collect())
+}
+
+fn unknown_preset(name: &str) -> Failure {
+    let preset_names: Vec<&str> = MCP_PRESETS.iter().map(|p| p.name).collect();
+    Failure::blocked("mcp.unknown_preset", format!("unknown MCP preset `{name}`"))
+        .expected(format!(
+            "one of the known presets ({}) or pass `--url <URL>`",
+            preset_names.join(", ")
+        ))
+        .actual(format!("`{name}` has no preset and no `--url` was given"))
+        .fix(FixAction::safe(
+            "mcp.use_preset_or_url",
+            format!(
+                "Run with a known preset or provide `--url`: `ivar mcp add {name} --url <URL>`"
+            ),
+        ))
+}
+
+fn invalid_definition(error: &McpValidationError) -> Failure {
+    Failure::blocked(
+        "manifest.invalid_mcp_definition",
+        format!("invalid MCP server definition: {error}"),
+    )
+    .expected("a valid definition: an `http` URL, or a `local` command")
+    .actual(format!("validation failed: {error}"))
+    .fix(FixAction::safe("mcp.fix_url", "Specify a valid HTTP URL."))
 }
 
 pub(crate) fn resolve_provider(
