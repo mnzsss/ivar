@@ -29,6 +29,9 @@ mod mcp_edit_remove;
 #[path = "cli/nested_subfeatures.rs"]
 mod nested_subfeatures;
 
+#[path = "cli/provider_default.rs"]
+mod provider_default;
+
 #[path = "cli/repo_create.rs"]
 mod repo_create;
 
