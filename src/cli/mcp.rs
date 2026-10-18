@@ -2,18 +2,31 @@ use clap::{Args, Subcommand};
 
 use crate::action::mcp::add as mcp_add;
 use crate::action::mcp::auth as mcp_auth;
+use crate::action::mcp::edit as mcp_edit;
+use crate::action::mcp::remove as mcp_remove;
 use crate::action::mcp::status as mcp_status;
 
 /// The `ivar mcp` surface: authenticating and inspecting the hall's declared MCP servers
 /// under the session's provider.
 #[derive(Debug, Subcommand)]
 pub enum McpCommand {
-    /// Declare an HTTP MCP server in `ivar.json` and write it into every
-    /// provider's MCP config. `figma` and `linear` are known names and need no
-    /// URL; any other name takes `--url`. Adding a server already declared the
-    /// same way changes nothing; the same name with a different URL is refused
-    /// rather than overwritten. Prints the `ivar mcp auth` command to run next.
+    /// Declare an MCP server in `ivar.json` — HTTP (`--url`, or a known name:
+    /// `figma`, `linear`) or stdio (`--command`, its arguments after `--`) — and
+    /// write it into every provider's MCP config. Adding a server already
+    /// declared the same way changes nothing; the same name with a different
+    /// definition is refused rather than overwritten. Prints the command to run
+    /// next.
     Add(McpAddArgs),
+    /// Replace a declared MCP server's definition — its HTTP URL or its stdio
+    /// command — and rewrite every provider's MCP config. Changing the URL or
+    /// the transport drops the server's OAuth registration, so run
+    /// `ivar mcp auth` again; an identical definition changes nothing.
+    Edit(McpEditArgs),
+    /// Remove a declared MCP server from `ivar.json` and from every provider's
+    /// MCP config, and delete its client secret from `.ivar/secrets/mcp.env`
+    /// unless another server still uses it. Tokens a provider stored in its own
+    /// credential store are left there.
+    Remove(McpRemoveArgs),
     /// Authenticate one MCP server. Resolves the server from `ivar.json`'s
     /// `mcp` array and the provider from the hall's default, `--provider`, or
     /// — with `--all-providers` — every provider the hall lists, run one at a
@@ -40,15 +53,80 @@ pub struct McpAddArgs {
     /// The server's name in `ivar.json`'s `mcp` array. A known name (`figma`,
     /// `linear`) fills in the URL.
     pub name: String,
-    /// The server's HTTP URL. Required for names ivar does not know.
-    #[arg(long)]
+    /// The server's HTTP URL. Required for names ivar does not know, unless
+    /// `--command` declares a stdio server instead.
+    #[arg(long, conflicts_with = "command")]
     pub url: Option<String>,
+    /// Declare a stdio (`local`) server spawned with this executable.
+    #[arg(long)]
+    pub command: Option<String>,
+    /// Arguments for `--command`, after `--`.
+    #[arg(last = true, allow_hyphen_values = true, requires = "command")]
+    pub args: Vec<String>,
 }
 
 impl From<McpAddArgs> for mcp_add::AddInput {
     fn from(args: McpAddArgs) -> Self {
-        let McpAddArgs { name, url } = args;
-        Self { name, url }
+        let McpAddArgs {
+            name,
+            url,
+            command,
+            args,
+        } = args;
+        Self {
+            name,
+            url,
+            command,
+            args,
+        }
+    }
+}
+
+/// Arguments for `ivar mcp edit`.
+#[derive(Debug, Args)]
+#[command(group(clap::ArgGroup::new("definition").required(true).args(["url", "command"])))]
+pub struct McpEditArgs {
+    /// The server's name, as declared in `ivar.json`'s `mcp` array.
+    pub name: String,
+    /// The server's new HTTP URL.
+    #[arg(long)]
+    pub url: Option<String>,
+    /// Make it a stdio (`local`) server spawned with this executable.
+    #[arg(long)]
+    pub command: Option<String>,
+    /// Arguments for `--command`, after `--`.
+    #[arg(last = true, allow_hyphen_values = true, requires = "command")]
+    pub args: Vec<String>,
+}
+
+impl From<McpEditArgs> for mcp_edit::EditInput {
+    fn from(args: McpEditArgs) -> Self {
+        let McpEditArgs {
+            name,
+            url,
+            command,
+            args,
+        } = args;
+        Self {
+            name,
+            url,
+            command,
+            args,
+        }
+    }
+}
+
+/// Arguments for `ivar mcp remove`.
+#[derive(Debug, Args)]
+pub struct McpRemoveArgs {
+    /// The server's name, as declared in `ivar.json`'s `mcp` array.
+    pub name: String,
+}
+
+impl From<McpRemoveArgs> for mcp_remove::RemoveInput {
+    fn from(args: McpRemoveArgs) -> Self {
+        let McpRemoveArgs { name } = args;
+        Self { name }
     }
 }
 

@@ -81,7 +81,7 @@ pub fn remove(ctx: &Ctx, input: &RemoveInput) -> Outcome<RemoveOutcome> {
 
     let providers = manifest.providers();
     if !providers.available().contains(&provider) {
-        return Err(not_available(provider));
+        return Err(super::not_available(provider));
     }
     let available: Vec<Provider> = providers
         .available()
@@ -130,19 +130,6 @@ pub fn remove(ctx: &Ctx, input: &RemoveInput) -> Outcome<RemoveOutcome> {
         },
         warnings,
     ))
-}
-
-fn not_available(provider: Provider) -> Failure {
-    Failure::blocked(
-        "provider.not_available",
-        format!("`{provider}` is not registered in ivar.json"),
-    )
-    .expected("a provider listed in `providers.available`")
-    .actual(format!("`{provider}` is not listed"))
-    .fix(
-        FixAction::safe("provider.list", "See the registered providers.")
-            .command("ivar provider list"),
-    )
 }
 
 fn last_provider(provider: Provider) -> Failure {

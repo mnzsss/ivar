@@ -79,6 +79,8 @@ pub(crate) fn reconcile(
     let (skills, enumerate_warnings) =
         enumerate::enumerate_both(&layout.hall_skills(), &layout.hall_skills_local())?;
     warnings.extend(enumerate_warnings);
+    let disabled = skill::read_disabled(layout.root())?;
+    let skills = enumerate::enabled(skills, &disabled);
 
     let hall_state = read_state(layout, SkillRoot::Hall);
     let local_state = read_state(layout, SkillRoot::Local);

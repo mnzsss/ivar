@@ -19,7 +19,10 @@
 //! `infra::frontmatter` and `infra::fs`, and `domain` may not import `infra`.
 //! The pure construction stays in the domain; the I/O wrapper is this module's.
 
-use camino::Utf8PathBuf;
+use std::collections::BTreeSet;
+
+use camino::{Utf8Path, Utf8PathBuf};
+use serde::{Deserialize, Serialize};
 
 use crate::domain::name::RepoName;
 use crate::domain::skill::{Skill, SkillFrontmatter, SkillRoot};
@@ -180,6 +183,47 @@ pub fn write(hall_root: &camino::Utf8Path, root: SkillRoot, state: &State) -> Re
     let dir = root_dir(hall_root, root);
     crate::infra::fs::ensure_dir(&dir)?;
     json::write_canonical(&dir.join("state.json"), state)?;
+    Ok(())
+}
+
+/// Skills the user turned off, from either root. Personal by design: it
+/// lives in the gitignored local root, so disabling a hall skill never
+/// changes a teammate's setup.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DisabledSkills {
+    /// The ids of the disabled skills.
+    #[serde(default)]
+    pub disabled: BTreeSet<String>,
+}
+
+/// Where the personal list of disabled skills lives.
+#[must_use]
+pub fn disabled_path(hall_root: &Utf8Path) -> Utf8PathBuf {
+    root_dir(hall_root, SkillRoot::Local).join("disabled.json")
+}
+
+/// Read the disabled skills; an absent file means none are disabled.
+///
+/// # Errors
+///
+/// Returns [`Error`] if the file exists but cannot be read or parsed.
+pub fn read_disabled(hall_root: &Utf8Path) -> Result<DisabledSkills, Error> {
+    Ok(json::read(&disabled_path(hall_root))?.unwrap_or_default())
+}
+
+/// Write the disabled skills; an empty set removes the file.
+///
+/// # Errors
+///
+/// Returns [`Error`] if the file cannot be written or removed.
+pub fn write_disabled(hall_root: &Utf8Path, value: &DisabledSkills) -> Result<(), Error> {
+    let path = disabled_path(hall_root);
+    if value.disabled.is_empty() {
+        crate::infra::fs::remove_path(&path)?;
+        return Ok(());
+    }
+    crate::infra::fs::ensure_dir(&root_dir(hall_root, SkillRoot::Local))?;
+    json::write_canonical(&path, value)?;
     Ok(())
 }
 

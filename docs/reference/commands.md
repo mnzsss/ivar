@@ -617,6 +617,15 @@ Unregister a provider and tear down its hall config and skills
 | `--default` | `<DEFAULT>` |  | The provider to make the default. Required when removing the current default |
 
 
+##### `ivar provider default`
+
+Make a registered provider the hall's default — the one `ivar session start` and `ivar mcp auth` use when none is named. Sessions already running keep their provider
+
+| argument | required | description |
+| --- | --- | --- |
+| `name` | yes | The provider's name (e.g. `claude-code`, `opencode`, `omp`, `t3`) |
+
+
 #### `ivar discovery`
 
 Manage discovery docs: a unit of work's working brief
@@ -860,6 +869,24 @@ Convert an external skill into an authored (local) skill
 | `skill` | yes | The external skill's id to convert into an authored skill |
 
 
+##### `ivar skill enable`
+
+Turn a skill back on and materialise it for the hall's providers
+
+| argument | required | description |
+| --- | --- | --- |
+| `skill` | yes | The skill's id, from either skills root |
+
+
+##### `ivar skill disable`
+
+Turn a skill off without deleting it: its provider targets are removed and `ivar skill sync` leaves it out until it is enabled again. The choice is personal (`.ivar/skills-local/disabled.json`)
+
+| argument | required | description |
+| --- | --- | --- |
+| `skill` | yes | The skill's id, from either skills root |
+
+
 ##### `ivar skill sync`
 
 Materialise hall skills for the hall's providers and remove the ones left behind by providers it no longer lists
@@ -882,15 +909,41 @@ Authenticate the hall's declared MCP servers
 
 ##### `ivar mcp add`
 
-Declare an HTTP MCP server in `ivar.json` and write it into every provider's MCP config. `figma` and `linear` are known names and need no URL; any other name takes `--url`. Adding a server already declared the same way changes nothing; the same name with a different URL is refused rather than overwritten. Prints the `ivar mcp auth` command to run next
+Declare an MCP server in `ivar.json` — HTTP (`--url`, or a known name: `figma`, `linear`) or stdio (`--command`, its arguments after `--`) — and write it into every provider's MCP config. Adding a server already declared the same way changes nothing; the same name with a different definition is refused rather than overwritten. Prints the command to run next
 
 | argument | required | description |
 | --- | --- | --- |
 | `name` | yes | The server's name in `ivar.json`'s `mcp` array. A known name (`figma`, `linear`) fills in the URL |
+| `args` | no | Arguments for `--command`, after `--` |
 
 | flag | value | default | description |
 | --- | --- | --- | --- |
-| `--url` | `<URL>` |  | The server's HTTP URL. Required for names ivar does not know |
+| `--url` | `<URL>` |  | The server's HTTP URL. Required for names ivar does not know, unless `--command` declares a stdio server instead |
+| `--command` | `<COMMAND>` |  | Declare a stdio (`local`) server spawned with this executable |
+
+
+##### `ivar mcp edit`
+
+Replace a declared MCP server's definition — its HTTP URL or its stdio command — and rewrite every provider's MCP config. Changing the URL or the transport drops the server's OAuth registration, so run `ivar mcp auth` again; an identical definition changes nothing
+
+| argument | required | description |
+| --- | --- | --- |
+| `name` | yes | The server's name, as declared in `ivar.json`'s `mcp` array |
+| `args` | no | Arguments for `--command`, after `--` |
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--url` | `<URL>` |  | The server's new HTTP URL |
+| `--command` | `<COMMAND>` |  | Make it a stdio (`local`) server spawned with this executable |
+
+
+##### `ivar mcp remove`
+
+Remove a declared MCP server from `ivar.json` and from every provider's MCP config, and delete its client secret from `.ivar/secrets/mcp.env` unless another server still uses it. Tokens a provider stored in its own credential store are left there
+
+| argument | required | description |
+| --- | --- | --- |
+| `name` | yes | The server's name, as declared in `ivar.json`'s `mcp` array |
 
 
 ##### `ivar mcp auth`

@@ -154,11 +154,13 @@ Commit it. It is part of the hall, and it is what makes your teammates' `ivar
 sync` produce a working checkout instead of a bare one.
 
 Declare the MCP servers your agents use. `figma` and `linear` are known
-names; any other HTTP server takes `--url`:
+names; any other HTTP server takes `--url`, and a stdio server takes
+`--command` with its arguments after `--`:
 
 ```sh
 ivar mcp add figma
 ivar mcp add sentry --url https://mcp.sentry.dev/mcp
+ivar mcp add files --command npx -- -y @modelcontextprotocol/server-filesystem .
 ivar mcp auth figma --all-providers
 ```
 
@@ -167,6 +169,8 @@ MCP config (`.mcp.json`, `opencode.json`, `.omp/mcp.json`). `ivar mcp auth`
 then logs in once per provider; where a provider's own registration is
 refused, as Figma refuses OpenCode's, it registers a client first. The
 client secret stays in `.ivar/secrets/mcp.env`, outside git.
+`ivar mcp edit` replaces a server's URL or command, and `ivar mcp remove`
+takes it out of `ivar.json` and every provider config.
 
 Then commit and push the hall:
 

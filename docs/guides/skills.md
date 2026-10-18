@@ -112,6 +112,20 @@ ivar skill doctor    # broken links, missing refs, with fixes attached
 `doctor` returns actionable fixes rather than a diagnosis — each finding carries
 the command that resolves it, and whether it is safe to run unattended.
 
+## Turning one off
+
+```sh
+ivar skill disable rust-review   # keep it, stop materialising it
+ivar skill enable rust-review    # bring it back
+```
+
+Disabling removes the skill's provider targets and keeps its folder. The
+choice is yours alone: it is recorded in `.ivar/skills-local/disabled.json`,
+which never enters git, so the skill stays enabled for your teammates.
+Disabling a hall skill does drop its entry from `.ivar/skills/state.json`,
+as any `skill sync` rewrites that file; a teammate's next `skill sync`
+adopts the target again. `skill list` and `skill status` show `enabled` for each skill.
+
 ## Removing
 
 ```sh

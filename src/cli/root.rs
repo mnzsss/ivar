@@ -223,11 +223,11 @@ pub use feature::{
     FeatureRenameArgs, FeatureReparentArgs, FeatureStatusArgs, FeatureViewArgs,
     FeatureWorkspaceArgs,
 };
-pub use mcp::{McpAddArgs, McpAuthArgs, McpCommand, McpStatusArgs};
+pub use mcp::{McpAddArgs, McpAuthArgs, McpCommand, McpEditArgs, McpRemoveArgs, McpStatusArgs};
 pub use plan::{
     PlanApproveArgs, PlanCommand, PlanCreateArgs, PlanInvalidateArgs, PlanShowArgs, PlanStatusArgs,
 };
-pub use provider::{ProviderAddArgs, ProviderCommand, ProviderRemoveArgs};
+pub use provider::{ProviderAddArgs, ProviderCommand, ProviderDefaultArgs, ProviderRemoveArgs};
 pub use repo::{
     RepoAddArgs, RepoCommand, RepoCreateArgs, RepoPullArgs, RepoRemoveArgs, RepoSetupArgs,
     RepoUpstreamArgs, RepoViewArgs,
@@ -241,7 +241,8 @@ pub use session::{
     SessionSandboxArgs, SessionStartArgs, SessionStopArgs,
 };
 pub use skill::{
-    SkillAddArgs, SkillCommand, SkillCreateArgs, SkillDetachArgs, SkillRemoveArgs, SkillUpdateArgs,
+    SkillAddArgs, SkillCommand, SkillCreateArgs, SkillDetachArgs, SkillRemoveArgs, SkillToggleArgs,
+    SkillUpdateArgs,
 };
 
 /// Arguments for `ivar init`.

@@ -97,6 +97,25 @@ impl McpSecrets {
         Ok(change)
     }
 
+    /// Delete a secret from this store and atomically rewrite `.ivar/secrets/mcp.env`,
+    /// removing the file once no secret is left.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Failure`] if the file cannot be written or removed.
+    pub fn remove_and_write(mut self, layout: &Layout, name: &str) -> Result<Change, Failure> {
+        if self.entries.remove(name).is_none() {
+            return Ok(Change::Unchanged);
+        }
+        let path = layout.mcp_secrets_env();
+        if self.entries.is_empty() {
+            fs::remove_path(&path)?;
+        } else {
+            fs::write_sensitive_atomic(&path, self.render().as_bytes())?;
+        }
+        Ok(Change::Updated)
+    }
+
     /// Parse the `.env` text format safely without shell evaluation.
     ///
     /// Malformed lines, duplicate keys, or invalid syntax fail closed naming the path

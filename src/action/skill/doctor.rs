@@ -78,6 +78,8 @@ pub fn doctor(ctx: &Ctx) -> Outcome<DoctorOutcome> {
     // silently skipped, which is what `doctor` exists for.
     let (skills, collisions) =
         super::enumerate::enumerate_both(&layout.hall_skills(), &layout.hall_skills_local())?;
+    let disabled = crate::store::skill::read_disabled(layout.root())?;
+    let skills = super::enumerate::enabled(skills, &disabled);
 
     // Read each root's state and merge; the diagnostics below reconcile one
     // view of what is declared against one view of what is recorded.

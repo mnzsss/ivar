@@ -87,6 +87,7 @@ fn the_human_surface_lists_skills_with_kind_markers() {
             SkillStatus {
                 id: RepoName::new("audit").unwrap(),
                 source: "authored".to_owned(),
+                enabled: true,
                 targets: vec![TargetStatus {
                     target: "claude".to_owned(),
                     status: "ok".to_owned(),
@@ -95,6 +96,7 @@ fn the_human_surface_lists_skills_with_kind_markers() {
             SkillStatus {
                 id: RepoName::new("lint").unwrap(),
                 source: "external".to_owned(),
+                enabled: true,
                 targets: vec![TargetStatus {
                     target: "opencode".to_owned(),
                     status: "missing".to_owned(),
@@ -111,4 +113,19 @@ fn the_human_surface_lists_skills_with_kind_markers() {
     assert!(text.contains("[E] lint"));
     assert!(text.contains("claude: ok"));
     assert!(text.contains("opencode: missing"));
+}
+
+#[test]
+fn a_disabled_skill_is_reported_without_targets() {
+    let (_guard, root) = seeded_hall();
+    write_skill(&root, "lint", false);
+    let mut disabled = crate::store::skill::DisabledSkills::default();
+    disabled.disabled.insert("lint".to_owned());
+    crate::store::skill::write_disabled(&root, &disabled).unwrap();
+
+    let skills = status(&Ctx::new(root)).unwrap().value.skills;
+
+    let lint = skills.iter().find(|s| s.id.as_str() == "lint").unwrap();
+    assert!(!lint.enabled);
+    assert!(lint.targets.is_empty());
 }

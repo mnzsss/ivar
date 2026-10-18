@@ -32,13 +32,16 @@ use crate::action::feedback as feedback_action;
 use crate::action::hall;
 use crate::action::mcp::add as mcp_add;
 use crate::action::mcp::auth as mcp_auth;
+use crate::action::mcp::edit as mcp_edit;
+use crate::action::mcp::remove as mcp_remove;
 use crate::action::mcp::status as mcp_status;
 use crate::action::plan::approve::{self as plan_approve};
 use crate::action::plan::{
     create as plan_create, list as plan_list, show as plan_show, status as plan_status,
 };
 use crate::action::provider::{
-    add as provider_add, list as provider_list, remove as provider_remove,
+    add as provider_add, default as provider_default, list as provider_list,
+    remove as provider_remove,
 };
 use crate::action::repo::{
     add, create as repo_create, list as repo_list, pull, remove, setup as repo_setup,
@@ -53,7 +56,7 @@ use crate::action::session::{
 use crate::action::skill::{
     add as skill_add, create as skill_create, detach as skill_detach, doctor as skill_doctor,
     list as skill_list, remove as skill_remove, status as skill_status, sync as skill_sync,
-    update as skill_update,
+    toggle as skill_toggle, update as skill_update,
 };
 use crate::action::sync;
 use crate::action::upgrade::Notice;
@@ -725,6 +728,12 @@ pub fn run(cli: Cli) -> ExitCode {
                 &mut stdout,
                 &mut stderr,
             ),
+            ProviderCommand::Default(args) => respond(
+                provider_default::set_default(&ctx, &args.into()),
+                json,
+                &mut stdout,
+                &mut stderr,
+            ),
         },
         Command::Discovery(cmd) => match cmd {
             DiscoveryCommand::Create(args) => respond(
@@ -961,6 +970,18 @@ pub fn run(cli: Cli) -> ExitCode {
                 &mut stdout,
                 &mut stderr,
             ),
+            SkillCommand::Enable(args) => respond(
+                skill_toggle::enable(&ctx, &args.into()),
+                json,
+                &mut stdout,
+                &mut stderr,
+            ),
+            SkillCommand::Disable(args) => respond(
+                skill_toggle::disable(&ctx, &args.into()),
+                json,
+                &mut stdout,
+                &mut stderr,
+            ),
             SkillCommand::Sync => respond(skill_sync::sync(&ctx), json, &mut stdout, &mut stderr),
             SkillCommand::Status => {
                 respond(skill_status::status(&ctx), json, &mut stdout, &mut stderr)
@@ -1087,6 +1108,18 @@ pub fn run(cli: Cli) -> ExitCode {
         Command::Mcp(cmd) => match cmd {
             McpCommand::Add(args) => respond(
                 mcp_add::add(&ctx, &args.into()),
+                json,
+                &mut stdout,
+                &mut stderr,
+            ),
+            McpCommand::Edit(args) => respond(
+                mcp_edit::edit(&ctx, &args.into()),
+                json,
+                &mut stdout,
+                &mut stderr,
+            ),
+            McpCommand::Remove(args) => respond(
+                mcp_remove::remove(&ctx, &args.into()),
                 json,
                 &mut stdout,
                 &mut stderr,

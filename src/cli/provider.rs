@@ -1,6 +1,7 @@
 use clap::{Args, Subcommand};
 
 use crate::action::provider::add as provider_add;
+use crate::action::provider::default as provider_default;
 use crate::action::provider::remove as provider_remove;
 
 /// The `ivar provider` surface: which harnesses a hall knows about.
@@ -12,6 +13,10 @@ pub enum ProviderCommand {
     Add(ProviderAddArgs),
     /// Unregister a provider and tear down its hall config and skills.
     Remove(ProviderRemoveArgs),
+    /// Make a registered provider the hall's default — the one `ivar session
+    /// start` and `ivar mcp auth` use when none is named. Sessions already
+    /// running keep their provider.
+    Default(ProviderDefaultArgs),
 }
 
 /// Arguments for `ivar provider add`.
@@ -42,5 +47,19 @@ impl From<ProviderRemoveArgs> for provider_remove::RemoveInput {
     fn from(args: ProviderRemoveArgs) -> Self {
         let ProviderRemoveArgs { name, default } = args;
         Self { name, default }
+    }
+}
+
+/// Arguments for `ivar provider default`.
+#[derive(Debug, Args)]
+pub struct ProviderDefaultArgs {
+    /// The provider's name (e.g. `claude-code`, `opencode`, `omp`, `t3`).
+    pub name: String,
+}
+
+impl From<ProviderDefaultArgs> for provider_default::DefaultInput {
+    fn from(args: ProviderDefaultArgs) -> Self {
+        let ProviderDefaultArgs { name } = args;
+        Self { name }
     }
 }

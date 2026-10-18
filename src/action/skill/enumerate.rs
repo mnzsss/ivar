@@ -100,6 +100,14 @@ pub fn enumerate_both(
     Ok((skills, warnings))
 }
 
+/// Drop the skills the user disabled.
+pub fn enabled(skills: Vec<Skill>, disabled: &skill::DisabledSkills) -> Vec<Skill> {
+    skills
+        .into_iter()
+        .filter(|skill| !disabled.disabled.contains(skill.id.as_str()))
+        .collect()
+}
+
 /// Locate a skill by id across both roots, returning its directory and the
 /// root that owns it.
 ///

@@ -278,3 +278,20 @@ fn doctor_reports_no_not_a_symlink_for_synced_external_skill() {
     );
     assert_eq!(outcome.value.count, 0);
 }
+
+#[test]
+fn a_disabled_skill_is_not_a_missing_target() {
+    let (_guard, root) = seeded_hall();
+    write_skill(&root, "lint");
+    let mut disabled = crate::store::skill::DisabledSkills::default();
+    disabled.disabled.insert("lint".to_owned());
+    crate::store::skill::write_disabled(&root, &disabled).unwrap();
+    skill_sync::sync(&Ctx::new(root.clone())).unwrap();
+
+    let problems = doctor(&Ctx::new(root)).unwrap().value.problems;
+
+    assert!(
+        problems.iter().all(|p| p.code != "skill.target_missing"),
+        "{problems:?}"
+    );
+}

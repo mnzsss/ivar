@@ -64,7 +64,8 @@ again marked `UPDATED` when they change.
 
 **Provider** — the agent harness that runs inside a session: Claude Code or
 OpenCode. Chosen at `ivar init`, added later with `ivar provider add`, removed
-with `ivar provider remove`, selected per session with `--provider`. Each
+with `ivar provider remove`, made the default with `ivar provider default`,
+selected per session with `--provider`. Each
 discovers config differently, so hall config and view dir contents are
 generated per provider. During execution, the provider coordinates work and
 Ivar records the Run Receipt.

@@ -23,8 +23,14 @@ mod init;
 #[path = "cli/mcp_add.rs"]
 mod mcp_add;
 
+#[path = "cli/mcp_edit_remove.rs"]
+mod mcp_edit_remove;
+
 #[path = "cli/nested_subfeatures.rs"]
 mod nested_subfeatures;
+
+#[path = "cli/provider_default.rs"]
+mod provider_default;
 
 #[path = "cli/repo_create.rs"]
 mod repo_create;
@@ -34,6 +40,9 @@ mod repo_relations;
 
 #[path = "cli/shipped_commands.rs"]
 mod shipped_commands;
+
+#[path = "cli/skill_toggle.rs"]
+mod skill_toggle;
 
 #[path = "cli/sync.rs"]
 mod sync;
