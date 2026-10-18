@@ -303,3 +303,18 @@ fn sync_external_skill_is_idempotent() {
     assert!(r2.is_clean());
     assert_eq!(r2.value.steps, 0);
 }
+
+#[test]
+fn reconcile_skips_a_disabled_skill() {
+    let (_guard, root) = seeded_hall();
+    write_skill(&root, "audit", "Review a codebase");
+    write_skill(&root, "refactor", "Restructure code");
+    let mut disabled = crate::store::skill::DisabledSkills::default();
+    disabled.disabled.insert("audit".to_owned());
+    crate::store::skill::write_disabled(&root, &disabled).unwrap();
+
+    sync(&Ctx::new(root.clone())).unwrap();
+
+    assert!(!fs::exists(&root.join(".claude/skills/audit")).unwrap());
+    assert!(fs::exists(&root.join(".claude/skills/refactor")).unwrap());
+}

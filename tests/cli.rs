@@ -41,6 +41,9 @@ mod repo_relations;
 #[path = "cli/shipped_commands.rs"]
 mod shipped_commands;
 
+#[path = "cli/skill_toggle.rs"]
+mod skill_toggle;
+
 #[path = "cli/sync.rs"]
 mod sync;
 

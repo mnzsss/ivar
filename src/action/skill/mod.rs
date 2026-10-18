@@ -20,6 +20,7 @@ pub mod remove;
 pub mod source;
 pub mod status;
 pub mod sync;
+pub mod toggle;
 pub mod update;
 
 use std::io::Write;

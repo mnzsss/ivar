@@ -2,7 +2,7 @@ use clap::{Args, Subcommand};
 
 use crate::action::skill::{
     add as skill_add, create as skill_create, detach as skill_detach, remove as skill_remove,
-    update as skill_update,
+    toggle as skill_toggle, update as skill_update,
 };
 
 /// The `ivar skill` surface: the hall's shared skills directory.
@@ -20,6 +20,13 @@ pub enum SkillCommand {
     Remove(SkillRemoveArgs),
     /// Convert an external skill into an authored (local) skill.
     Detach(SkillDetachArgs),
+    /// Turn a skill back on and materialise it for the hall's providers.
+    Enable(SkillToggleArgs),
+    /// Turn a skill off without deleting it: its provider targets are removed
+    /// and `ivar skill sync` leaves it out until it is enabled again. The
+    /// choice is personal (`.ivar/skills-local/disabled.json`) and applies
+    /// from the next session.
+    Disable(SkillToggleArgs),
     /// Materialise hall skills for the hall's providers and remove the ones
     /// left behind by providers it no longer lists.
     Sync,
@@ -132,6 +139,20 @@ impl From<SkillRemoveArgs> for skill_remove::RemoveInput {
 impl From<SkillDetachArgs> for skill_detach::DetachInput {
     fn from(args: SkillDetachArgs) -> Self {
         let SkillDetachArgs { skill } = args;
+        Self { skill }
+    }
+}
+
+/// Arguments for `ivar skill enable` and `ivar skill disable`.
+#[derive(Debug, Args)]
+pub struct SkillToggleArgs {
+    /// The skill's id, from either skills root.
+    pub skill: String,
+}
+
+impl From<SkillToggleArgs> for skill_toggle::ToggleInput {
+    fn from(args: SkillToggleArgs) -> Self {
+        let SkillToggleArgs { skill } = args;
         Self { skill }
     }
 }

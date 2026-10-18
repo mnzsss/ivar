@@ -56,7 +56,7 @@ use crate::action::session::{
 use crate::action::skill::{
     add as skill_add, create as skill_create, detach as skill_detach, doctor as skill_doctor,
     list as skill_list, remove as skill_remove, status as skill_status, sync as skill_sync,
-    update as skill_update,
+    toggle as skill_toggle, update as skill_update,
 };
 use crate::action::sync;
 use crate::action::upgrade::Notice;
@@ -966,6 +966,18 @@ pub fn run(cli: Cli) -> ExitCode {
             ),
             SkillCommand::Detach(args) => respond(
                 skill_detach::detach(&ctx, &args.into()),
+                json,
+                &mut stdout,
+                &mut stderr,
+            ),
+            SkillCommand::Enable(args) => respond(
+                skill_toggle::enable(&ctx, &args.into()),
+                json,
+                &mut stdout,
+                &mut stderr,
+            ),
+            SkillCommand::Disable(args) => respond(
+                skill_toggle::disable(&ctx, &args.into()),
                 json,
                 &mut stdout,
                 &mut stderr,

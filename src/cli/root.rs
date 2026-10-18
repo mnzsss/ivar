@@ -241,7 +241,8 @@ pub use session::{
     SessionSandboxArgs, SessionStartArgs, SessionStopArgs,
 };
 pub use skill::{
-    SkillAddArgs, SkillCommand, SkillCreateArgs, SkillDetachArgs, SkillRemoveArgs, SkillUpdateArgs,
+    SkillAddArgs, SkillCommand, SkillCreateArgs, SkillDetachArgs, SkillRemoveArgs, SkillToggleArgs,
+    SkillUpdateArgs,
 };
 
 /// Arguments for `ivar init`.
