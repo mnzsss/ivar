@@ -105,6 +105,10 @@ impl Pty for PtsPty {
         // headless path pairs the two for the same reason. Set first, so an
         // explicit override from the caller still wins.
         builder.env("PWD", cwd.as_str());
+        // The shell talks to vt100 regardless of the outer terminal. An inherited
+        // screen/tmux TERM makes shells emit ESC k title ESC \, which vt100
+        // prints as text.
+        builder.env("TERM", "xterm-256color");
         for (key, value) in command.envs() {
             builder.env(key, value);
         }

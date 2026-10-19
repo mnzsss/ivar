@@ -193,3 +193,42 @@ fn backspace_erases_a_character_in_a_real_shell() {
         String::from_utf8_lossy(&seen)
     );
 }
+
+fn terminal_name_seen_by(command: Command) -> String {
+    let mut pty = PtsPty::new();
+    pty.spawn(&command, cwd(), 80, 24).expect("spawn sh");
+
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    let mut seen = Vec::new();
+    while std::time::Instant::now() < deadline {
+        if let Some(bytes) = pty.try_read().expect("try_read") {
+            seen.extend_from_slice(&bytes);
+            let text = String::from_utf8_lossy(&seen);
+            if let (Some(start), Some(end)) = (text.find('<'), text.find('>')) {
+                return text[start + 1..end].to_owned();
+            }
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
+    panic!("no terminal name; saw {:?}", String::from_utf8_lossy(&seen));
+}
+
+/// The shell talks to `vt100`, not to the terminal ivar runs in. A `TERM` of
+/// `tmux-256color` or `screen` makes zsh and bash emit `ESC k <title> ESC \`,
+/// which `vt100` prints as text: `echo hi` came back as `echohi`.
+#[test]
+fn the_shell_is_told_it_runs_in_xterm_whatever_the_outer_terminal_is() {
+    let command = Command::new("sh").arg("-c").arg("printf '<%s>' \"$TERM\"");
+
+    assert_eq!(terminal_name_seen_by(command), "xterm-256color");
+}
+
+#[test]
+fn an_explicit_term_on_the_command_still_wins() {
+    let command = Command::new("sh")
+        .arg("-c")
+        .arg("printf '<%s>' \"$TERM\"")
+        .env("TERM", "vt100");
+
+    assert_eq!(terminal_name_seen_by(command), "vt100");
+}
