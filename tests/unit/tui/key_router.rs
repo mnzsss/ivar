@@ -79,6 +79,42 @@ fn nav_open_bracket_enters_scroll_mode() {
 }
 
 #[test]
+fn selection_mode_moves_anchors_copies_and_cancels() {
+    assert_eq!(
+        reduce(Mode::Nav, Key::Char('v')),
+        (Mode::Select, Action::EnterSelect)
+    );
+    assert_eq!(
+        reduce(Mode::Scroll, Key::Char('v')),
+        (Mode::Select, Action::EnterSelect)
+    );
+    assert_eq!(
+        reduce(Mode::Select, Key::Char('h')),
+        (Mode::Select, Action::SelectMove(Direction::Left))
+    );
+    assert_eq!(
+        reduce(Mode::Select, Key::Down),
+        (Mode::Select, Action::SelectMove(Direction::Down))
+    );
+    assert_eq!(
+        reduce(Mode::Select, Key::Char(' ')),
+        (Mode::Select, Action::SelectAnchor)
+    );
+    assert_eq!(
+        reduce(Mode::Select, Key::Char('y')),
+        (Mode::Focus, Action::CopySelection)
+    );
+    assert_eq!(
+        reduce(Mode::Select, Key::Esc),
+        (Mode::Focus, Action::CancelSelection)
+    );
+    assert_eq!(
+        reduce(Mode::Focus, Key::Char('v')),
+        (Mode::Focus, Action::WriteBytes(b"v".to_vec()))
+    );
+}
+
+#[test]
 fn q_and_ctrl_c_quit_from_nav() {
     assert_eq!(reduce(Mode::Nav, Key::Char('q')), (Mode::Nav, Action::Quit));
     assert_eq!(reduce(Mode::Nav, Key::Ctrl('c')), (Mode::Nav, Action::Quit));

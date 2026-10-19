@@ -33,7 +33,6 @@ use crate::tui::key_router::{
     Action, Direction, Key, Mode, move_selection, reduce, reduce_exited, reduce_wheel,
 };
 use crate::tui::screen::Screen;
-use crate::tui::scrollback::{Decode, append_to_buffer};
 use crate::tui::widget::{Panel, PanelState, Row, Snapshot};
 
 /// A spawned interactive process with a terminal.
@@ -109,15 +108,12 @@ struct Shell<P: Pty> {
     pty: Option<P>,
     /// The emulator's live viewport.
     screen: Screen,
-    /// Plain text lines for scroll mode (the same bytes the emulator
-    /// interprets, stripped of their escape sequences — scrollback is a
-    /// "last N lines" approximation).
-    buffer: Vec<String>,
-    /// Where the plain-text decode left off, so an escape sequence split
-    /// across two PTY chunks is still stripped whole.
-    decode: Decode,
     /// Lines scrolled back from the bottom; `0` is live.
     scroll_offset: usize,
+    selection: Option<((u16, u16), (u16, u16))>,
+    anchor: Option<(u16, u16)>,
+    caret: Option<(u16, u16)>,
+    dragging: bool,
     /// Set when a lazy spawn failed; the panel shows the message instead of
     /// a shell.
     spawn_error: Option<String>,
@@ -134,6 +130,7 @@ pub struct Driver<P: Pty, F: FnMut() -> P> {
     selected: usize,
     width: u16,
     height: u16,
+    pending_copy: Option<String>,
 }
 
 impl<P: Pty, F: FnMut() -> P> std::fmt::Debug for Driver<P, F> {
@@ -161,9 +158,11 @@ impl<P: Pty, F: FnMut() -> P> Driver<P, F> {
                     spec,
                     pty: None,
                     screen: Screen::new(width, height),
-                    buffer: Vec::new(),
-                    decode: Decode::Text,
                     scroll_offset: 0,
+                    selection: None,
+                    anchor: None,
+                    caret: None,
+                    dragging: false,
                     spawn_error: None,
                 })
                 .collect(),
@@ -172,6 +171,7 @@ impl<P: Pty, F: FnMut() -> P> Driver<P, F> {
             selected: 0,
             width,
             height,
+            pending_copy: None,
         };
         driver.ensure_spawned(0);
         driver
@@ -222,6 +222,48 @@ impl<P: Pty, F: FnMut() -> P> Driver<P, F> {
         self.perform(action);
     }
 
+    /// Start a drag within the panel's cell grid.
+    pub fn mouse_down(&mut self, cell: (u16, u16)) {
+        if let Some(shell) = self.shells.get_mut(self.selected) {
+            shell.anchor = Some(cell);
+            shell.caret = Some(cell);
+            shell.selection = None;
+            shell.dragging = true;
+        }
+    }
+
+    /// Extend an active drag, never starting one outside the shell panel.
+    pub fn mouse_drag(&mut self, cell: (u16, u16)) {
+        if let Some(shell) = self.shells.get_mut(self.selected)
+            && shell.dragging
+        {
+            shell.caret = Some(cell);
+            shell.selection = shell
+                .anchor
+                .filter(|anchor| *anchor != cell)
+                .map(|anchor| (anchor, cell));
+        }
+    }
+
+    /// Finish a drag and queue its selected text for the host to copy.
+    pub fn mouse_up(&mut self, cell: (u16, u16)) {
+        self.mouse_drag(cell);
+        if let Some(shell) = self.shells.get_mut(self.selected) {
+            shell.dragging = false;
+            self.pending_copy = shell
+                .selection
+                .map(|(start, end)| shell.screen.selected_text(start, end));
+            shell.selection = None;
+            shell.anchor = None;
+            shell.caret = None;
+        }
+    }
+
+    /// Take a completed selection so the host can write OSC 52 to stdout.
+    pub fn take_copy(&mut self) -> Option<String> {
+        self.pending_copy.take()
+    }
+
     /// Perform one [`Action`]. Returns `true` if the TUI should quit.
     fn perform(&mut self, action: Action) -> bool {
         match action {
@@ -239,9 +281,20 @@ impl<P: Pty, F: FnMut() -> P> Driver<P, F> {
                 false
             }
             Action::EnterNav | Action::EnterScroll => false,
+            Action::EnterSelect
+            | Action::SelectMove(_)
+            | Action::SelectAnchor
+            | Action::CopySelection
+            | Action::CancelSelection => {
+                self.perform_selection(&action);
+                false
+            }
             Action::ExitScroll => {
                 if let Some(shell) = self.shells.get_mut(self.selected) {
-                    shell.scroll_offset = 0;
+                    shell.scroll_offset = shell.screen.scroll_to(0);
+                    shell.selection = None;
+                    shell.anchor = None;
+                    shell.caret = None;
                 }
                 false
             }
@@ -266,7 +319,10 @@ impl<P: Pty, F: FnMut() -> P> Driver<P, F> {
                     // Typing is a jump back to the live bottom: the output
                     // this key produces lands there, and a panel left
                     // scrolled back would hide it.
-                    shell.scroll_offset = 0;
+                    shell.scroll_offset = shell.screen.scroll_to(0);
+                    shell.selection = None;
+                    shell.anchor = None;
+                    shell.caret = None;
                     if let Some(pty) = &mut shell.pty {
                         let _ = pty.write(&bytes);
                     }
@@ -274,6 +330,57 @@ impl<P: Pty, F: FnMut() -> P> Driver<P, F> {
                 false
             }
             Action::None => false,
+        }
+    }
+
+    fn perform_selection(&mut self, action: &Action) {
+        let Some(shell) = self.shells.get_mut(self.selected) else {
+            return;
+        };
+        match action {
+            Action::EnterSelect => {
+                shell.selection = None;
+                shell.anchor = None;
+                shell.caret = Some((0, 0));
+            }
+            Action::SelectMove(direction) => {
+                let (row, col) = shell.caret.unwrap_or((0, 0));
+                let next = match direction {
+                    Direction::Up => (row.saturating_sub(1), col),
+                    Direction::Down => (
+                        row.saturating_add(1).min(self.height.saturating_sub(1)),
+                        col,
+                    ),
+                    Direction::Left => (row, col.saturating_sub(1)),
+                    Direction::Right => {
+                        (row, col.saturating_add(1).min(self.width.saturating_sub(1)))
+                    }
+                };
+                shell.caret = Some(next);
+                shell.selection = shell.anchor.map(|anchor| (anchor, next));
+            }
+            Action::SelectAnchor => {
+                shell.anchor = if shell.anchor.is_some() {
+                    None
+                } else {
+                    shell.caret
+                };
+                shell.selection = shell.anchor.zip(shell.caret);
+            }
+            Action::CopySelection => {
+                self.pending_copy = shell
+                    .selection
+                    .map(|(start, end)| shell.screen.selected_text(start, end));
+                shell.selection = None;
+                shell.anchor = None;
+                shell.caret = None;
+            }
+            Action::CancelSelection => {
+                shell.selection = None;
+                shell.anchor = None;
+                shell.caret = None;
+            }
+            _ => {}
         }
     }
 
@@ -293,7 +400,10 @@ impl<P: Pty, F: FnMut() -> P> Driver<P, F> {
             };
             if let Some(bytes) = bytes.filter(|bytes| !bytes.is_empty()) {
                 shell.screen.feed(&bytes);
-                append_to_buffer(&mut shell.buffer, &mut shell.decode, &bytes);
+                shell.selection = None;
+                shell.anchor = None;
+                shell.caret = None;
+                shell.scroll_offset = shell.screen.scroll_to(shell.scroll_offset);
                 consumed = true;
             }
         }
@@ -311,6 +421,10 @@ impl<P: Pty, F: FnMut() -> P> Driver<P, F> {
         self.height = height;
         for shell in &mut self.shells {
             shell.screen.resize(width, height);
+            shell.selection = None;
+            shell.anchor = None;
+            shell.caret = None;
+            shell.scroll_offset = shell.screen.scroll_to(shell.scroll_offset);
             if let Some(pty) = &mut shell.pty {
                 // A shell that refuses the resize is not worth tearing the
                 // view down for; it just keeps the size it had.
@@ -343,6 +457,9 @@ impl<P: Pty, F: FnMut() -> P> Driver<P, F> {
                 lines: vec![Line::raw(reason.clone())],
                 scroll_offset: 0,
                 state: PanelState::Scrolling,
+                cursor: None,
+                selection: None,
+                caret: None,
             };
         }
         if let Some(error) = &shell.spawn_error {
@@ -350,6 +467,9 @@ impl<P: Pty, F: FnMut() -> P> Driver<P, F> {
                 lines: vec![Line::raw(format!("could not start shell: {error}"))],
                 scroll_offset: 0,
                 state: PanelState::Exited,
+                cursor: None,
+                selection: None,
+                caret: None,
             };
         }
         let Some(pty) = &shell.pty else {
@@ -357,6 +477,9 @@ impl<P: Pty, F: FnMut() -> P> Driver<P, F> {
                 lines: vec![Line::raw("press enter in nav to start a shell here")],
                 scroll_offset: 0,
                 state: PanelState::Scrolling,
+                cursor: None,
+                selection: None,
+                caret: None,
             };
         };
         // Scrolled back is scrolled back, whatever the mode: the wheel
@@ -364,15 +487,22 @@ impl<P: Pty, F: FnMut() -> P> Driver<P, F> {
         // what decides which view the panel is.
         match shell.scroll_offset {
             offset if offset > 0 => Panel {
-                // Scrollback is the plain-text approximation, so it is the one
-                // view that has no colour to carry.
-                lines: shell.buffer.iter().cloned().map(Line::raw).collect(),
-                scroll_offset: offset.min(shell.buffer.len()),
+                lines: shell.screen.styled_rows().to_vec(),
+                scroll_offset: offset,
                 state: PanelState::Scrolling,
+                cursor: None,
+                selection: shell.selection,
+                caret: shell.caret,
             },
             _ => Panel {
                 lines: shell.screen.styled_rows().to_vec(),
                 scroll_offset: 0,
+                cursor: match shell.screen.cursor() {
+                    (row, col, false) => Some((row, col)),
+                    _ => None,
+                },
+                selection: shell.selection,
+                caret: shell.caret,
                 state: if !pty.is_running() {
                     // The last frame stays readable — it is the output the
                     // user came for — but the title says the shell is gone,
@@ -409,10 +539,7 @@ impl<P: Pty, F: FnMut() -> P> Driver<P, F> {
         }
     }
 
-    /// Give shell `index` a fresh process after its own exited: a new PTY
-    /// and a blank screen, in the same worktree. The scrollback survives —
-    /// it is the output the user came for, and losing it to a restart would
-    /// be the worst moment to lose it.
+    /// Give shell `index` a fresh process and emulator in the same worktree.
     fn respawn(&mut self, index: usize) {
         let (width, height) = (self.width, self.height);
         let Some(shell) = self.shells.get_mut(index) else {
@@ -427,6 +554,9 @@ impl<P: Pty, F: FnMut() -> P> Driver<P, F> {
         shell.pty = None;
         shell.spawn_error = None;
         shell.scroll_offset = 0;
+        shell.selection = None;
+        shell.anchor = None;
+        shell.caret = None;
         shell.screen = Screen::new(width, height);
         self.ensure_spawned(index);
     }
@@ -440,7 +570,7 @@ impl<P: Pty, F: FnMut() -> P> Driver<P, F> {
     }
 
     /// Move the focused shell's scroll offset by one page (a page is the
-    /// viewport height), clamped to the buffer.
+    /// viewport height), clamped to emulator history.
     fn scroll_by(&mut self, up: bool) {
         let page = usize::from(self.height.saturating_sub(2)).max(1);
         let direction = if up { Direction::Up } else { Direction::Down };
@@ -448,15 +578,23 @@ impl<P: Pty, F: FnMut() -> P> Driver<P, F> {
     }
 
     /// Move the focused shell's scroll offset by `lines`, clamped to the
-    /// buffer at the top and to the live bottom at the other end.
+    /// emulator history at the top and to the live bottom at the other end.
     fn scroll_lines(&mut self, direction: Direction, lines: usize) {
         let Some(shell) = self.shells.get_mut(self.selected) else {
             return;
         };
+        shell.selection = None;
+        shell.anchor = None;
+        shell.caret = None;
         shell.scroll_offset = match direction {
-            Direction::Up => (shell.scroll_offset + lines).min(shell.buffer.len()),
+            Direction::Up => shell
+                .scroll_offset
+                .saturating_add(lines)
+                .min(shell.screen.history_len()),
             Direction::Down => shell.scroll_offset.saturating_sub(lines),
+            Direction::Left | Direction::Right => shell.scroll_offset,
         };
+        shell.scroll_offset = shell.screen.scroll_to(shell.scroll_offset);
     }
 }
 

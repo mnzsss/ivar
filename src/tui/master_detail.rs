@@ -15,18 +15,19 @@
 //! into the focused shell — `\x1b[A` at the prompt, history recalled, or the
 //! sequence echoed back as text. Capturing the mouse is what makes a notch a
 //! notch: the loop scrolls the panel with it and the shell never sees it.
-//! The cost is the terminal's own selection, which now needs `shift` held.
+//! In-app drag selection copies via OSC 52; shift still selects natively.
 //!
 //! It holds **no `store` and no `action` state** — the layering table says
 //! `tui` may not reach them, so the caller pushes in a ready-made
 //! [`ShellView`] (shells to spawn, rows to list) and reads nothing back.
 
-use std::io;
+use std::io::{self, Write};
 use std::time::Duration;
 
+use base64::Engine;
 use crossterm::event::{
     DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers,
-    MouseEventKind,
+    MouseButton, MouseEventKind,
 };
 use ratatui::DefaultTerminal;
 use ratatui::layout::Rect;
@@ -35,7 +36,16 @@ use crate::error::Failure;
 use crate::tui::driver::{Driver, ShellSpec};
 use crate::tui::key_router::{Direction, Key};
 use crate::tui::pty::PtsPty;
-use crate::tui::widget::{Row, panel_size, render};
+use crate::tui::widget::{Row, panel_size, render, split};
+
+/// Encode a bounded clipboard transfer without touching terminal I/O.
+fn osc52(text: &str) -> Option<Vec<u8>> {
+    if text.is_empty() || text.len() > 100_000 {
+        return None;
+    }
+    let encoded = base64::engine::general_purpose::STANDARD.encode(text);
+    Some(format!("\x1b]52;c;{encoded}\x07").into_bytes())
+}
 
 /// Everything the host loop needs, pushed in by the action: the title, the
 /// sidebar rows, and one shell per row.
@@ -177,7 +187,7 @@ impl Prefix {
 fn run_loop(
     terminal: &mut DefaultTerminal,
     view: ShellView,
-    area: Rect,
+    mut area: Rect,
     prefix: &Prefix,
 ) -> Result<(), Failure> {
     // The shell draws inside the panel, not inside the terminal: sizing the
@@ -206,10 +216,34 @@ fn run_loop(
                     if let Some(direction) = wheel_direction(mouse.kind) {
                         driver.scroll_wheel(direction);
                         dirty = true;
+                    } else {
+                        let (_, panel) = split(area);
+                        let inner = ratatui::widgets::Block::bordered().inner(panel);
+                        let inside =
+                            inner.contains(ratatui::layout::Position::new(mouse.column, mouse.row));
+                        let cell = (
+                            mouse
+                                .row
+                                .saturating_sub(inner.y)
+                                .min(inner.height.saturating_sub(1)),
+                            mouse
+                                .column
+                                .saturating_sub(inner.x)
+                                .min(inner.width.saturating_sub(1)),
+                        );
+                        match mouse.kind {
+                            MouseEventKind::Down(MouseButton::Left) if inside => {
+                                driver.mouse_down(cell)
+                            }
+                            MouseEventKind::Drag(MouseButton::Left) => driver.mouse_drag(cell),
+                            MouseEventKind::Up(MouseButton::Left) => driver.mouse_up(cell),
+                            _ => {}
+                        }
+                        dirty = true;
                     }
                 }
                 Event::Resize(width, height) => {
-                    let area = Rect::new(0, 0, width, height);
+                    area = Rect::new(0, 0, width, height);
                     let (panel_width, panel_height) = panel_size(area);
                     driver.resize(panel_width, panel_height);
                     terminal
@@ -219,6 +253,15 @@ fn run_loop(
                 }
                 _ => {}
             }
+        }
+
+        if let Some(sequence) = driver.take_copy().and_then(|text| osc52(&text)) {
+            io::stdout()
+                .write_all(&sequence)
+                .map_err(|source| io_failure("tui.copy_failed", &source))?;
+            io::stdout()
+                .flush()
+                .map_err(|source| io_failure("tui.copy_failed", &source))?;
         }
 
         if driver

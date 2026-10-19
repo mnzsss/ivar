@@ -112,3 +112,23 @@ fn trailing_blanks_are_trimmed_from_a_styled_row() {
     let line = screen.styled_rows().first().unwrap();
     assert_eq!(line.width(), 2, "was: {line:?}");
 }
+
+#[test]
+fn cursor_tracks_prompt_and_leftward_editing_and_hide() {
+    let mut screen = Screen::new(20, 3);
+    screen.feed(b"$ ");
+    assert_eq!(screen.cursor(), (0, 2, false));
+    screen.feed(b"abc\x1b[D");
+    assert_eq!(screen.cursor(), (0, 4, false));
+    screen.feed(b"\x1b[?25l");
+    assert_eq!(screen.cursor(), (0, 4, true));
+}
+
+#[test]
+fn selection_extracts_wide_cells_and_trims_each_row() {
+    let mut screen = Screen::new(12, 3);
+    screen.feed("a界z  \r\nsecond  ".as_bytes());
+    assert_eq!(screen.selected_text((0, 1), (0, 2)), "界");
+    assert_eq!(screen.selected_text((0, 1), (1, 9)), "界z\nsecond");
+    assert_eq!(screen.selected_text((1, 9), (0, 1)), "界z\nsecond");
+}

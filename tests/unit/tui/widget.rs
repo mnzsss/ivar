@@ -31,6 +31,9 @@ fn snapshot() -> Snapshot {
             lines: vec![Line::raw("$ git status"), Line::raw("clean")],
             scroll_offset: 0,
             state: PanelState::Live,
+            cursor: Some((0, 2)),
+            selection: None,
+            caret: None,
         },
     }
 }
@@ -44,47 +47,64 @@ fn render_to_buffer(snap: &Snapshot, width: u16, height: u16) -> ratatui::buffer
     terminal.backend().buffer().clone()
 }
 
-// -- window ---------------------------------------------------------------
+#[test]
+fn live_panel_keeps_short_output_at_emulator_top() {
+    let buffer = render_to_buffer(&snapshot(), 80, 24);
+    assert_eq!(buffer[(25, 1)].symbol(), "$");
+    assert_eq!(buffer[(25, 2)].symbol(), "c");
+    assert_eq!(buffer[(25, 22)].symbol(), " ");
+}
 
 #[test]
-fn live_window_bottom_aligns_short_output() {
-    let lines = vec!["a".to_owned(), "b".to_owned(), String::new(), String::new()];
-
-    assert_eq!(
-        window(&lines, 0, 4, String::is_empty),
-        vec!["", "", "a", "b"]
+fn live_cursor_uses_emulator_row_and_column_not_last_glyph() {
+    let mut snap = snapshot();
+    snap.panel.lines = vec![Line::raw("$ "), Line::raw("second")];
+    snap.panel.cursor = Some((0, 2));
+    let buffer = render_to_buffer(&snap, 80, 24);
+    assert!(
+        buffer[(27, 1)]
+            .style()
+            .add_modifier
+            .contains(Modifier::REVERSED)
+    );
+    assert!(
+        !buffer[(30, 22)]
+            .style()
+            .add_modifier
+            .contains(Modifier::REVERSED)
+    );
+    snap.panel.cursor = None;
+    assert!(
+        !render_to_buffer(&snap, 80, 24)[(27, 1)]
+            .style()
+            .add_modifier
+            .contains(Modifier::REVERSED)
     );
 }
 
 #[test]
-fn live_window_shows_the_last_rows_when_output_overflows() {
-    let lines: Vec<String> = (1..=6).map(|n| n.to_string()).collect();
-
-    assert_eq!(
-        window(&lines, 0, 4, String::is_empty),
-        vec!["3", "4", "5", "6"]
+fn drag_highlight_is_confined_to_shell_panel() {
+    let mut snap = snapshot();
+    snap.panel.selection = Some(((0, 0), (1, 2)));
+    snap.panel.cursor = None;
+    let buffer = render_to_buffer(&snap, 80, 24);
+    assert!(
+        buffer[(25, 1)]
+            .style()
+            .add_modifier
+            .contains(Modifier::REVERSED)
     );
-}
-
-#[test]
-fn scroll_window_ends_scroll_offset_lines_above_the_bottom() {
-    let lines: Vec<String> = (1..=10).map(|n| n.to_string()).collect();
-
-    // Offset 3: the window ends 3 lines above the bottom (line "10"), so
-    // the last shown line is "7" and the 4-row window spans "4"..="7".
-    assert_eq!(
-        window(&lines, 3, 4, String::is_empty),
-        vec!["4", "5", "6", "7"]
+    assert!(
+        buffer[(27, 2)]
+            .style()
+            .add_modifier
+            .contains(Modifier::REVERSED)
     );
-}
-
-#[test]
-fn scroll_window_pads_at_the_bottom_near_the_top_of_the_buffer() {
-    let lines = vec!["a".to_owned(), "b".to_owned()];
-
-    assert_eq!(
-        window(&lines, 2, 4, String::is_empty),
-        vec!["a", "b", "", ""]
+    assert!(
+        !buffer[(24, 1)]
+            .style()
+            .add_modifier
+            .contains(Modifier::REVERSED)
     );
 }
 
@@ -126,10 +146,9 @@ fn the_selected_row_is_rendered_reversed() {
 }
 
 #[test]
-fn the_block_cursor_appears_only_at_the_live_bottom() {
-    // Live: the cursor cell sits in the panel's bottom row.
+fn the_block_cursor_appears_only_at_the_live_emulator_position() {
     let live = render_to_buffer(&snapshot(), 80, 24);
-    let bottom_y = 22;
+    let bottom_y = 1;
     let cursor = live
         .content()
         .iter()
@@ -140,7 +159,7 @@ fn the_block_cursor_appears_only_at_the_live_bottom() {
         .count();
     assert!(
         cursor >= 1,
-        "live panel must show a block cursor at the bottom"
+        "live panel must show a block cursor at the emulator position"
     );
 
     // Scrolled: no cursor anywhere in the panel.
