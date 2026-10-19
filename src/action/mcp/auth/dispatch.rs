@@ -227,7 +227,7 @@ fn auth_command(
     materialised_name: &str,
     secret: Option<&(String, String)>,
 ) -> proc::Command {
-    let binary = crate::providers::launch_contract(provider).binary;
+    let binary = crate::providers::launch_contract(provider.config_owner()).binary;
     let command = proc::Command::new(binary)
         .args(subcommand)
         .arg(materialised_name);

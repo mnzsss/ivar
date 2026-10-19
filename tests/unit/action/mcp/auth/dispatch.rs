@@ -17,6 +17,12 @@ fn auth_command_is_opencode_mcp_auth_for_opencode() {
 }
 
 #[test]
+fn auth_command_is_claude_mcp_login_for_t3_because_t3_hosts_claude_code() {
+    let command = auth_command(Provider::T3, ["mcp", "login"], "acme-figma", None);
+    assert_eq!(command.display(), "claude mcp login acme-figma");
+}
+
+#[test]
 fn auth_command_carries_no_env_override_without_a_fresh_secret() {
     let command = auth_command(Provider::OpenCode, ["mcp", "auth"], "acme-figma", None);
     assert!(command.envs().is_empty());
