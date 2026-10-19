@@ -16,10 +16,7 @@
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 
-/// How many rows of scrollback the emulator keeps beyond the visible
-/// viewport. The widget only ever renders the visible part; the scrollback
-/// is what `vt100` needs so a long agent output does not truncate mid-line
-/// before it scrolls into view.
+/// How many styled history rows the emulator keeps beyond the viewport.
 const SCROLLBACK_ROWS: usize = 1000;
 
 /// A viewport of a terminal screen, as text and as styled lines.
@@ -113,6 +110,72 @@ impl Screen {
     #[must_use]
     pub fn styled_rows(&self) -> &[Line<'static>] {
         &self.styled
+    }
+
+    /// Emulator cursor coordinates and its visibility state.
+    #[must_use]
+    pub fn cursor(&self) -> (u16, u16, bool) {
+        let (row, col) = self.parser.screen().cursor_position();
+        (row, col, self.parser.screen().hide_cursor())
+    }
+
+    /// Select a visible stream of cells, inclusive of both endpoints.
+    #[must_use]
+    pub fn selected_text(&self, start: (u16, u16), end: (u16, u16)) -> String {
+        let (start, end) = if start <= end {
+            (start, end)
+        } else {
+            (end, start)
+        };
+        let screen = self.parser.screen();
+        (start.0..=end.0.min(self.height.saturating_sub(1)))
+            .map(|row| {
+                let first = if row == start.0 { start.1 } else { 0 };
+                let last = if row == end.0 {
+                    end.1.min(self.width.saturating_sub(1))
+                } else {
+                    self.width.saturating_sub(1)
+                };
+                (first..=last)
+                    .filter_map(|col| {
+                        let cell = screen.cell(row, col)?;
+                        if cell.is_wide_continuation() {
+                            if col == first {
+                                screen
+                                    .cell(row, col.saturating_sub(1))
+                                    .map(|cell| cell.contents().to_owned())
+                            } else {
+                                None
+                            }
+                        } else if cell.has_contents() {
+                            Some(cell.contents().to_owned())
+                        } else {
+                            Some(" ".to_owned())
+                        }
+                    })
+                    .collect::<String>()
+                    .trim_end()
+                    .to_owned()
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    /// Scroll through styled emulator history, returning the actual clamped offset.
+    pub fn scroll_to(&mut self, offset: usize) -> usize {
+        self.parser.screen_mut().set_scrollback(offset);
+        let actual = self.parser.screen().scrollback();
+        self.recache();
+        actual
+    }
+
+    /// Maximum currently available scrollback (zero for alternate screens).
+    pub fn history_len(&mut self) -> usize {
+        let previous = self.parser.screen().scrollback();
+        self.parser.screen_mut().set_scrollback(usize::MAX);
+        let available = self.parser.screen().scrollback();
+        self.parser.screen_mut().set_scrollback(previous);
+        available
     }
 
     /// The viewport size.

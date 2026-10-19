@@ -137,3 +137,9 @@ fn the_wheel_is_a_scroll_and_nothing_else_is() {
     assert_eq!(wheel_direction(MouseEventKind::Moved), None);
     assert_eq!(wheel_direction(MouseEventKind::ScrollLeft), None);
 }
+#[test]
+fn osc52_encodes_utf8_and_caps_large_payloads() {
+    assert_eq!(osc52("hello"), Some(b"\x1b]52;c;aGVsbG8=\x07".to_vec()));
+    assert_eq!(osc52("界"), Some(b"\x1b]52;c;55WM\x07".to_vec()));
+    assert_eq!(osc52(&"x".repeat(100_001)), None);
+}

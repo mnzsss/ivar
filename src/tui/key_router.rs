@@ -16,6 +16,8 @@
 //!   [`Mode::Scroll`], `q` (or `Ctrl+C`) quits.
 //! - [`Mode::Scroll`] — read the focused shell's scrollback: `PgUp`/`PgDn`
 //!   scroll, `q` or `Esc` returns to [`Mode::Focus`].
+//! - [`Mode::Select`] — move a panel-local caret, anchor with `v` or space,
+//!   copy with `y` or Enter, cancel with Esc or `q`.
 //!
 //! # The wheel, and a shell that has exited
 //!
@@ -45,6 +47,8 @@ pub enum Mode {
     Nav,
     /// Scrolling the focused shell's scrollback.
     Scroll,
+    /// Moving a text selection within the shell panel.
+    Select,
 }
 
 /// A keystroke the reducer understands. Everything else — all raw bytes,
@@ -100,6 +104,16 @@ pub enum Action {
     /// Scroll the focused shell's scrollback by a number of lines — what a
     /// wheel notch means, as opposed to a page.
     ScrollLines(Direction, usize),
+    /// Start selecting in the shell panel.
+    EnterSelect,
+    /// Move the text selection cursor.
+    SelectMove(Direction),
+    /// Toggle the selection anchor.
+    SelectAnchor,
+    /// Copy the selected cells.
+    CopySelection,
+    /// Discard a selection.
+    CancelSelection,
     /// Spawn a fresh process for a shell whose own has exited.
     Restart,
     /// Quit the TUI.
@@ -158,6 +172,7 @@ pub fn reduce(mode: Mode, key: Key) -> (Mode, Action) {
             Key::Enter | Key::Esc => (Mode::Focus, Action::FocusShell),
             // The second half of the `<prefix> [` sequence.
             Key::Char('[') => (Mode::Scroll, Action::EnterScroll),
+            Key::Char('v') => (Mode::Select, Action::EnterSelect),
             Key::Char('q') | Key::Ctrl('c') => (mode, Action::Quit),
             // Anything else is a swallowed prefix key.
             _ => (mode, Action::None),
@@ -165,8 +180,19 @@ pub fn reduce(mode: Mode, key: Key) -> (Mode, Action) {
         Mode::Scroll => match key {
             Key::PgUp => (mode, Action::ScrollUp),
             Key::PgDn => (mode, Action::ScrollDown),
+            Key::Char('v') => (Mode::Select, Action::EnterSelect),
             Key::Char('q') | Key::Esc => (Mode::Focus, Action::ExitScroll),
             Key::Ctrl('c') => (mode, Action::Quit),
+            _ => (mode, Action::None),
+        },
+        Mode::Select => match key {
+            Key::Up | Key::Char('k') => (mode, Action::SelectMove(Direction::Up)),
+            Key::Down | Key::Char('j') => (mode, Action::SelectMove(Direction::Down)),
+            Key::Left | Key::Char('h') => (mode, Action::SelectMove(Direction::Left)),
+            Key::Right | Key::Char('l') => (mode, Action::SelectMove(Direction::Right)),
+            Key::Char('v') | Key::Char(' ') => (mode, Action::SelectAnchor),
+            Key::Char('y') | Key::Enter => (Mode::Focus, Action::CopySelection),
+            Key::Esc | Key::Char('q') => (Mode::Focus, Action::CancelSelection),
             _ => (mode, Action::None),
         },
     }
@@ -237,6 +263,7 @@ pub fn move_selection(selection: usize, direction: Direction, row_count: usize) 
     match direction {
         Direction::Up => selection.saturating_sub(1),
         Direction::Down => (selection + 1).min(row_count - 1),
+        Direction::Left | Direction::Right => selection,
     }
 }
 
@@ -246,6 +273,8 @@ pub fn move_selection(selection: usize, direction: Direction, row_count: usize) 
 pub enum Direction {
     Up,
     Down,
+    Left,
+    Right,
 }
 
 #[cfg(test)]

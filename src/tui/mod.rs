@@ -24,5 +24,4 @@ pub mod key_router;
 pub mod master_detail;
 pub(crate) mod pty;
 pub mod screen;
-pub(crate) mod scrollback;
 pub mod widget;

@@ -11,7 +11,7 @@
 //! A [`Snapshot`] is the entire state the TUI can show, pushed *into* the
 //! driver by the host loop — the widget never fetches. It is deliberately
 //! small: a sidebar of rows (the promoted repos), the right-hand panel (the
-//! focused shell's buffer), and the input mode that decides focus indicators.
+//! focused shell's emulator viewport), and the input mode that decides focus indicators.
 //!
 //! # The panel
 //!
@@ -55,14 +55,18 @@ pub enum PanelState {
 /// The focused shell's output and the user's position in it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Panel {
-    /// Every available line, oldest first (the emulator's live viewport, or
-    /// the driver's line buffer when scrolling), with the emulator's colours
-    /// and attributes intact.
+    /// The emulator's visible rows, including styled history when scrolled.
     pub lines: Vec<Line<'static>>,
     /// Lines scrolled back from the bottom. `0` is the live view.
     pub scroll_offset: usize,
     /// What the panel is.
     pub state: PanelState,
+    /// Emulator cursor, in panel-local cells; absent when hidden.
+    pub cursor: Option<(u16, u16)>,
+    /// Inclusive panel-local stream selection.
+    pub selection: Option<((u16, u16), (u16, u16))>,
+    /// Keyboard selection position before an anchor is set.
+    pub caret: Option<(u16, u16)>,
 }
 
 impl Panel {
@@ -73,6 +77,9 @@ impl Panel {
             lines: Vec::new(),
             scroll_offset: 0,
             state: PanelState::Scrolling,
+            cursor: None,
+            selection: None,
+            caret: None,
         }
     }
 }
@@ -134,56 +141,13 @@ pub fn render(snapshot: &Snapshot, area: Rect, buf: &mut Buffer) {
     render_panel(snapshot, panel_area, buf);
 }
 
-/// The window of `lines` that fits `available` rows.
-///
-/// Live (`scroll_offset == 0`): the emulator's rows are top-aligned with
-/// blank padding below, so trim the padding and bottom-align the content the
-/// way a real terminal does — the shell's last line always sits on the
-/// bottom row, with the block cursor after it.
-///
-/// Scrolled (`scroll_offset > 0`): a window over the line buffer ending
-/// `scroll_offset` lines above the bottom, blank-padded below when the top
-/// of the buffer is reached.
-///
-/// Always returns exactly `available` rows.
-///
-/// Generic over the line type, with `is_blank` deciding what padding looks
-/// like: *which* lines to show is a purely positional question that does not
-/// depend on whether a line carries a style, which is what keeps this
-/// testable on plain strings.
-#[must_use]
-pub fn window<T: Clone + Default>(
-    lines: &[T],
-    scroll_offset: usize,
-    available: usize,
-    is_blank: impl Fn(&T) -> bool,
-) -> Vec<T> {
-    let available = available.max(1);
-    if scroll_offset == 0 {
-        let mut lines = lines.to_vec();
-        while lines.last().is_some_and(&is_blank) {
-            lines.pop();
-        }
-        let mut windowed: Vec<T> = lines.into_iter().rev().take(available).collect();
-        windowed.reverse();
-        let mut padded = vec![T::default(); available.saturating_sub(windowed.len())];
-        padded.append(&mut windowed);
-        padded
-    } else {
-        let end = lines.len().saturating_sub(scroll_offset);
-        let start = end.saturating_sub(available);
-        let mut windowed: Vec<T> = lines.iter().skip(start).take(available).cloned().collect();
-        windowed.resize(available, T::default());
-        windowed
-    }
-}
-
 fn render_sidebar(snapshot: &Snapshot, area: Rect, buf: &mut Buffer) {
     let prefix = &snapshot.prefix;
     let hint = match snapshot.mode {
         Mode::Focus => format!("focus — {prefix} nav"),
-        Mode::Nav => "nav — j/k move, enter focus, q quit".to_owned(),
-        Mode::Scroll => "scroll — pgup/pgdn, q/esc focus".to_owned(),
+        Mode::Nav => "nav — j/k move, v select, enter focus, q quit".to_owned(),
+        Mode::Scroll => "scroll — pgup/pgdn, v select, q/esc focus".to_owned(),
+        Mode::Select => "select — hjkl move, v anchor, y copy, esc cancel".to_owned(),
     };
     let title = format!(" {} — {hint} ", snapshot.title);
     let block = Block::default().borders(Borders::ALL).title(title);
@@ -224,26 +188,33 @@ fn render_panel(snapshot: &Snapshot, area: Rect, buf: &mut Buffer) {
     let block = Block::default().borders(Borders::ALL).title(title);
 
     let inner = block.inner(area);
-    let available = usize::from(inner.height).max(1);
-    let lines = window(
-        &snapshot.panel.lines,
-        snapshot.panel.scroll_offset,
-        available,
-        |line| line.width() == 0,
-    );
-    let cursor_x = lines.last().map(Line::width).unwrap_or(0);
-    Paragraph::new(lines).block(block).render(area, buf);
-
-    // The block cursor lives only at the live bottom: the row after the
-    // shell's last line, so it reads as the prompt position.
-    if live && inner.height > 0 {
-        let y = inner.y + inner.height - 1;
-        let cursor_x = u16::try_from(cursor_x)
-            .unwrap_or(u16::MAX)
-            .min(inner.width.saturating_sub(1));
-        if let Some(cell) = buf.cell_mut((inner.x + cursor_x, y)) {
-            cell.set_style(Style::default().add_modifier(Modifier::REVERSED));
+    Paragraph::new(snapshot.panel.lines.clone())
+        .block(block)
+        .render(area, buf);
+    if let Some((start, end)) = snapshot.panel.selection {
+        let (start, end) = if start <= end {
+            (start, end)
+        } else {
+            (end, start)
+        };
+        for row in 0..inner.height {
+            for col in 0..inner.width {
+                if (row, col) >= start
+                    && (row, col) <= end
+                    && let Some(cell) = buf.cell_mut((inner.x + col, inner.y + row))
+                {
+                    cell.set_style(cell.style().add_modifier(Modifier::REVERSED));
+                }
+            }
         }
+    }
+    let cursor = if live { snapshot.panel.cursor } else { None };
+    if let Some((row, col)) = snapshot.panel.caret.or(cursor)
+        && row < inner.height
+        && col < inner.width
+        && let Some(cell) = buf.cell_mut((inner.x + col, inner.y + row))
+    {
+        cell.set_style(cell.style().add_modifier(Modifier::REVERSED));
     }
 }
 

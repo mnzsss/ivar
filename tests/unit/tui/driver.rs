@@ -267,7 +267,10 @@ fn scroll_mode_scrolls_the_focused_shell_and_returns_to_focus() {
         .panel
         .scroll_offset;
     assert!(offset > 0, "PgUp must scroll back");
-    assert_eq!(offset, 22, "one page = the viewport height (80x24 -> 22)");
+    assert_eq!(
+        offset, 20,
+        "one page is clamped to available emulator history"
+    );
 
     driver.apply_event(Key::PgDn);
     let offset = driver
@@ -435,26 +438,166 @@ fn typing_returns_the_panel_to_the_live_bottom() {
 /// kept the raw bytes — so scrolling back showed the shell's escape
 /// sequences as text (`[32m`, `[A`) instead of the output they styled.
 #[test]
-fn scrollback_is_plain_text_not_raw_escape_sequences() {
+fn scrollback_preserves_emulator_history_and_colours() {
     let (mut driver, log) = driver_with(1);
 
-    injected_output(&log, 0)
-        .send(b"\x1b[32mgreen\x1b[0m line\r\n\x1b[Aand up\r\n".to_vec())
-        .unwrap();
+    let mut output = b"\x1b[32mgreen\x1b[0m line\r\n".to_vec();
+    for _ in 0..25 {
+        output.extend_from_slice(b"filler\r\n");
+    }
+    injected_output(&log, 0).send(output).unwrap();
     driver.pump().unwrap();
 
     driver.apply_event(Key::Prefix);
     driver.apply_event(Key::Char('['));
     driver.apply_event(Key::PgUp);
 
-    let text = panel_text(&driver.snapshot("checkout", &[], "ctrl+o").panel);
+    let panel = driver.snapshot("checkout", &[], "ctrl+o").panel;
+    let text = panel_text(&panel);
     assert!(text.contains("green line"), "was: {text:?}");
-    assert!(text.contains("and up"), "was: {text:?}");
+    assert!(
+        panel
+            .lines
+            .iter()
+            .flat_map(|line| line.spans.iter())
+            .any(|span| span.content.contains("green")
+                && span.style.fg == Some(ratatui::style::Color::Indexed(2)))
+    );
     assert!(
         !text.contains("[32m") && !text.contains("[0m") && !text.contains("[A"),
         "escape sequences must not survive into the scrollback: {text:?}"
     );
     assert!(!text.contains('\r'), "carriage returns too: {text:?}");
+}
+
+#[test]
+fn wheel_with_no_history_keeps_live_rows_in_place() {
+    let (mut driver, log) = driver_with(1);
+    injected_output(&log, 0).send(b"$ ".to_vec()).unwrap();
+    driver.pump().unwrap();
+    driver.scroll_wheel(Direction::Up);
+    assert_eq!(
+        driver
+            .snapshot("checkout", &[], "ctrl+o")
+            .panel
+            .scroll_offset,
+        0
+    );
+}
+
+#[test]
+fn drag_copies_only_selected_shell_cells_and_click_clears() {
+    let (mut driver, log) = driver_with(1);
+    injected_output(&log, 0)
+        .send("a界z\r\nsecond  ".as_bytes().to_vec())
+        .unwrap();
+    driver.pump().unwrap();
+    driver.mouse_down((0, 1));
+    driver.mouse_drag((1, 7));
+    assert!(
+        driver
+            .snapshot("checkout", &[], "ctrl+o")
+            .panel
+            .selection
+            .is_some()
+    );
+    driver.mouse_up((1, 7));
+    assert_eq!(driver.take_copy().as_deref(), Some("界z\nsecond"));
+    driver.mouse_down((0, 0));
+    driver.mouse_up((0, 0));
+    assert_eq!(driver.take_copy(), None);
+}
+
+#[test]
+fn keyboard_selection_copies_and_never_writes_into_pty() {
+    let (mut driver, log) = driver_with(1);
+    injected_output(&log, 0).send(b"hello".to_vec()).unwrap();
+    driver.pump().unwrap();
+    driver.apply_event(Key::Prefix);
+    driver.apply_event(Key::Char('v'));
+    driver.apply_event(Key::Char(' '));
+    driver.apply_event(Key::Right);
+    driver.apply_event(Key::Right);
+    driver.apply_event(Key::Char('y'));
+    assert_eq!(driver.mode(), Mode::Focus);
+    assert_eq!(driver.take_copy().as_deref(), Some("hel"));
+    assert!(written(&log, 0).try_recv().is_err());
+}
+
+#[test]
+fn scrolled_drag_selects_visible_emulator_history() {
+    let (mut driver, log) = driver_with(1);
+    let mut output = b"first\r\n".to_vec();
+    for _ in 0..25 {
+        output.extend_from_slice(b"later\r\n");
+    }
+    injected_output(&log, 0).send(output).unwrap();
+    driver.pump().unwrap();
+    driver.scroll_wheel(Direction::Up);
+    let panel = driver.snapshot("checkout", &[], "ctrl+o").panel;
+    let first = panel.lines[0].to_string();
+    driver.mouse_down((0, 0));
+    driver.mouse_drag((0, 4));
+    driver.mouse_up((0, 4));
+    assert_eq!(driver.take_copy().as_deref(), Some(first.trim_end()));
+}
+
+#[test]
+fn panel_cursor_tracks_emulator_moves_and_visibility() {
+    let (mut driver, log) = driver_with(1);
+    injected_output(&log, 0)
+        .send(b"$ abc\x1b[D\x1b[?25l".to_vec())
+        .unwrap();
+    driver.pump().unwrap();
+    assert_eq!(
+        driver.snapshot("checkout", &[], "ctrl+o").panel.cursor,
+        None
+    );
+    injected_output(&log, 0)
+        .send(b"\x1b[?25h".to_vec())
+        .unwrap();
+    driver.pump().unwrap();
+    assert_eq!(
+        driver.snapshot("checkout", &[], "ctrl+o").panel.cursor,
+        Some((0, 4))
+    );
+}
+
+#[test]
+fn output_and_scroll_clear_selection() {
+    let (mut driver, log) = driver_with(1);
+    driver.mouse_down((0, 0));
+    driver.mouse_drag((0, 2));
+    injected_output(&log, 0).send(b"hello".to_vec()).unwrap();
+    driver.pump().unwrap();
+    assert_eq!(
+        driver.snapshot("checkout", &[], "ctrl+o").panel.selection,
+        None
+    );
+    driver.mouse_down((0, 0));
+    driver.mouse_drag((0, 2));
+    driver.scroll_wheel(Direction::Up);
+    assert_eq!(
+        driver.snapshot("checkout", &[], "ctrl+o").panel.selection,
+        None
+    );
+}
+
+#[test]
+fn alternate_screen_has_no_history() {
+    let (mut driver, log) = driver_with(1);
+    injected_output(&log, 0)
+        .send(b"\x1b[?1049hhello\r\nworld".to_vec())
+        .unwrap();
+    driver.pump().unwrap();
+    driver.scroll_wheel(Direction::Up);
+    assert_eq!(
+        driver
+            .snapshot("checkout", &[], "ctrl+o")
+            .panel
+            .scroll_offset,
+        0
+    );
 }
 
 /// The bug: once the shell exited, every key was written into a PTY that was
