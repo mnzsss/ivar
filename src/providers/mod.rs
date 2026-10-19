@@ -421,8 +421,10 @@ pub fn live_states(
 /// The subcommand its login command takes, after the binary, or `None` for a
 /// provider that has no MCP login command at all.
 ///
-/// The binary itself comes from `launch_contract(provider).binary` — this
-/// returns only the part that differs, so the binary keeps one home.
+/// The binary itself comes from
+/// `launch_contract(provider.config_owner()).binary`, so a hosted provider
+/// logs in through its host's CLI — this returns only the part that
+/// differs, so the binary keeps one home.
 /// `omp` has no `mcp` subcommand (measured against omp/18.1.8; its auth
 /// surface is `omp auth-broker`, which Task 10 owns), so it returns `None`
 /// rather than a command that would fail at spawn.
