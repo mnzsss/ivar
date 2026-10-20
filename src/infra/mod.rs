@@ -9,6 +9,7 @@
 //! missing, it gets added here rather than reached around.
 
 pub mod browser;
+pub mod docker;
 pub mod figma;
 pub mod frontmatter;
 pub mod fs;
