@@ -1,0 +1,57 @@
+//! The whole environment of a `runtime: host` run: built from nothing, so a
+//! credential the parent holds reaches the tool only when it is listed here.
+
+use super::tool::Tool;
+
+const KEPT: &[&str] = &[
+    "PATH",
+    "HOME",
+    "USER",
+    "LOGNAME",
+    "LANG",
+    "CODEX_HOME",
+    "CLAUDE_CONFIG_DIR",
+];
+
+fn is_kept(key: &str) -> bool {
+    KEPT.contains(&key) || key.starts_with("LC_") || key.starts_with("XDG_")
+}
+
+pub fn host_env(
+    parent: &[(String, String)],
+    tmpdir: &str,
+    secrets: &[(String, String)],
+    tool: Tool,
+) -> Vec<(String, String)> {
+    let mut env: Vec<(String, String)> = parent
+        .iter()
+        .filter(|(key, _)| is_kept(key))
+        .cloned()
+        .collect();
+    env.extend(
+        [
+            ("TMPDIR", tmpdir),
+            ("GIT_CONFIG_GLOBAL", "/dev/null"),
+            ("GIT_CONFIG_NOSYSTEM", "1"),
+            ("GIT_TERMINAL_PROMPT", "0"),
+        ]
+        .map(|(k, v)| (k.to_owned(), v.to_owned())),
+    );
+    let home = parent
+        .iter()
+        .find(|(k, _)| k == "HOME")
+        .map(|(_, v)| v.as_str());
+    if tool == Tool::Claude
+        && !parent.iter().any(|(k, _)| k == "CLAUDE_CONFIG_DIR")
+        && let Some(home) = home
+    {
+        env.push(("CLAUDE_CONFIG_DIR".to_owned(), format!("{home}/.claude")));
+    }
+    env.extend(secrets.iter().cloned());
+    env.extend(tool.env());
+    env
+}
+
+#[cfg(test)]
+#[path = "../../../tests/unit/domain/agent/host_env.rs"]
+mod tests;
