@@ -7,6 +7,7 @@
 //! from [`layout`]. No module outside `store` computes a path under a hall.
 
 pub mod agent;
+pub mod agent_secrets;
 pub mod discovery;
 pub mod feature;
 pub mod feedback;
