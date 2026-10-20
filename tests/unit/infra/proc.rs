@@ -640,8 +640,27 @@ fn a_command_without_a_working_directory_does_not_invent_a_pwd() {
     assert_eq!(pwd, inherited);
 }
 
+const EXEC_PROBE: &str = "IVAR_TEST_EXEC_PROBE";
+
 #[test]
 fn exec_reports_a_program_that_never_ran() {
+    // A failed exec leaves SIGPIPE at SIG_DFL in the calling process, which
+    // would kill this whole test binary on the next broken-pipe write.
+    if std::env::var_os(EXEC_PROBE).is_none() {
+        let exe = std::env::current_exe().unwrap();
+        let output = capture(
+            &Command::new(exe.to_str().unwrap())
+                .args([
+                    "--exact",
+                    "infra::proc::tests::exec_reports_a_program_that_never_ran",
+                ])
+                .env(EXEC_PROBE, "1"),
+        )
+        .unwrap();
+        assert!(output.success(), "{}", output.diagnostic());
+        assert!(output.stdout.contains("1 passed"), "{}", output.stdout);
+        return;
+    }
     let error = exec(&Command::new("ivar-no-such-program-4f1c"))
         .expect_err("a program that is not on PATH never replaces this process");
     assert!(matches!(error, Error::Spawn { .. }), "{error:?}");
