@@ -556,10 +556,8 @@ fn state_roots_are_created_and_never_cover_home() {
     let home = dir.join("home");
     std::fs::create_dir_all(&home).unwrap();
     let missing = home.join(".codex");
-    assert_eq!(
-        prepare_state_roots(&home, vec![missing.clone()]).unwrap(),
-        [missing.clone()]
-    );
+    let prepared = prepare_state_roots(&home, vec![missing.clone()]).unwrap();
+    assert_eq!(prepared, std::slice::from_ref(&missing));
     assert!(missing.is_dir());
     for unsafe_root in [home.clone(), dir.clone(), home.join("..")] {
         let failure = prepare_state_roots(&home, vec![unsafe_root.clone()]).unwrap_err();
