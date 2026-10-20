@@ -90,6 +90,20 @@ pub fn user_instance_reachable() -> bool {
     capture(&systemctl(&["show-environment"])).is_ok_and(|output| output.success())
 }
 
+/// The `PATH` the user manager hands its units; `None` when it does not answer.
+#[must_use]
+pub fn user_path() -> Option<String> {
+    let output = capture(&systemctl(&["show-environment"])).ok()?;
+    if !output.success() {
+        return None;
+    }
+    output
+        .stdout
+        .lines()
+        .find_map(|line| line.strip_prefix("PATH="))
+        .map(str::to_owned)
+}
+
 /// Whether the current user's systemd instance outlives their sessions.
 #[must_use]
 pub fn linger_enabled() -> bool {

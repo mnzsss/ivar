@@ -12,7 +12,9 @@ const FAKE_SYSTEMCTL: &str = r#"#!/bin/sh
 printf '%s\n' "$*" >> "$SYSTEMCTL_FAKE_LOG"
 case "$2" in
   show) [ -n "$SYSTEMCTL_FAKE_NEXT" ] && echo "$SYSTEMCTL_FAKE_NEXT" ;;
-  show-environment) [ -n "$SYSTEMCTL_FAKE_DOWN" ] && exit 1 ;;
+  show-environment)
+    [ -n "$SYSTEMCTL_FAKE_DOWN" ] && exit 1
+    [ -n "$SYSTEMCTL_FAKE_PATH" ] && printf 'HOME=/h\nPATH=%s\n' "$SYSTEMCTL_FAKE_PATH" ;;
 esac
 exit 0
 "#;

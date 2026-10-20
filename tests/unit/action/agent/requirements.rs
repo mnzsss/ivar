@@ -150,3 +150,23 @@ fn agent_files_that_fail_to_parse_still_count_as_agents() {
         .collect();
     assert!(codes.contains(&"agent.systemd_user_missing"), "{codes:?}");
 }
+
+#[test]
+fn a_tool_is_looked_up_on_the_systemd_managers_path() {
+    let (_guard, root) = crate::test_support::hall_root();
+    let bin = root.join("manager-bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    let claude = bin.join("claude");
+    std::fs::write(&claude, "#!/bin/sh\n").unwrap();
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&claude, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let fake = crate::test_support::FakeSystemctl::install(&root);
+    let _r = crate::infra::proc::redirect_on_this_thread(
+        "systemctl",
+        crate::test_support::fake_systemctl_command(&fake).env("SYSTEMCTL_FAKE_PATH", bin.as_str()),
+    );
+    assert!(tool_present(Tool::Claude));
+    assert!(!tool_present(Tool::Codex), "the process PATH was used");
+}

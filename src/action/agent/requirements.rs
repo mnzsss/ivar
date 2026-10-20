@@ -37,8 +37,12 @@ pub fn system_probes() -> Probes<'static> {
     }
 }
 
+/// Agent units run with the systemd user manager's `PATH`, which can differ from this shell's.
 fn tool_present(tool: Tool) -> bool {
-    std::env::var_os("PATH").is_some_and(|path| on_path(tool.as_str(), &path))
+    systemd::user_path()
+        .map(std::ffi::OsString::from)
+        .or_else(|| std::env::var_os("PATH"))
+        .is_some_and(|path| on_path(tool.as_str(), &path))
 }
 
 fn on_path(program: &str, path: &std::ffi::OsStr) -> bool {
