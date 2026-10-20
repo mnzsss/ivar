@@ -46,6 +46,7 @@ src/
                    converts args into an action's `Input`, renders the outcome.
     respond.rs     rendering an action's `Outcome`/`Report`/`Failure` as bytes.
     graph_dispatch.rs  the `ivar graph` subcommand tree's dispatch.
+    agent_dispatch.rs  the `ivar agent` subcommand tree's dispatch.
 
   cli/             clap derive types ONLY — structs, enums, doc comments.
     root.rs        root entries and command-group wiring; focused command
@@ -96,6 +97,11 @@ src/
                    lookup (shared id-prefix resolution)
     plan/          create · list · show · approve · status
     provider/      add · list
+    agent/         sync · status · run · logs · feedback for scheduled agents,
+                   plus requirements.rs (the systemd and Docker checks doctor
+                   reports), notify.rs (the run-summary POST) and
+                   feature_access.rs (the `access: feature` worktree, host
+                   commit and deliver preview fingerprint).
     skill/         create · add · update · remove · detach · sync · status ·
                    list · doctor
     mcp/           auth — big enough to own a directory: the public verb,
@@ -130,6 +136,10 @@ src/
     health.rs      hall health derivation (uninitialized/operational/stale/degraded)
     skill.rs skill_sync.rs  skills, and the sync plan over them
     mcp.rs         MCP server definitions as data
+    agent/         scheduled agents: spec.rs (frontmatter), cron.rs (cron to
+                   systemd OnCalendar), tool.rs, receipt.rs, unit.rs (systemd
+                   unit text), container.rs (docker argv) and images.rs (the
+                   image tags pinned to this binary's version)
 
   store/           on-disk persistence. Owns file layout, nothing else.
     versioned/     the version-detect / migrate / refuse-if-newer machine in
@@ -155,6 +165,8 @@ src/
                    permanent v0->v3 board migration chain)
     discovery.rs   discovery doc parsing and rendering (frontmatter I/O)
     skill.rs       the lockfile and skill state
+    agent.rs       agent definitions and run receipts under .ivar/agents/
+    agent_secrets.rs  .ivar/secrets/agents.env, mode 600, read per agent
     render.rs      materialising a skill: symlink or copy, and verify
 
   git/             the only module that knows git exists
@@ -234,6 +246,9 @@ src/
                    incremental line-protocol runner (`stream`/`Stream`) a
                    provider process needs in streaming.rs, and the Linux
                    /proc working-directory attribution in cwd.rs.
+    systemd.rs     systemctl --user and the user unit directory
+    docker.rs      the docker CLI an agent run drives
+    webhook.rs     the HTTP POST behind an agent's `notify`
     oauth.rs       OAuth 2.0 PKCE and code-for-token exchange primitives
     figma.rs       Figma MCP client pre-registration and dynamic OAuth discovery
     http_callback.rs  transient loopback listener for OAuth authorization code

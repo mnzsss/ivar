@@ -89,6 +89,14 @@ creates, schedules, monitors, and synthesizes subagents. The Run Receipt records
 baseline and final snapshot evidence for audit, but it neither attributes individual
 writes nor reverts them.
 
+## Scheduled agents
+
+- Linux with a systemd user instance only.
+- A cron expression that restricts both day-of-month and day-of-week is
+  refused, because cron and systemd disagree on how to combine them.
+- Membership of the `docker` group is root-equivalent. Prefer rootless Docker;
+  `ivar doctor` warns when the daemon runs as root.
+
 ## Local state is disposable
 
 Folders like `skills/`, `skills-local/`, and `setups/` are managed or personal;

@@ -127,12 +127,14 @@ the binary.** It does not run your code or keep a system daemon. It arranges
 local directories, worktrees, and provider configuration, and keeps a local
 SQLite code graph of your repositories that never leaves the machine.
 
-The binary makes network requests in four cases, none of them to an ivar server:
+The binary makes network requests in these cases, none of them to an ivar server:
 
 - the update check described above;
 - `git` and `gh`, with your own credentials, to clone repositories and open pull requests;
 - OAuth with the MCP servers your hall declares (`ivar mcp auth`);
-- the GitHub API, to fetch external skills.
+- the GitHub API, to fetch external skills;
+- scheduled agents: it pulls the ivar agent images from GHCR, lets an agent
+  reach the domains it lists, and POSTs to an agent's `notify` URL.
 
 `ivar upgrade` updates `ivar` through whichever channel installed it. Read
 [Concepts](docs/concepts.md) and [Limitations](docs/reference/limitations.md)

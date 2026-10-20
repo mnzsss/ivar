@@ -22,6 +22,8 @@ Then, by task:
   materialising them per harness.
 - **[Upgrading](guides/upgrading.md)** — what moves on its own, what asks you
   first, and what to do when a teammate's `ivar` refuses your hall.
+- **[Scheduled agents](guides/scheduled-agents.md)** — run codex, claude or
+  opencode on a cron schedule in a sandboxed container.
 
 Reference:
 

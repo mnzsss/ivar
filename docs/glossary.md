@@ -264,6 +264,14 @@ repos: a sidebar of repos, and a live shell per repo in the right panel, lazily
 spawned on first focus. A reserved prefix key handles navigation so every other
 keystroke reaches the focused shell.
 
+**Agent** — a file in `agents/` that ivar schedules as a systemd user timer and
+runs in a container. See [Scheduled agents](guides/scheduled-agents.md).
+
+**Agent run** — one execution of an agent; not a Session.
+
+**Agent run receipt** — the JSON record of one agent run, under
+`.ivar/agents/runs/<agent>/`.
+
 ## Health and state
 
 **Hall health** — the hall's operational status, derived rather than stored:
