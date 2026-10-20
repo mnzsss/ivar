@@ -295,3 +295,59 @@ fn a_delivery_preview_error_never_carries_a_secret_value() {
     );
     assert_eq!(receipt.diff.as_deref(), Some("+[redacted]"));
 }
+
+#[test]
+fn host_workspace_links_each_mount_and_grants_only_writable_ones() {
+    let (_guard, dir) = crate::test_support::utf8_temp_dir();
+    let ws = Workspace {
+        mounts: vec![
+            Mount {
+                source: "/hall/.ivar/repos/api/main".into(),
+                target: "/workspace/api".into(),
+                read_only: true,
+            },
+            Mount {
+                source: "/hall/.ivar/repos/web/agent-x".into(),
+                target: "/workspace/web".into(),
+                read_only: false,
+            },
+        ],
+        workdir: "/workspace/web/src".into(),
+    };
+    let (cwd, writable) = host_workspace(&dir, &ws).unwrap();
+    assert_eq!(cwd, dir.join("workspace/web/src"));
+    assert_eq!(
+        writable,
+        [Utf8PathBuf::from("/hall/.ivar/repos/web/agent-x")]
+    );
+    assert_eq!(
+        std::fs::read_link(dir.join("workspace/api")).unwrap(),
+        std::path::PathBuf::from("/hall/.ivar/repos/api/main")
+    );
+}
+
+#[test]
+fn the_claude_config_is_seeded_once_and_never_overwritten() {
+    let (_guard, home) = crate::test_support::utf8_temp_dir();
+    let dir = home.join(".claude");
+    std::fs::write(home.join(".claude.json"), "{\"login\":1}").unwrap();
+    seed_claude_config(&home, &dir).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(dir.join(".claude.json")).unwrap(),
+        "{\"login\":1}"
+    );
+
+    std::fs::write(dir.join(".claude.json"), "{\"login\":2}").unwrap();
+    seed_claude_config(&home, &dir).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(dir.join(".claude.json")).unwrap(),
+        "{\"login\":2}"
+    );
+}
+
+#[test]
+fn no_legacy_claude_config_seeds_nothing() {
+    let (_guard, home) = crate::test_support::utf8_temp_dir();
+    seed_claude_config(&home, &home.join(".claude")).unwrap();
+    assert!(!home.join(".claude/.claude.json").exists());
+}

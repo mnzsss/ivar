@@ -194,6 +194,55 @@ pub(crate) fn read_workspace(layout: &Layout, manifest: &Manifest, spec: &AgentS
     Workspace { mounts, workdir }
 }
 
+/// The Docker `Workspace` on the host: `scratch/workspace/<repo>` links to each
+/// mounted worktree; only `read_only: false` mounts become writable roots.
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the host run path is its first non-test reader")
+)]
+pub(crate) fn host_workspace(
+    scratch: &Utf8Path,
+    ws: &Workspace,
+) -> Result<(Utf8PathBuf, Vec<Utf8PathBuf>), Failure> {
+    let root = scratch.join("workspace");
+    fs::ensure_dir(&root)?;
+    for mount in &ws.mounts {
+        let name = mount.target.trim_start_matches("/workspace/");
+        fs::create_symlink(Utf8Path::new(&mount.source), &root.join(name))?;
+    }
+    let cwd = root.join(
+        ws.workdir
+            .trim_start_matches("/workspace")
+            .trim_start_matches('/'),
+    );
+    let writable = ws
+        .mounts
+        .iter()
+        .filter(|m| !m.read_only)
+        .map(|m| Utf8PathBuf::from(&m.source))
+        .collect();
+    Ok((cwd, writable))
+}
+
+/// Copies `<home>/.claude.json` into the config dir once, so claude keeps its
+/// login when it runs with `CLAUDE_CONFIG_DIR` confined to that dir.
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the host run path is its first non-test reader")
+)]
+pub(crate) fn seed_claude_config(home: &Utf8Path, config_dir: &Utf8Path) -> Result<(), Failure> {
+    let seeded = config_dir.join(".claude.json");
+    if fs::exists(&seeded)? {
+        return Ok(());
+    }
+    let Some(text) = fs::read_text(&home.join(".claude.json"))? else {
+        return Ok(());
+    };
+    fs::ensure_dir(config_dir)?;
+    fs::write_sensitive_atomic(&seeded, text.as_bytes())?;
+    Ok(())
+}
+
 fn execute(
     spec: &AgentSpec,
     run_id: &str,
