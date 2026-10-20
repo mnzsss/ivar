@@ -6,6 +6,7 @@ pub mod logs;
 pub mod notify;
 pub mod requirements;
 pub mod run;
+pub mod sandbox;
 pub mod status;
 pub mod sync;
 
