@@ -264,20 +264,13 @@ fn existing_canonical(candidates: Vec<Utf8PathBuf>) -> Vec<Utf8PathBuf> {
     roots
 }
 
-/// Whether this kernel can enforce a Landlock write ruleset at all.
-#[cfg(target_os = "linux")]
+/// Whether [`Sandbox::apply`] would confine a run on this kernel.
 pub(crate) fn landlock_available() -> bool {
-    use landlock::{ABI, AccessFs, CompatLevel, Compatible, Ruleset, RulesetAttr};
-    Ruleset::default()
-        .set_compatibility(CompatLevel::HardRequirement)
-        .handle_access(AccessFs::from_write(ABI::V1))
-        .and_then(|r| r.create())
-        .is_ok()
-}
-
-#[cfg(not(target_os = "linux"))]
-pub(crate) fn landlock_available() -> bool {
-    false
+    // Landlock and no_new_privs bind only the calling thread, so the real
+    // ruleset is applied on a throwaway thread and the caller stays unconfined.
+    std::thread::spawn(|| Sandbox::from_roots(Vec::new()).apply())
+        .join()
+        .is_ok_and(|status| !matches!(status, Ok(SandboxStatus::Unavailable { .. }) | Err(_)))
 }
 
 /// Derive candidate runtime and state directories for the given provider.
