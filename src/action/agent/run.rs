@@ -2,11 +2,10 @@
 
 use std::io;
 
-use camino::Utf8Path;
-#[cfg(test)]
-use camino::Utf8PathBuf;
+use camino::{Utf8Path, Utf8PathBuf};
 use uuid::Uuid;
 
+use super::feature_access::{self, Delivered};
 use super::notify;
 use crate::action::{Ctx, discover_hall, read_manifest};
 use crate::domain::agent::container::{
@@ -14,7 +13,7 @@ use crate::domain::agent::container::{
 };
 use crate::domain::agent::images::{BASE_IMAGE, PROXY_IMAGE};
 use crate::domain::agent::receipt::{self, AgentRunReceipt, Trigger, classify, scrub};
-use crate::domain::agent::spec::{AgentSpec, Launch};
+use crate::domain::agent::spec::{Access, AgentSpec, Launch};
 use crate::domain::session::rfc3339_now;
 use crate::error::{Failure, Outcome, Report, WriteHuman};
 use crate::infra::proc::{self, Finished};
@@ -56,6 +55,7 @@ struct Ran {
 struct Attempt {
     ran: Ran,
     secret_values: Vec<String>,
+    delivered: Option<Delivered>,
 }
 
 /// # Errors
@@ -89,11 +89,14 @@ pub fn run(ctx: &Ctx, input: RunInput) -> Outcome<AgentRunReceipt> {
     let scratch = layout.agent_run_scratch(&run_id);
     let attempt = (|| -> Result<Attempt, Failure> {
         let secrets = AgentSecrets::read(&layout)?.select(&spec.secrets)?;
-        let ws = workspace_for(ctx, &layout, &spec)?;
+        let (ws, worktree) = workspace_for(ctx, &layout, &spec)?;
         let ran = execute(&spec, &run_id, &scratch, &secrets, ws)?;
+        let delivered = worktree
+            .map(|wt| feature_access::commit_and_preview(ctx, &layout, &spec, &wt, &run_id));
         Ok(Attempt {
             ran,
             secret_values: secrets.into_iter().map(|(_, v)| v).collect(),
+            delivered,
         })
     })();
     let _ = fs::remove_path(&scratch);
@@ -133,14 +136,20 @@ fn completed(
         Finished::TimedOut => (None, true),
         Finished::Stopped => (None, false),
     };
-    AgentRunReceipt {
+    let mut receipt = AgentRunReceipt {
         outcome: classify(exit_code, timed_out, blocked),
         exit_code,
         cost_usd: tool.and_then(|t| t.cost_usd(&output)),
         output,
         ended_at: rfc3339_now(),
         ..AgentRunReceipt::skipped(run_id, spec.name.clone(), trigger, started_at)
+    };
+    if let Some(d) = &attempt.delivered {
+        receipt.diff = d.diff.as_deref().map(|t| scrub(t, &values));
+        receipt.delivery_fingerprint.clone_from(&d.fingerprint);
+        receipt.delivery_error = d.error.as_deref().map(|t| scrub(t, &values));
     }
+    receipt
 }
 
 /// The single point that records a run.
@@ -154,8 +163,17 @@ pub(crate) fn finish(
     Ok(Report::new(receipt))
 }
 
-fn workspace_for(_ctx: &Ctx, layout: &Layout, spec: &AgentSpec) -> Result<Workspace, Failure> {
-    Ok(read_workspace(layout, &read_manifest(layout)?, spec))
+fn workspace_for(
+    ctx: &Ctx,
+    layout: &Layout,
+    spec: &AgentSpec,
+) -> Result<(Workspace, Option<Utf8PathBuf>), Failure> {
+    match spec.access {
+        Access::Read => Ok((read_workspace(layout, &read_manifest(layout)?, spec), None)),
+        Access::Feature => {
+            feature_access::prepare(ctx, layout, spec).map(|(ws, wt)| (ws, Some(wt)))
+        }
+    }
 }
 
 /// Worktree content only: the `.bare` clone, with its config and remotes, is never mounted.
