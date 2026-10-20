@@ -597,3 +597,26 @@ pub fn lock_exclusive(path: &Utf8Path) -> Result<std::fs::File, Error> {
     file.lock().map_err(write_error)?;
     Ok(file)
 }
+
+/// Take an exclusive advisory lock on `path` without waiting, creating the
+/// file and its parent directories if needed. `None` when another handle
+/// holds it.
+///
+/// # Errors
+///
+/// Returns [`Error::Write`] if the file cannot be created or locked.
+pub fn try_lock_exclusive(path: &Utf8Path) -> Result<Option<std::fs::File>, Error> {
+    let write_error = |source| Error::Write {
+        path: path.to_path_buf(),
+        source,
+    };
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent.as_std_path()).map_err(write_error)?;
+    }
+    let file = std::fs::File::create(path.as_std_path()).map_err(write_error)?;
+    match file.try_lock() {
+        Ok(()) => Ok(Some(file)),
+        Err(std::fs::TryLockError::WouldBlock) => Ok(None),
+        Err(std::fs::TryLockError::Error(source)) => Err(write_error(source)),
+    }
+}

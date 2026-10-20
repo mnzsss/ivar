@@ -1143,6 +1143,9 @@ pub fn run(cli: Cli) -> ExitCode {
             &mut stdout,
             &mut stderr,
         ),
+        Command::Agent(cmd) => {
+            super::agent_dispatch::dispatch_agent(cmd, &ctx, json, &mut stdout, &mut stderr)
+        }
         Command::Graph(cmd) => super::graph_dispatch::dispatch_graph(
             cmd,
             &ctx,

@@ -11,6 +11,9 @@ mod common;
 #[path = "delivery/support.rs"]
 mod delivery_support;
 
+#[path = "cli/agent.rs"]
+mod agent;
+
 #[path = "cli/cli_styling.rs"]
 mod cli_styling;
 

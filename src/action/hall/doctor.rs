@@ -94,6 +94,16 @@ pub fn doctor(ctx: &Ctx) -> Outcome<DoctorOutcome> {
     findings.extend(diagnose_feature_state(&layout, &git));
     findings.extend(diagnose_mcp_auth(&manifest, &providers::credential_state));
     findings.extend(diagnose_t3_host(&manifest, &layout));
+    let agent_files = crate::store::agent::list_files(&layout)?;
+    let agent_specs: Vec<_> = agent_files
+        .iter()
+        .filter_map(|file| crate::store::agent::parse(file).ok())
+        .collect();
+    findings.extend(crate::action::agent::requirements::diagnose_agents_present(
+        &agent_specs,
+        !agent_files.is_empty(),
+        &crate::action::agent::requirements::system_probes(),
+    ));
     check_legacy_working_docs(&layout, &mut findings)?;
 
     let graph_watch_leader = crate::action::graph::watch::lease::leader_pid(&layout);

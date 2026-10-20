@@ -87,6 +87,8 @@ pub struct Command {
     cwd: Option<Utf8PathBuf>,
     env: Vec<(String, String)>,
     stdin: Option<String>,
+    clear_env: bool,
+    process_group: bool,
 }
 
 impl Command {
@@ -99,6 +101,8 @@ impl Command {
             cwd: None,
             env: Vec::new(),
             stdin: None,
+            clear_env: false,
+            process_group: false,
         }
     }
 
@@ -139,6 +143,22 @@ impl Command {
     #[must_use]
     pub fn env(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
         self.env.push((key.into(), value.into()));
+        self
+    }
+
+    /// Start the child from an empty environment; only the variables set
+    /// with [`Self::env`] reach it.
+    #[must_use]
+    pub fn env_clear(mut self) -> Self {
+        self.clear_env = true;
+        self
+    }
+
+    /// Make the child lead its own process group, so a stop reaches every
+    /// process it started.
+    #[must_use]
+    pub fn process_group(mut self) -> Self {
+        self.process_group = true;
         self
     }
 
@@ -236,6 +256,16 @@ impl Command {
             command.current_dir(dir);
             command.env("PWD", dir);
         }
+        if self.clear_env {
+            command.env_clear();
+            if let Some(dir) = &self.cwd {
+                command.env("PWD", dir);
+            }
+        }
+        #[cfg(target_os = "linux")]
+        if self.process_group {
+            std::os::unix::process::CommandExt::process_group(&mut command, 0);
+        }
         for (key, value) in redirect.iter().flat_map(|r| &r.env).chain(&self.env) {
             command.env(key, value);
         }
@@ -251,40 +281,36 @@ fn redirected(_program: &str) -> Option<Command> {
 
 #[cfg(test)]
 fn redirected(program: &str) -> Option<Command> {
-    REDIRECT.with(|slot| {
-        slot.borrow()
-            .as_ref()
-            .filter(|(name, _)| name == program)
-            .map(|(_, to)| to.clone())
-    })
+    REDIRECT.with(|slot| slot.borrow().get(program).cloned())
 }
 
 #[cfg(test)]
 thread_local! {
-    static REDIRECT: std::cell::RefCell<Option<(String, Command)>> =
-        const { std::cell::RefCell::new(None) };
+    static REDIRECT: std::cell::RefCell<std::collections::HashMap<String, Command>> =
+        std::cell::RefCell::new(std::collections::HashMap::new());
 }
 
 /// Run `to` wherever this thread would spawn `program`, until the guard
 /// drops. Thread-scoped because tests run in parallel threads that share one
 /// process environment, and `unsafe_code` is forbidden, so `PATH` cannot be
 /// changed instead. Test-only: an external program is swapped for its fake
-/// and nothing internal is replaced.
+/// and nothing internal is replaced. A second redirect for the same program
+/// replaces the first, and dropping either clears it.
 #[cfg(test)]
 pub(crate) fn redirect_on_this_thread(program: &str, to: Command) -> Redirect {
-    REDIRECT.with(|slot| *slot.borrow_mut() = Some((program.to_owned(), to)));
-    Redirect(())
+    REDIRECT.with(|slot| slot.borrow_mut().insert(program.to_owned(), to));
+    Redirect(program.to_owned())
 }
 
-/// Clears this thread's redirect when dropped.
+/// Clears this thread's redirect for its program when dropped.
 #[cfg(test)]
 #[derive(Debug)]
-pub(crate) struct Redirect(());
+pub(crate) struct Redirect(String);
 
 #[cfg(test)]
 impl Drop for Redirect {
     fn drop(&mut self) {
-        REDIRECT.with(|slot| *slot.borrow_mut() = None);
+        REDIRECT.with(|slot| slot.borrow_mut().remove(&self.0));
     }
 }
 
@@ -427,6 +453,138 @@ pub fn to_log(command: &Command, log: &camino::Utf8Path) -> Result<Option<i32>, 
     Ok(status.code())
 }
 
+/// How a [`to_log_with_deadline`] child ended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Finished {
+    Exited(Option<i32>),
+    TimedOut,
+    Stopped,
+}
+
+/// [`to_log`] with a deadline and a watcher: every 100 ms the log so far is
+/// passed to `stop_when`, and `true` kills the child ([`Finished::Stopped`]);
+/// reaching `deadline` kills it too ([`Finished::TimedOut`]).
+///
+/// # Errors
+///
+/// Returns [`Error::Spawn`] if `log` cannot be created, or `command`
+/// cannot be spawned or waited on.
+pub fn to_log_with_deadline(
+    command: &Command,
+    log: &camino::Utf8Path,
+    deadline: std::time::Duration,
+    stop_when: &dyn Fn(&str) -> bool,
+) -> Result<Finished, Error> {
+    to_log_with_deadline_and_grace(command, log, deadline, stop_when, GROUP_STOP_GRACE)
+}
+
+const GROUP_STOP_GRACE: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// [`to_log_with_deadline`] with the time a process group gets between
+/// `SIGTERM` and `SIGKILL`.
+pub(crate) fn to_log_with_deadline_and_grace(
+    command: &Command,
+    log: &camino::Utf8Path,
+    deadline: std::time::Duration,
+    stop_when: &dyn Fn(&str) -> bool,
+    grace: std::time::Duration,
+) -> Result<Finished, Error> {
+    let stdout =
+        std::fs::File::create(log.as_std_path()).map_err(|source| spawn_error(command, source))?;
+    let stderr = stdout
+        .try_clone()
+        .map_err(|source| spawn_error(command, source))?;
+    let mut child = command
+        .to_std()
+        .stdin(Stdio::null())
+        .stdout(stdout)
+        .stderr(stderr)
+        .spawn()
+        .map_err(|source| spawn_error(command, source))?;
+    let started = std::time::Instant::now();
+    let group = cfg!(target_os = "linux") && command.process_group;
+    loop {
+        if group {
+            if is_zombie(child.id()) {
+                stop_group(child.id(), grace);
+                let status = child
+                    .wait()
+                    .map_err(|source| spawn_error(command, source))?;
+                return Ok(Finished::Exited(status.code()));
+            }
+        } else if let Some(status) = child
+            .try_wait()
+            .map_err(|source| spawn_error(command, source))?
+        {
+            return Ok(Finished::Exited(status.code()));
+        }
+        let seen = std::fs::read(log.as_std_path()).unwrap_or_default();
+        let verdict = if stop_when(&String::from_utf8_lossy(&seen)) {
+            Some(Finished::Stopped)
+        } else if started.elapsed() >= deadline {
+            Some(Finished::TimedOut)
+        } else {
+            None
+        };
+        if let Some(verdict) = verdict {
+            if group {
+                stop_group(child.id(), grace);
+            } else {
+                let _ = child.kill();
+            }
+            let _ = child.wait();
+            return Ok(verdict);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+}
+
+/// `state` and `pgrp` of `/proc/<pid>/stat`; `None` once the entry is gone.
+fn proc_stat(pid: &str) -> Option<(char, String)> {
+    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+    let (_, rest) = stat.rsplit_once(')')?;
+    let mut fields = rest.split_whitespace();
+    let state = fields.next()?.chars().next()?;
+    let pgrp = fields.nth(1)?.to_owned();
+    Some((state, pgrp))
+}
+
+/// Exited but not yet reaped: the pid, and the group it leads, stay reserved.
+fn is_zombie(pid: u32) -> bool {
+    proc_stat(&pid.to_string()).is_some_and(|(state, _)| state == 'Z')
+}
+
+fn group_has_live_member(pgid: u32) -> bool {
+    let pgid = pgid.to_string();
+    let Ok(entries) = std::fs::read_dir("/proc") else {
+        return false;
+    };
+    entries.flatten().any(|entry| {
+        entry
+            .file_name()
+            .to_str()
+            .and_then(proc_stat)
+            .is_some_and(|(state, pgrp)| state != 'Z' && pgrp == pgid)
+    })
+}
+
+/// TERM, grace, then KILL to the group `leader` leads. The caller reaps the
+/// leader only after this returns: until then the kernel cannot hand its pid
+/// to a new group, so every signal here reaches the original group.
+// ponytail: a full /proc scan every 100 ms of the grace; a pidfd or cgroup when groups get large.
+fn stop_group(leader: u32, grace: std::time::Duration) {
+    let pgid = format!("-{leader}");
+    let _ = capture(&Command::new("kill").args(["-TERM", "--", &pgid]));
+    let since = std::time::Instant::now();
+    while since.elapsed() < grace {
+        if !group_has_live_member(leader) {
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    let _ = capture(&Command::new("kill").args(["-KILL", "--", &pgid]));
+}
+
 /// The last non-blank line of the log [`to_log`] wrote, if any — the line a
 /// failing script most likely ended on. Only the log's tail is read, control
 /// characters (terminal colour codes) are dropped, and the line is cut to
@@ -498,6 +656,9 @@ pub fn detach(command: &Command) -> Result<(), Error> {
 /// `exec` returns an `io::Error` exactly when the program never ran. On
 /// platforms without `exec` the command is spawned, waited on, and its exit
 /// code returned — the code the calling process would have carried anyway.
+///
+/// A failed call leaves `SIGPIPE` at its default disposition (std resets it
+/// before `execve`), so the caller should exit soon after an `Err`.
 ///
 /// # Errors
 ///

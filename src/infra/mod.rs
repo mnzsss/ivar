@@ -9,6 +9,7 @@
 //! missing, it gets added here rather than reached around.
 
 pub mod browser;
+pub mod docker;
 pub mod figma;
 pub mod frontmatter;
 pub mod fs;
@@ -22,6 +23,8 @@ pub mod oauth;
 pub mod proc;
 pub mod progress;
 pub mod release;
+pub mod systemd;
 pub mod table;
 pub mod term;
 pub mod url;
+pub mod webhook;
