@@ -502,14 +502,20 @@ pub(crate) fn to_log_with_deadline_and_grace(
         .spawn()
         .map_err(|source| spawn_error(command, source))?;
     let started = std::time::Instant::now();
+    let group = cfg!(target_os = "linux") && command.process_group;
     loop {
-        if let Some(status) = child
+        if group {
+            if is_zombie(child.id()) {
+                stop_group(child.id(), grace);
+                let status = child
+                    .wait()
+                    .map_err(|source| spawn_error(command, source))?;
+                return Ok(Finished::Exited(status.code()));
+            }
+        } else if let Some(status) = child
             .try_wait()
             .map_err(|source| spawn_error(command, source))?
         {
-            if command.process_group {
-                stop_group(&mut child, grace);
-            }
             return Ok(Finished::Exited(status.code()));
         }
         let seen = std::fs::read(log.as_std_path()).unwrap_or_default();
@@ -521,43 +527,58 @@ pub(crate) fn to_log_with_deadline_and_grace(
             None
         };
         if let Some(verdict) = verdict {
-            stop_child(&mut child, command.process_group, grace);
+            if group {
+                stop_group(child.id(), grace);
+            } else {
+                let _ = child.kill();
+            }
+            let _ = child.wait();
             return Ok(verdict);
         }
         std::thread::sleep(std::time::Duration::from_millis(100));
     }
 }
 
-fn group_alive(pgid: &str) -> bool {
-    capture(&Command::new("kill").args(["-0", "--", pgid])).is_ok_and(|o| o.code == Some(0))
+/// `state` and `pgrp` of `/proc/<pid>/stat`; `None` once the entry is gone.
+fn proc_stat(pid: &str) -> Option<(char, String)> {
+    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+    let (_, rest) = stat.rsplit_once(')')?;
+    let mut fields = rest.split_whitespace();
+    let state = fields.next()?.chars().next()?;
+    let pgrp = fields.nth(1)?.to_owned();
+    Some((state, pgrp))
 }
 
-fn stop_child(child: &mut std::process::Child, group: bool, grace: std::time::Duration) {
-    if group {
-        stop_group(child, grace);
-    } else {
-        let _ = child.kill();
-    }
-    let _ = child.wait();
+/// Exited but not yet reaped: the pid, and the group it leads, stay reserved.
+fn is_zombie(pid: u32) -> bool {
+    proc_stat(&pid.to_string()).is_some_and(|(state, _)| state == 'Z')
 }
 
-/// TERM, grace, then KILL to the child's process group; a group already gone
-/// is left alone so a reused pid is never signalled.
-fn stop_group(child: &mut std::process::Child, grace: std::time::Duration) {
-    let pgid = format!("-{}", child.id());
-    if !group_alive(&pgid) {
-        return;
-    }
+fn group_has_live_member(pgid: u32) -> bool {
+    let pgid = pgid.to_string();
+    let Ok(entries) = std::fs::read_dir("/proc") else {
+        return false;
+    };
+    entries.flatten().any(|entry| {
+        entry
+            .file_name()
+            .to_str()
+            .and_then(proc_stat)
+            .is_some_and(|(state, pgrp)| state != 'Z' && pgrp == pgid)
+    })
+}
+
+/// TERM, grace, then KILL to the group `leader` leads. The caller reaps the
+/// leader only after this returns: until then the kernel cannot hand its pid
+/// to a new group, so every signal here reaches the original group.
+// ponytail: a full /proc scan every 100 ms of the grace; a pidfd or cgroup when groups get large.
+fn stop_group(leader: u32, grace: std::time::Duration) {
+    let pgid = format!("-{leader}");
     let _ = capture(&Command::new("kill").args(["-TERM", "--", &pgid]));
     let since = std::time::Instant::now();
-    loop {
-        // Reap the leader so a zombie does not keep the group "alive".
-        let _ = child.try_wait();
-        if !group_alive(&pgid) {
+    while since.elapsed() < grace {
+        if !group_has_live_member(leader) {
             return;
-        }
-        if since.elapsed() >= grace {
-            break;
         }
         std::thread::sleep(std::time::Duration::from_millis(100));
     }
@@ -635,6 +656,9 @@ pub fn detach(command: &Command) -> Result<(), Error> {
 /// `exec` returns an `io::Error` exactly when the program never ran. On
 /// platforms without `exec` the command is spawned, waited on, and its exit
 /// code returned — the code the calling process would have carried anyway.
+///
+/// A failed call leaves `SIGPIPE` at its default disposition (std resets it
+/// before `execve`), so the caller should exit soon after an `Err`.
 ///
 /// # Errors
 ///
