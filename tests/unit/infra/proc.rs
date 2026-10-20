@@ -773,6 +773,7 @@ fn fake_docker_and_systemctl_record_their_calls_side_by_side() {
     assert_eq!(systemctl.log(), "--user show\n");
 }
 
+#[cfg(target_os = "linux")]
 #[test]
 fn a_process_group_deadline_kills_the_grandchildren_too() {
     let (_guard, dir) = utf8_temp_dir();
@@ -794,6 +795,7 @@ fn a_process_group_deadline_kills_the_grandchildren_too() {
     );
 }
 
+#[cfg(target_os = "linux")]
 #[test]
 fn a_grandchild_that_ignores_sigterm_outlives_its_leader_until_the_grace_ends() {
     let (_guard, dir) = utf8_temp_dir();
@@ -832,6 +834,7 @@ fn env_clear_keeps_only_the_variables_set_on_the_command() {
     assert_eq!(output.stdout, "ONLY=this");
 }
 
+#[cfg(target_os = "linux")]
 #[test]
 fn a_process_group_that_exits_cleanly_leaves_no_background_child() {
     let (_guard, dir) = utf8_temp_dir();
