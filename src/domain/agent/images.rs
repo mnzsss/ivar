@@ -5,3 +5,7 @@ pub const PROXY_IMAGE: &str = concat!(
     "ghcr.io/mnzsss/ivar-agent-proxy:",
     env!("CARGO_PKG_VERSION")
 );
+
+#[cfg(test)]
+#[path = "../../../tests/unit/domain/agent/images.rs"]
+mod tests;
