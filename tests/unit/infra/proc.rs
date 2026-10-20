@@ -640,8 +640,27 @@ fn a_command_without_a_working_directory_does_not_invent_a_pwd() {
     assert_eq!(pwd, inherited);
 }
 
+const EXEC_PROBE: &str = "IVAR_TEST_EXEC_PROBE";
+
 #[test]
 fn exec_reports_a_program_that_never_ran() {
+    // A failed exec leaves SIGPIPE at SIG_DFL in the calling process, which
+    // would kill this whole test binary on the next broken-pipe write.
+    if std::env::var_os(EXEC_PROBE).is_none() {
+        let exe = std::env::current_exe().unwrap();
+        let output = capture(
+            &Command::new(exe.to_str().unwrap())
+                .args([
+                    "--exact",
+                    "infra::proc::tests::exec_reports_a_program_that_never_ran",
+                ])
+                .env(EXEC_PROBE, "1"),
+        )
+        .unwrap();
+        assert!(output.success(), "{}", output.diagnostic());
+        assert!(output.stdout.contains("1 passed"), "{}", output.stdout);
+        return;
+    }
     let error = exec(&Command::new("ivar-no-such-program-4f1c"))
         .expect_err("a program that is not on PATH never replaces this process");
     assert!(matches!(error, Error::Spawn { .. }), "{error:?}");
@@ -752,4 +771,87 @@ fn fake_docker_and_systemctl_record_their_calls_side_by_side() {
     );
     assert_eq!(docker.log(), "info\n");
     assert_eq!(systemctl.log(), "--user show\n");
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn a_process_group_deadline_kills_the_grandchildren_too() {
+    let (_guard, dir) = utf8_temp_dir();
+    let pidfile = dir.join("grandchild.pid");
+    let finished = to_log_with_deadline(
+        &Command::new("sh")
+            .args(["-c", &format!("sleep 60 & echo $! > {pidfile}; wait")])
+            .process_group(),
+        &dir.join("out.log"),
+        std::time::Duration::from_millis(300),
+        &|_| false,
+    )
+    .unwrap();
+    assert_eq!(finished, Finished::TimedOut);
+    let pid = std::fs::read_to_string(&pidfile).unwrap();
+    assert!(
+        crate::test_support::process_is_gone(pid.trim()),
+        "grandchild {pid} survived"
+    );
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn a_grandchild_that_ignores_sigterm_outlives_its_leader_until_the_grace_ends() {
+    let (_guard, dir) = utf8_temp_dir();
+    let pidfile = dir.join("stubborn.pid");
+    let started = std::time::Instant::now();
+    let finished = to_log_with_deadline_and_grace(
+        &Command::new("sh")
+            .args([
+                "-c",
+                &format!("sh -c 'trap \"\" TERM; sleep 60' & echo $! > {pidfile}; wait"),
+            ])
+            .process_group(),
+        &dir.join("out.log"),
+        std::time::Duration::from_millis(300),
+        &|_| false,
+        std::time::Duration::from_secs(1),
+    )
+    .unwrap();
+    assert_eq!(finished, Finished::TimedOut);
+    let elapsed = started.elapsed();
+    assert!(
+        elapsed >= std::time::Duration::from_millis(1200),
+        "SIGKILL came before the grace: {elapsed:?}"
+    );
+    assert!(elapsed < std::time::Duration::from_secs(4), "{elapsed:?}");
+    let pid = std::fs::read_to_string(&pidfile).unwrap();
+    assert!(
+        crate::test_support::process_is_gone(pid.trim()),
+        "stubborn {pid} survived"
+    );
+}
+
+#[test]
+fn env_clear_keeps_only_the_variables_set_on_the_command() {
+    let output = capture(&Command::new("/usr/bin/env").env_clear().env("ONLY", "this")).unwrap();
+    assert_eq!(output.stdout, "ONLY=this");
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn a_process_group_that_exits_cleanly_leaves_no_background_child() {
+    let (_guard, dir) = utf8_temp_dir();
+    let pidfile = dir.join("sleeper.pid");
+    let finished = to_log_with_deadline(
+        &Command::new("sh")
+            .args(["-c", &format!("sleep 60 & echo $! > {pidfile}; exit 0")])
+            .process_group(),
+        &dir.join("out.log"),
+        std::time::Duration::from_secs(10),
+        &|_| false,
+    )
+    .unwrap();
+    assert_eq!(finished, Finished::Exited(Some(0)));
+    let pid = std::fs::read_to_string(&pidfile).unwrap();
+    assert!(
+        crate::test_support::process_is_gone(pid.trim()),
+        "sleeper {pid} survived"
+    );
 }

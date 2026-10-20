@@ -104,23 +104,18 @@ impl Sandbox {
             candidate_roots.push(p_root);
         }
 
-        // Canonicalise and filter candidate roots to only those that exist on disk.
-        // Landlock PathFd::new fails if a path does not exist.
-        let mut final_roots: Vec<Utf8PathBuf> = Vec::new();
-        for path in candidate_roots {
-            if let Ok(canonical) = path.canonicalize_utf8() {
-                if !final_roots.contains(&canonical) {
-                    final_roots.push(canonical);
-                }
-            } else if path.exists() && !final_roots.contains(&path) {
-                final_roots.push(path);
-            }
-        }
-
         Ok(Self {
-            roots: final_roots,
+            roots: existing_canonical(candidate_roots),
             temp_root,
         })
+    }
+
+    /// A sandbox over exactly `roots`, for a launcher that sets its own `TMPDIR`.
+    pub(crate) fn from_roots(roots: Vec<Utf8PathBuf>) -> Self {
+        Self {
+            roots: existing_canonical(roots),
+            temp_root: Utf8PathBuf::new(),
+        }
     }
 
     /// The one temp dir the session may write, exported to the provider as `TMPDIR`.
@@ -252,6 +247,30 @@ impl Sandbox {
             reason: format!("Landlock is not supported on {}", std::env::consts::OS),
         })
     }
+}
+
+/// Canonical, deduplicated, existing roots: Landlock `PathFd::new` fails on a missing path.
+fn existing_canonical(candidates: Vec<Utf8PathBuf>) -> Vec<Utf8PathBuf> {
+    let mut roots: Vec<Utf8PathBuf> = Vec::new();
+    for path in candidates {
+        if let Ok(canonical) = path.canonicalize_utf8() {
+            if !roots.contains(&canonical) {
+                roots.push(canonical);
+            }
+        } else if path.exists() && !roots.contains(&path) {
+            roots.push(path);
+        }
+    }
+    roots
+}
+
+/// Whether [`Sandbox::apply`] would confine a run on this kernel.
+pub(crate) fn landlock_available() -> bool {
+    // Landlock and no_new_privs bind only the calling thread, so the real
+    // ruleset is applied on a throwaway thread and the caller stays unconfined.
+    std::thread::spawn(|| Sandbox::from_roots(Vec::new()).apply())
+        .join()
+        .is_ok_and(|status| !matches!(status, Ok(SandboxStatus::Unavailable { .. }) | Err(_)))
 }
 
 /// Derive candidate runtime and state directories for the given provider.

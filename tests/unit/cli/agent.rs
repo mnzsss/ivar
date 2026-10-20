@@ -57,3 +57,16 @@ fn the_trigger_flag_is_hidden_from_help() {
         .to_string();
     assert!(!help.contains("--trigger"), "{help}");
 }
+
+#[test]
+fn the_hidden_sandbox_launcher_takes_write_roots_and_a_command() {
+    let cli = Cli::try_parse_from([
+        "ivar", "agent", "sandbox", "--write", "/a", "--write", "/b", "--", "claude", "-p", "Go.",
+    ])
+    .unwrap();
+    let Command::Agent(AgentCommand::Sandbox(args)) = cli.command else {
+        panic!("not agent sandbox")
+    };
+    assert_eq!(args.write, ["/a", "/b"]);
+    assert_eq!(args.command, ["claude", "-p", "Go."]);
+}

@@ -15,6 +15,9 @@ pub enum AgentCommand {
     Logs(AgentLogsArgs),
     /// Record your verdict on a run.
     Feedback(AgentFeedbackArgs),
+    /// Apply a Landlock write sandbox, then become the given command.
+    #[command(hide = true)]
+    Sandbox(AgentSandboxArgs),
 }
 
 #[derive(Debug, Args)]
@@ -44,6 +47,16 @@ pub struct AgentFeedbackArgs {
     /// Why, in a sentence.
     #[arg(long)]
     pub comment: Option<String>,
+}
+
+#[derive(Debug, Args)]
+pub struct AgentSandboxArgs {
+    /// A path the command may write; repeatable.
+    #[arg(long = "write", value_name = "PATH")]
+    pub write: Vec<String>,
+    /// The command to run once the sandbox is applied.
+    #[arg(last = true, required = true, allow_hyphen_values = true)]
+    pub command: Vec<String>,
 }
 
 impl From<AgentLogsArgs> for LogsInput {

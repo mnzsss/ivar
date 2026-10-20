@@ -88,3 +88,72 @@ fn detects_a_prompt_for_input_case_insensitively() {
     assert!(Tool::Codex.is_blocked("approval required for command"));
     assert!(Tool::Opencode.is_blocked("permission requested: bash"));
 }
+
+#[test]
+fn credentials_name_each_tools_login_file_and_honour_its_overrides() {
+    use camino::Utf8Path;
+    let home = Utf8Path::new("/home/u");
+    let none = |_: &str| None;
+    let paths = |tool: Tool, var: &dyn Fn(&str) -> Option<String>| {
+        tool.credentials(home, var)
+            .into_iter()
+            .map(|c| (c.real.to_string(), c.private, c.write_back))
+            .collect::<Vec<_>>()
+    };
+    let own = |s: &str| s.to_owned();
+    assert_eq!(
+        paths(Tool::Claude, &none),
+        [
+            (
+                own("/home/u/.claude/.credentials.json"),
+                ".credentials.json",
+                true
+            ),
+            (own("/home/u/.claude.json"), ".claude.json", false),
+        ]
+    );
+    assert_eq!(
+        paths(Tool::Claude, &|k| (k == "CLAUDE_CONFIG_DIR")
+            .then(|| own("/srv/c"))),
+        [
+            (own("/srv/c/.credentials.json"), ".credentials.json", true),
+            (own("/srv/c/.claude.json"), ".claude.json", false),
+        ]
+    );
+    assert_eq!(
+        paths(Tool::Codex, &|k| (k == "CODEX_HOME").then(|| own("/srv/x"))),
+        [(own("/srv/x/auth.json"), "auth.json", true)]
+    );
+    assert_eq!(
+        paths(Tool::Opencode, &none),
+        [(
+            own("/home/u/.local/share/opencode/auth.json"),
+            "data/opencode/auth.json",
+            true
+        )]
+    );
+}
+
+#[test]
+fn state_env_points_each_tool_at_its_private_state_dir() {
+    use camino::Utf8Path;
+    let state = Utf8Path::new("/hall/.ivar/agents/state/a/t");
+    let pair = |k: &str, v: &str| (k.to_owned(), v.to_owned());
+    assert_eq!(
+        Tool::Claude.state_env(state),
+        [pair("CLAUDE_CONFIG_DIR", "/hall/.ivar/agents/state/a/t")]
+    );
+    assert_eq!(
+        Tool::Codex.state_env(state),
+        [pair("CODEX_HOME", "/hall/.ivar/agents/state/a/t")]
+    );
+    assert_eq!(
+        Tool::Opencode.state_env(state),
+        [
+            pair("XDG_DATA_HOME", "/hall/.ivar/agents/state/a/t/data"),
+            pair("XDG_STATE_HOME", "/hall/.ivar/agents/state/a/t/state"),
+            pair("XDG_CONFIG_HOME", "/hall/.ivar/agents/state/a/t/config"),
+            pair("XDG_CACHE_HOME", "/hall/.ivar/agents/state/a/t/cache"),
+        ]
+    );
+}

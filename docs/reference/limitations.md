@@ -101,6 +101,14 @@ writes nor reverts them.
   the host through `deliver`; do not grant such secrets.
 - An agent file that fails to load when its timer fires leaves no receipt. Its
   error is only in the systemd journal: `journalctl --user -u <unit>`.
+- `runtime: host` bounds writes only. The run reads whatever your user can
+  read and reaches any host on the network. Git gets no credential helper
+  and no credential variables, but SSH keys, `~/.config/gh` and the sockets
+  in `/run/user/<uid>` stay reachable, so an agent could push with a key it
+  can read. Linux with Landlock (5.13+) only.
+- A `runtime: host` agent uses a private copy of the tool's login under
+  `.ivar/agents/state/`. Your own tool config is never writable from the
+  run; only a refreshed login file is written back to it after the run.
 
 ## Local state is disposable
 

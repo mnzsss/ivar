@@ -3,6 +3,7 @@
 
 pub mod container;
 pub mod cron;
+pub mod host_env;
 pub mod images;
 pub mod receipt;
 pub mod spec;

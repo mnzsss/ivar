@@ -33,7 +33,8 @@ half-understood state file is worse than no state file.
   .ivar/setups/<repo>.sh        committed    per-repo worktree bootstrap
   .ivar/setups/<repo>.session.sh committed   per-repo session hook
   agents/<name>.md              committed    scheduled agent definitions
-  .ivar/agents/                 local        agent run receipts and run locks
+  .ivar/agents/                 local        agent run receipts, run locks and host agents' state
+  .ivar/agents/state/<agent>/<tool>/ local   a host agent's private copy of the tool's login, mode 700
   .ivar/secrets/agents.env      local        agent secrets, NAME=value, mode 600
   .ivar/secrets/                local        secret material (hand-maintained files, plus mcp.env)
   .ivar/state.json              local        hall state, health, bookkeeping

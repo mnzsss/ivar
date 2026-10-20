@@ -55,3 +55,123 @@ fn an_invalid_agent_fails_run_with_exit_code_and_field() {
     assert_eq!(value["code"], "agent.invalid");
     assert!(value["what"].as_str().unwrap().contains("`schedule`"));
 }
+
+#[test]
+#[cfg(target_os = "linux")]
+#[expect(clippy::print_stderr, reason = "a Landlock-less kernel skips visibly")]
+fn the_host_sandbox_lets_a_command_write_only_inside_its_roots() {
+    let (_guard, root) = hall_root();
+    let inside = root.join("inside");
+    let outside = root.join("outside");
+    std::fs::create_dir_all(&inside).unwrap();
+    std::fs::create_dir_all(&outside).unwrap();
+    let output = ivar()
+        .current_dir(&root)
+        .args([
+            "--json",
+            "agent",
+            "sandbox",
+            "--write",
+            inside.as_str(),
+            "--",
+            "sh",
+            "-c",
+        ])
+        .arg(format!(
+            "echo ok > {inside}/kept; echo no > {outside}/leaked; true"
+        ))
+        .output()
+        .unwrap();
+    if String::from_utf8_lossy(&output.stdout).contains("agent.landlock_unavailable") {
+        eprintln!("skipped: this kernel has no Landlock");
+        return;
+    }
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(
+        std::fs::read_to_string(inside.join("kept")).unwrap(),
+        "ok\n"
+    );
+    assert!(!outside.join("leaked").exists());
+}
+
+#[test]
+#[cfg(target_os = "linux")]
+#[expect(clippy::print_stderr, reason = "a Landlock-less kernel skips visibly")]
+fn a_host_run_writes_its_private_state_dir_and_scratch_but_not_home() {
+    use std::os::unix::fs::PermissionsExt;
+    let (_guard, root) = hall_root();
+    ivar().current_dir(&root).arg("init").assert().success();
+    let home = root.parent().unwrap().join("home");
+    let bin = root.parent().unwrap().join("bin");
+    std::fs::create_dir_all(home.join(".claude")).unwrap();
+    std::fs::create_dir_all(&bin).unwrap();
+    std::fs::write(
+        bin.join("claude"),
+        "#!/bin/sh\n\
+         printf x > \"$CLAUDE_CONFIG_DIR/.tmp\" && mv \"$CLAUDE_CONFIG_DIR/.tmp\" \"$CLAUDE_CONFIG_DIR/state\" && echo state-ok\n\
+         printf x > \"$TMPDIR/t\" && echo tmp-ok\n\
+         (printf x > \"$HOME/x\") 2>/dev/null && echo home-WRITTEN || echo home-denied\n\
+         (printf x > \"$HOME/.claude/settings.json\") 2>/dev/null && echo config-WRITTEN || echo config-denied\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(bin.join("claude"), std::fs::Permissions::from_mode(0o755)).unwrap();
+    std::fs::create_dir_all(root.join("agents")).unwrap();
+    std::fs::write(
+        root.join("agents/nightly.md"),
+        "---\nschedule: \"@daily\"\nruntime: host\ntool: claude\n---\nGo.\n",
+    )
+    .unwrap();
+    let output = ivar()
+        .current_dir(&root)
+        .env("HOME", home.as_str())
+        .env("PATH", format!("{bin}:{}", std::env::var("PATH").unwrap()))
+        .args(["--json", "agent", "run", "nightly"])
+        .output()
+        .unwrap();
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).expect("valid json");
+    let text = value["output"].as_str().unwrap_or_default().to_owned();
+    if text.contains("Landlock") {
+        assert_eq!(value["outcome"], "failed");
+        eprintln!("skipped: this kernel has no Landlock");
+        return;
+    }
+    assert_eq!(value["outcome"], "succeeded", "{value}");
+    for line in ["state-ok", "tmp-ok", "home-denied", "config-denied"] {
+        assert!(text.contains(line), "{line} missing from {text}");
+    }
+    assert!(
+        root.join(".ivar/agents/state/nightly/claude/state")
+            .exists()
+    );
+    assert!(!home.join(".claude/state").exists());
+    assert!(!home.join("x").exists());
+}
+
+#[test]
+fn doctor_reports_a_missing_host_tool_as_json() {
+    let (_guard, root) = hall_root();
+    ivar().current_dir(&root).arg("init").assert().success();
+    std::fs::create_dir_all(root.join("agents")).unwrap();
+    std::fs::write(
+        root.join("agents/local.md"),
+        "---\nschedule: \"@daily\"\nruntime: host\ntool: codex\n---\nGo.\n",
+    )
+    .unwrap();
+    let empty_path = root.parent().unwrap().join("empty-bin");
+    std::fs::create_dir_all(&empty_path).unwrap();
+    let output = ivar()
+        .current_dir(&root)
+        .env("PATH", empty_path.as_str())
+        .args(["--json", "doctor"])
+        .output()
+        .unwrap();
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).expect("valid json");
+    let finding = value["findings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|f| f["code"] == "agent.tool_missing")
+        .expect("agent.tool_missing finding");
+    assert!(finding["what"].as_str().unwrap().contains("`codex`"));
+    assert!(finding["fix"].as_str().unwrap().contains("Install `codex`"));
+}

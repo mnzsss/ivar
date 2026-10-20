@@ -51,6 +51,8 @@ fn reports_schedule_next_run_last_outcome_and_drift() {
                 docker_client: &yes,
                 docker_daemon: &yes,
                 docker_rootless: &rootless,
+                tool_on_path: &|_| true,
+                landlock: &yes,
             },
         },
     )

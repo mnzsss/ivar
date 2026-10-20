@@ -1,7 +1,7 @@
 use std::io;
 use std::process::ExitCode;
 
-use super::respond::respond;
+use super::respond::{respond, respond_failure};
 use crate::action::{Ctx, agent};
 use crate::cli::agent::AgentCommand;
 
@@ -31,5 +31,9 @@ pub(super) fn dispatch_agent(
             stdout,
             stderr,
         ),
+        AgentCommand::Sandbox(args) => match agent::sandbox::launch(&args.write, &args.command) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(failure) => respond_failure(&failure, json, stdout, stderr),
+        },
     }
 }
