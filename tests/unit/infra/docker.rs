@@ -30,3 +30,19 @@ fn an_unreachable_daemon_has_no_rootless_answer() {
     assert!(!daemon_reachable());
     assert_eq!(rootless(), None);
 }
+
+#[test]
+fn creates_an_internal_network_and_removes_it() {
+    let (_guard, root) = hall_root();
+    let fake = FakeDocker::install(&root);
+    let _r = redirect_on_this_thread("docker", fake_docker_command(&fake));
+    network_create_internal("ivar-agent-r1-net").unwrap();
+    network_connect("bridge", "ivar-agent-r1-proxy").unwrap();
+    network_remove("ivar-agent-r1-net");
+    assert_eq!(
+        fake.log(),
+        "network create --internal ivar-agent-r1-net\n\
+                            network connect bridge ivar-agent-r1-proxy\n\
+                            network rm ivar-agent-r1-net\n"
+    );
+}
