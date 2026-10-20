@@ -2,3 +2,4 @@
 //! systemd, and what a run records. No I/O.
 
 pub mod cron;
+pub mod receipt;
