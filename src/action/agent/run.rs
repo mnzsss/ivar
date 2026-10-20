@@ -11,12 +11,14 @@ use crate::action::{Ctx, discover_hall, read_manifest};
 use crate::domain::agent::container::{
     ContainerPlan, Mount, agent_run_args, proxy_run_args, tinyproxy_conf, tinyproxy_filter,
 };
+use crate::domain::agent::host_env::host_env;
 use crate::domain::agent::images::{BASE_IMAGE, PROXY_IMAGE};
 use crate::domain::agent::receipt::{self, AgentRunReceipt, Trigger, classify, scrub};
-use crate::domain::agent::spec::{Access, AgentSpec, Launch};
+use crate::domain::agent::spec::{Access, AgentSpec, Launch, Runtime};
+use crate::domain::agent::tool::Tool;
 use crate::domain::session::rfc3339_now;
 use crate::error::{Failure, Outcome, Report, WriteHuman};
-use crate::infra::proc::{self, Finished};
+use crate::infra::proc::{self, Command, Finished};
 use crate::infra::{docker, fs};
 use crate::store;
 use crate::store::agent_secrets::{AgentSecrets, render_env_file};
@@ -47,6 +49,38 @@ pub(crate) struct Workspace {
     pub workdir: String,
 }
 
+#[derive(Debug, Clone)]
+pub(crate) struct HostDeps {
+    pub launcher: Utf8PathBuf,
+    pub home: Utf8PathBuf,
+    pub parent_env: Vec<(String, String)>,
+    pub landlock: bool,
+}
+
+impl HostDeps {
+    pub(crate) fn system() -> Result<Self, Failure> {
+        let parent_env: Vec<(String, String)> = std::env::vars_os()
+            .filter_map(|(k, v)| Some((k.into_string().ok()?, v.into_string().ok()?)))
+            .collect();
+        let home = parent_env
+            .iter()
+            .find(|(k, _)| k == "HOME")
+            .map(|(_, v)| Utf8PathBuf::from(v))
+            .ok_or_else(|| {
+                Failure::failed(
+                    "agent.home_unknown",
+                    "HOME is not set; a `runtime: host` run uses the tool's login under it",
+                )
+            })?;
+        Ok(Self {
+            launcher: super::sync::current_ivar_bin()?,
+            home,
+            parent_env,
+            landlock: crate::action::session::sandbox::landlock_available(),
+        })
+    }
+}
+
 struct Ran {
     finished: Finished,
     output: String,
@@ -62,6 +96,14 @@ struct Attempt {
 /// A [`Failure`] only when the hall or the agent file cannot be loaded, or
 /// the receipt cannot be written; every other failure is a `failed` receipt.
 pub fn run(ctx: &Ctx, input: RunInput) -> Outcome<AgentRunReceipt> {
+    run_with(ctx, input, &HostDeps::system)
+}
+
+pub(crate) fn run_with(
+    ctx: &Ctx,
+    input: RunInput,
+    host: &dyn Fn() -> Result<HostDeps, Failure>,
+) -> Outcome<AgentRunReceipt> {
     let RunInput { name, trigger } = input;
     let layout = discover_hall(ctx)?;
     let spec = store::agent::load(&layout, &name)?;
@@ -91,7 +133,10 @@ pub fn run(ctx: &Ctx, input: RunInput) -> Outcome<AgentRunReceipt> {
         let secrets = AgentSecrets::read(&layout)?.select(&spec.secrets)?;
         secret_values = secrets.iter().map(|(_, v)| v.clone()).collect();
         let (ws, worktree) = workspace_for(ctx, &layout, &spec)?;
-        let ran = execute(&spec, &run_id, &scratch, &secrets, ws)?;
+        let ran = match spec.runtime {
+            Runtime::Docker => execute(&spec, &run_id, &scratch, &secrets, ws)?,
+            Runtime::Host => execute_host(&spec, &scratch, &secrets, &ws, &host()?)?,
+        };
         let delivered = worktree
             .map(|wt| feature_access::commit_and_preview(ctx, &layout, &spec, &wt, &run_id));
         Ok(Attempt { ran, delivered })
@@ -196,10 +241,6 @@ pub(crate) fn read_workspace(layout: &Layout, manifest: &Manifest, spec: &AgentS
 
 /// The Docker `Workspace` on the host: `scratch/workspace/<repo>` links to each
 /// mounted worktree; only `read_only: false` mounts become writable roots.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the host run path is its first non-test reader")
-)]
 pub(crate) fn host_workspace(
     scratch: &Utf8Path,
     ws: &Workspace,
@@ -226,10 +267,6 @@ pub(crate) fn host_workspace(
 
 /// Copies `<home>/.claude.json` into the config dir once, so claude keeps its
 /// login when it runs with `CLAUDE_CONFIG_DIR` confined to that dir.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the host run path is its first non-test reader")
-)]
 pub(crate) fn seed_claude_config(home: &Utf8Path, config_dir: &Utf8Path) -> Result<(), Failure> {
     let seeded = config_dir.join(".claude.json");
     if fs::exists(&seeded)? {
@@ -241,6 +278,65 @@ pub(crate) fn seed_claude_config(home: &Utf8Path, config_dir: &Utf8Path) -> Resu
     fs::ensure_dir(config_dir)?;
     fs::write_sensitive_atomic(&seeded, text.as_bytes())?;
     Ok(())
+}
+
+fn execute_host(
+    spec: &AgentSpec,
+    scratch: &Utf8Path,
+    secrets: &[(String, String)],
+    ws: &Workspace,
+    host: &HostDeps,
+) -> Result<Ran, Failure> {
+    if !host.landlock {
+        return Err(Failure::blocked(
+            "agent.landlock_unavailable",
+            "Landlock is unavailable on this kernel, so a `runtime: host` run cannot be confined; use `runtime: docker` or Linux 5.13+",
+        ));
+    }
+    let Launch::Tool { tool, model } = &spec.launch else {
+        return Err(Failure::failed(
+            "agent.invalid",
+            "`runtime: host` needs `tool`",
+        ));
+    };
+    let (cwd, writable) = host_workspace(scratch, ws)?;
+    let tmp = scratch.join("tmp");
+    fs::ensure_dir(&tmp)?;
+    let var = |key: &str| {
+        host.parent_env
+            .iter()
+            .find(|(k, _)| k == key)
+            .map(|(_, v)| v.clone())
+    };
+    let mut roots = vec![scratch.to_path_buf(), Utf8PathBuf::from("/dev/null")];
+    roots.extend(writable);
+    let state = tool.state_roots(&host.home, &var);
+    if *tool == Tool::Claude
+        && let Some(config_dir) = state.first()
+    {
+        seed_claude_config(&host.home, config_dir)?;
+    }
+    roots.extend(state);
+    let mut command = Command::new(host.launcher.as_str()).args(["agent", "sandbox"]);
+    for root in &roots {
+        command = command.arg("--write").arg(root.as_str());
+    }
+    command = command
+        .arg("--")
+        .args(tool.argv(model.as_deref(), &spec.prompt))
+        .cwd(cwd)
+        .env_clear()
+        .process_group();
+    for (key, value) in host_env(&host.parent_env, tmp.as_str(), secrets, *tool) {
+        command = command.env(key, value);
+    }
+    let log = scratch.join("output.log");
+    let finished =
+        proc::to_log_with_deadline(&command, &log, spec.timeout, &|seen| tool.is_blocked(seen))?;
+    Ok(Ran {
+        finished,
+        output: fs::read_text(&log)?.unwrap_or_default(),
+    })
 }
 
 fn execute(

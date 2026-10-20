@@ -93,3 +93,51 @@ fn the_host_sandbox_lets_a_command_write_only_inside_its_roots() {
     );
     assert!(!outside.join("leaked").exists());
 }
+
+#[test]
+#[cfg(target_os = "linux")]
+#[expect(clippy::print_stderr, reason = "a Landlock-less kernel skips visibly")]
+fn a_host_run_writes_its_state_dir_and_scratch_but_not_home() {
+    use std::os::unix::fs::PermissionsExt;
+    let (_guard, root) = hall_root();
+    ivar().current_dir(&root).arg("init").assert().success();
+    let home = root.parent().unwrap().join("home");
+    let bin = root.parent().unwrap().join("bin");
+    std::fs::create_dir_all(home.join(".claude")).unwrap();
+    std::fs::create_dir_all(&bin).unwrap();
+    std::fs::write(
+        bin.join("claude"),
+        "#!/bin/sh\n\
+         printf x > \"$CLAUDE_CONFIG_DIR/.tmp\" && mv \"$CLAUDE_CONFIG_DIR/.tmp\" \"$CLAUDE_CONFIG_DIR/state\" && echo state-ok\n\
+         printf x > \"$TMPDIR/t\" && echo tmp-ok\n\
+         (printf x > \"$HOME/x\") 2>/dev/null && echo home-WRITTEN || echo home-denied\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(bin.join("claude"), std::fs::Permissions::from_mode(0o755)).unwrap();
+    std::fs::create_dir_all(root.join("agents")).unwrap();
+    std::fs::write(
+        root.join("agents/nightly.md"),
+        "---\nschedule: \"@daily\"\nruntime: host\ntool: claude\n---\nGo.\n",
+    )
+    .unwrap();
+    let output = ivar()
+        .current_dir(&root)
+        .env("HOME", home.as_str())
+        .env("PATH", format!("{bin}:{}", std::env::var("PATH").unwrap()))
+        .args(["--json", "agent", "run", "nightly"])
+        .output()
+        .unwrap();
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).expect("valid json");
+    let text = value["output"].as_str().unwrap_or_default().to_owned();
+    if text.contains("Landlock") {
+        assert_eq!(value["outcome"], "failed");
+        eprintln!("skipped: this kernel has no Landlock");
+        return;
+    }
+    assert_eq!(value["outcome"], "succeeded", "{value}");
+    for line in ["state-ok", "tmp-ok", "home-denied"] {
+        assert!(text.contains(line), "{line} missing from {text}");
+    }
+    assert!(home.join(".claude/state").exists());
+    assert!(!home.join("x").exists());
+}

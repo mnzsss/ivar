@@ -266,13 +266,6 @@ fn existing_canonical(candidates: Vec<Utf8PathBuf>) -> Vec<Utf8PathBuf> {
 
 /// Whether this kernel can enforce a Landlock write ruleset at all.
 #[cfg(target_os = "linux")]
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the host run preflight is its first non-test reader"
-    )
-)]
 pub(crate) fn landlock_available() -> bool {
     use landlock::{ABI, AccessFs, CompatLevel, Compatible, Ruleset, RulesetAttr};
     Ruleset::default()
@@ -283,13 +276,6 @@ pub(crate) fn landlock_available() -> bool {
 }
 
 #[cfg(not(target_os = "linux"))]
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the host run preflight is its first non-test reader"
-    )
-)]
 pub(crate) fn landlock_available() -> bool {
     false
 }
