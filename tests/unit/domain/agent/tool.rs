@@ -88,3 +88,35 @@ fn detects_a_prompt_for_input_case_insensitively() {
     assert!(Tool::Codex.is_blocked("approval required for command"));
     assert!(Tool::Opencode.is_blocked("permission requested: bash"));
 }
+
+#[test]
+fn state_roots_name_each_tools_login_and_honour_its_overrides() {
+    use camino::{Utf8Path, Utf8PathBuf};
+    let home = Utf8Path::new("/home/u");
+    let none = |_: &str| None;
+    assert_eq!(
+        Tool::Claude.state_roots(home, &none),
+        [Utf8PathBuf::from("/home/u/.claude")]
+    );
+    assert_eq!(
+        Tool::Claude.state_roots(home, &|k| (k == "CLAUDE_CONFIG_DIR")
+            .then(|| "/srv/claude".to_owned())),
+        [Utf8PathBuf::from("/srv/claude")]
+    );
+    assert_eq!(
+        Tool::Codex.state_roots(home, &|k| (k == "CODEX_HOME")
+            .then(|| "/srv/codex".to_owned())),
+        [Utf8PathBuf::from("/srv/codex")]
+    );
+    assert_eq!(
+        Tool::Opencode.state_roots(home, &|k| (k == "XDG_CONFIG_HOME")
+            .then(|| "/cfg".to_owned())),
+        [
+            "/home/u/.local/share/opencode",
+            "/home/u/.local/state/opencode",
+            "/cfg/opencode",
+            "/home/u/.cache/opencode"
+        ]
+        .map(Utf8PathBuf::from)
+    );
+}

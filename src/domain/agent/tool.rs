@@ -2,6 +2,7 @@
 
 use std::str::FromStr;
 
+use camino::{Utf8Path, Utf8PathBuf};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -62,7 +63,7 @@ impl Tool {
     }
 
     // opencode reads inline config from OPENCODE_CONFIG_CONTENT; `"*": "allow"` answers every
-    // permission prompt, which is safe only because the container is the sandbox.
+    // permission prompt, which is safe only because the container or the Landlock sandbox bounds writes.
     pub fn env(self) -> Vec<(String, String)> {
         match self {
             Self::Opencode => vec![(
@@ -70,6 +71,29 @@ impl Tool {
                 r#"{"permission":{"*":"allow"}}"#.to_owned(),
             )],
             Self::Codex | Self::Claude => Vec::new(),
+        }
+    }
+
+    pub fn state_roots(
+        self,
+        home: &Utf8Path,
+        var: &dyn Fn(&str) -> Option<String>,
+    ) -> Vec<Utf8PathBuf> {
+        let or_home = |key: &str, fallback: &str| {
+            var(key).map_or_else(|| home.join(fallback), Utf8PathBuf::from)
+        };
+        match self {
+            Self::Claude => vec![or_home("CLAUDE_CONFIG_DIR", ".claude")],
+            Self::Codex => vec![or_home("CODEX_HOME", ".codex")],
+            Self::Opencode => [
+                ("XDG_DATA_HOME", ".local/share"),
+                ("XDG_STATE_HOME", ".local/state"),
+                ("XDG_CONFIG_HOME", ".config"),
+                ("XDG_CACHE_HOME", ".cache"),
+            ]
+            .into_iter()
+            .map(|(key, fallback)| or_home(key, fallback).join("opencode"))
+            .collect(),
         }
     }
 
