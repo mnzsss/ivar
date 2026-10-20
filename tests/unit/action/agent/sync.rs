@@ -149,5 +149,5 @@ fn a_host_agent_syncs_with_a_warning_about_ambient_reads() {
         .find(|w| w.code == "agent.host_ambient_read")
         .expect("host warning");
     assert!(warning.what.contains("`local`"));
-    assert!(warning.what.contains("~/.ssh"));
+    assert!(warning.what.contains("SSH keys"));
 }

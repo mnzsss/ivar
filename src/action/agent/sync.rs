@@ -175,7 +175,7 @@ pub fn sync_with(ctx: &Ctx, env: &SyncEnv<'_>) -> Outcome<SyncOutcome> {
             "agent.host_ambient_read",
             "agents",
             format!(
-                "`{}` runs on the host: it can read everything your user can, ~/.ssh included, and its network is not filtered.",
+                "`{}` runs on the host: git gets no credential helper or credential variables, but it can read everything your user can (SSH keys, ~/.config/gh), reach sockets in /run/user/<uid>, and its network is not filtered, so it could push with a readable SSH key.",
                 s.name
             ),
         )

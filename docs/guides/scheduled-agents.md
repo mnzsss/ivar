@@ -63,13 +63,16 @@ on your machine, with the login you use interactively, so no API key goes
 in `secrets`. Landlock limits its writes to a per-run scratch directory,
 the tool's own state directories and, with `access: feature`, the
 `agent-<name>` worktree. Its environment starts empty: `PATH`, `HOME`,
-locale and `XDG_*` variables, the secrets it lists, and git pointed at
-an empty config, so no SSH agent, askpass or token reaches it. Stopping
-it (blocked or timed out) ends its whole process group.
+locale, the four XDG base directories, the secrets it lists, and git
+pointed at an empty config with no credential helper. No credential
+variable is passed. When the run ends, its whole process group is
+stopped.
 
-What it does not isolate: **reads are ambient** — it can read everything
-your user can, `~/.ssh` included — and **the network is open**; `network`
-is refused because nothing would enforce it. `ivar agent sync` prints
+What it does not isolate: **reads are ambient** and **the network is
+open**. Anything your user can read is exposed, including SSH keys and
+`~/.config/gh`, and so is any socket in `/run/user/<uid>` it can reach.
+With the open network, an agent that can read an SSH key could push
+with it. `network` is refused because nothing would enforce it. `ivar agent sync` prints
 `agent.host_ambient_read` for every host agent. Use `runtime: docker`
 for an agent you would not trust with your home directory.
 

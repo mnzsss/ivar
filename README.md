@@ -137,7 +137,8 @@ The binary makes network requests in these cases, none of them to an ivar server
 - the GitHub API, to fetch external skills;
 - scheduled agents: it pulls the ivar agent images from GHCR, lets an agent
   reach the domains it lists, and POSTs to an agent's `notify` URL; a
-  `runtime: host` agent uses the network its tool uses, unfiltered.
+  `runtime: host` agent uses the network its tool uses, unfiltered, and can
+  read anything your user can, SSH keys included.
 
 `ivar upgrade` updates `ivar` through whichever channel installed it. Read
 [Concepts](docs/concepts.md) and [Limitations](docs/reference/limitations.md)

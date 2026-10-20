@@ -102,9 +102,10 @@ writes nor reverts them.
 - An agent file that fails to load when its timer fires leaves no receipt. Its
   error is only in the systemd journal: `journalctl --user -u <unit>`.
 - `runtime: host` bounds writes only. The run reads whatever your user can
-  read and reaches any host on the network; it gets no SSH agent or git
-  token, but a key file it can read is still readable. Linux with Landlock
-  (5.13+) only.
+  read and reaches any host on the network. Git gets no credential helper
+  and no credential variables, but SSH keys, `~/.config/gh` and the sockets
+  in `/run/user/<uid>` stay reachable, so an agent could push with a key it
+  can read. Linux with Landlock (5.13+) only.
 
 ## Local state is disposable
 
