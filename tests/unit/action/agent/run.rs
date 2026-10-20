@@ -536,6 +536,7 @@ fn host_workspace_refuses_a_mount_outside_workspace_or_with_a_path_name() {
         "/elsewhere/api",
         "/workspace/a/b",
         "/workspace/..",
+        "/workspace/.",
         "/workspace/",
     ] {
         let ws = Workspace {
@@ -547,6 +548,7 @@ fn host_workspace_refuses_a_mount_outside_workspace_or_with_a_path_name() {
             workdir: "/workspace".into(),
         };
         assert!(host_workspace(&dir, &ws).is_err(), "{target} accepted");
+        assert!(!dir.join("workspace").exists(), "{target} created the root");
     }
 }
 

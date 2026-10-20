@@ -245,22 +245,28 @@ pub(crate) fn host_workspace(
     scratch: &Utf8Path,
     ws: &Workspace,
 ) -> Result<(Utf8PathBuf, Vec<Utf8PathBuf>), Failure> {
+    let names = ws
+        .mounts
+        .iter()
+        .map(|mount| {
+            mount
+                .target
+                .strip_prefix("/workspace/")
+                .filter(|n| !n.is_empty() && !n.contains('/') && *n != ".." && *n != ".")
+                .ok_or_else(|| {
+                    Failure::failed(
+                        "agent.invalid_mount",
+                        format!(
+                            "mount target `{}` is not a `/workspace/<name>` path",
+                            mount.target
+                        ),
+                    )
+                })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
     let root = scratch.join("workspace");
     fs::ensure_dir(&root)?;
-    for mount in &ws.mounts {
-        let name = mount
-            .target
-            .strip_prefix("/workspace/")
-            .filter(|n| !n.is_empty() && !n.contains('/') && *n != "..")
-            .ok_or_else(|| {
-                Failure::failed(
-                    "agent.invalid_mount",
-                    format!(
-                        "mount target `{}` is not a `/workspace/<name>` path",
-                        mount.target
-                    ),
-                )
-            })?;
+    for (mount, name) in ws.mounts.iter().zip(names) {
         fs::create_symlink(Utf8Path::new(&mount.source), &root.join(name))?;
     }
     let cwd = root.join(
