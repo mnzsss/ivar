@@ -1,21 +1,11 @@
 //! The whole environment of a `runtime: host` run: built from nothing, so a
 //! credential the parent holds reaches the tool only when it is listed here.
 
+use camino::Utf8Path;
+
 use super::tool::Tool;
 
-const KEPT: &[&str] = &[
-    "PATH",
-    "HOME",
-    "USER",
-    "LOGNAME",
-    "LANG",
-    "CODEX_HOME",
-    "CLAUDE_CONFIG_DIR",
-    "XDG_DATA_HOME",
-    "XDG_STATE_HOME",
-    "XDG_CONFIG_HOME",
-    "XDG_CACHE_HOME",
-];
+const KEPT: &[&str] = &["PATH", "HOME", "USER", "LOGNAME", "LANG"];
 
 fn is_kept(key: &str) -> bool {
     KEPT.contains(&key) || key.starts_with("LC_")
@@ -26,6 +16,7 @@ pub fn host_env(
     tmpdir: &str,
     secrets: &[(String, String)],
     tool: Tool,
+    state: &Utf8Path,
 ) -> Vec<(String, String)> {
     let mut env: Vec<(String, String)> = parent
         .iter()
@@ -45,18 +36,9 @@ pub fn host_env(
         ]
         .map(|(k, v)| (k.to_owned(), v.to_owned())),
     );
-    let home = parent
-        .iter()
-        .find(|(k, _)| k == "HOME")
-        .map(|(_, v)| v.as_str());
-    if tool == Tool::Claude
-        && !parent.iter().any(|(k, _)| k == "CLAUDE_CONFIG_DIR")
-        && let Some(home) = home
-    {
-        env.push(("CLAUDE_CONFIG_DIR".to_owned(), format!("{home}/.claude")));
-    }
     env.extend(secrets.iter().cloned());
     env.extend(tool.env());
+    env.extend(tool.state_env(state));
     env
 }
 

@@ -15,7 +15,7 @@ use crate::domain::agent::host_env::host_env;
 use crate::domain::agent::images::{BASE_IMAGE, PROXY_IMAGE};
 use crate::domain::agent::receipt::{self, AgentRunReceipt, Trigger, classify, scrub};
 use crate::domain::agent::spec::{Access, AgentSpec, Launch, Runtime};
-use crate::domain::agent::tool::Tool;
+use crate::domain::agent::tool::Credential;
 use crate::domain::session::rfc3339_now;
 use crate::error::{Failure, Outcome, Report, WriteHuman};
 use crate::infra::proc::{self, Command, Finished};
@@ -135,7 +135,10 @@ pub(crate) fn run_with(
         let (ws, worktree) = workspace_for(ctx, &layout, &spec)?;
         let ran = match spec.runtime {
             Runtime::Docker => execute(&spec, &run_id, &scratch, &secrets, ws)?,
-            Runtime::Host => execute_host(&spec, &scratch, &secrets, &ws, &host()?)?,
+            Runtime::Host => {
+                let state = layout.agent_tool_state(&spec.name, tool_name(&spec));
+                execute_host(&spec, &scratch, &state, &secrets, &ws, &host()?)?
+            }
         };
         let delivered = worktree
             .map(|wt| feature_access::commit_and_preview(ctx, &layout, &spec, &wt, &run_id));
@@ -157,6 +160,13 @@ pub(crate) fn run_with(
     let result = finish(&layout, &spec, receipt);
     drop(lock);
     result
+}
+
+fn tool_name(spec: &AgentSpec) -> &'static str {
+    match spec.launch {
+        Launch::Tool { tool, .. } => tool.as_str(),
+        Launch::Image { .. } => "image",
+    }
 }
 
 fn completed(
@@ -283,48 +293,71 @@ pub(crate) fn host_workspace(
     Ok((cwd, writable))
 }
 
-/// Creates each state root, refusing one that is `home` or an ancestor of it:
-/// granting it would make the whole home writable.
-pub(crate) fn prepare_state_roots(
-    home: &Utf8Path,
-    roots: Vec<Utf8PathBuf>,
-) -> Result<Vec<Utf8PathBuf>, Failure> {
-    let canonical = |p: &Utf8Path| p.canonicalize_utf8().unwrap_or_else(|_| p.to_path_buf());
-    let home = canonical(home);
-    for root in &roots {
-        fs::ensure_dir(root)?;
-        if home.starts_with(canonical(root)) {
-            return Err(Failure::failed(
-                "agent.state_root_covers_home",
-                format!("state directory `{root}` is or contains your home `{home}`, so a `runtime: host` run would get write access to all of it"),
-            )
-            .fix(crate::error::FixAction::safe(
-                "agent.state_root_move",
-                "Point CLAUDE_CONFIG_DIR, CODEX_HOME or XDG_*_HOME at a directory below your home.",
-            )));
-        }
-    }
-    Ok(roots)
+/// A login file as it was copied into the state dir.
+pub(crate) struct Seeded {
+    credential: Credential,
+    copied: Option<Vec<u8>>,
 }
 
-/// Copies `<home>/.claude.json` into the config dir once, so claude keeps its
-/// login when it runs with `CLAUDE_CONFIG_DIR` confined to that dir.
-pub(crate) fn seed_claude_config(home: &Utf8Path, config_dir: &Utf8Path) -> Result<(), Failure> {
-    let seeded = config_dir.join(".claude.json");
-    if fs::exists(&seeded)? {
-        return Ok(());
+/// Copies each login file into `state` (0700), replacing a stale copy and
+/// dropping one whose source is gone.
+pub(crate) fn seed_credentials(
+    state: &Utf8Path,
+    credentials: Vec<Credential>,
+) -> Result<Vec<Seeded>, Failure> {
+    fs::ensure_dir(state)?;
+    #[cfg(unix)]
+    fs::chmod(state, 0o700)?;
+    credentials
+        .into_iter()
+        .map(|credential| {
+            let private = state.join(credential.private);
+            let copied = fs::read_bytes(&credential.real)?;
+            match &copied {
+                Some(bytes) => {
+                    if let Some(parent) = private.parent() {
+                        fs::ensure_dir(parent)?;
+                    }
+                    fs::write_sensitive_atomic(&private, bytes)?;
+                }
+                None => fs::remove_path(&private)?,
+            }
+            Ok(Seeded { credential, copied })
+        })
+        .collect()
+}
+
+fn is_login(bytes: &[u8]) -> bool {
+    serde_json::from_slice::<serde_json::Value>(bytes)
+        .ok()
+        .and_then(|v| v.as_object().map(|o| !o.is_empty()))
+        .unwrap_or(false)
+}
+
+/// Writes a token the tool refreshed during the run back to the user's own
+/// login, so a rotated refresh token does not log them out. Only a valid
+/// login is written, and never over one the user changed meanwhile.
+pub(crate) fn write_back_credentials(state: &Utf8Path, seeded: &[Seeded]) -> Result<(), Failure> {
+    for Seeded { credential, copied } in seeded.iter().filter(|s| s.credential.write_back) {
+        let Some(copied) = copied else { continue };
+        let Some(now) = fs::read_bytes(&state.join(credential.private))? else {
+            continue;
+        };
+        if &now == copied || !is_login(&now) {
+            continue;
+        }
+        if fs::read_bytes(&credential.real)?.as_ref() != Some(copied) {
+            continue;
+        }
+        fs::write_sensitive_atomic(&credential.real, &now)?;
     }
-    let Some(text) = fs::read_text(&home.join(".claude.json"))? else {
-        return Ok(());
-    };
-    fs::ensure_dir(config_dir)?;
-    fs::write_sensitive_atomic(&seeded, text.as_bytes())?;
     Ok(())
 }
 
 fn execute_host(
     spec: &AgentSpec,
     scratch: &Utf8Path,
+    state: &Utf8Path,
     secrets: &[(String, String)],
     ws: &Workspace,
     host: &HostDeps,
@@ -350,15 +383,13 @@ fn execute_host(
             .find(|(k, _)| k == key)
             .map(|(_, v)| v.clone())
     };
-    let mut roots = vec![scratch.to_path_buf(), Utf8PathBuf::from("/dev/null")];
+    let seeded = seed_credentials(state, tool.credentials(&host.home, &var))?;
+    let mut roots = vec![
+        scratch.to_path_buf(),
+        state.to_path_buf(),
+        Utf8PathBuf::from("/dev/null"),
+    ];
     roots.extend(writable);
-    let state = prepare_state_roots(&host.home, tool.state_roots(&host.home, &var))?;
-    if *tool == Tool::Claude
-        && let Some(config_dir) = state.first()
-    {
-        seed_claude_config(&host.home, config_dir)?;
-    }
-    roots.extend(state);
     let mut command = Command::new(host.launcher.as_str()).args(["agent", "sandbox"]);
     for root in &roots {
         command = command.arg("--write").arg(root.as_str());
@@ -369,12 +400,15 @@ fn execute_host(
         .cwd(cwd)
         .env_clear()
         .process_group();
-    for (key, value) in host_env(&host.parent_env, tmp.as_str(), secrets, *tool) {
+    for (key, value) in host_env(&host.parent_env, tmp.as_str(), secrets, *tool, state) {
         command = command.env(key, value);
     }
     let log = scratch.join("output.log");
     let finished =
-        proc::to_log_with_deadline(&command, &log, spec.timeout, &|seen| tool.is_blocked(seen))?;
+        proc::to_log_with_deadline(&command, &log, spec.timeout, &|seen| tool.is_blocked(seen));
+    let written_back = write_back_credentials(state, &seeded);
+    let finished = finished?;
+    written_back?;
     Ok(Ran {
         finished,
         output: fs::read_text(&log)?.unwrap_or_default(),

@@ -33,7 +33,8 @@ fn the_host_environment_keeps_the_login_and_drops_every_git_credential() {
         &parent,
         "/hall/.ivar/agents/tmp/r1/tmp",
         &pairs(&[("TOKEN", "s3")]),
-        Tool::Opencode,
+        Tool::Codex,
+        camino::Utf8Path::new("/state"),
     );
     let keys: Vec<&str> = env.iter().map(|(k, _)| k.as_str()).collect();
     assert_eq!(
@@ -43,8 +44,6 @@ fn the_host_environment_keeps_the_login_and_drops_every_git_credential() {
             "HOME",
             "LANG",
             "LC_ALL",
-            "XDG_CONFIG_HOME",
-            "CODEX_HOME",
             "TMPDIR",
             "GIT_CONFIG_GLOBAL",
             "GIT_CONFIG_NOSYSTEM",
@@ -53,7 +52,7 @@ fn the_host_environment_keeps_the_login_and_drops_every_git_credential() {
             "GIT_CONFIG_KEY_0",
             "GIT_CONFIG_VALUE_0",
             "TOKEN",
-            "OPENCODE_CONFIG_CONTENT"
+            "CODEX_HOME"
         ]
     );
     assert!(env.contains(&(
@@ -67,25 +66,24 @@ fn the_host_environment_keeps_the_login_and_drops_every_git_credential() {
         "credential.helper".to_owned()
     )));
     assert!(env.contains(&("GIT_CONFIG_VALUE_0".to_owned(), String::new())));
-    assert!(!keys.contains(&"CLAUDE_CONFIG_DIR"));
+    assert!(env.contains(&("CODEX_HOME".to_owned(), "/state".to_owned())));
 }
 
 #[test]
-fn claude_keeps_its_config_inside_its_state_directory() {
-    let defaulted = host_env(&pairs(&[("HOME", "/home/u")]), "/t", &[], Tool::Claude);
-    assert!(defaulted.contains(&("CLAUDE_CONFIG_DIR".to_owned(), "/home/u/.claude".to_owned())));
-    let honoured = host_env(
+fn the_tools_state_dir_overrides_the_parents() {
+    let env = host_env(
         &pairs(&[("HOME", "/home/u"), ("CLAUDE_CONFIG_DIR", "/srv/claude")]),
         "/t",
         &[],
         Tool::Claude,
+        camino::Utf8Path::new("/state"),
     );
-    let dirs: Vec<_> = honoured
+    let dirs: Vec<_> = env
         .iter()
         .filter(|(k, _)| k == "CLAUDE_CONFIG_DIR")
         .collect();
     assert_eq!(
         dirs,
-        [&("CLAUDE_CONFIG_DIR".to_owned(), "/srv/claude".to_owned())]
+        [&("CLAUDE_CONFIG_DIR".to_owned(), "/state".to_owned())]
     );
 }

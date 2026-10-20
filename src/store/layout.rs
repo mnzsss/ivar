@@ -471,6 +471,13 @@ impl Layout {
             .join(format!("{agent}.lock"))
     }
 
+    /// `<hall>/.ivar/agents/state/<agent>/<tool>/` — a host agent's private
+    /// copy of the tool's login and everything the tool writes beside it.
+    #[must_use]
+    pub fn agent_tool_state(&self, agent: &str, tool: &str) -> Utf8PathBuf {
+        self.agent_state_dir().join("state").join(agent).join(tool)
+    }
+
     /// `<hall>/.ivar/agents/tmp/<run-id>/` — one run's scratch directory.
     #[must_use]
     pub fn agent_run_scratch(&self, run_id: &str) -> Utf8PathBuf {

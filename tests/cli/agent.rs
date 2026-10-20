@@ -97,7 +97,7 @@ fn the_host_sandbox_lets_a_command_write_only_inside_its_roots() {
 #[test]
 #[cfg(target_os = "linux")]
 #[expect(clippy::print_stderr, reason = "a Landlock-less kernel skips visibly")]
-fn a_host_run_writes_its_state_dir_and_scratch_but_not_home() {
+fn a_host_run_writes_its_private_state_dir_and_scratch_but_not_home() {
     use std::os::unix::fs::PermissionsExt;
     let (_guard, root) = hall_root();
     ivar().current_dir(&root).arg("init").assert().success();
@@ -110,7 +110,8 @@ fn a_host_run_writes_its_state_dir_and_scratch_but_not_home() {
         "#!/bin/sh\n\
          printf x > \"$CLAUDE_CONFIG_DIR/.tmp\" && mv \"$CLAUDE_CONFIG_DIR/.tmp\" \"$CLAUDE_CONFIG_DIR/state\" && echo state-ok\n\
          printf x > \"$TMPDIR/t\" && echo tmp-ok\n\
-         (printf x > \"$HOME/x\") 2>/dev/null && echo home-WRITTEN || echo home-denied\n",
+         (printf x > \"$HOME/x\") 2>/dev/null && echo home-WRITTEN || echo home-denied\n\
+         (printf x > \"$HOME/.claude/settings.json\") 2>/dev/null && echo config-WRITTEN || echo config-denied\n",
     )
     .unwrap();
     std::fs::set_permissions(bin.join("claude"), std::fs::Permissions::from_mode(0o755)).unwrap();
@@ -135,10 +136,14 @@ fn a_host_run_writes_its_state_dir_and_scratch_but_not_home() {
         return;
     }
     assert_eq!(value["outcome"], "succeeded", "{value}");
-    for line in ["state-ok", "tmp-ok", "home-denied"] {
+    for line in ["state-ok", "tmp-ok", "home-denied", "config-denied"] {
         assert!(text.contains(line), "{line} missing from {text}");
     }
-    assert!(home.join(".claude/state").exists());
+    assert!(
+        root.join(".ivar/agents/state/nightly/claude/state")
+            .exists()
+    );
+    assert!(!home.join(".claude/state").exists());
     assert!(!home.join("x").exists());
 }
 

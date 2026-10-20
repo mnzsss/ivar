@@ -328,29 +328,81 @@ fn host_workspace_links_each_mount_and_grants_only_writable_ones() {
 }
 
 #[test]
-fn the_claude_config_is_seeded_once_and_never_overwritten() {
-    let (_guard, home) = crate::test_support::utf8_temp_dir();
-    let dir = home.join(".claude");
-    std::fs::write(home.join(".claude.json"), "{\"login\":1}").unwrap();
-    seed_claude_config(&home, &dir).unwrap();
+fn seeding_copies_only_the_login_and_drops_a_stale_copy() {
+    let (_guard, dir) = crate::test_support::utf8_temp_dir();
+    let state = dir.join("state");
+    std::fs::create_dir_all(&state).unwrap();
+    std::fs::write(state.join("stale.json"), "{}").unwrap();
+    std::fs::write(dir.join("auth.json"), "{\"t\":1}").unwrap();
+    let creds = vec![
+        Credential {
+            real: dir.join("auth.json"),
+            private: "auth.json",
+            write_back: true,
+        },
+        Credential {
+            real: dir.join("missing.json"),
+            private: "sub/missing.json",
+            write_back: false,
+        },
+    ];
+    std::fs::create_dir_all(state.join("sub")).unwrap();
+    std::fs::write(state.join("sub/missing.json"), "{\"old\":1}").unwrap();
+    let seeded = seed_credentials(&state, creds).unwrap();
     assert_eq!(
-        std::fs::read_to_string(dir.join(".claude.json")).unwrap(),
-        "{\"login\":1}"
+        std::fs::read_to_string(state.join("auth.json")).unwrap(),
+        "{\"t\":1}"
     );
-
-    std::fs::write(dir.join(".claude.json"), "{\"login\":2}").unwrap();
-    seed_claude_config(&home, &dir).unwrap();
+    assert!(!state.join("sub/missing.json").exists());
+    use std::os::unix::fs::PermissionsExt;
     assert_eq!(
-        std::fs::read_to_string(dir.join(".claude.json")).unwrap(),
-        "{\"login\":2}"
+        std::fs::metadata(&state).unwrap().permissions().mode() & 0o777,
+        0o700
     );
+    assert_eq!(seeded.len(), 2);
 }
 
 #[test]
-fn no_legacy_claude_config_seeds_nothing() {
-    let (_guard, home) = crate::test_support::utf8_temp_dir();
-    seed_claude_config(&home, &home.join(".claude")).unwrap();
-    assert!(!home.join(".claude/.claude.json").exists());
+fn only_a_changed_valid_login_is_written_back() {
+    let (_guard, dir) = crate::test_support::utf8_temp_dir();
+    let state = dir.join("state");
+    let real = dir.join("auth.json");
+    let seed = || {
+        std::fs::write(&real, "{\"t\":1}").unwrap();
+        seed_credentials(
+            &state,
+            vec![Credential {
+                real: real.clone(),
+                private: "auth.json",
+                write_back: true,
+            }],
+        )
+        .unwrap()
+    };
+    for invalid in ["", "{}", "not json", "[1]"] {
+        let seeded = seed();
+        std::fs::write(state.join("auth.json"), invalid).unwrap();
+        write_back_credentials(&state, &seeded).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&real).unwrap(),
+            "{\"t\":1}",
+            "{invalid:?}"
+        );
+    }
+    let seeded = seed();
+    std::fs::write(state.join("auth.json"), "{\"t\":2}").unwrap();
+    std::fs::write(&real, "{\"t\":9}").unwrap();
+    write_back_credentials(&state, &seeded).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(&real).unwrap(),
+        "{\"t\":9}",
+        "a newer login was clobbered"
+    );
+
+    let seeded = seed();
+    std::fs::write(state.join("auth.json"), "{\"t\":2}").unwrap();
+    write_back_credentials(&state, &seeded).unwrap();
+    assert_eq!(std::fs::read_to_string(&real).unwrap(), "{\"t\":2}");
 }
 
 const LAUNCHER: &str = "/opt/ivar/bin/ivar";
@@ -359,6 +411,7 @@ const FAKE_LAUNCHER: &str = r#"printf '%s\n' "$*" >> "$HOST_FAKE_LOG"
 env > "$HOST_FAKE_ENV"
 read line || echo "stdin:eof"
 [ -n "$HOST_FAKE_GRANDCHILD" ] && { sleep 60 & echo $! > "$HOST_FAKE_GRANDCHILD"; }
+[ -n "$HOST_FAKE_REFRESH" ] && { printf '%s' "$HOST_FAKE_REFRESH" > "$CLAUDE_CONFIG_DIR/.credentials.json"; echo '{"hooks":1}' > "$CLAUDE_CONFIG_DIR/settings.json"; }
 [ -n "$HOST_FAKE_OUTPUT" ] && printf '%s\n' "$HOST_FAKE_OUTPUT"
 [ -n "$HOST_FAKE_SLEEP" ] && sleep "$HOST_FAKE_SLEEP"
 exit 0
@@ -391,6 +444,12 @@ impl HostFake {
         let home = root.parent().unwrap().join("home");
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::create_dir_all(home.join(".claude")).unwrap();
+        std::fs::write(
+            home.join(".claude/.credentials.json"),
+            "{\"token\":\"old\"}",
+        )
+        .unwrap();
+        std::fs::write(home.join(".claude.json"), "{\"oauthAccount\":1}").unwrap();
         Self { dir, home }
     }
 
@@ -425,8 +484,11 @@ fn a_host_run_launches_the_tool_in_the_sandbox_without_git_credentials() {
     let fake = HostFake::new(&root);
     let _r = redirect_on_this_thread(
         LAUNCHER,
-        fake.command().env("HOST_FAKE_OUTPUT", "used hunter2 ok"),
+        fake.command()
+            .env("HOST_FAKE_OUTPUT", "used hunter2 ok")
+            .env("HOST_FAKE_REFRESH", "{\"token\":\"new\"}"),
     );
+    let state = root.join(".ivar/agents/state/nightly/claude");
 
     let receipt = run_host(&root, host_deps(&fake.home, true));
     assert_eq!(receipt.outcome, AgentRunOutcome::Succeeded);
@@ -439,7 +501,20 @@ fn a_host_run_launches_the_tool_in_the_sandbox_without_git_credentials() {
 
     let argv = fake.read("launcher.log");
     assert!(argv.starts_with("agent sandbox --write "), "{argv}");
-    assert!(argv.contains(&format!("--write {}", fake.home.join(".claude"))));
+    assert!(argv.contains(&format!("--write {state} ")), "{argv}");
+    assert!(
+        !argv.contains(fake.home.as_str()),
+        "the real home is writable: {argv}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(state.join(".claude.json")).unwrap(),
+        "{\"oauthAccount\":1}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(fake.home.join(".claude/.credentials.json")).unwrap(),
+        "{\"token\":\"new\"}"
+    );
+    assert!(!fake.home.join(".claude/settings.json").exists());
     assert!(argv.contains("--write /dev/null"));
     assert!(argv.contains("-- claude -p --permission-mode bypassPermissions Go.\n"));
 
@@ -447,10 +522,7 @@ fn a_host_run_launches_the_tool_in_the_sandbox_without_git_credentials() {
     assert!(env.contains("GIT_CONFIG_GLOBAL=/dev/null\n"));
     assert!(env.contains("GIT_CONFIG_NOSYSTEM=1\n"));
     assert!(env.contains("TOKEN=hunter2\n"));
-    assert!(env.contains(&format!(
-        "CLAUDE_CONFIG_DIR={}\n",
-        fake.home.join(".claude")
-    )));
+    assert!(env.contains(&format!("CLAUDE_CONFIG_DIR={state}\n")));
     for absent in [
         "SSH_AUTH_SOCK",
         "GH_TOKEN",
@@ -520,6 +592,7 @@ fn a_host_run_without_landlock_fails_with_the_landlock_code() {
     let Err(failure) = execute_host(
         &spec,
         &root.join("scratch"),
+        &root.join("state"),
         &[],
         &ws,
         &host_deps(&root, false),
@@ -549,23 +622,5 @@ fn host_workspace_refuses_a_mount_outside_workspace_or_with_a_path_name() {
         };
         assert!(host_workspace(&dir, &ws).is_err(), "{target} accepted");
         assert!(!dir.join("workspace").exists(), "{target} created the root");
-    }
-}
-
-#[test]
-fn state_roots_are_created_and_never_cover_home() {
-    let (_guard, dir) = crate::test_support::utf8_temp_dir();
-    let home = dir.join("home");
-    std::fs::create_dir_all(&home).unwrap();
-    let missing = home.join(".codex");
-    let prepared = prepare_state_roots(&home, vec![missing.clone()]).unwrap();
-    assert_eq!(prepared, std::slice::from_ref(&missing));
-    assert!(missing.is_dir());
-    for unsafe_root in [home.clone(), dir.clone(), home.join("..")] {
-        let failure = prepare_state_roots(&home, vec![unsafe_root.clone()]).unwrap_err();
-        assert_eq!(
-            failure.code, "agent.state_root_covers_home",
-            "{unsafe_root}"
-        );
     }
 }

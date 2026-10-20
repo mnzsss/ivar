@@ -5,6 +5,15 @@ use std::str::FromStr;
 use camino::{Utf8Path, Utf8PathBuf};
 use serde::{Deserialize, Serialize};
 
+/// One login file a host run copies into its private state dir.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Credential {
+    pub real: Utf8PathBuf,
+    pub private: &'static str,
+    /// Holds a rotating OAuth token, so a refresh during the run must reach the user's copy.
+    pub write_back: bool,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Tool {
@@ -74,25 +83,58 @@ impl Tool {
         }
     }
 
-    pub fn state_roots(
+    /// The login files a host run copies into its private state dir:
+    /// `real` is where the user's own login lives, `private` is relative to the state dir.
+    pub fn credentials(
         self,
         home: &Utf8Path,
         var: &dyn Fn(&str) -> Option<String>,
-    ) -> Vec<Utf8PathBuf> {
+    ) -> Vec<Credential> {
         let or_home = |key: &str, fallback: &str| {
             var(key).map_or_else(|| home.join(fallback), Utf8PathBuf::from)
         };
+        let credential = |real: Utf8PathBuf, private, write_back| Credential {
+            real,
+            private,
+            write_back,
+        };
         match self {
-            Self::Claude => vec![or_home("CLAUDE_CONFIG_DIR", ".claude")],
-            Self::Codex => vec![or_home("CODEX_HOME", ".codex")],
+            Self::Claude => {
+                let dir = or_home("CLAUDE_CONFIG_DIR", ".claude");
+                let config = var("CLAUDE_CONFIG_DIR")
+                    .map_or_else(|| home.join(".claude.json"), |_| dir.join(".claude.json"));
+                vec![
+                    credential(dir.join(".credentials.json"), ".credentials.json", true),
+                    credential(config, ".claude.json", false),
+                ]
+            }
+            Self::Codex => vec![credential(
+                or_home("CODEX_HOME", ".codex").join("auth.json"),
+                "auth.json",
+                true,
+            )],
+            Self::Opencode => vec![credential(
+                or_home("XDG_DATA_HOME", ".local/share").join("opencode/auth.json"),
+                "data/opencode/auth.json",
+                true,
+            )],
+        }
+    }
+
+    /// Variables that make the tool keep all its state under `state`.
+    pub fn state_env(self, state: &Utf8Path) -> Vec<(String, String)> {
+        let pair = |key: &str, dir: Utf8PathBuf| (key.to_owned(), dir.into_string());
+        match self {
+            Self::Claude => vec![pair("CLAUDE_CONFIG_DIR", state.to_path_buf())],
+            Self::Codex => vec![pair("CODEX_HOME", state.to_path_buf())],
             Self::Opencode => [
-                ("XDG_DATA_HOME", ".local/share"),
-                ("XDG_STATE_HOME", ".local/state"),
-                ("XDG_CONFIG_HOME", ".config"),
-                ("XDG_CACHE_HOME", ".cache"),
+                ("XDG_DATA_HOME", "data"),
+                ("XDG_STATE_HOME", "state"),
+                ("XDG_CONFIG_HOME", "config"),
+                ("XDG_CACHE_HOME", "cache"),
             ]
             .into_iter()
-            .map(|(key, fallback)| or_home(key, fallback).join("opencode"))
+            .map(|(key, sub)| pair(key, state.join(sub)))
             .collect(),
         }
     }
