@@ -91,3 +91,22 @@ fn receipts_round_trip_and_the_latest_is_the_highest_run_id() {
             .is_none()
     );
 }
+
+#[test]
+fn every_example_agent_validates() {
+    let dir = Utf8PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("examples/agents");
+    let examples: Vec<_> = std::fs::read_dir(&dir)
+        .unwrap()
+        .map(|entry| Utf8PathBuf::try_from(entry.unwrap().path()).unwrap())
+        .filter(|path| path.extension() == Some("md") && path.file_stem() != Some("README"))
+        .collect();
+    assert!(examples.len() >= 4, "expected the example agents in {dir}");
+    for path in examples {
+        let file = AgentFile {
+            name: path.file_stem().unwrap().to_owned(),
+            source: std::fs::read_to_string(&path).unwrap(),
+            path,
+        };
+        parse(&file).unwrap_or_else(|f| panic!("{}", f.what));
+    }
+}
