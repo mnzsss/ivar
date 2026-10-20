@@ -54,7 +54,6 @@ struct Ran {
 
 struct Attempt {
     ran: Ran,
-    secret_values: Vec<String>,
     delivered: Option<Delivered>,
 }
 
@@ -87,19 +86,18 @@ pub fn run(ctx: &Ctx, input: RunInput) -> Outcome<AgentRunReceipt> {
         }
     };
     let scratch = layout.agent_run_scratch(&run_id);
+    let mut secret_values: Vec<String> = Vec::new();
     let attempt = (|| -> Result<Attempt, Failure> {
         let secrets = AgentSecrets::read(&layout)?.select(&spec.secrets)?;
+        secret_values = secrets.iter().map(|(_, v)| v.clone()).collect();
         let (ws, worktree) = workspace_for(ctx, &layout, &spec)?;
         let ran = execute(&spec, &run_id, &scratch, &secrets, ws)?;
         let delivered = worktree
             .map(|wt| feature_access::commit_and_preview(ctx, &layout, &spec, &wt, &run_id));
-        Ok(Attempt {
-            ran,
-            secret_values: secrets.into_iter().map(|(_, v)| v).collect(),
-            delivered,
-        })
+        Ok(Attempt { ran, delivered })
     })();
     let _ = fs::remove_path(&scratch);
+    let values: Vec<&str> = secret_values.iter().map(String::as_str).collect();
     let receipt = match attempt {
         Err(failure) => AgentRunReceipt::failed(
             run_id,
@@ -107,9 +105,9 @@ pub fn run(ctx: &Ctx, input: RunInput) -> Outcome<AgentRunReceipt> {
             trigger,
             started_at,
             rfc3339_now(),
-            failure.what,
+            scrub(&failure.what, &values),
         ),
-        Ok(attempt) => completed(&spec, run_id, trigger, started_at, &attempt),
+        Ok(attempt) => completed(&spec, run_id, trigger, started_at, &attempt, &values),
     };
     let result = finish(&layout, &spec, receipt);
     drop(lock);
@@ -122,9 +120,9 @@ fn completed(
     trigger: Trigger,
     started_at: String,
     attempt: &Attempt,
+    values: &[&str],
 ) -> AgentRunReceipt {
-    let values: Vec<&str> = attempt.secret_values.iter().map(String::as_str).collect();
-    let output = scrub(&attempt.ran.output, &values);
+    let output = scrub(&attempt.ran.output, values);
     let tool = match spec.launch {
         Launch::Tool { tool, .. } => Some(tool),
         Launch::Image { .. } => None,
@@ -145,9 +143,9 @@ fn completed(
         ..AgentRunReceipt::skipped(run_id, spec.name.clone(), trigger, started_at)
     };
     if let Some(d) = &attempt.delivered {
-        receipt.diff = d.diff.as_deref().map(|t| scrub(t, &values));
+        receipt.diff = d.diff.as_deref().map(|t| scrub(t, values));
         receipt.delivery_fingerprint.clone_from(&d.fingerprint);
-        receipt.delivery_error = d.error.as_deref().map(|t| scrub(t, &values));
+        receipt.delivery_error = d.error.as_deref().map(|t| scrub(t, values));
     }
     receipt
 }

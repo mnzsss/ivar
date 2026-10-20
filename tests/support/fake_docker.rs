@@ -22,6 +22,9 @@ case "$1" in
   info)
     [ -n "$DOCKER_FAKE_DOWN" ] && exit 1
     case " $* " in *SecurityOptions*) echo "${DOCKER_FAKE_SECURITY:-[\"name=seccomp\"]}" ;; *) echo 28.0.0 ;; esac ;;
+  network)
+    [ "$2" = create ] && [ -n "$DOCKER_FAKE_NETWORK_ERROR" ] && { printf '%s\n' "$DOCKER_FAKE_NETWORK_ERROR" >&2; exit 1; }
+    exit 0 ;;
   *) exit 0 ;;
 esac
 "#;

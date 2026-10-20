@@ -166,16 +166,3 @@ fn a_run_that_changes_nothing_commits_nothing() {
     assert_eq!(receipt.diff, None);
     assert_eq!(receipt.delivery_fingerprint, None);
 }
-
-#[test]
-fn a_delivery_error_is_scrubbed() {
-    let d = Delivered {
-        diff: None,
-        fingerprint: None,
-        error: Some("push to https://x:hunter2@h failed".into()),
-    };
-    assert_eq!(
-        crate::domain::agent::receipt::scrub(d.error.as_deref().unwrap(), &["hunter2"]),
-        "push to https://x:[redacted]@h failed"
-    );
-}

@@ -196,6 +196,21 @@ fn a_missing_secret_is_a_failed_receipt_and_starts_no_container() {
 }
 
 #[test]
+fn a_failure_message_never_carries_a_secret_value() {
+    let (_guard, root) = hall_with_agent("tool: claude\nsecrets: [TOKEN]\n");
+    let fake = FakeDocker::install(&root);
+    let _r = redirect_on_this_thread(
+        "docker",
+        fake_docker_command(&fake).env("DOCKER_FAKE_NETWORK_ERROR", "bad token hunter2"),
+    );
+    let receipt = run_manual(&root);
+    assert_eq!(receipt.outcome, AgentRunOutcome::Failed);
+    assert!(receipt.output.contains("[redacted]"), "{}", receipt.output);
+    assert!(!receipt.output.contains("hunter2"));
+    assert!(!stored(&root, &receipt).output.contains("hunter2"));
+}
+
+#[test]
 fn an_unspawnable_docker_is_a_failed_receipt() {
     let (_guard, root) = hall_with_agent("tool: claude\n");
     let _r = redirect_on_this_thread(
@@ -249,4 +264,34 @@ fn a_skipped_run_still_notifies() {
     let receipt = run_manual(&root);
     assert_eq!(receipt.outcome, AgentRunOutcome::Skipped);
     assert!(receipt.notify_error.is_some(), "a POST was attempted");
+}
+
+#[test]
+fn a_delivery_preview_error_never_carries_a_secret_value() {
+    let (_guard, root) = hall_with_agent("tool: claude\nsecrets: [TOKEN]\n");
+    let spec = store::agent::load(&Layout::at(root), "nightly").unwrap();
+    let attempt = Attempt {
+        ran: Ran {
+            finished: Finished::Exited(Some(0)),
+            output: String::new(),
+        },
+        delivered: Some(Delivered {
+            diff: Some("+hunter2".into()),
+            fingerprint: None,
+            error: Some("push to https://x:hunter2@h failed".into()),
+        }),
+    };
+    let receipt = completed(
+        &spec,
+        "r1".into(),
+        Trigger::Manual,
+        rfc3339_now(),
+        &attempt,
+        &["hunter2"],
+    );
+    assert_eq!(
+        receipt.delivery_error.as_deref(),
+        Some("push to https://x:[redacted]@h failed")
+    );
+    assert_eq!(receipt.diff.as_deref(), Some("+[redacted]"));
 }
