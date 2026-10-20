@@ -68,6 +68,10 @@ the container exits and records a `deliver` preview fingerprint in the
 receipt. Nothing is pushed: run `ivar feature deliver agent-<name>
 --fingerprint <fp>` yourself to open the PR.
 
+Pushing is meant to happen on the host, through `deliver`. Do not give a
+feature agent a git host in `network` together with a token in `secrets`:
+that pair lets it push from inside the container.
+
 ## Secrets
 
 `.ivar/secrets/agents.env` holds `NAME=value` lines and must be mode 600.
@@ -79,3 +83,6 @@ from receipts, logs and notifications.
 `ivar doctor` reports each missing piece and its fix: a systemd user
 instance, linger (`loginctl enable-linger $USER`), the Docker client, a
 reachable daemon, and a warning when Docker runs as root.
+
+An agent file that fails to load when its timer fires writes no receipt;
+its error is only in the systemd journal: `journalctl --user -u <unit>`.

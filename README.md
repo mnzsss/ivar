@@ -123,9 +123,10 @@ walks through both paths.
 ## Local by architecture
 
 **`ivar` is local-only: there is no ivar server, no account, and no analytics in
-the binary.** It does not run your code or keep a system daemon. It arranges
+the binary.** It keeps no daemon of its own. It arranges
 local directories, worktrees, and provider configuration, and keeps a local
-SQLite code graph of your repositories that never leaves the machine.
+SQLite code graph of your repositories that never leaves the machine. `ivar agent` runs the agents
+you define inside Docker containers, fired by systemd user timers.
 
 The binary makes network requests in these cases, none of them to an ivar server:
 

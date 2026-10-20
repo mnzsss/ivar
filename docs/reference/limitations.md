@@ -96,6 +96,11 @@ writes nor reverts them.
   refused, because cron and systemd disagree on how to combine them.
 - Membership of the `docker` group is root-equivalent. Prefer rootless Docker;
   `ivar doctor` warns when the daemon runs as root.
+- An `access: feature` agent given a git host in `network` and a token in
+  `secrets` can push from inside the container. Pushing is meant to happen on
+  the host through `deliver`; do not grant such secrets.
+- An agent file that fails to load when its timer fires leaves no receipt. Its
+  error is only in the systemd journal: `journalctl --user -u <unit>`.
 
 ## Local state is disposable
 
