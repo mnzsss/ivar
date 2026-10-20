@@ -812,3 +812,24 @@ fn env_clear_keeps_only_the_variables_set_on_the_command() {
     let output = capture(&Command::new("/usr/bin/env").env_clear().env("ONLY", "this")).unwrap();
     assert_eq!(output.stdout, "ONLY=this");
 }
+
+#[test]
+fn a_process_group_that_exits_cleanly_leaves_no_background_child() {
+    let (_guard, dir) = utf8_temp_dir();
+    let pidfile = dir.join("sleeper.pid");
+    let finished = to_log_with_deadline(
+        &Command::new("sh")
+            .args(["-c", &format!("sleep 60 & echo $! > {pidfile}; exit 0")])
+            .process_group(),
+        &dir.join("out.log"),
+        std::time::Duration::from_secs(10),
+        &|_| false,
+    )
+    .unwrap();
+    assert_eq!(finished, Finished::Exited(Some(0)));
+    let pid = std::fs::read_to_string(&pidfile).unwrap();
+    assert!(
+        crate::test_support::process_is_gone(pid.trim()),
+        "sleeper {pid} survived"
+    );
+}

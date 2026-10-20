@@ -507,6 +507,9 @@ pub(crate) fn to_log_with_deadline_and_grace(
             .try_wait()
             .map_err(|source| spawn_error(command, source))?
         {
+            if command.process_group {
+                stop_group(&mut child, grace);
+            }
             return Ok(Finished::Exited(status.code()));
         }
         let seen = std::fs::read(log.as_std_path()).unwrap_or_default();
@@ -531,22 +534,34 @@ fn group_alive(pgid: &str) -> bool {
 
 fn stop_child(child: &mut std::process::Child, group: bool, grace: std::time::Duration) {
     if group {
-        let pgid = format!("-{}", child.id());
-        let _ = capture(&Command::new("kill").args(["-TERM", "--", &pgid]));
-        let since = std::time::Instant::now();
-        loop {
-            // Reap the leader so a zombie does not keep the group "alive".
-            let _ = child.try_wait();
-            if !group_alive(&pgid) || since.elapsed() >= grace {
-                break;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(100));
-        }
-        let _ = capture(&Command::new("kill").args(["-KILL", "--", &pgid]));
+        stop_group(child, grace);
     } else {
         let _ = child.kill();
     }
     let _ = child.wait();
+}
+
+/// TERM, grace, then KILL to the child's process group; a group already gone
+/// is left alone so a reused pid is never signalled.
+fn stop_group(child: &mut std::process::Child, grace: std::time::Duration) {
+    let pgid = format!("-{}", child.id());
+    if !group_alive(&pgid) {
+        return;
+    }
+    let _ = capture(&Command::new("kill").args(["-TERM", "--", &pgid]));
+    let since = std::time::Instant::now();
+    loop {
+        // Reap the leader so a zombie does not keep the group "alive".
+        let _ = child.try_wait();
+        if !group_alive(&pgid) {
+            return;
+        }
+        if since.elapsed() >= grace {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    let _ = capture(&Command::new("kill").args(["-KILL", "--", &pgid]));
 }
 
 /// The last non-blank line of the log [`to_log`] wrote, if any — the line a
