@@ -60,13 +60,21 @@ domains in `network`. To reach a gateway on the host, list
 
 `runtime: host` runs the `codex`, `claude` or `opencode` already installed
 on your machine, with the login you use interactively, so no API key goes
-in `secrets`. Landlock limits its writes to a per-run scratch directory,
-the tool's own state directories and, with `access: feature`, the
-`agent-<name>` worktree. Its environment starts empty: `PATH`, `HOME`,
-locale, the four XDG base directories, the secrets it lists, and git
-pointed at an empty config with no credential helper. No credential
-variable is passed. When the run ends, its whole process group is
-stopped.
+in `secrets`. Each host agent gets a private copy of that login: before
+every run, only the tool's login files are copied into
+`.ivar/agents/state/<agent>/<tool>/`, and the tool keeps all its state
+there. Your own tool config is not writable from the run, so an agent
+cannot plant settings, hooks or plugins that run later outside the
+sandbox. When the tool refreshes its token during a run, the refreshed
+login is written back to your copy, and nothing else is.
+
+Landlock limits its writes to a per-run scratch directory, the agent's
+private state directory and, with `access: feature`, the `agent-<name>`
+worktree. Its environment starts empty: `PATH`, `HOME`, locale, the
+variables that point the tool at its private state, the secrets it lists,
+and git pointed at an empty config with no credential helper. No
+credential variable is passed. When the run ends, its whole process group
+is stopped.
 
 What it does not isolate: **reads are ambient** and **the network is
 open**. Anything your user can read is exposed, including SSH keys and
