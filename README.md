@@ -126,7 +126,8 @@ walks through both paths.
 the binary.** It keeps no daemon of its own. It arranges
 local directories, worktrees, and provider configuration, and keeps a local
 SQLite code graph of your repositories that never leaves the machine. `ivar agent` runs the agents
-you define inside Docker containers, fired by systemd user timers.
+you define inside Docker containers, or on the host under Landlock with
+`runtime: host`, fired by systemd user timers.
 
 The binary makes network requests in these cases, none of them to an ivar server:
 
@@ -135,7 +136,8 @@ The binary makes network requests in these cases, none of them to an ivar server
 - OAuth with the MCP servers your hall declares (`ivar mcp auth`);
 - the GitHub API, to fetch external skills;
 - scheduled agents: it pulls the ivar agent images from GHCR, lets an agent
-  reach the domains it lists, and POSTs to an agent's `notify` URL.
+  reach the domains it lists, and POSTs to an agent's `notify` URL; a
+  `runtime: host` agent uses the network its tool uses, unfiltered.
 
 `ivar upgrade` updates `ivar` through whichever channel installed it. Read
 [Concepts](docs/concepts.md) and [Limitations](docs/reference/limitations.md)
