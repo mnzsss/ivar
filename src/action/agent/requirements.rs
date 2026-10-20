@@ -59,7 +59,18 @@ fn is_executable_file(path: &std::path::Path) -> bool {
 /// Every missing requirement, probed only when the hall defines agents.
 #[must_use]
 pub fn diagnose_agents(specs: &[AgentSpec], probes: &Probes<'_>) -> Vec<Diagnosis> {
-    if specs.is_empty() {
+    diagnose_agents_present(specs, !specs.is_empty(), probes)
+}
+
+/// [`diagnose_agents`] for a hall whose agent files may not all parse:
+/// `present` says agents exist even when `specs` lost some of them.
+#[must_use]
+pub fn diagnose_agents_present(
+    specs: &[AgentSpec],
+    present: bool,
+    probes: &Probes<'_>,
+) -> Vec<Diagnosis> {
+    if !present {
         return Vec::new();
     }
     let mut findings = Vec::new();

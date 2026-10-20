@@ -141,3 +141,12 @@ fn a_tool_is_found_only_as_an_executable_file_on_path() {
     assert!(!on_path("codex", &path));
     assert!(!on_path("missing", &path));
 }
+
+#[test]
+fn agent_files_that_fail_to_parse_still_count_as_agents() {
+    let codes: Vec<_> = diagnose_agents_present(&[], true, &probes(&|| false, &|| None))
+        .into_iter()
+        .map(|d| d.code)
+        .collect();
+    assert!(codes.contains(&"agent.systemd_user_missing"), "{codes:?}");
+}
