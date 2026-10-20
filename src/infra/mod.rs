@@ -22,6 +22,7 @@ pub mod oauth;
 pub mod proc;
 pub mod progress;
 pub mod release;
+pub mod systemd;
 pub mod table;
 pub mod term;
 pub mod url;
