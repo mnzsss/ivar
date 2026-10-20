@@ -623,3 +623,34 @@ fn discovery_session_sandbox_does_not_grant_features_dir_or_repo_dirs() {
         "discovery sandbox roots must not contain repo_dir: {roots:?}"
     );
 }
+
+#[test]
+fn from_roots_keeps_existing_roots_canonical_and_drops_missing_ones() {
+    let (_guard, dir) = crate::test_support::utf8_temp_dir();
+    let real = dir.join("real");
+    std::fs::create_dir_all(&real).unwrap();
+    let link = dir.join("link");
+    std::os::unix::fs::symlink(&real, &link).unwrap();
+    let sandbox = Sandbox::from_roots(vec![link, dir.join("missing"), real.clone()]);
+    assert_eq!(sandbox.roots(), [real.canonicalize_utf8().unwrap()]);
+}
+
+#[test]
+#[cfg(target_os = "linux")]
+fn landlock_available_means_a_root_sandbox_applies() {
+    if !crate::action::session::sandbox::landlock_available() {
+        return;
+    }
+    let (_guard, dir) = crate::test_support::utf8_temp_dir();
+    // Landlock restricts the calling thread, so apply it on a throwaway one.
+    let status = std::thread::spawn(move || Sandbox::from_roots(vec![dir]).apply().unwrap())
+        .join()
+        .unwrap();
+    assert!(
+        !matches!(
+            status,
+            crate::action::session::sandbox::SandboxStatus::Unavailable { .. }
+        ),
+        "{status:?}"
+    );
+}
