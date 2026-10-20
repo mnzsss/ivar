@@ -119,6 +119,9 @@ pub enum Command {
     /// Record bugs, proposals, and submit issues.
     #[command(subcommand)]
     Feedback(super::feedback::FeedbackCommand),
+    /// Schedule and run unattended agents in containers.
+    #[command(subcommand)]
+    Agent(super::agent::AgentCommand),
     /// Guard: evaluate a tool request against the session's writable set.
     Guard(GuardArgs),
     /// Upgrade ivar through the channel that installed it.

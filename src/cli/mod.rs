@@ -13,6 +13,7 @@
 //! flag that nothing forwards is a compile error rather than help text for
 //! a no-op. See ARCHITECTURE.md, seam 8.
 
+pub mod agent;
 pub mod feedback;
 pub mod graph;
 pub mod root;
