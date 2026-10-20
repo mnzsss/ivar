@@ -18,6 +18,8 @@ pub struct AgentFrontmatter {
     #[serde(default)]
     pub access: Access,
     #[serde(default)]
+    pub runtime: Runtime,
+    #[serde(default)]
     pub network: Vec<String>,
     #[serde(default)]
     pub secrets: Vec<String>,
@@ -38,6 +40,14 @@ pub enum Access {
     Feature,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Runtime {
+    #[default]
+    Docker,
+    Host,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Launch {
     Tool { tool: Tool, model: Option<String> },
@@ -49,6 +59,7 @@ pub struct AgentSpec {
     pub name: String,
     pub schedule: CronExpr,
     pub access: Access,
+    pub runtime: Runtime,
     pub network: Vec<String>,
     pub secrets: Vec<String>,
     pub launch: Launch,
@@ -126,6 +137,20 @@ impl AgentSpec {
                 .ok_or_else(|| err("schedule", "is required"))?,
         )
         .map_err(|e| err("schedule", e.reason))?;
+        if fm.runtime == Runtime::Host {
+            if fm.image.is_some() || fm.command.is_some() {
+                return Err(err(
+                    "runtime",
+                    "`runtime: host` runs the installed `tool`; `image` and `command` need `runtime: docker`",
+                ));
+            }
+            if !fm.network.is_empty() {
+                return Err(err(
+                    "network",
+                    "`runtime: host` cannot enforce a `network` allowlist; remove `network` or use `runtime: docker`",
+                ));
+            }
+        }
         let launch = launch_of(&fm)?;
         if let Some(bad) = fm.network.iter().find(|d| !is_host(d)) {
             return Err(err(
@@ -172,6 +197,7 @@ impl AgentSpec {
             name: name.to_owned(),
             schedule,
             access: fm.access,
+            runtime: fm.runtime,
             network: fm.network,
             secrets: fm.secrets,
             launch,

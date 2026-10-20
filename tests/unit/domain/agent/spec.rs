@@ -104,3 +104,42 @@ fn an_overflowing_timeout_is_an_invalid_field() {
         "timeout"
     );
 }
+
+#[test]
+fn runtime_defaults_to_docker_and_accepts_host_with_a_tool() {
+    assert_eq!(
+        AgentSpec::from_parts("a", base(), "").unwrap().runtime,
+        Runtime::Docker
+    );
+    let host = AgentFrontmatter {
+        runtime: Runtime::Host,
+        ..base()
+    };
+    assert_eq!(
+        AgentSpec::from_parts("a", host, "").unwrap().runtime,
+        Runtime::Host
+    );
+}
+
+#[rstest]
+#[case::host_with_image(AgentFrontmatter { runtime: Runtime::Host, tool: None, image: Some("x".into()), command: Some(vec!["y".into()]), ..base() }, "runtime")]
+#[case::host_with_command(AgentFrontmatter { runtime: Runtime::Host, command: Some(vec!["y".into()]), ..base() }, "runtime")]
+#[case::host_with_network(AgentFrontmatter { runtime: Runtime::Host, network: vec!["api.anthropic.com".into()], ..base() }, "network")]
+fn a_host_runtime_refuses_what_it_cannot_honour(#[case] fm: AgentFrontmatter, #[case] field: &str) {
+    let error = AgentSpec::from_parts("a", fm, "").unwrap_err();
+    assert_eq!(error.field, field);
+    assert!(error.reason.contains("runtime: host"), "{}", error.reason);
+}
+
+#[test]
+fn a_host_runtime_without_a_tool_names_the_tool_field() {
+    let fm = AgentFrontmatter {
+        runtime: Runtime::Host,
+        tool: None,
+        ..base()
+    };
+    assert_eq!(
+        AgentSpec::from_parts("a", fm, "").unwrap_err().field,
+        "tool"
+    );
+}
