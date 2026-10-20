@@ -6,6 +6,26 @@
 )]
 
 use super::*;
+use crate::domain::agent::spec::{AgentFrontmatter, AgentSpec, Runtime};
+use crate::domain::agent::tool::Tool;
+
+fn agent(runtime: Runtime, tool: &str) -> AgentSpec {
+    AgentSpec::from_parts(
+        "a",
+        AgentFrontmatter {
+            schedule: Some("@daily".into()),
+            tool: Some(tool.into()),
+            runtime,
+            ..AgentFrontmatter::default()
+        },
+        "",
+    )
+    .unwrap()
+}
+
+fn docker() -> Vec<AgentSpec> {
+    vec![agent(Runtime::Docker, "claude")]
+}
 
 fn probes<'a>(ok: &'a dyn Fn() -> bool, rootless: &'a dyn Fn() -> Option<bool>) -> Probes<'a> {
     Probes {
@@ -14,24 +34,30 @@ fn probes<'a>(ok: &'a dyn Fn() -> bool, rootless: &'a dyn Fn() -> Option<bool>) 
         docker_client: ok,
         docker_daemon: ok,
         docker_rootless: rootless,
+        tool_on_path: &|_| true,
+        landlock: &|| true,
     }
+}
+
+fn yes() -> bool {
+    true
 }
 
 #[test]
 fn nothing_is_probed_when_the_hall_has_no_agents() {
     let boom = || -> bool { panic!("probed") };
     let none = || -> Option<bool> { panic!("probed") };
-    assert!(diagnose_agents(false, &probes(&boom, &none)).is_empty());
+    assert!(diagnose_agents(&[], &probes(&boom, &none)).is_empty());
 }
 
 #[test]
 fn a_ready_rootless_machine_is_clean() {
-    assert!(diagnose_agents(true, &probes(&|| true, &|| Some(true))).is_empty());
+    assert!(diagnose_agents(&docker(), &probes(&|| true, &|| Some(true))).is_empty());
 }
 
 #[test]
 fn every_missing_requirement_names_its_fix_and_a_missing_client_skips_the_daemon_probes() {
-    let codes: Vec<_> = diagnose_agents(true, &probes(&|| false, &|| None))
+    let codes: Vec<_> = diagnose_agents(&docker(), &probes(&|| false, &|| None))
         .into_iter()
         .map(|d| (d.code, d.fix))
         .collect();
@@ -56,8 +82,10 @@ fn a_present_client_with_a_dead_daemon_is_unreachable_only() {
         docker_client: &up,
         docker_daemon: &down,
         docker_rootless: &|| None,
+        tool_on_path: &|_| true,
+        landlock: &|| true,
     };
-    let codes: Vec<_> = diagnose_agents(true, &p)
+    let codes: Vec<_> = diagnose_agents(&docker(), &p)
         .into_iter()
         .map(|d| d.code)
         .collect();
@@ -66,8 +94,33 @@ fn a_present_client_with_a_dead_daemon_is_unreachable_only() {
 
 #[test]
 fn rootful_docker_is_reported_with_the_rootless_recommendation() {
-    let findings = diagnose_agents(true, &probes(&|| true, &|| Some(false)));
+    let findings = diagnose_agents(&docker(), &probes(&|| true, &|| Some(false)));
     assert_eq!(findings.len(), 1);
     assert_eq!(findings[0].code, "agent.docker_rootful");
     assert!(findings[0].fix.contains("rootless"));
+}
+
+#[test]
+fn host_agents_skip_docker_and_report_their_tool_and_landlock() {
+    let boom = || -> bool { panic!("docker probed") };
+    let p = Probes {
+        systemd_user: &yes,
+        linger: &yes,
+        docker_client: &boom,
+        docker_daemon: &boom,
+        docker_rootless: &|| panic!("docker probed"),
+        tool_on_path: &|tool| tool != Tool::Codex,
+        landlock: &|| false,
+    };
+    let specs = [
+        agent(Runtime::Host, "codex"),
+        agent(Runtime::Host, "codex"),
+        agent(Runtime::Host, "claude"),
+    ];
+    let findings = diagnose_agents(&specs, &p);
+    assert_eq!(
+        findings.iter().map(|d| d.code).collect::<Vec<_>>(),
+        ["agent.tool_missing", "agent.landlock_unavailable"]
+    );
+    assert!(findings[0].what.contains("`codex`"));
 }

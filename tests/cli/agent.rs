@@ -141,3 +141,32 @@ fn a_host_run_writes_its_state_dir_and_scratch_but_not_home() {
     assert!(home.join(".claude/state").exists());
     assert!(!home.join("x").exists());
 }
+
+#[test]
+fn doctor_reports_a_missing_host_tool_as_json() {
+    let (_guard, root) = hall_root();
+    ivar().current_dir(&root).arg("init").assert().success();
+    std::fs::create_dir_all(root.join("agents")).unwrap();
+    std::fs::write(
+        root.join("agents/local.md"),
+        "---\nschedule: \"@daily\"\nruntime: host\ntool: codex\n---\nGo.\n",
+    )
+    .unwrap();
+    let empty_path = root.parent().unwrap().join("empty-bin");
+    std::fs::create_dir_all(&empty_path).unwrap();
+    let output = ivar()
+        .current_dir(&root)
+        .env("PATH", empty_path.as_str())
+        .args(["--json", "doctor"])
+        .output()
+        .unwrap();
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).expect("valid json");
+    let finding = value["findings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|f| f["code"] == "agent.tool_missing")
+        .expect("agent.tool_missing finding");
+    assert!(finding["what"].as_str().unwrap().contains("`codex`"));
+    assert!(finding["fix"].as_str().unwrap().contains("Install `codex`"));
+}

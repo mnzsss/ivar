@@ -25,6 +25,8 @@ fn env(unit_dir: Utf8PathBuf) -> SyncEnv<'static> {
             docker_client: &yes,
             docker_daemon: &yes,
             docker_rootless: &rootless,
+            tool_on_path: &|_| true,
+            landlock: &yes,
         },
     }
 }
@@ -127,4 +129,25 @@ fn missing_requirements_are_warnings_not_failures() {
         report.warnings.iter().map(|w| w.code).collect::<Vec<_>>(),
         ["agent.linger_disabled"]
     );
+}
+
+#[test]
+fn a_host_agent_syncs_with_a_warning_about_ambient_reads() {
+    let (_guard, root) = seeded_hall();
+    let fake = FakeSystemctl::install(&root);
+    let _r = fake_systemctl_on_this_thread(&fake);
+    std::fs::create_dir_all(root.join("agents")).unwrap();
+    std::fs::write(
+        root.join("agents/local.md"),
+        "---\nschedule: \"@daily\"\nruntime: host\ntool: claude\n---\nGo.\n",
+    )
+    .unwrap();
+    let report = sync_with(&Ctx::new(root.clone()), &env(root.join("units"))).unwrap();
+    let warning = report
+        .warnings
+        .iter()
+        .find(|w| w.code == "agent.host_ambient_read")
+        .expect("host warning");
+    assert!(warning.what.contains("`local`"));
+    assert!(warning.what.contains("~/.ssh"));
 }

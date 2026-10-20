@@ -9,8 +9,9 @@ use serde::Serialize;
 use super::hall_hash;
 use super::requirements::{self, Probes};
 use crate::action::{Ctx, discover_hall};
+use crate::domain::agent::spec::Runtime;
 use crate::domain::agent::unit::{owned_by, render_service, render_timer, unit_prefix, unit_stem};
-use crate::error::{Failure, Outcome, Report, WriteHuman};
+use crate::error::{Failure, Outcome, Report, Warning, WriteHuman};
 use crate::infra::{fs, systemd};
 use crate::store;
 
@@ -167,10 +168,18 @@ pub fn sync_with(ctx: &Ctx, env: &SyncEnv<'_>) -> Outcome<SyncOutcome> {
         systemd::enable_now(&format!("{}.timer", unit_stem(&hash, name)))?;
     }
     outcome.removed.sort();
-    let warnings = requirements::as_warnings(&requirements::diagnose_agents(
-        !specs.is_empty(),
-        &env.probes,
-    ));
+    let mut warnings =
+        requirements::as_warnings(&requirements::diagnose_agents(&specs, &env.probes));
+    warnings.extend(specs.iter().filter(|s| s.runtime == Runtime::Host).map(|s| {
+        Warning::new(
+            "agent.host_ambient_read",
+            "agents",
+            format!(
+                "`{}` runs on the host: it can read everything your user can, ~/.ssh included, and its network is not filtered.",
+                s.name
+            ),
+        )
+    }));
     Ok(Report::with_warnings(outcome, warnings))
 }
 
