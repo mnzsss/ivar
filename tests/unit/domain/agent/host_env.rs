@@ -17,6 +17,8 @@ fn the_host_environment_keeps_the_login_and_drops_every_git_credential() {
         ("LANG", "C.UTF-8"),
         ("LC_ALL", "C"),
         ("XDG_CONFIG_HOME", "/home/u/.config"),
+        ("XDG_RUNTIME_DIR", "/run/user/1000"),
+        ("DBUS_SESSION_BUS_ADDRESS", "unix:path=/run/user/1000/bus"),
         ("CODEX_HOME", "/home/u/.codex"),
         ("TMPDIR", "/tmp"),
         ("SSH_AUTH_SOCK", "/run/ssh"),
@@ -47,6 +49,9 @@ fn the_host_environment_keeps_the_login_and_drops_every_git_credential() {
             "GIT_CONFIG_GLOBAL",
             "GIT_CONFIG_NOSYSTEM",
             "GIT_TERMINAL_PROMPT",
+            "GIT_CONFIG_COUNT",
+            "GIT_CONFIG_KEY_0",
+            "GIT_CONFIG_VALUE_0",
             "TOKEN",
             "OPENCODE_CONFIG_CONTENT"
         ]
@@ -57,6 +62,11 @@ fn the_host_environment_keeps_the_login_and_drops_every_git_credential() {
     )));
     assert!(env.contains(&("GIT_CONFIG_GLOBAL".to_owned(), "/dev/null".to_owned())));
     assert!(env.contains(&("GIT_CONFIG_NOSYSTEM".to_owned(), "1".to_owned())));
+    assert!(env.contains(&(
+        "GIT_CONFIG_KEY_0".to_owned(),
+        "credential.helper".to_owned()
+    )));
+    assert!(env.contains(&("GIT_CONFIG_VALUE_0".to_owned(), String::new())));
     assert!(!keys.contains(&"CLAUDE_CONFIG_DIR"));
 }
 

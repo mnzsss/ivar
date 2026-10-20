@@ -11,10 +11,14 @@ const KEPT: &[&str] = &[
     "LANG",
     "CODEX_HOME",
     "CLAUDE_CONFIG_DIR",
+    "XDG_DATA_HOME",
+    "XDG_STATE_HOME",
+    "XDG_CONFIG_HOME",
+    "XDG_CACHE_HOME",
 ];
 
 fn is_kept(key: &str) -> bool {
-    KEPT.contains(&key) || key.starts_with("LC_") || key.starts_with("XDG_")
+    KEPT.contains(&key) || key.starts_with("LC_")
 }
 
 pub fn host_env(
@@ -34,6 +38,10 @@ pub fn host_env(
             ("GIT_CONFIG_GLOBAL", "/dev/null"),
             ("GIT_CONFIG_NOSYSTEM", "1"),
             ("GIT_TERMINAL_PROMPT", "0"),
+            // An empty helper resets the list, so a repo-level `credential.helper` never runs.
+            ("GIT_CONFIG_COUNT", "1"),
+            ("GIT_CONFIG_KEY_0", "credential.helper"),
+            ("GIT_CONFIG_VALUE_0", ""),
         ]
         .map(|(k, v)| (k.to_owned(), v.to_owned())),
     );
