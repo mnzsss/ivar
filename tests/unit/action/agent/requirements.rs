@@ -124,3 +124,20 @@ fn host_agents_skip_docker_and_report_their_tool_and_landlock() {
     );
     assert!(findings[0].what.contains("`codex`"));
 }
+
+#[cfg(unix)]
+#[test]
+fn a_tool_is_found_only_as_an_executable_file_on_path() {
+    use std::os::unix::fs::PermissionsExt;
+    let (_guard, dir) = crate::test_support::utf8_temp_dir();
+    let bin = dir.join("bin");
+    std::fs::create_dir_all(bin.join("codex")).unwrap();
+    std::fs::write(bin.join("claude"), "").unwrap();
+    std::fs::write(bin.join("opencode"), "").unwrap();
+    std::fs::set_permissions(bin.join("opencode"), std::fs::Permissions::from_mode(0o755)).unwrap();
+    let path = std::env::join_paths([dir.join("empty"), bin]).unwrap();
+    assert!(on_path("opencode", &path));
+    assert!(!on_path("claude", &path));
+    assert!(!on_path("codex", &path));
+    assert!(!on_path("missing", &path));
+}

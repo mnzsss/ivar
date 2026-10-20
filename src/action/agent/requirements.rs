@@ -38,8 +38,22 @@ pub fn system_probes() -> Probes<'static> {
 }
 
 fn tool_present(tool: Tool) -> bool {
-    crate::infra::proc::capture(&crate::infra::proc::Command::new(tool.as_str()).arg("--version"))
-        .is_ok()
+    std::env::var_os("PATH").is_some_and(|path| on_path(tool.as_str(), &path))
+}
+
+fn on_path(program: &str, path: &std::ffi::OsStr) -> bool {
+    std::env::split_paths(path).any(|dir| is_executable_file(&dir.join(program)))
+}
+
+#[cfg(unix)]
+fn is_executable_file(path: &std::path::Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::metadata(path).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+}
+
+#[cfg(not(unix))]
+fn is_executable_file(path: &std::path::Path) -> bool {
+    path.is_file()
 }
 
 /// Every missing requirement, probed only when the hall defines agents.
