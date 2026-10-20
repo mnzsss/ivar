@@ -489,3 +489,28 @@ fn the_scratch_dir_sits_inside_any_session_view_dir() {
 fn the_scratch_dir_is_dot_prefixed() {
     assert!(crate::domain::session::SCRATCH_DIR.starts_with('.'));
 }
+
+#[test]
+fn agent_paths_live_under_agents_and_the_ignored_dotdir() {
+    let layout = Layout::at("/hall");
+    assert_eq!(
+        layout.agent_file("nightly"),
+        Utf8PathBuf::from("/hall/agents/nightly.md")
+    );
+    assert_eq!(
+        layout.agent_run_receipt("nightly", "r1"),
+        Utf8PathBuf::from("/hall/.ivar/agents/runs/nightly/r1.json")
+    );
+    assert_eq!(
+        layout.agent_lock("nightly"),
+        Utf8PathBuf::from("/hall/.ivar/agents/locks/nightly.lock")
+    );
+    assert_eq!(
+        layout.agent_run_scratch("r1"),
+        Utf8PathBuf::from("/hall/.ivar/agents/tmp/r1")
+    );
+    assert_eq!(
+        layout.agent_secrets_env(),
+        Utf8PathBuf::from("/hall/.ivar/secrets/agents.env")
+    );
+}

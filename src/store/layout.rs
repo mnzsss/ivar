@@ -433,6 +433,56 @@ impl Layout {
         self.secrets_dir().join("mcp.env")
     }
 
+    /// `<hall>/agents/` — scheduled agent definitions. Committed.
+    #[must_use]
+    pub fn agents_dir(&self) -> Utf8PathBuf {
+        self.root.join("agents")
+    }
+
+    /// `<hall>/agents/<name>.md` — one scheduled agent's definition.
+    #[must_use]
+    pub fn agent_file(&self, name: &str) -> Utf8PathBuf {
+        self.agents_dir().join(format!("{name}.md"))
+    }
+
+    /// `<hall>/.ivar/agents/` — local state of scheduled agent runs.
+    #[must_use]
+    pub fn agent_state_dir(&self) -> Utf8PathBuf {
+        self.ivar_dir().join("agents")
+    }
+
+    /// `<hall>/.ivar/agents/runs/<agent>/` — one agent's run receipts.
+    #[must_use]
+    pub fn agent_runs_dir(&self, agent: &str) -> Utf8PathBuf {
+        self.agent_state_dir().join("runs").join(agent)
+    }
+
+    /// `<hall>/.ivar/agents/runs/<agent>/<run-id>.json` — one run's receipt.
+    #[must_use]
+    pub fn agent_run_receipt(&self, agent: &str, run_id: &str) -> Utf8PathBuf {
+        self.agent_runs_dir(agent).join(format!("{run_id}.json"))
+    }
+
+    /// `<hall>/.ivar/agents/locks/<agent>.lock` — held while the agent runs.
+    #[must_use]
+    pub fn agent_lock(&self, agent: &str) -> Utf8PathBuf {
+        self.agent_state_dir()
+            .join("locks")
+            .join(format!("{agent}.lock"))
+    }
+
+    /// `<hall>/.ivar/agents/tmp/<run-id>/` — one run's scratch directory.
+    #[must_use]
+    pub fn agent_run_scratch(&self, run_id: &str) -> Utf8PathBuf {
+        self.agent_state_dir().join("tmp").join(run_id)
+    }
+
+    /// `<hall>/.ivar/secrets/agents.env` — values for agents' `secrets`.
+    #[must_use]
+    pub fn agent_secrets_env(&self) -> Utf8PathBuf {
+        self.secrets_dir().join("agents.env")
+    }
+
     /// `<hall>/.ivar/skills/` — hall-scoped skills. Committed.
     #[must_use]
     pub fn hall_skills(&self) -> Utf8PathBuf {
