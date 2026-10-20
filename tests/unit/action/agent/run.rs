@@ -528,3 +528,44 @@ fn a_host_run_without_landlock_fails_with_the_landlock_code() {
     };
     assert_eq!(failure.code, "agent.landlock_unavailable");
 }
+
+#[test]
+fn host_workspace_refuses_a_mount_outside_workspace_or_with_a_path_name() {
+    let (_guard, dir) = crate::test_support::utf8_temp_dir();
+    for target in [
+        "/elsewhere/api",
+        "/workspace/a/b",
+        "/workspace/..",
+        "/workspace/",
+    ] {
+        let ws = Workspace {
+            mounts: vec![Mount {
+                source: "/hall/.ivar/repos/api/main".into(),
+                target: target.into(),
+                read_only: true,
+            }],
+            workdir: "/workspace".into(),
+        };
+        assert!(host_workspace(&dir, &ws).is_err(), "{target} accepted");
+    }
+}
+
+#[test]
+fn state_roots_are_created_and_never_cover_home() {
+    let (_guard, dir) = crate::test_support::utf8_temp_dir();
+    let home = dir.join("home");
+    std::fs::create_dir_all(&home).unwrap();
+    let missing = home.join(".codex");
+    assert_eq!(
+        prepare_state_roots(&home, vec![missing.clone()]).unwrap(),
+        [missing.clone()]
+    );
+    assert!(missing.is_dir());
+    for unsafe_root in [home.clone(), dir.clone(), home.join("..")] {
+        let failure = prepare_state_roots(&home, vec![unsafe_root.clone()]).unwrap_err();
+        assert_eq!(
+            failure.code, "agent.state_root_covers_home",
+            "{unsafe_root}"
+        );
+    }
+}

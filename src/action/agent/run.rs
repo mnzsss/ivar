@@ -248,7 +248,19 @@ pub(crate) fn host_workspace(
     let root = scratch.join("workspace");
     fs::ensure_dir(&root)?;
     for mount in &ws.mounts {
-        let name = mount.target.trim_start_matches("/workspace/");
+        let name = mount
+            .target
+            .strip_prefix("/workspace/")
+            .filter(|n| !n.is_empty() && !n.contains('/') && *n != "..")
+            .ok_or_else(|| {
+                Failure::failed(
+                    "agent.invalid_mount",
+                    format!(
+                        "mount target `{}` is not a `/workspace/<name>` path",
+                        mount.target
+                    ),
+                )
+            })?;
         fs::create_symlink(Utf8Path::new(&mount.source), &root.join(name))?;
     }
     let cwd = root.join(
@@ -263,6 +275,30 @@ pub(crate) fn host_workspace(
         .map(|m| Utf8PathBuf::from(&m.source))
         .collect();
     Ok((cwd, writable))
+}
+
+/// Creates each state root, refusing one that is `home` or an ancestor of it:
+/// granting it would make the whole home writable.
+pub(crate) fn prepare_state_roots(
+    home: &Utf8Path,
+    roots: Vec<Utf8PathBuf>,
+) -> Result<Vec<Utf8PathBuf>, Failure> {
+    let canonical = |p: &Utf8Path| p.canonicalize_utf8().unwrap_or_else(|_| p.to_path_buf());
+    let home = canonical(home);
+    for root in &roots {
+        fs::ensure_dir(root)?;
+        if home.starts_with(canonical(root)) {
+            return Err(Failure::failed(
+                "agent.state_root_covers_home",
+                format!("state directory `{root}` is or contains your home `{home}`, so a `runtime: host` run would get write access to all of it"),
+            )
+            .fix(crate::error::FixAction::safe(
+                "agent.state_root_move",
+                "Point CLAUDE_CONFIG_DIR, CODEX_HOME or XDG_*_HOME at a directory below your home.",
+            )));
+        }
+    }
+    Ok(roots)
 }
 
 /// Copies `<home>/.claude.json` into the config dir once, so claude keeps its
@@ -310,7 +346,7 @@ fn execute_host(
     };
     let mut roots = vec![scratch.to_path_buf(), Utf8PathBuf::from("/dev/null")];
     roots.extend(writable);
-    let state = tool.state_roots(&host.home, &var);
+    let state = prepare_state_roots(&host.home, tool.state_roots(&host.home, &var))?;
     if *tool == Tool::Claude
         && let Some(config_dir) = state.first()
     {
