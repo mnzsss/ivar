@@ -1,5 +1,6 @@
 //! `agent`: scheduled agents run in Docker from systemd user timers.
 
+pub mod notify;
 pub mod requirements;
 pub mod run;
 pub mod status;

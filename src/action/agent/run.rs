@@ -7,6 +7,7 @@ use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use uuid::Uuid;
 
+use super::notify;
 use crate::action::{Ctx, discover_hall, read_manifest};
 use crate::domain::agent::container::{
     ContainerPlan, Mount, agent_run_args, proxy_run_args, tinyproxy_conf, tinyproxy_filter,
@@ -145,9 +146,10 @@ fn completed(
 /// The single point that records a run.
 pub(crate) fn finish(
     layout: &Layout,
-    _spec: &AgentSpec,
-    receipt: AgentRunReceipt,
+    spec: &AgentSpec,
+    mut receipt: AgentRunReceipt,
 ) -> Outcome<AgentRunReceipt> {
+    notify::deliver(spec, &mut receipt);
     store::agent::write_receipt(layout, &receipt)?;
     Ok(Report::new(receipt))
 }

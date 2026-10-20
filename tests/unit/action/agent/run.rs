@@ -238,3 +238,15 @@ fn agent_run_real_docker() {
     );
     assert_eq!(run_manual(&root).outcome, AgentRunOutcome::Succeeded);
 }
+
+#[test]
+fn a_skipped_run_still_notifies() {
+    let (_guard, root) = hall_with_agent("tool: claude\nnotify: http://127.0.0.1:9/hook\n");
+    let _held =
+        crate::infra::fs::try_lock_exclusive(&Layout::at(root.clone()).agent_lock("nightly"))
+            .unwrap()
+            .unwrap();
+    let receipt = run_manual(&root);
+    assert_eq!(receipt.outcome, AgentRunOutcome::Skipped);
+    assert!(receipt.notify_error.is_some(), "a POST was attempted");
+}

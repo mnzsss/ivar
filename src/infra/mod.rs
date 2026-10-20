@@ -27,3 +27,4 @@ pub mod systemd;
 pub mod table;
 pub mod term;
 pub mod url;
+pub mod webhook;
