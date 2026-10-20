@@ -753,3 +753,62 @@ fn fake_docker_and_systemctl_record_their_calls_side_by_side() {
     assert_eq!(docker.log(), "info\n");
     assert_eq!(systemctl.log(), "--user show\n");
 }
+
+#[test]
+fn a_process_group_deadline_kills_the_grandchildren_too() {
+    let (_guard, dir) = utf8_temp_dir();
+    let pidfile = dir.join("grandchild.pid");
+    let finished = to_log_with_deadline(
+        &Command::new("sh")
+            .args(["-c", &format!("sleep 60 & echo $! > {pidfile}; wait")])
+            .process_group(),
+        &dir.join("out.log"),
+        std::time::Duration::from_millis(300),
+        &|_| false,
+    )
+    .unwrap();
+    assert_eq!(finished, Finished::TimedOut);
+    let pid = std::fs::read_to_string(&pidfile).unwrap();
+    assert!(
+        crate::test_support::process_is_gone(pid.trim()),
+        "grandchild {pid} survived"
+    );
+}
+
+#[test]
+fn a_grandchild_that_ignores_sigterm_outlives_its_leader_until_the_grace_ends() {
+    let (_guard, dir) = utf8_temp_dir();
+    let pidfile = dir.join("stubborn.pid");
+    let started = std::time::Instant::now();
+    let finished = to_log_with_deadline_and_grace(
+        &Command::new("sh")
+            .args([
+                "-c",
+                &format!("sh -c 'trap \"\" TERM; sleep 60' & echo $! > {pidfile}; wait"),
+            ])
+            .process_group(),
+        &dir.join("out.log"),
+        std::time::Duration::from_millis(300),
+        &|_| false,
+        std::time::Duration::from_secs(1),
+    )
+    .unwrap();
+    assert_eq!(finished, Finished::TimedOut);
+    let elapsed = started.elapsed();
+    assert!(
+        elapsed >= std::time::Duration::from_millis(1200),
+        "SIGKILL came before the grace: {elapsed:?}"
+    );
+    assert!(elapsed < std::time::Duration::from_secs(4), "{elapsed:?}");
+    let pid = std::fs::read_to_string(&pidfile).unwrap();
+    assert!(
+        crate::test_support::process_is_gone(pid.trim()),
+        "stubborn {pid} survived"
+    );
+}
+
+#[test]
+fn env_clear_keeps_only_the_variables_set_on_the_command() {
+    let output = capture(&Command::new("/usr/bin/env").env_clear().env("ONLY", "this")).unwrap();
+    assert_eq!(output.stdout, "ONLY=this");
+}

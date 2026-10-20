@@ -216,3 +216,14 @@ pub(crate) fn assert_waits_for_index_lock(
         );
     });
 }
+
+pub(crate) fn process_is_gone(pid: &str) -> bool {
+    (0..20).any(|_| {
+        let gone = std::fs::read_to_string(format!("/proc/{pid}/stat"))
+            .map_or(true, |stat| stat.split_whitespace().nth(2) == Some("Z"));
+        if !gone {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        gone
+    })
+}

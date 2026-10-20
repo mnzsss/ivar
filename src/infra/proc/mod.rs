@@ -87,6 +87,8 @@ pub struct Command {
     cwd: Option<Utf8PathBuf>,
     env: Vec<(String, String)>,
     stdin: Option<String>,
+    clear_env: bool,
+    process_group: bool,
 }
 
 impl Command {
@@ -99,6 +101,8 @@ impl Command {
             cwd: None,
             env: Vec::new(),
             stdin: None,
+            clear_env: false,
+            process_group: false,
         }
     }
 
@@ -139,6 +143,22 @@ impl Command {
     #[must_use]
     pub fn env(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
         self.env.push((key.into(), value.into()));
+        self
+    }
+
+    /// Start the child from an empty environment; only the variables set
+    /// with [`Self::env`] reach it.
+    #[must_use]
+    pub fn env_clear(mut self) -> Self {
+        self.clear_env = true;
+        self
+    }
+
+    /// Make the child lead its own process group, so a stop reaches every
+    /// process it started.
+    #[must_use]
+    pub fn process_group(mut self) -> Self {
+        self.process_group = true;
         self
     }
 
@@ -235,6 +255,16 @@ impl Command {
         if let Some(dir) = &self.cwd {
             command.current_dir(dir);
             command.env("PWD", dir);
+        }
+        if self.clear_env {
+            command.env_clear();
+            if let Some(dir) = &self.cwd {
+                command.env("PWD", dir);
+            }
+        }
+        #[cfg(target_os = "linux")]
+        if self.process_group {
+            std::os::unix::process::CommandExt::process_group(&mut command, 0);
         }
         for (key, value) in redirect.iter().flat_map(|r| &r.env).chain(&self.env) {
             command.env(key, value);
@@ -445,6 +475,20 @@ pub fn to_log_with_deadline(
     deadline: std::time::Duration,
     stop_when: &dyn Fn(&str) -> bool,
 ) -> Result<Finished, Error> {
+    to_log_with_deadline_and_grace(command, log, deadline, stop_when, GROUP_STOP_GRACE)
+}
+
+const GROUP_STOP_GRACE: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// [`to_log_with_deadline`] with the time a process group gets between
+/// `SIGTERM` and `SIGKILL`.
+pub(crate) fn to_log_with_deadline_and_grace(
+    command: &Command,
+    log: &camino::Utf8Path,
+    deadline: std::time::Duration,
+    stop_when: &dyn Fn(&str) -> bool,
+    grace: std::time::Duration,
+) -> Result<Finished, Error> {
     let stdout =
         std::fs::File::create(log.as_std_path()).map_err(|source| spawn_error(command, source))?;
     let stderr = stdout
@@ -474,12 +518,35 @@ pub fn to_log_with_deadline(
             None
         };
         if let Some(verdict) = verdict {
-            let _ = child.kill();
-            let _ = child.wait();
+            stop_child(&mut child, command.process_group, grace);
             return Ok(verdict);
         }
         std::thread::sleep(std::time::Duration::from_millis(100));
     }
+}
+
+fn group_alive(pgid: &str) -> bool {
+    capture(&Command::new("kill").args(["-0", "--", pgid])).is_ok_and(|o| o.code == Some(0))
+}
+
+fn stop_child(child: &mut std::process::Child, group: bool, grace: std::time::Duration) {
+    if group {
+        let pgid = format!("-{}", child.id());
+        let _ = capture(&Command::new("kill").args(["-TERM", "--", &pgid]));
+        let since = std::time::Instant::now();
+        loop {
+            // Reap the leader so a zombie does not keep the group "alive".
+            let _ = child.try_wait();
+            if !group_alive(&pgid) || since.elapsed() >= grace {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        let _ = capture(&Command::new("kill").args(["-KILL", "--", &pgid]));
+    } else {
+        let _ = child.kill();
+    }
+    let _ = child.wait();
 }
 
 /// The last non-blank line of the log [`to_log`] wrote, if any — the line a
