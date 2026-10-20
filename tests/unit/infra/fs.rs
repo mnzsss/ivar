@@ -985,3 +985,14 @@ fn lock_exclusive_holds_a_second_locker_until_the_first_is_dropped() {
         "the second lock was granted while the first was held"
     );
 }
+
+#[test]
+fn try_lock_exclusive_returns_none_while_another_handle_holds_it() {
+    let (_guard, dir) = crate::test_support::utf8_temp_dir();
+    let path = dir.join("locks/nightly.lock");
+    let first = try_lock_exclusive(&path).unwrap();
+    assert!(first.is_some());
+    assert!(try_lock_exclusive(&path).unwrap().is_none());
+    drop(first);
+    assert!(try_lock_exclusive(&path).unwrap().is_some());
+}

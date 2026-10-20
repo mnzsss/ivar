@@ -64,6 +64,36 @@ pub(crate) fn fake_t3_on_this_thread(fake: &FakeT3) -> crate::infra::proc::Redir
     redirect_t3(fake_t3_command(fake))
 }
 
+#[path = "fake_docker.rs"]
+mod fake_docker;
+
+pub(crate) use fake_docker::FakeDocker;
+
+pub(crate) fn fake_docker_command(fake: &FakeDocker) -> crate::infra::proc::Command {
+    crate::infra::proc::Command::new("/bin/sh")
+        .arg(fake.dir.join("docker").as_str())
+        .env("DOCKER_FAKE_LOG", fake.log.as_str())
+}
+
+pub(crate) fn fake_docker_on_this_thread(fake: &FakeDocker) -> crate::infra::proc::Redirect {
+    crate::infra::proc::redirect_on_this_thread("docker", fake_docker_command(fake))
+}
+
+#[path = "fake_systemctl.rs"]
+mod fake_systemctl;
+
+pub(crate) use fake_systemctl::FakeSystemctl;
+
+pub(crate) fn fake_systemctl_command(fake: &FakeSystemctl) -> crate::infra::proc::Command {
+    crate::infra::proc::Command::new("/bin/sh")
+        .arg(fake.dir.join("systemctl").as_str())
+        .env("SYSTEMCTL_FAKE_LOG", fake.log.as_str())
+}
+
+pub(crate) fn fake_systemctl_on_this_thread(fake: &FakeSystemctl) -> crate::infra::proc::Redirect {
+    crate::infra::proc::redirect_on_this_thread("systemctl", fake_systemctl_command(fake))
+}
+
 /// Rewrites the hall manifest to list `claude-code` and `t3`, with `default` as the default.
 pub(crate) fn enable_t3_host(root: &Utf8PathBuf, default: crate::domain::provider::Provider) {
     use crate::domain::provider::Provider;

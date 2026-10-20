@@ -251,40 +251,36 @@ fn redirected(_program: &str) -> Option<Command> {
 
 #[cfg(test)]
 fn redirected(program: &str) -> Option<Command> {
-    REDIRECT.with(|slot| {
-        slot.borrow()
-            .as_ref()
-            .filter(|(name, _)| name == program)
-            .map(|(_, to)| to.clone())
-    })
+    REDIRECT.with(|slot| slot.borrow().get(program).cloned())
 }
 
 #[cfg(test)]
 thread_local! {
-    static REDIRECT: std::cell::RefCell<Option<(String, Command)>> =
-        const { std::cell::RefCell::new(None) };
+    static REDIRECT: std::cell::RefCell<std::collections::HashMap<String, Command>> =
+        std::cell::RefCell::new(std::collections::HashMap::new());
 }
 
 /// Run `to` wherever this thread would spawn `program`, until the guard
 /// drops. Thread-scoped because tests run in parallel threads that share one
 /// process environment, and `unsafe_code` is forbidden, so `PATH` cannot be
 /// changed instead. Test-only: an external program is swapped for its fake
-/// and nothing internal is replaced.
+/// and nothing internal is replaced. A second redirect for the same program
+/// replaces the first, and dropping either clears it.
 #[cfg(test)]
 pub(crate) fn redirect_on_this_thread(program: &str, to: Command) -> Redirect {
-    REDIRECT.with(|slot| *slot.borrow_mut() = Some((program.to_owned(), to)));
-    Redirect(())
+    REDIRECT.with(|slot| slot.borrow_mut().insert(program.to_owned(), to));
+    Redirect(program.to_owned())
 }
 
-/// Clears this thread's redirect when dropped.
+/// Clears this thread's redirect for its program when dropped.
 #[cfg(test)]
 #[derive(Debug)]
-pub(crate) struct Redirect(());
+pub(crate) struct Redirect(String);
 
 #[cfg(test)]
 impl Drop for Redirect {
     fn drop(&mut self) {
-        REDIRECT.with(|slot| *slot.borrow_mut() = None);
+        REDIRECT.with(|slot| slot.borrow_mut().remove(&self.0));
     }
 }
 
@@ -425,6 +421,65 @@ pub fn to_log(command: &Command, log: &camino::Utf8Path) -> Result<Option<i32>, 
         .map_err(|source| spawn_error(command, source))?;
 
     Ok(status.code())
+}
+
+/// How a [`to_log_with_deadline`] child ended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Finished {
+    Exited(Option<i32>),
+    TimedOut,
+    Stopped,
+}
+
+/// [`to_log`] with a deadline and a watcher: every 100 ms the log so far is
+/// passed to `stop_when`, and `true` kills the child ([`Finished::Stopped`]);
+/// reaching `deadline` kills it too ([`Finished::TimedOut`]).
+///
+/// # Errors
+///
+/// Returns [`Error::Spawn`] if `log` cannot be created, or `command`
+/// cannot be spawned or waited on.
+pub fn to_log_with_deadline(
+    command: &Command,
+    log: &camino::Utf8Path,
+    deadline: std::time::Duration,
+    stop_when: &dyn Fn(&str) -> bool,
+) -> Result<Finished, Error> {
+    let stdout =
+        std::fs::File::create(log.as_std_path()).map_err(|source| spawn_error(command, source))?;
+    let stderr = stdout
+        .try_clone()
+        .map_err(|source| spawn_error(command, source))?;
+    let mut child = command
+        .to_std()
+        .stdin(Stdio::null())
+        .stdout(stdout)
+        .stderr(stderr)
+        .spawn()
+        .map_err(|source| spawn_error(command, source))?;
+    let started = std::time::Instant::now();
+    loop {
+        if let Some(status) = child
+            .try_wait()
+            .map_err(|source| spawn_error(command, source))?
+        {
+            return Ok(Finished::Exited(status.code()));
+        }
+        let seen = std::fs::read(log.as_std_path()).unwrap_or_default();
+        let verdict = if stop_when(&String::from_utf8_lossy(&seen)) {
+            Some(Finished::Stopped)
+        } else if started.elapsed() >= deadline {
+            Some(Finished::TimedOut)
+        } else {
+            None
+        };
+        if let Some(verdict) = verdict {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Ok(verdict);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
 }
 
 /// The last non-blank line of the log [`to_log`] wrote, if any — the line a

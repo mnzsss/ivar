@@ -20,8 +20,8 @@ pub use guard::{LiftedGuard, chmod, clear_write_bits, restore_write_bits, unix_m
 pub use io::{
     TempDir, canonicalize, copy_dir, create_new_text, ensure_dir, exists, is_dir, is_file,
     is_real_dir, lock_exclusive, prune_empty_parents, read_bytes, read_dir, read_text,
-    remove_empty_dir, remove_file, remove_path, rename, stat, write_atomic, write_bytes,
-    write_sensitive_atomic, write_text,
+    remove_empty_dir, remove_file, remove_path, rename, stat, try_lock_exclusive, write_atomic,
+    write_bytes, write_sensitive_atomic, write_text,
 };
 pub use symlink::{
     SymlinkTarget, create_symlink, read_symlink, replace_symlink, replace_symlink_if_changed,
