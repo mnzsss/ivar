@@ -11,7 +11,7 @@ use std::collections::BTreeSet;
 #[test]
 fn catalog_is_complete_unique_and_current() {
     let skills = catalog();
-    assert_eq!(skills.len(), 6);
+    assert_eq!(skills.len(), 7);
 
     let ids = skills.iter().map(|skill| skill.id).collect::<BTreeSet<_>>();
     assert_eq!(ids.len(), skills.len());
@@ -53,6 +53,21 @@ fn feedback_skill_publishes_only_through_an_approved_preview() {
     let content = skill.skill_md();
     assert!(content.contains("ivar feedback submit <id> --preview"));
     assert!(content.contains("--fingerprint <fingerprint>"));
+}
+
+#[test]
+fn agent_skill_suggests_agents_only_after_the_user_agrees() {
+    let skill = catalog()
+        .iter()
+        .find(|s| s.id == "agent")
+        .expect("agent skill is in catalog");
+    let content = skill.skill_md();
+    assert!(content.contains("name: ivar-agent"));
+    assert!(content.contains("## When to suggest an agent"));
+    assert!(content.contains("Create nothing\nbefore the answer."));
+    assert!(content.contains("Ask before `ivar agent sync`"));
+    assert!(content.contains("Ask before `ivar agent run <name>`"));
+    assert!(content.contains("Never ask for a value in\n   the conversation"));
 }
 
 fn explore() -> ShippedSkill {
