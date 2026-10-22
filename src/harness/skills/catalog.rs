@@ -70,6 +70,11 @@ macro_rules! skill_file {
 
 const SKILLS: &[ShippedSkill] = &[
     ShippedSkill {
+        id: "agent",
+        files: &[skill_file!("ivar-agent", "SKILL.md")],
+        legacy_sha256: None,
+    },
+    ShippedSkill {
         id: "deliver",
         files: &[skill_file!("ivar-deliver", "SKILL.md")],
         legacy_sha256: None,
