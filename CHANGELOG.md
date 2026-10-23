@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.1](https://github.com/mnzsss/ivar/compare/v0.17.0...v0.17.1) - 2026-10-22
+
+### Added
+
+- add the ivar-agent skill ([#184](https://github.com/mnzsss/ivar/pull/184))
+
 ## [0.17.0](https://github.com/mnzsss/ivar/compare/v0.16.2...v0.17.0) - 2026-10-20
 
 ### Added
