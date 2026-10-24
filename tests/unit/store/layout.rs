@@ -116,6 +116,7 @@ fn gitignore_lines_excludes_the_dotdir_per_entry_and_reincludes_committed_childr
             ".claude/skills/",
             ".opencode/skills/",
             ".omp/skills/",
+            ".tmp/",
         ]
     );
 }
@@ -137,6 +138,7 @@ fn gitignore_lines_ignore_only_ivar_shipped_commands() {
             ".claude/skills/",
             ".opencode/skills/",
             ".omp/skills/",
+            ".tmp/",
         ]
     );
 }

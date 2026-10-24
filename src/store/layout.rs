@@ -688,6 +688,9 @@ impl Layout {
     /// into `.ivar/skills*`, and the symlinks are absolute/machine-local.
     /// The source of truth remains `.ivar/skills/` and `.ivar/skills-local/`,
     /// never the harness target dirs.
+    ///
+    /// `.tmp/` is the scratch dir agents and scripts create at the hall root;
+    /// it is ignored so working files never reach a diff.
     #[must_use]
     pub fn gitignore_lines() -> Vec<&'static str> {
         vec![
@@ -700,6 +703,7 @@ impl Layout {
             ".claude/skills/",
             ".opencode/skills/",
             ".omp/skills/",
+            ".tmp/",
         ]
     }
 
