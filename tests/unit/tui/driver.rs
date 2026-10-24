@@ -509,6 +509,54 @@ fn drag_copies_only_selected_shell_cells_and_click_clears() {
 }
 
 #[test]
+fn drag_selection_stays_highlighted_after_release_until_next_click() {
+    let (mut driver, log) = driver_with(1);
+    injected_output(&log, 0)
+        .send(b"hello world".to_vec())
+        .unwrap();
+    driver.pump().unwrap();
+    driver.mouse_down((0, 0));
+    driver.mouse_drag((0, 4));
+    driver.mouse_up((0, 4));
+    assert_eq!(driver.take_copy().as_deref(), Some("hello"));
+    assert_eq!(
+        driver.snapshot("checkout", &[], "ctrl+o").panel.selection,
+        Some(((0, 0), (0, 4)))
+    );
+    driver.mouse_down((0, 6));
+    assert_eq!(
+        driver.snapshot("checkout", &[], "ctrl+o").panel.selection,
+        None
+    );
+}
+
+#[test]
+fn output_elsewhere_keeps_selection_but_output_under_it_clears_it() {
+    let (mut driver, log) = driver_with(1);
+    injected_output(&log, 0)
+        .send(b"hello\r\n".to_vec())
+        .unwrap();
+    driver.pump().unwrap();
+    driver.mouse_down((0, 0));
+    driver.mouse_drag((0, 4));
+    driver.mouse_up((0, 4));
+    injected_output(&log, 0).send(b"$ ".to_vec()).unwrap();
+    driver.pump().unwrap();
+    assert_eq!(
+        driver.snapshot("checkout", &[], "ctrl+o").panel.selection,
+        Some(((0, 0), (0, 4)))
+    );
+    injected_output(&log, 0)
+        .send(b"\x1b[1;1HHELLO".to_vec())
+        .unwrap();
+    driver.pump().unwrap();
+    assert_eq!(
+        driver.snapshot("checkout", &[], "ctrl+o").panel.selection,
+        None
+    );
+}
+
+#[test]
 fn keyboard_selection_copies_and_never_writes_into_pty() {
     let (mut driver, log) = driver_with(1);
     injected_output(&log, 0).send(b"hello".to_vec()).unwrap();
