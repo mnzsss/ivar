@@ -1381,3 +1381,203 @@ fn apply_warns_when_the_graph_database_cannot_drop_the_layers() {
         report.warnings
     );
 }
+
+// -- children integrated into a parent that was rebased and delivered -------
+
+fn preview_of(root: &Utf8PathBuf, feature: &str) -> CleanupPreview {
+    cleanup(
+        &Ctx::new(root.clone()),
+        CleanupInput {
+            feature: feature.to_owned(),
+            preview: true,
+            record: None,
+            session_id: None,
+        },
+    )
+    .unwrap()
+    .value
+    .preview
+}
+
+/// Commit `file` in the worktree of `branch` in the `api` repo.
+fn commit_file(root: &Utf8PathBuf, branch: &str, file: &str) {
+    let worktree = root.join(".ivar/repos/api").join(branch);
+    std::fs::write(worktree.join(file), format!("{file}\n")).unwrap();
+    git_in(&worktree, &["add", file]);
+    git_in(&worktree, &["commit", "-m", file]);
+}
+
+fn git_in(dir: &Utf8PathBuf, args: &[&str]) {
+    test_git(dir, args);
+}
+
+/// A child of `checkout` that rewrites `line` of the parent's `shared.md`,
+/// with its plan approved so it can integrate.
+fn add_editing_child(root: &Utf8PathBuf, child: &str, line: usize) {
+    use crate::action::plan::approve as plan_approve;
+    use crate::action::plan::create as plan_create;
+
+    let ctx = Ctx::new(root.clone());
+    add_subfeature(root, child, "checkout", true);
+    let worktree = root.join(".ivar/repos/api").join(child);
+    let shared = worktree.join("shared.md");
+    let text = std::fs::read_to_string(&shared).unwrap();
+    let edited = text
+        .lines()
+        .enumerate()
+        .map(|(index, text)| {
+            if index + 1 == line {
+                format!("{child} edit")
+            } else {
+                text.to_owned()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    std::fs::write(&shared, format!("{edited}\n")).unwrap();
+    git_in(&worktree, &["add", "shared.md"]);
+    git_in(&worktree, &["commit", "-m", child]);
+    plan_create::create(
+        &ctx,
+        plan_create::CreateInput {
+            feature: child.to_owned(),
+            artifacts: Vec::new(),
+        },
+    )
+    .unwrap();
+    for gate in ["requirements", "analysis", "plan"] {
+        plan_approve::approve(
+            &ctx,
+            plan_approve::ApproveInput {
+                feature: child.to_owned(),
+                gate: gate.to_owned(),
+            },
+        )
+        .unwrap();
+    }
+}
+
+fn integrate_child(root: &Utf8PathBuf, child: &str) {
+    use crate::action::feature::integrate::{IntegrateInput, integrate};
+
+    integrate(
+        &Ctx::new(root.clone()),
+        IntegrateInput {
+            feature: child.to_owned(),
+            via: None,
+            strategy: None,
+            name: None,
+        },
+    )
+    .unwrap();
+}
+
+/// A parent that owns a ten-line `shared.md`, and two children editing lines
+/// far enough apart to merge cleanly, but close enough that each child's diff
+/// against its own fork point carries the other's edit as context. Integrated
+/// in turn, the second squash no longer has the patch its child branch has, so
+/// only the receipt can say it landed.
+fn parent_with_integrated_children() -> (tempfile::TempDir, Utf8PathBuf) {
+    let (guard, root) = hall_with_feature(&["api"], None);
+    let bare = root.join(".ivar/repos/api/.bare");
+    test_git(&bare, &["config", "user.name", "ivar tests"]);
+    test_git(&bare, &["config", "user.email", "tests@ivar.invalid"]);
+
+    let parent = root.join(".ivar/repos/api/checkout");
+    let shared = (1..=10)
+        .map(|line| format!("line {line}\n"))
+        .collect::<String>();
+    std::fs::write(parent.join("shared.md"), shared).unwrap();
+    git_in(&parent, &["add", "shared.md"]);
+    git_in(&parent, &["commit", "-m", "shared"]);
+
+    add_editing_child(&root, "child-a", 4);
+    add_editing_child(&root, "child-b", 7);
+    integrate_child(&root, "child-a");
+    integrate_child(&root, "child-b");
+    (guard, root)
+}
+
+fn rebase_parent_onto_advanced_main(root: &Utf8PathBuf) {
+    commit_file(root, "main", "other.md");
+    crate::action::feature::rebase::rebase(
+        &Ctx::new(root.clone()),
+        crate::action::feature::rebase::RebaseInput {
+            name: "checkout".to_owned(),
+            onto: None,
+            repos: Vec::new(),
+            offline: true,
+        },
+    )
+    .unwrap();
+}
+
+/// The parent squash-merged into `main`, the way a delivered pull request
+/// lands.
+fn deliver_parent(root: &Utf8PathBuf) {
+    let main = root.join(".ivar/repos/api/main");
+    test_git(&main, &["merge", "--squash", "checkout"]);
+    test_git(&main, &["commit", "-m", "deliver checkout"]);
+}
+
+fn delivered_parent_with_integrated_children() -> (tempfile::TempDir, Utf8PathBuf) {
+    let (guard, root) = parent_with_integrated_children();
+    rebase_parent_onto_advanced_main(&root);
+    deliver_parent(&root);
+    (guard, root)
+}
+
+#[test]
+fn an_integrated_child_is_delivered_once_its_rebased_parent_is_delivered() {
+    let (_guard, root) = delivered_parent_with_integrated_children();
+
+    for child in ["child-a", "child-b"] {
+        let preview = preview_of(&root, child);
+        assert!(preview.repos[0].is_delivered, "{child}: {preview:?}");
+        assert!(!preview.has_blockers(), "{child}: {preview:?}");
+    }
+}
+
+#[test]
+fn a_delivered_parent_does_not_see_integrated_children_as_blockers() {
+    let (_guard, root) = delivered_parent_with_integrated_children();
+
+    let preview = preview_of(&root, "checkout");
+
+    assert!(!preview.has_blockers(), "{preview:?}");
+    assert_eq!(preview.descendants.len(), 2);
+    for descendant in &preview.descendants {
+        assert!(descendant.repos[0].is_delivered, "{descendant:?}");
+    }
+}
+
+#[test]
+fn an_integrated_child_is_delivered_to_its_parent_before_any_rebase() {
+    let (_guard, root) = parent_with_integrated_children();
+
+    for child in ["child-a", "child-b"] {
+        let preview = preview_of(&root, child);
+        assert!(preview.repos[0].is_delivered, "{child}: {preview:?}");
+    }
+}
+
+#[test]
+fn an_integrated_child_is_not_delivered_while_its_rebased_parent_is_not() {
+    let (_guard, root) = parent_with_integrated_children();
+    rebase_parent_onto_advanced_main(&root);
+
+    let preview = preview_of(&root, "child-b");
+
+    assert!(!preview.repos[0].is_delivered, "{preview:?}");
+    assert!(preview.has_blockers());
+}
+
+#[test]
+fn an_integrated_child_that_moved_after_integration_is_not_delivered() {
+    let (_guard, root) = delivered_parent_with_integrated_children();
+    commit_file(&root, "child-b", "late.md");
+
+    let preview = preview_of(&root, "child-b");
+
+    assert!(!preview.repos[0].is_delivered, "{preview:?}");
+}

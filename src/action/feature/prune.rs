@@ -20,6 +20,7 @@
 //! run abort. Teardown itself is delegated to `feature delete`, so the two
 //! paths cannot drift.
 
+use std::collections::BTreeMap;
 use std::io;
 
 use camino::Utf8PathBuf;
@@ -93,7 +94,7 @@ pub fn prune(ctx: &Ctx) -> Outcome<PruneOutcome> {
     let mut kept = Vec::new();
     let mut warnings = Vec::new();
 
-    for feature in list_features(&layout)? {
+    for feature in leaves_first(list_features(&layout)?) {
         let name = feature.name.clone();
         match classify(&git, &layout, &manifest, &feature) {
             Verdict::Keep(reason) => kept.push(KeptFeature {
@@ -174,11 +175,13 @@ fn classify(
             let clone_exists = matches!(git.target_state(&bare), Ok(TargetState::Repository));
             let mut inspection_error = None;
             let unmerged_commits = if clone_exists {
-                match base::unmerged_commits(
+                match base::unmerged_commits_with_integration(
                     git,
-                    &bare,
-                    effective_base.as_str(),
-                    feature.branch.as_str(),
+                    layout,
+                    manifest,
+                    feature,
+                    repo,
+                    &effective_base,
                 ) {
                     Ok(ahead) => Some(ahead),
                     Err(error) => {
@@ -257,6 +260,38 @@ fn unstarted_repo(
         }
     }
     Ok(None)
+}
+
+/// `features` reordered so every descendant comes before its ancestors, and
+/// name order holds within a level. Deleting a parent refuses while any
+/// descendant remains, so a pruned child has to be gone before its parent is
+/// judged.
+fn leaves_first(features: Vec<Feature>) -> Vec<Feature> {
+    let parents: BTreeMap<FeatureName, FeatureName> = features
+        .iter()
+        .filter_map(|feature| Some((feature.name.clone(), feature.parent.clone()?)))
+        .collect();
+    let depth_of = |feature: &Feature| {
+        let mut depth = 0_usize;
+        let mut current = &feature.name;
+        // The bound stops a hand-edited parent cycle from looping.
+        while let Some(parent) = parents.get(current) {
+            depth += 1;
+            if depth > parents.len() {
+                break;
+            }
+            current = parent;
+        }
+        depth
+    };
+    let mut keyed: Vec<(usize, Feature)> = features
+        .into_iter()
+        .map(|feature| (depth_of(&feature), feature))
+        .collect();
+    keyed.sort_by(|(depth_a, a), (depth_b, b)| {
+        depth_b.cmp(depth_a).then_with(|| a.name.cmp(&b.name))
+    });
+    keyed.into_iter().map(|(_, feature)| feature).collect()
 }
 
 /// What to do with one feature.
