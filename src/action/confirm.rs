@@ -187,16 +187,31 @@ pub(crate) fn fixed_interactive(answer: bool) -> std::sync::Arc<dyn Confirm> {
 #[derive(Debug)]
 struct Interactive;
 
+/// Columns a picker row spends on the cursor and checkbox before its label.
+const PICKER_ROW_PREFIX_COLS: usize = 8;
+
 /// Format a list of [`SelectOption`]s as item label strings for dialoguer menus,
-/// matching the existing format: `"{id}"` or `"{id} — {description}"`.
-fn select_items(options: &[SelectOption]) -> Vec<String> {
+/// `"{id}"` or `"{id} — {description}"`, cut to `term_cols` so no row wraps.
+///
+/// dialoguer clears the menu by counting one terminal line per item; a wrapped
+/// row leaves residue and corrupts the screen on redraw.
+fn select_items(options: &[SelectOption], term_cols: usize) -> Vec<String> {
+    let width = term_cols.saturating_sub(PICKER_ROW_PREFIX_COLS).max(1);
     options
         .iter()
-        .map(|opt| match &opt.description {
-            Some(desc) => format!("{} — {desc}", opt.id),
-            None => opt.id.clone(),
+        .map(|opt| {
+            let label = match &opt.description {
+                Some(desc) => format!("{} — {desc}", opt.id),
+                None => opt.id.clone(),
+            };
+            console::truncate_str(&label, width, "…").into_owned()
         })
         .collect()
+}
+
+/// Items per picker page: the terminal height less the prompt and a spare line.
+fn picker_page_rows(term_rows: usize) -> usize {
+    term_rows.saturating_sub(2).max(3)
 }
 
 impl Confirm for Interactive {
@@ -226,10 +241,12 @@ impl Confirm for Interactive {
         }
         let term = console::Term::stderr();
         let theme = dialoguer::theme::ColorfulTheme::default();
-        let items = select_items(options);
+        let (rows, cols) = term.size();
+        let items = select_items(options, usize::from(cols));
         let result = dialoguer::MultiSelect::with_theme(&theme)
             .with_prompt(prompt)
             .items(&items)
+            .max_length(picker_page_rows(usize::from(rows)))
             .interact_on_opt(&term)
             .map_err(|source| {
                 Failure::failed(
@@ -252,10 +269,12 @@ impl Confirm for Interactive {
         }
         let term = console::Term::stderr();
         let theme = dialoguer::theme::ColorfulTheme::default();
-        let items = select_items(options);
+        let (rows, cols) = term.size();
+        let items = select_items(options, usize::from(cols));
         let result = dialoguer::Select::with_theme(&theme)
             .with_prompt(prompt)
             .items(&items)
+            .max_length(picker_page_rows(usize::from(rows)))
             .default(0)
             .interact_on_opt(&term)
             .map_err(|source| {
