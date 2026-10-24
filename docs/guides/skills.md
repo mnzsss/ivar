@@ -83,6 +83,9 @@ skill and enter to confirm. Pass `--path` (or the `tree/…/subpath` URL form) t
 prompting, and `--ref` to pin a branch, tag or sha. As with `create`, the skill
 lands in your personal root unless you pass `--hall`.
 
+A skill whose id already exists in either root is skipped, not refused: it leaves the
+menu, the rest still install, and the report lists what was skipped.
+
 ```sh
 ivar skill add acme/skills --path skills/rust-review --ref v2
 ivar skill update            # move external skills to their tracked ref
