@@ -163,6 +163,7 @@ fn test_encode_impact() {
             file_path: "src/downstream.rs".into(),
             depth: 2,
             path_via: vec!["root_fn".into(), "mid_fn".into(), "downstream".into()],
+            inferred: false,
         }],
         affected_files: vec!["src/downstream.rs".into()],
         total_affected: 1,

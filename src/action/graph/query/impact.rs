@@ -2,6 +2,7 @@
 
 use rusqlite::{OptionalExtension, params};
 
+use super::name_match::{generic_names_sql, language_sql};
 use super::types::{ImpactItem, ImpactResult, QueryError, map_symbol_row};
 use crate::store::graph::db::GraphDb;
 use crate::store::graph::db::row::symbol_from_row;
@@ -33,42 +34,8 @@ pub fn get_impact(
         });
     }
 
-    let mut stmt = conn.prepare_cached(
-        "WITH RECURSIVE caller_graph(symbol_id, symbol_name, depth, visited_ids, path_names) AS (
-            -- Base case: the initial symbol
-            SELECT s.id, s.name, 0, ',' || CAST(s.id AS TEXT) || ',', s.name
-            FROM visible_symbols s
-            WHERE s.id = ?1
-
-            UNION ALL
-
-            -- Recursive step: callers of the current symbol
-            SELECT
-                e.from_symbol_id,
-                s.name,
-                cg.depth + 1,
-                cg.visited_ids || CAST(s.id AS TEXT) || ',',
-                cg.path_names || ' -> ' || s.name
-            FROM visible_edges e
-            JOIN caller_graph cg ON (
-                e.to_symbol_id = cg.symbol_id
-                OR (e.to_symbol_id IS NULL AND e.to_name = cg.symbol_name)
-                OR (e.to_symbol_id IN (SELECT id FROM hidden_symbols) AND e.to_name = cg.symbol_name)
-            )
-            JOIN visible_symbols s ON e.from_symbol_id = s.id
-            WHERE cg.depth < ?2
-              AND e.from_symbol_id IS NOT NULL
-              AND instr(cg.visited_ids, ',' || CAST(s.id AS TEXT) || ',') = 0
-        )
-        SELECT s.id, s.file_id, s.repo, s.name, s.kind, s.scope, s.signature, s.docstring,
-               s.start_line, s.start_col, s.end_line, s.end_col, s.is_exported, s.complexity,
-               cg.depth, cg.path_names, f.path
-        FROM caller_graph cg
-        CROSS JOIN visible_symbols s ON cg.symbol_id = s.id
-        JOIN visible_files f ON s.file_id = f.id
-        WHERE cg.symbol_id != ?1
-        ORDER BY cg.depth ASC, s.name ASC",
-    )?;
+    let sql = caller_graph_sql();
+    let mut stmt = conn.prepare_cached(&sql)?;
 
     let max_depth_i64 = i64::try_from(max_depth).unwrap_or(i64::MAX);
     let rows = stmt.query_map(params![symbol_id, max_depth_i64], |row| {
@@ -76,6 +43,7 @@ pub fn get_impact(
         let depth: i64 = row.get(14)?;
         let path_names: String = row.get(15)?;
         let file_path: String = row.get(16)?;
+        let inferred: bool = row.get(17)?;
 
         let path_via = path_names
             .split(" -> ")
@@ -87,6 +55,7 @@ pub fn get_impact(
             file_path,
             depth: usize::try_from(depth).unwrap_or(usize::MAX),
             path_via,
+            inferred,
         })
     })?;
 
@@ -113,4 +82,59 @@ pub fn get_impact(
         affected_files,
         total_affected,
     })
+}
+
+/// Builds the recursive caller traversal.
+///
+/// `inferred` turns on at the first hop that matches by name alone and stays on
+/// for everything reached through it. A name-only hop must stay inside one
+/// language and may not use a generic name.
+fn caller_graph_sql() -> String {
+    let root_lang = language_sql("rf.path");
+    let caller_lang = language_sql("sf.path");
+    let generic = generic_names_sql();
+    format!(
+        "WITH RECURSIVE caller_graph(symbol_id, symbol_name, symbol_lang, depth, visited_ids, path_names, inferred) AS (
+            -- Base case: the initial symbol
+            SELECT s.id, s.name, {root_lang}, 0, ',' || CAST(s.id AS TEXT) || ',', s.name, 0
+            FROM visible_symbols s
+            JOIN visible_files rf ON s.file_id = rf.id
+            WHERE s.id = ?1
+
+            UNION ALL
+
+            -- Recursive step: callers of the current symbol
+            SELECT
+                e.from_symbol_id,
+                s.name,
+                {caller_lang},
+                cg.depth + 1,
+                cg.visited_ids || CAST(s.id AS TEXT) || ',',
+                cg.path_names || ' -> ' || s.name,
+                CASE WHEN e.to_symbol_id = cg.symbol_id THEN cg.inferred ELSE 1 END
+            FROM visible_edges e
+            JOIN caller_graph cg ON (
+                e.to_symbol_id = cg.symbol_id
+                OR (
+                    (e.to_symbol_id IS NULL OR e.to_symbol_id IN (SELECT id FROM hidden_symbols))
+                    AND e.to_name = cg.symbol_name
+                    AND e.to_name NOT IN ({generic})
+                )
+            )
+            JOIN visible_symbols s ON e.from_symbol_id = s.id
+            JOIN visible_files sf ON s.file_id = sf.id
+            WHERE cg.depth < ?2
+              AND e.from_symbol_id IS NOT NULL
+              AND instr(cg.visited_ids, ',' || CAST(s.id AS TEXT) || ',') = 0
+              AND (e.to_symbol_id = cg.symbol_id OR cg.symbol_lang = {caller_lang})
+        )
+        SELECT s.id, s.file_id, s.repo, s.name, s.kind, s.scope, s.signature, s.docstring,
+               s.start_line, s.start_col, s.end_line, s.end_col, s.is_exported, s.complexity,
+               cg.depth, cg.path_names, f.path, cg.inferred
+        FROM caller_graph cg
+        CROSS JOIN visible_symbols s ON cg.symbol_id = s.id
+        JOIN visible_files f ON s.file_id = f.id
+        WHERE cg.symbol_id != ?1
+        ORDER BY cg.inferred ASC, cg.depth ASC, s.name ASC"
+    )
 }

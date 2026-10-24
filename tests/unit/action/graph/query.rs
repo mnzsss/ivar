@@ -352,6 +352,148 @@ fn impact_ignores_references_resolved_to_another_symbol_with_the_same_name() {
     );
 }
 
+/// Two repos, each with a Rust file and a TypeScript file. `load` and `new` are
+/// defined in `core`'s Rust file; every caller refers to them by name only,
+/// except `resolved_user`, which carries the target id.
+struct NameMatchFixture {
+    db: GraphDb,
+    load: i64,
+    new: i64,
+    resolved_user: i64,
+    same_repo_user: i64,
+    other_repo_rust_user: i64,
+    ts_user: i64,
+}
+
+fn name_match_fixture() -> NameMatchFixture {
+    let db = GraphDb::open_in_memory().expect("open in-memory db");
+    for repo in ["core", "hall"] {
+        db.insert_repo(repo, &format!("/workspace/{repo}"), "main", None)
+            .expect("insert repo");
+    }
+    let core_rs = db.upsert_file("core", "src/lib.rs", "h", 1, 1).unwrap();
+    let core_users = db.upsert_file("core", "src/users.rs", "h", 1, 1).unwrap();
+    let hall_rs = db.upsert_file("hall", "src/main.rs", "h", 1, 1).unwrap();
+    let hall_ts = db.upsert_file("hall", "src/hooks.ts", "h", 1, 1).unwrap();
+    let ids = db
+        .insert_symbols(&[
+            function_symbol(core_rs, "core", "load", 1),
+            function_symbol(core_rs, "core", "new", 10),
+            function_symbol(core_users, "core", "resolved_user", 1),
+            function_symbol(core_users, "core", "same_repo_user", 10),
+            function_symbol(hall_rs, "hall", "other_repo_rust_user", 1),
+            function_symbol(hall_ts, "hall", "ts_user", 1),
+        ])
+        .expect("insert symbols");
+    let [
+        load,
+        new,
+        resolved_user,
+        same_repo_user,
+        other_repo_rust_user,
+        ts_user,
+    ] = ids[..]
+    else {
+        panic!("expected six symbol ids, got {ids:?}");
+    };
+    let call = |repo: &str, file_id, from, to_symbol_id, to_name: &str, line| Edge {
+        id: None,
+        repo: repo.to_owned(),
+        file_id: Some(file_id),
+        from_symbol_id: Some(from),
+        to_symbol_id,
+        to_name: Some(to_name.to_owned()),
+        kind: EdgeKind::Calls,
+        provenance: Provenance::Extracted,
+        line,
+        col: 5,
+        confidence: 0.95,
+    };
+    db.insert_edges(&[
+        call("core", core_users, resolved_user, Some(load), "load", 3),
+        call("core", core_users, same_repo_user, None, "load", 13),
+        call("hall", hall_rs, other_repo_rust_user, None, "load", 3),
+        call("hall", hall_ts, ts_user, None, "load", 3),
+        call("core", core_users, same_repo_user, None, "new", 14),
+        call("hall", hall_ts, ts_user, None, "new", 4),
+    ])
+    .expect("insert edges");
+    NameMatchFixture {
+        db,
+        load,
+        new,
+        resolved_user,
+        same_repo_user,
+        other_repo_rust_user,
+        ts_user,
+    }
+}
+
+#[test]
+fn callers_by_name_skip_other_languages_and_rank_resolved_first() {
+    let f = name_match_fixture();
+
+    let callers = get_callers_of(&f.db, f.load, 0.0).expect("callers");
+
+    let ids: Vec<Option<i64>> = callers.iter().map(|c| c.caller.id).collect();
+    assert_eq!(
+        ids,
+        vec![
+            Some(f.resolved_user),
+            Some(f.same_repo_user),
+            Some(f.other_repo_rust_user)
+        ],
+        "resolved first, then same-repo, then other repos; the TypeScript caller is dropped"
+    );
+    assert!(!ids.contains(&Some(f.ts_user)));
+    assert_eq!(callers[0].provenance, Provenance::Extracted);
+    assert_eq!(callers[1].provenance, Provenance::Inferred);
+    assert_eq!(callers[2].provenance, Provenance::Inferred);
+
+    let by_name = get_callers(&f.db, "load", None, true, 0.0).expect("callers by name");
+    let by_name_ids: Vec<Option<i64>> = by_name.iter().map(|c| c.caller.id).collect();
+    assert_eq!(by_name_ids, ids);
+}
+
+#[test]
+fn generic_names_never_match_callers_by_name_alone() {
+    let f = name_match_fixture();
+
+    assert!(
+        get_callers_of(&f.db, f.new, 0.0)
+            .expect("callers of new")
+            .is_empty()
+    );
+    assert!(
+        get_callers(&f.db, "new", None, true, 0.0)
+            .expect("callers by name")
+            .is_empty()
+    );
+    let impact = get_impact(&f.db, f.new, 3).expect("impact");
+    assert_eq!(impact.total_affected, 0);
+}
+
+#[test]
+fn impact_keeps_name_matches_in_one_language_and_marks_them_inferred() {
+    let f = name_match_fixture();
+
+    let impact = get_impact(&f.db, f.load, 3).expect("impact");
+
+    let items: Vec<(Option<i64>, bool)> = impact
+        .affected_symbols
+        .iter()
+        .map(|item| (item.symbol.id, item.inferred))
+        .collect();
+    assert_eq!(
+        items,
+        vec![
+            (Some(f.resolved_user), false),
+            (Some(f.other_repo_rust_user), true),
+            (Some(f.same_repo_user), true),
+        ]
+    );
+}
+
 fn function_symbol(file_id: i64, repo: &str, name: &str, start_line: usize) -> Symbol {
     Symbol {
         id: None,
