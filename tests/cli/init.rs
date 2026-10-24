@@ -45,7 +45,7 @@ fn gitignore_uses_the_star_form_never_the_bare_dotdir() {
         content,
         ".ivar/*\n!.ivar/skills/\n!.ivar/setups/\n\
          .claude/commands/ivar-*.md\n.opencode/commands/ivar-*.md\n.omp/commands/ivar-*.md\n\
-         .claude/skills/\n.opencode/skills/\n.omp/skills/\n"
+         .claude/skills/\n.opencode/skills/\n.omp/skills/\n.tmp/\n"
     );
     assert!(content.contains("!.ivar/skills/"));
     assert!(

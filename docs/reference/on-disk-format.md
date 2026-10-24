@@ -49,6 +49,7 @@ half-understood state file is worse than no state file.
   .claude/skills/               local        derived materialised skills (Claude Code, when listed)
   .opencode/skills/             local        derived materialised skills (OpenCode, when listed)
   .omp/skills/                  local        derived materialised skills (OMP, when listed)
+  .tmp/                         local        scratch files for agents and scripts at the hall root
   .omp/mcp.json                 local        derived MCP configuration (OMP)
 ```
 

@@ -23,7 +23,7 @@ fn an_absent_gitignore_is_created_with_exactly_the_halls_lines() {
         read(&layout),
         ".ivar/*\n!.ivar/skills/\n!.ivar/setups/\n\
              .claude/commands/ivar-*.md\n.opencode/commands/ivar-*.md\n.omp/commands/ivar-*.md\n\
-             .claude/skills/\n.opencode/skills/\n.omp/skills/\n"
+             .claude/skills/\n.opencode/skills/\n.omp/skills/\n.tmp/\n"
     );
 }
 
@@ -38,6 +38,7 @@ fn an_existing_gitignore_keeps_its_content_and_gains_the_missing_lines() {
     let content = read(&layout);
     assert!(content.starts_with("node_modules/\ndist/\n"));
     assert!(content.contains(".ivar/*"));
+    assert!(content.lines().any(|line| line == ".tmp/"));
 }
 
 /// `sync` runs after every `git pull`. Reporting "changed" — or worse,
