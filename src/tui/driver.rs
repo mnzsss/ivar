@@ -211,6 +211,9 @@ impl<P: Pty, F: FnMut() -> P> Driver<P, F> {
     /// take keys, so [`reduce_exited`] rebinds Focus to restart-or-quit
     /// rather than writing into a PTY that is gone.
     pub fn apply_event(&mut self, key: Key) -> bool {
+        if self.copies_selection(key) {
+            return false;
+        }
         let (next_mode, action) = if self.focused_is_dead() {
             reduce_exited(self.mode, key)
         } else {
@@ -218,6 +221,42 @@ impl<P: Pty, F: FnMut() -> P> Driver<P, F> {
         };
         self.mode = next_mode;
         self.perform(action)
+    }
+
+    /// `Ctrl+C` (or `Ctrl+Shift+C`) over a highlighted selection copies it
+    /// again and keeps the highlight; with nothing selected it stays the
+    /// shell's interrupt.
+    fn copies_selection(&mut self, key: Key) -> bool {
+        if self.mode != Mode::Focus || !matches!(key, Key::Ctrl('c' | 'C')) {
+            return false;
+        }
+        let Some(text) = self
+            .shells
+            .get(self.selected)
+            .and_then(Shell::selected_text)
+        else {
+            return false;
+        };
+        self.pending_copy = Some(text);
+        true
+    }
+
+    /// Deliver pasted text to the focused shell, wrapped in the paste
+    /// markers when the shell asked for them.
+    pub fn paste(&mut self, text: &str) {
+        let Some(shell) = self.shells.get(self.selected) else {
+            return;
+        };
+        let mut bytes = Vec::new();
+        let bracketed = shell.screen.bracketed_paste();
+        if bracketed {
+            bytes.extend_from_slice(b"\x1b[200~");
+        }
+        bytes.extend_from_slice(text.as_bytes());
+        if bracketed {
+            bytes.extend_from_slice(b"\x1b[201~");
+        }
+        self.perform(Action::WriteBytes(bytes));
     }
 
     /// Handle one mouse wheel notch. Never reaches the PTY: the terminal

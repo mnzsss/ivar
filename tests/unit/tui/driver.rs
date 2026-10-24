@@ -531,6 +531,52 @@ fn drag_selection_stays_highlighted_after_release_until_next_click() {
 }
 
 #[test]
+fn ctrl_c_over_a_selection_copies_it_instead_of_interrupting_the_shell() {
+    let (mut driver, log) = driver_with(1);
+    injected_output(&log, 0)
+        .send(b"hello world".to_vec())
+        .unwrap();
+    driver.pump().unwrap();
+    driver.mouse_down((0, 0));
+    driver.mouse_drag((0, 4));
+    driver.mouse_up((0, 4));
+    driver.take_copy();
+    for key in [Key::Ctrl('c'), Key::Ctrl('C')] {
+        driver.apply_event(key);
+        assert_eq!(driver.take_copy().as_deref(), Some("hello"));
+    }
+    assert!(written(&log, 0).try_recv().is_err());
+    assert_eq!(
+        driver.snapshot("checkout", &[], "ctrl+o").panel.selection,
+        Some(((0, 0), (0, 4)))
+    );
+}
+
+#[test]
+fn ctrl_c_without_a_selection_still_interrupts_the_shell() {
+    let (mut driver, log) = driver_with(1);
+    driver.apply_event(Key::Ctrl('c'));
+    assert_eq!(written(&log, 0).try_recv().unwrap(), vec![0x03]);
+    assert_eq!(driver.take_copy(), None);
+}
+
+#[test]
+fn paste_reaches_the_shell_and_is_bracketed_only_when_the_shell_asks() {
+    let (mut driver, log) = driver_with(1);
+    driver.paste("ls -la");
+    assert_eq!(written(&log, 0).try_recv().unwrap(), b"ls -la".to_vec());
+    injected_output(&log, 0)
+        .send(b"\x1b[?2004h".to_vec())
+        .unwrap();
+    driver.pump().unwrap();
+    driver.paste("a\nb");
+    assert_eq!(
+        written(&log, 0).try_recv().unwrap(),
+        b"\x1b[200~a\nb\x1b[201~".to_vec()
+    );
+}
+
+#[test]
 fn output_elsewhere_keeps_selection_but_output_under_it_clears_it() {
     let (mut driver, log) = driver_with(1);
     injected_output(&log, 0)

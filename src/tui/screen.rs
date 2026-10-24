@@ -119,6 +119,12 @@ impl Screen {
         (row, col, self.parser.screen().hide_cursor())
     }
 
+    /// Whether the program asked for pastes to arrive wrapped in markers.
+    #[must_use]
+    pub fn bracketed_paste(&self) -> bool {
+        self.parser.screen().bracketed_paste()
+    }
+
     /// Select a visible stream of cells, inclusive of both endpoints.
     #[must_use]
     pub fn selected_text(&self, start: (u16, u16), end: (u16, u16)) -> String {

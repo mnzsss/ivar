@@ -15,7 +15,9 @@
 //! into the focused shell — `\x1b[A` at the prompt, history recalled, or the
 //! sequence echoed back as text. Capturing the mouse is what makes a notch a
 //! notch: the loop scrolls the panel with it and the shell never sees it.
-//! In-app drag selection copies via OSC 52; shift still selects natively.
+//! In-app drag selection copies via OSC 52, `Ctrl+C` over a highlight copies
+//! it again, and bracketed paste is what lets the terminal's own paste chord
+//! reach the shell; shift still selects natively.
 //!
 //! It holds **no `store` and no `action` state** — the layering table says
 //! `tui` may not reach them, so the caller pushes in a ready-made
@@ -26,8 +28,8 @@ use std::time::Duration;
 
 use base64::Engine;
 use crossterm::event::{
-    DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers,
-    MouseButton, MouseEventKind,
+    DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture, Event,
+    KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEventKind,
 };
 use ratatui::DefaultTerminal;
 use ratatui::layout::Rect;
@@ -92,14 +94,14 @@ impl MouseCapture {
     /// Ask the terminal for mouse reports. A terminal that refuses simply
     /// keeps sending arrow keys for the wheel — worth no error path.
     fn enable() -> Self {
-        let _ = crossterm::execute!(io::stdout(), EnableMouseCapture);
+        let _ = crossterm::execute!(io::stdout(), EnableMouseCapture, EnableBracketedPaste);
         Self
     }
 }
 
 impl Drop for MouseCapture {
     fn drop(&mut self) {
-        let _ = crossterm::execute!(io::stdout(), DisableMouseCapture);
+        let _ = crossterm::execute!(io::stdout(), DisableBracketedPaste, DisableMouseCapture);
     }
 }
 
@@ -241,6 +243,10 @@ fn run_loop(
                         }
                         dirty = true;
                     }
+                }
+                Event::Paste(text) => {
+                    driver.paste(&text);
+                    dirty = true;
                 }
                 Event::Resize(width, height) => {
                     area = Rect::new(0, 0, width, height);
