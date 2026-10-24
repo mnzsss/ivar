@@ -143,3 +143,23 @@ fn osc52_encodes_utf8_and_caps_large_payloads() {
     assert_eq!(osc52("界"), Some(b"\x1b]52;c;55WM\x07".to_vec()));
     assert_eq!(osc52(&"x".repeat(100_001)), None);
 }
+
+#[test]
+fn clipboard_text_reaches_the_tool_stdin_and_a_missing_tool_is_an_error() {
+    let dir = std::env::temp_dir().join(format!("ivar-clip-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let out = dir.join("out");
+    let script = format!("cat > {}", out.display());
+    pipe_to("sh", &["-c", &script], "界 hello").unwrap();
+    let mut copied = String::new();
+    for _ in 0..40 {
+        copied = std::fs::read_to_string(&out).unwrap_or_default();
+        if !copied.is_empty() {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    std::fs::remove_dir_all(&dir).unwrap();
+    assert_eq!(copied, "界 hello");
+    assert!(pipe_to("ivar-no-such-clipboard-tool", &[], "x").is_err());
+}

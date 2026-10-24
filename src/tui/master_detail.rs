@@ -15,19 +15,22 @@
 //! into the focused shell — `\x1b[A` at the prompt, history recalled, or the
 //! sequence echoed back as text. Capturing the mouse is what makes a notch a
 //! notch: the loop scrolls the panel with it and the shell never sees it.
-//! In-app drag selection copies via OSC 52; shift still selects natively.
+//! In-app drag selection copies via OSC 52, `Ctrl+C` over a highlight copies
+//! it again (also through the system clipboard tool), and bracketed paste is what lets the terminal's own paste chord
+//! reach the shell; shift still selects natively.
 //!
 //! It holds **no `store` and no `action` state** — the layering table says
 //! `tui` may not reach them, so the caller pushes in a ready-made
 //! [`ShellView`] (shells to spawn, rows to list) and reads nothing back.
 
 use std::io::{self, Write};
+use std::process::{Command, Stdio};
 use std::time::Duration;
 
 use base64::Engine;
 use crossterm::event::{
-    DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers,
-    MouseButton, MouseEventKind,
+    DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture, Event,
+    KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEventKind,
 };
 use ratatui::DefaultTerminal;
 use ratatui::layout::Rect;
@@ -45,6 +48,42 @@ fn osc52(text: &str) -> Option<Vec<u8>> {
     }
     let encoded = base64::engine::general_purpose::STANDARD.encode(text);
     Some(format!("\x1b]52;c;{encoded}\x07").into_bytes())
+}
+
+/// The system clipboard tools, in the order they are tried. A terminal that
+/// ignores OSC 52 (xterm.js without its clipboard addon, for one) leaves
+/// these as the only way a selection reaches the clipboard.
+const CLIPBOARD_TOOLS: &[(&str, &[&str])] = &[
+    ("wl-copy", &[]),
+    ("xclip", &["-selection", "clipboard"]),
+    ("xsel", &["--clipboard", "--input"]),
+    ("pbcopy", &[]),
+];
+
+/// Hand `text` to the first clipboard tool that starts. Best effort: OSC 52
+/// has already gone out, so a machine with no tool loses nothing.
+fn copy_to_system_clipboard(text: &str) {
+    for (program, args) in CLIPBOARD_TOOLS {
+        if pipe_to(program, args, text).is_ok() {
+            return;
+        }
+    }
+}
+
+/// Start `program` with `text` on its stdin. It is reaped on a thread rather
+/// than awaited: `xclip` keeps running to serve the selection.
+fn pipe_to(program: &str, args: &[&str], text: &str) -> io::Result<()> {
+    let mut child = Command::new(program)
+        .args(args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()?;
+    if let Some(mut stdin) = child.stdin.take() {
+        stdin.write_all(text.as_bytes())?;
+    }
+    std::thread::spawn(move || child.wait());
+    Ok(())
 }
 
 /// Everything the host loop needs, pushed in by the action: the title, the
@@ -92,14 +131,14 @@ impl MouseCapture {
     /// Ask the terminal for mouse reports. A terminal that refuses simply
     /// keeps sending arrow keys for the wheel — worth no error path.
     fn enable() -> Self {
-        let _ = crossterm::execute!(io::stdout(), EnableMouseCapture);
+        let _ = crossterm::execute!(io::stdout(), EnableMouseCapture, EnableBracketedPaste);
         Self
     }
 }
 
 impl Drop for MouseCapture {
     fn drop(&mut self) {
-        let _ = crossterm::execute!(io::stdout(), DisableMouseCapture);
+        let _ = crossterm::execute!(io::stdout(), DisableBracketedPaste, DisableMouseCapture);
     }
 }
 
@@ -242,6 +281,10 @@ fn run_loop(
                         dirty = true;
                     }
                 }
+                Event::Paste(text) => {
+                    driver.paste(&text);
+                    dirty = true;
+                }
                 Event::Resize(width, height) => {
                     area = Rect::new(0, 0, width, height);
                     let (panel_width, panel_height) = panel_size(area);
@@ -255,13 +298,16 @@ fn run_loop(
             }
         }
 
-        if let Some(sequence) = driver.take_copy().and_then(|text| osc52(&text)) {
-            io::stdout()
-                .write_all(&sequence)
-                .map_err(|source| io_failure("tui.copy_failed", &source))?;
-            io::stdout()
-                .flush()
-                .map_err(|source| io_failure("tui.copy_failed", &source))?;
+        if let Some(text) = driver.take_copy().filter(|text| osc52(text).is_some()) {
+            copy_to_system_clipboard(&text);
+            if let Some(sequence) = osc52(&text) {
+                io::stdout()
+                    .write_all(&sequence)
+                    .map_err(|source| io_failure("tui.copy_failed", &source))?;
+                io::stdout()
+                    .flush()
+                    .map_err(|source| io_failure("tui.copy_failed", &source))?;
+            }
         }
 
         if driver
