@@ -214,6 +214,23 @@ fn picker_page_rows(term_rows: usize) -> usize {
     term_rows.saturating_sub(2).max(3)
 }
 
+fn no_selection() -> Failure {
+    Failure::blocked("confirm.no_answer", "no selection entered on stdin")
+}
+
+/// Cancelling a picker (Esc, Ctrl+C) is "no answer"; anything else is an I/O failure.
+fn picker_failure(error: &inquire::InquireError) -> Failure {
+    match error {
+        inquire::InquireError::OperationCanceled | inquire::InquireError::OperationInterrupted => {
+            no_selection()
+        }
+        other => Failure::failed(
+            "confirm.read_answer",
+            format!("could not read your answer: {other}"),
+        ),
+    }
+}
+
 impl Confirm for Interactive {
     fn confirm(&self, question: &str, caveat: Option<&str>) -> Result<bool, Failure> {
         let term = console::Term::stderr();
@@ -239,27 +256,15 @@ impl Confirm for Interactive {
         if options.is_empty() {
             return Ok(Vec::new());
         }
-        let term = console::Term::stderr();
-        let theme = dialoguer::theme::ColorfulTheme::default();
-        let (rows, cols) = term.size();
+        let (rows, cols) = console::Term::stderr().size();
         let items = select_items(options, usize::from(cols));
-        let result = dialoguer::MultiSelect::with_theme(&theme)
-            .with_prompt(prompt)
-            .items(&items)
-            .max_length(picker_page_rows(usize::from(rows)))
-            .interact_on_opt(&term)
-            .map_err(|source| {
-                Failure::failed(
-                    "confirm.read_answer",
-                    format!("could not read your answer: {source}"),
-                )
-            })?;
-        match result {
-            Some(selected) if !selected.is_empty() => Ok(selected),
-            _ => Err(Failure::blocked(
-                "confirm.no_answer",
-                "no selection entered on stdin",
-            )),
+        let selected = inquire::MultiSelect::new(prompt, items)
+            .with_page_size(picker_page_rows(usize::from(rows)))
+            .raw_prompt();
+        match selected {
+            Ok(chosen) if !chosen.is_empty() => Ok(chosen.into_iter().map(|c| c.index).collect()),
+            Ok(_) => Err(no_selection()),
+            Err(error) => Err(picker_failure(&error)),
         }
     }
 
@@ -267,23 +272,18 @@ impl Confirm for Interactive {
         if options.is_empty() {
             return Ok(None);
         }
-        let term = console::Term::stderr();
-        let theme = dialoguer::theme::ColorfulTheme::default();
-        let (rows, cols) = term.size();
+        let (rows, cols) = console::Term::stderr().size();
         let items = select_items(options, usize::from(cols));
-        let result = dialoguer::Select::with_theme(&theme)
-            .with_prompt(prompt)
-            .items(&items)
-            .max_length(picker_page_rows(usize::from(rows)))
-            .default(0)
-            .interact_on_opt(&term)
-            .map_err(|source| {
-                Failure::failed(
-                    "confirm.read_answer",
-                    format!("could not read your answer: {source}"),
-                )
-            })?;
-        Ok(result)
+        match inquire::Select::new(prompt, items)
+            .with_page_size(picker_page_rows(usize::from(rows)))
+            .raw_prompt()
+        {
+            Ok(chosen) => Ok(Some(chosen.index)),
+            Err(error) => match picker_failure(&error) {
+                failure if failure.code == "confirm.no_answer" => Ok(None),
+                failure => Err(failure),
+            },
+        }
     }
 
     fn is_interactive(&self) -> bool {
