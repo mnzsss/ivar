@@ -119,6 +119,13 @@ struct Shell<P: Pty> {
     spawn_error: Option<String>,
 }
 
+impl<P: Pty> Shell<P> {
+    fn selected_text(&self) -> Option<String> {
+        self.selection
+            .map(|(start, end)| self.screen.selected_text(start, end))
+    }
+}
+
 /// The driver's view of the world: the shells it spawned, the mode and
 /// selection the key router drives, and the factory that builds a fresh
 /// [`Pty`] on demand. Owns no executor — every method is an explicit step
@@ -245,7 +252,9 @@ impl<P: Pty, F: FnMut() -> P> Driver<P, F> {
         }
     }
 
-    /// Finish a drag and queue its selected text for the host to copy.
+    /// Finish a drag and queue its selected text for the host to copy. The
+    /// highlight stays until the next click, key or scroll, so the user can
+    /// see what was copied and copy it again natively.
     pub fn mouse_up(&mut self, cell: (u16, u16)) {
         self.mouse_drag(cell);
         if let Some(shell) = self.shells.get_mut(self.selected) {
@@ -253,7 +262,6 @@ impl<P: Pty, F: FnMut() -> P> Driver<P, F> {
             self.pending_copy = shell
                 .selection
                 .map(|(start, end)| shell.screen.selected_text(start, end));
-            shell.selection = None;
             shell.anchor = None;
             shell.caret = None;
         }
@@ -399,10 +407,13 @@ impl<P: Pty, F: FnMut() -> P> Driver<P, F> {
                 None => None,
             };
             if let Some(bytes) = bytes.filter(|bytes| !bytes.is_empty()) {
+                let selected_before = shell.selected_text();
                 shell.screen.feed(&bytes);
-                shell.selection = None;
-                shell.anchor = None;
-                shell.caret = None;
+                if shell.selected_text() != selected_before {
+                    shell.selection = None;
+                    shell.anchor = None;
+                    shell.caret = None;
+                }
                 shell.scroll_offset = shell.screen.scroll_to(shell.scroll_offset);
                 consumed = true;
             }
