@@ -78,7 +78,8 @@ ivar skill add https://github.com/acme/skills/tree/main/skills/rust-review
 ```
 
 When the target holds more than one skill, `add` lists them and asks which to
-install; pass `--path` (or the `tree/…/subpath` URL form) to install one without
+install. The list pages to fit your terminal; type to filter it, space to mark a
+skill and enter to confirm. Pass `--path` (or the `tree/…/subpath` URL form) to install one without
 prompting, and `--ref` to pin a branch, tag or sha. As with `create`, the skill
 lands in your personal root unless you pass `--hall`.
 
