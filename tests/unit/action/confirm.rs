@@ -156,7 +156,7 @@ fn select_items_formats_labels_matching_existing_option_rendering() {
             path_if_any: "".to_owned(),
         },
     ];
-    let items = select_items(&options);
+    let items = select_items(&options, 80);
     assert_eq!(
         items,
         vec![
@@ -168,6 +168,29 @@ fn select_items_formats_labels_matching_existing_option_rendering() {
 
 #[test]
 fn select_items_returns_empty_vector_when_options_are_empty() {
-    let items = select_items(&[]);
+    let items = select_items(&[], 80);
     assert!(items.is_empty());
+}
+
+#[test]
+fn picker_items_never_wrap_in_a_narrow_terminal() {
+    let options = vec![SelectOption {
+        id: "rust-review".to_owned(),
+        description: Some("A very long description ".repeat(10)),
+        path_if_any: "skills/rust-review".to_owned(),
+    }];
+    let items = select_items(&options, 40);
+    assert!(console::measure_text_width(&items[0]) <= 40);
+}
+
+#[test]
+fn picker_items_keep_short_labels_untouched() {
+    let options = vec![SelectOption::new("a", Some("short"))];
+    assert_eq!(select_items(&options, 80), vec!["a — short".to_owned()]);
+}
+
+#[test]
+fn picker_page_leaves_room_for_the_prompt_and_stays_usable_in_a_tiny_terminal() {
+    assert_eq!(picker_page_rows(24), 22);
+    assert_eq!(picker_page_rows(2), 3);
 }
