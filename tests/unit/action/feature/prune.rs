@@ -359,3 +359,80 @@ fn prune_refuses_parent_with_descendants() {
             .any(|k| k.feature.as_str() == "checkout" && k.reason.contains("has 1 descendant(s)"))
     );
 }
+
+#[test]
+fn prune_deletes_a_delivered_child_before_its_delivered_parent() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let ctx = Ctx::new(root.clone());
+    create_action(
+        &ctx,
+        CreateInput {
+            name: "child".to_owned(),
+            branch: None,
+            base: None,
+            parent: Some("checkout".to_owned()),
+            via: None,
+            strategy: None,
+        },
+    )
+    .unwrap();
+    promote::promote(
+        &ctx,
+        PromoteInput {
+            feature: "child".to_owned(),
+            repo: "api".to_owned(),
+            base: None,
+        },
+    )
+    .unwrap();
+    let child = root.join(".ivar/repos/api/child");
+    std::fs::write(child.join("child.md"), "child\n").unwrap();
+    git(&child, &["add", "child.md"]);
+    git(&child, &["commit", "-m", "child work"]);
+    let parent = root.join(".ivar/repos/api/checkout");
+    git(
+        &parent,
+        &["merge", "--no-ff", "child", "-m", "integrate child"],
+    );
+    land_checkout_into(&root, "main");
+
+    let report = prune(&ctx).unwrap();
+
+    let pruned: Vec<_> = report
+        .value
+        .pruned
+        .iter()
+        .map(|name| name.as_str())
+        .collect();
+    assert_eq!(pruned, vec!["checkout", "child"], "{:?}", report.value.kept);
+    assert!(report.value.kept.is_empty(), "{:?}", report.value.kept);
+}
+
+#[test]
+fn leaves_first_orders_descendants_before_ancestors_then_by_name() {
+    let named = |name: &str, parent: Option<&str>| {
+        let mut feature = Feature::new(
+            FeatureName::new(name).unwrap(),
+            BranchName::new(name).unwrap(),
+        );
+        feature.parent = parent.map(|parent| FeatureName::new(parent).unwrap());
+        feature
+    };
+    let features = vec![
+        named("a-root", None),
+        named("b-child", Some("a-root")),
+        named("c-grandchild", Some("b-child")),
+        named("d-root", None),
+        named("e-child", Some("d-root")),
+    ];
+
+    let ordered: Vec<_> = leaves_first(features)
+        .into_iter()
+        .map(|feature| feature.name.to_string())
+        .collect();
+
+    assert_eq!(
+        ordered,
+        vec!["c-grandchild", "b-child", "e-child", "a-root", "d-root"]
+    );
+}
