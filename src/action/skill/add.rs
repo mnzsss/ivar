@@ -5,8 +5,8 @@
 //! prompts for multi-selection if multiple skills are found, and copies the chosen
 //! skill folder(s) into `.ivar/skills-local/<id>/` (or `.ivar/skills/<id>/` with `--hall`).
 //!
-//! Refuses when a skill with the same id already exists in either root, or when
-//! multiple candidates in the same repo share an id.
+//! Skips a skill whose id already exists in either root and reports it, and
+//! refuses when multiple candidates in the same repo share an id.
 
 use std::io;
 
@@ -41,6 +41,13 @@ pub struct InstalledSkill {
     pub skill_file: Utf8PathBuf,
 }
 
+/// A skill left alone because its id already exists in a skills root.
+#[derive(Debug, Clone, Serialize)]
+pub struct SkippedSkill {
+    pub id: String,
+    pub path: Utf8PathBuf,
+}
+
 /// What `ivar skill add` did.
 #[derive(Debug, Clone, Serialize)]
 pub struct AddOutcome {
@@ -48,26 +55,34 @@ pub struct AddOutcome {
     pub root: Utf8PathBuf,
     /// Installed skills.
     pub skills: Vec<InstalledSkill>,
+    /// Skills not installed because they already exist.
+    pub skipped: Vec<SkippedSkill>,
 }
 
 impl WriteHuman for AddOutcome {
     fn write_human(&self, w: &mut impl io::Write) -> io::Result<()> {
-        if self.skills.len() == 1 {
-            if let Some(first) = self.skills.first() {
-                writeln!(
-                    w,
-                    "Added skill `{}` from {} at {}",
-                    first.id, first.skill_file, self.root
-                )?;
+        match self.skills.as_slice() {
+            [] => {}
+            [only] => writeln!(
+                w,
+                "Added skill `{}` from {} at {}",
+                only.id, only.skill_file, self.root
+            )?,
+            many => {
+                writeln!(w, "Added {} skill(s) to {}:", many.len(), self.root)?;
+                for skill in many {
+                    writeln!(w, "  - `{}` from {}", skill.id, skill.skill_file)?;
+                }
             }
-            Ok(())
-        } else {
-            writeln!(w, "Added {} skill(s) to {}:", self.skills.len(), self.root)?;
-            for skill in &self.skills {
-                writeln!(w, "  - `{}` from {}", skill.id, skill.skill_file)?;
-            }
-            Ok(())
         }
+        for skill in &self.skipped {
+            writeln!(
+                w,
+                "Skipped `{}`: already exists at {}",
+                skill.id, skill.path
+            )?;
+        }
+        Ok(())
     }
 }
 
@@ -151,8 +166,14 @@ pub fn add(ctx: &Ctx, input: &AddInput) -> Outcome<AddOutcome> {
     let temp_dir = fetch_and_extract(ctx, &ext)?;
     let candidates = discover_candidates(temp_dir.path())?;
     let filtered = select_candidates(&ext, candidates)?;
-    let chosen = choose_skills(ctx, &ext.repo, &filtered)?;
-    ensure_none_installed(&layout, &chosen)?;
+    let (installable, skipped) = split_installed(filtered, |id| {
+        Ok(super::enumerate::resolve(&layout, id)?.map(|(dir, _root)| dir))
+    })?;
+    let chosen = if installable.is_empty() {
+        Vec::new()
+    } else {
+        choose_skills(ctx, &ext.repo, &installable)?
+    };
 
     let target_root = if input.hall {
         layout.hall_skills()
@@ -167,6 +188,7 @@ pub fn add(ctx: &Ctx, input: &AddInput) -> Outcome<AddOutcome> {
     Ok(Report::new(AddOutcome {
         root: layout.root().to_path_buf(),
         skills: installed,
+        skipped,
     }))
 }
 
@@ -297,31 +319,24 @@ fn choose_skills<'a>(
     Ok(chosen)
 }
 
-fn ensure_none_installed(
-    layout: &crate::store::layout::Layout,
-    chosen: &[&CandidateSkill],
-) -> Result<(), Failure> {
-    for c in chosen {
-        if let Some((dir, _root)) = super::enumerate::resolve(layout, &c.id)? {
-            return Err(Failure::blocked(
-                "skill.add.already_exists",
-                format!("skill `{}` already exists at `{}`", c.id, dir),
-            )
-            .expected(format!(
-                "skill `{}` to not already exist in either skills root",
-                c.id
-            ))
-            .actual(format!("skill directory already present at `{dir}`"))
-            .fix(FixAction::safe(
-                "skill.remove",
-                format!(
-                    "Run `ivar skill remove {}` first if you want to replace it.",
-                    c.id
-                ),
-            )));
+/// Split `candidates` into those still to install and those whose id
+/// `existing_dir` already finds in a skills root.
+fn split_installed(
+    candidates: Vec<CandidateSkill>,
+    existing_dir: impl Fn(&str) -> Result<Option<Utf8PathBuf>, Failure>,
+) -> Result<(Vec<CandidateSkill>, Vec<SkippedSkill>), Failure> {
+    let mut installable = Vec::new();
+    let mut skipped = Vec::new();
+    for candidate in candidates {
+        match existing_dir(&candidate.id)? {
+            Some(path) => skipped.push(SkippedSkill {
+                id: candidate.id,
+                path,
+            }),
+            None => installable.push(candidate),
         }
     }
-    Ok(())
+    Ok((installable, skipped))
 }
 
 fn install_skill(

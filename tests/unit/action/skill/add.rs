@@ -81,3 +81,43 @@ fn in_candidate_duplicate_id_refusal() {
     assert_eq!(candidates[0].id, "foo");
     assert_eq!(candidates[1].id, "foo");
 }
+
+fn candidate(id: &str) -> CandidateSkill {
+    CandidateSkill {
+        id: id.to_owned(),
+        path: format!("skills/{id}"),
+        description: None,
+        dir: Utf8PathBuf::from(format!("/tmp/{id}")),
+    }
+}
+
+#[test]
+fn already_installed_candidates_are_skipped_not_refused() {
+    let installed =
+        |id: &str| Ok((id == "foo").then(|| Utf8PathBuf::from(".ivar/skills-local/foo")));
+    let (to_install, skipped) =
+        split_installed(vec![candidate("foo"), candidate("bar")], installed).unwrap();
+    assert_eq!(
+        to_install.iter().map(|c| c.id.as_str()).collect::<Vec<_>>(),
+        ["bar"]
+    );
+    assert_eq!(skipped.len(), 1);
+    assert_eq!(skipped[0].id, "foo");
+    assert_eq!(skipped[0].path, ".ivar/skills-local/foo");
+}
+
+#[test]
+fn the_report_names_what_was_skipped() {
+    let outcome = AddOutcome {
+        root: Utf8PathBuf::from("/hall"),
+        skills: Vec::new(),
+        skipped: vec![SkippedSkill {
+            id: "foo".to_owned(),
+            path: Utf8PathBuf::from("/hall/.ivar/skills-local/foo"),
+        }],
+    };
+    let mut out = Vec::new();
+    outcome.write_human(&mut out).unwrap();
+    let text = String::from_utf8(out).unwrap();
+    assert!(text.contains("Skipped `foo`"), "{text}");
+}
