@@ -17,6 +17,14 @@ pub struct LayerRecord {
     pub indexed_at: i64,
 }
 
+/// A layer the connection mounts over its repo's base rows.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionLayer {
+    pub repo: String,
+    pub layer_repo: String,
+    pub worktree: String,
+}
+
 /// Rows deleted per transaction while forgetting a repo, so a concurrent
 /// reader waits for one short write lock at a time, never the whole cascade.
 pub const FORGET_BATCH: usize = 2_000;
@@ -167,6 +175,30 @@ impl GraphDb {
         }
         self.conn.execute_batch(HIDE_SHADOWED_ROWS)?;
         Ok(())
+    }
+
+    /// The layers the connection currently mounts, ordered by repo.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GraphDbError`] if the query fails.
+    pub fn session_layers(&self) -> Result<Vec<SessionLayer>> {
+        self.conn.execute_batch(SESSION_TABLES)?;
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT sl.repo, sl.layer_repo, r.root_path
+             FROM session_layers sl JOIN repos r ON r.id = sl.layer_repo
+             ORDER BY sl.repo",
+        )?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok(SessionLayer {
+                    repo: row.get(0)?,
+                    layer_repo: row.get(1)?,
+                    worktree: row.get(2)?,
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
     }
 
     /// Clear every session layer and hidden-row record, reverting to base

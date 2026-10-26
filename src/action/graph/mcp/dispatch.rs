@@ -7,6 +7,7 @@ use serde_json::Value;
 
 use super::explore_output::{ExploreFormat, render_explore};
 use super::workspace::WorkspacePaths;
+use super::worktree_scope::{Scoped, scope_query};
 use crate::action::graph::query::QueryError;
 use crate::action::graph::query::find::{is_path_like, resolve_query_paths, split_line_range};
 use crate::action::graph::{
@@ -14,6 +15,7 @@ use crate::action::graph::{
 };
 use crate::domain::graph::{MissEvent, MissKind, truncate_for_storage};
 use crate::store::graph::db::GraphDb;
+use crate::store::layout::Layout;
 
 /// Upper bound on MCP `max_depth`/`max_hops` traversal args. An agent can
 /// pass any `u64`; without a ceiling a single call walks the whole graph.
@@ -65,6 +67,21 @@ where
 
             let root = hall_root
                 .ok_or_else(|| "Hall root is required for explore snippet reading".to_owned())?;
+            let layout = camino::Utf8PathBuf::from_path_buf(root.to_path_buf())
+                .map(Layout::at)
+                .map_err(|_| "Hall root is not valid UTF-8".to_owned())?;
+            let cwd = std::env::current_dir()
+                .ok()
+                .and_then(|dir| camino::Utf8PathBuf::from_path_buf(dir).ok());
+            // An explicit worktree path reads that worktree's layer, not the
+            // main rows its tail would match. The guard keeps the layer
+            // mounted until the answer is rendered.
+            let scope = match scope_query(db, &layout, cwd.as_deref(), &q) {
+                Scoped::Refused(answer) => return Ok((answer, None)),
+                Scoped::Run(scope) => scope,
+            };
+            let _mounted = scope.mount(db)?;
+            let q = scope.query.clone();
             let (requests_files, unindexed) = file_request(db, args, &q, repo)?;
             let mut res = if requests_files {
                 explore::explore_files(db, root, &q, repo)
@@ -98,6 +115,11 @@ where
                     narrate::narrate_explore(&res)
                 }),
             }?;
+            let text = if args.get("format").and_then(Value::as_str) == Some("json") {
+                text
+            } else {
+                label_layers(&scope.labels, text)
+            };
             Ok((text, count))
         }
 
@@ -492,6 +514,20 @@ fn file_request(
         serve_files,
         if serve_files { unindexed } else { Vec::new() },
     ))
+}
+
+/// Prefixes the answer with the tree each explicit worktree path was read from.
+fn label_layers(labels: &[String], text: String) -> String {
+    if labels.is_empty() {
+        return text;
+    }
+    let mut out = String::new();
+    for label in labels {
+        let _ = writeln!(out, "Source: {label}");
+    }
+    out.push('\n');
+    out.push_str(&text);
+    out
 }
 
 /// Agents name the symbol argument differently from one call to the next

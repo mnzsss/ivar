@@ -162,3 +162,106 @@ fn e2e_feature_session_mcp_serves_uncommitted_files_from_its_checkout() {
     assert!(check_access.contains("export function checkAccess"));
     assert!(!check_access.contains("evaluateAccess"));
 }
+
+/// Runs `graph_explore` calls through `ivar graph mcp` started in `cwd`, and
+/// returns each answer's text.
+fn explore_from(cwd: &camino::Utf8Path, queries: &[serde_json::Value]) -> Vec<String> {
+    let stdin: String = queries
+        .iter()
+        .enumerate()
+        .map(|(i, arguments)| {
+            format!(
+                "{}\n",
+                serde_json::json!({"jsonrpc": "2.0", "id": i + 1, "method": "tools/call",
+                    "params": {"name": "graph_explore", "arguments": arguments}})
+            )
+        })
+        .collect();
+    let output = common::ivar()
+        .current_dir(cwd)
+        .args(["graph", "mcp"])
+        .write_stdin(stdin)
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let responses: Vec<serde_json::Value> = String::from_utf8(output)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    (1..=queries.len())
+        .map(|id| {
+            let response = responses.iter().find(|r| r["id"] == id).unwrap();
+            response["result"]["content"][0]["text"]
+                .as_str()
+                .unwrap()
+                .to_owned()
+        })
+        .collect()
+}
+
+#[test]
+fn e2e_explicit_worktree_path_reads_that_worktrees_layer_not_main() {
+    let hall = TestHall::new();
+    hall.commit_base(
+        "api",
+        &[
+            ("src/access.ts", "export function evaluateAccess() {}\n"),
+            ("src/keep.ts", "export function keepMe() {}\n"),
+        ],
+    );
+    hall.graph_command(hall.root(), &["index", "--repo", "api"]);
+
+    let worktree = hall.promote("rename", "api");
+    hall.write(
+        &worktree,
+        "src/access.ts",
+        "export function checkAccess() {}\n",
+    );
+    hall.write(
+        &worktree,
+        "src/session.ts",
+        "export function revokeSession() {}\n",
+    );
+    hall.commit(&worktree, "rename evaluateAccess");
+
+    let absolute = format!("{worktree}/src/access.ts");
+    let relative = ".ivar/repos/api/rename/src/session.ts";
+    let main = format!("{}/.ivar/repos/api/main/src/access.ts", hall.root());
+    let answers = explore_from(
+        hall.root(),
+        &[
+            serde_json::json!({"query": absolute}),
+            serde_json::json!({"paths": [relative]}),
+            serde_json::json!({"query": main}),
+            serde_json::json!({"query": format!("{absolute} {main}")}),
+            serde_json::json!({"query": ".ivar/repos/api/missing/src/access.ts"}),
+        ],
+    );
+
+    assert!(answers[0].contains("checkAccess"), "{}", answers[0]);
+    assert!(!answers[0].contains("evaluateAccess"), "{}", answers[0]);
+    assert!(
+        answers[0].contains("worktree `rename`"),
+        "the answer names the tree it read: {}",
+        answers[0]
+    );
+    assert!(answers[1].contains("revokeSession"), "{}", answers[1]);
+    assert!(answers[2].contains("evaluateAccess"), "{}", answers[2]);
+    assert!(!answers[2].contains("checkAccess"), "{}", answers[2]);
+    assert!(answers[2].contains("main checkout"), "{}", answers[2]);
+    assert!(answers[3].contains("more than one tree"), "{}", answers[3]);
+    assert!(answers[4].contains("No worktree exists"), "{}", answers[4]);
+
+    let stats = hall.graph_command(hall.root(), &["stats", "--json"]);
+    assert!(
+        stats["layers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|layer| layer["feature"] == "rename"),
+        "the explicit path indexes the promoted worktree on demand"
+    );
+}

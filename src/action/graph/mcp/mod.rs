@@ -7,6 +7,7 @@ pub mod dispatch;
 mod explore_output;
 pub mod tools;
 pub mod workspace;
+mod worktree_scope;
 
 use std::io::{self, BufRead, Write};
 use std::path::Path;
