@@ -1462,3 +1462,115 @@ fn structured_fanout_is_bounded_and_continues_in_the_omitted_consumers_repo() {
         assert!(follow_up.contains(&marker), "missing {marker}: {follow_up}");
     }
 }
+
+fn git_in(cwd: &std::path::Path, args: &[&str]) -> String {
+    let out = std::process::Command::new("git")
+        .args(args)
+        .current_dir(cwd)
+        .env("GIT_AUTHOR_NAME", "Test")
+        .env("GIT_AUTHOR_EMAIL", "test@example.com")
+        .env("GIT_COMMITTER_NAME", "Test")
+        .env("GIT_COMMITTER_EMAIL", "test@example.com")
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "git {args:?}: {out:?}");
+    String::from_utf8_lossy(&out.stdout).trim().to_owned()
+}
+
+/// A hall at `temp` declaring `core`, checked out at `repos/core/main` with one commit.
+fn hall_with_core_checkout(temp: &std::path::Path) -> (camino::Utf8PathBuf, String) {
+    use crate::domain::name::{BranchName, RepoName};
+    use crate::store::layout::Layout;
+
+    let root = camino::Utf8PathBuf::from_path_buf(temp.to_path_buf()).unwrap();
+    std::fs::write(
+        root.join("ivar.json"),
+        r#"{"name":"acme","providers":{"available":["claude-code"],"default":"claude-code"},"repos":[{"default_branch":"main","name":"core","url":"https://example.com/core.git"}],"version":1}"#,
+    )
+    .unwrap();
+    let layout = Layout::at(root.clone());
+    let checkout = layout.repo_worktree(
+        &RepoName::new("core").unwrap(),
+        &BranchName::new("main").unwrap(),
+    );
+    std::fs::create_dir_all(&checkout).unwrap();
+    git_in(checkout.as_std_path(), &["init", "-b", "main"]);
+    std::fs::write(checkout.join("a.txt"), "a").unwrap();
+    git_in(checkout.as_std_path(), &["add", "."]);
+    git_in(checkout.as_std_path(), &["commit", "-m", "one"]);
+    let head = git_in(checkout.as_std_path(), &["rev-parse", "HEAD"]);
+    (checkout, head)
+}
+
+fn explore_content(db: &GraphDb, root: &std::path::Path, cwd: &camino::Utf8Path) -> Vec<String> {
+    let req = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": { "name": "graph_explore", "arguments": { "query": "execute", "format": "json" } }
+    });
+    let resp = handle_json_rpc_at(
+        db,
+        Some(root),
+        cwd,
+        ToolSurface::All,
+        &req,
+        &mut |_| Ok(json!({"status": "ok"})),
+        None,
+    )
+    .expect("response");
+    resp["result"]["content"]
+        .as_array()
+        .expect("content blocks")
+        .iter()
+        .map(|block| block["text"].as_str().unwrap().to_owned())
+        .collect()
+}
+
+#[test]
+fn an_answer_names_the_indexed_commit_in_its_own_block() {
+    let (db, temp) = setup_test_mcp_db();
+    let (checkout, head) = hall_with_core_checkout(temp.path());
+    db.insert_repo("core", checkout.as_str(), "main", Some(&head))
+        .unwrap();
+    let root = camino::Utf8PathBuf::from_path_buf(temp.path().to_path_buf()).unwrap();
+
+    let blocks = explore_content(&db, temp.path(), &root);
+
+    assert_eq!(blocks.len(), 2, "answer plus index notice: {blocks:?}");
+    assert!(
+        serde_json::from_str::<Value>(&blocks[0]).is_ok(),
+        "the JSON answer stays parseable: {}",
+        blocks[0]
+    );
+    assert_eq!(
+        blocks[1],
+        format!("Graph index commits: core@{}.", &head[..7])
+    );
+}
+
+#[test]
+fn an_answer_warns_when_the_index_lags_the_checkout_head() {
+    let (db, temp) = setup_test_mcp_db();
+    let (checkout, indexed) = hall_with_core_checkout(temp.path());
+    db.insert_repo("core", checkout.as_str(), "main", Some(&indexed))
+        .unwrap();
+    std::fs::write(checkout.join("b.txt"), "b").unwrap();
+    git_in(checkout.as_std_path(), &["add", "."]);
+    git_in(checkout.as_std_path(), &["commit", "-m", "two"]);
+    let head = git_in(checkout.as_std_path(), &["rev-parse", "HEAD"]);
+    let root = camino::Utf8PathBuf::from_path_buf(temp.path().to_path_buf()).unwrap();
+
+    let blocks = explore_content(&db, temp.path(), &root);
+
+    let notice = blocks.last().unwrap();
+    assert!(
+        notice.contains(&format!("core@{}", &indexed[..7])),
+        "{notice}"
+    );
+    assert!(notice.contains("Warning:"), "{notice}");
+    assert!(
+        notice.contains(&format!("checkout HEAD is {}", &head[..7])),
+        "{notice}"
+    );
+}

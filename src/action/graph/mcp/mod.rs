@@ -14,6 +14,7 @@ use std::path::Path;
 use serde_json::{Value, json};
 
 use crate::action::graph::freshness::ensure_session_freshness_watched;
+use crate::action::graph::provenance::index_notice;
 use crate::action::graph::session::{SessionView, resolve_session_key, resolve_session_view};
 use crate::domain::graph::{UsageEvent, UsageSource, truncate_for_storage};
 use crate::store::graph::db::GraphDb;
@@ -261,7 +262,7 @@ where
 
             let started = std::time::Instant::now();
             let query = dispatch::explore_query(&tool_args).map(|q| truncate_for_storage(&q));
-            let (session, outcome) =
+            let (session, notice, outcome) =
                 call_tool_in_session(db, hall_root, cwd, name, &tool_args, refresh_index, watch);
             let _ = db.record_usage(&UsageEvent {
                 command: usage_command(name),
@@ -273,18 +274,16 @@ where
                 query,
             });
             match outcome {
-                Ok((text_content, _)) => Some(json!({
-                    "jsonrpc": "2.0",
-                    "id": id,
-                    "result": {
-                        "content": [
-                            {
-                                "type": "text",
-                                "text": text_content
-                            }
-                        ]
-                    }
-                })),
+                Ok((text_content, _)) => {
+                    // The notice is its own block: JSON and compact answers stay parseable.
+                    let mut content = vec![json!({"type": "text", "text": text_content})];
+                    content.extend(notice.map(|text| json!({"type": "text", "text": text})));
+                    Some(json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "result": { "content": content }
+                    }))
+                }
                 Err(err_msg) => Some(tool_error(id.as_ref(), &err_msg)),
             }
         }
@@ -302,6 +301,12 @@ where
 
 type ToolOutcome = Result<(String, Option<usize>), String>;
 
+/// The session a call ran in and the index-commit notice to ship with its answer.
+struct HallSession {
+    key: Option<String>,
+    notice: Option<String>,
+}
+
 fn call_tool_in_session<F>(
     db: &GraphDb,
     hall_root: Option<&Path>,
@@ -310,17 +315,24 @@ fn call_tool_in_session<F>(
     args: &Value,
     refresh_index: &mut F,
     watch: Option<&mut crate::action::graph::watch::Watch>,
-) -> (Option<String>, ToolOutcome)
+) -> (Option<String>, Option<String>, ToolOutcome)
 where
     F: FnMut(Option<&str>) -> Result<Value, String>,
 {
-    match hall_root.map_or(Ok(None), |root| refresh_hall_session(db, root, cwd, watch)) {
-        Ok(session) => {
+    let refreshed = hall_root.map_or(
+        Ok(HallSession {
+            key: None,
+            notice: None,
+        }),
+        |root| refresh_hall_session(db, root, cwd, watch),
+    );
+    match refreshed {
+        Ok(HallSession { key, notice }) => {
             let outcome =
-                dispatch_tool_call(db, hall_root, session.as_deref(), name, args, refresh_index);
-            (session, outcome)
+                dispatch_tool_call(db, hall_root, key.as_deref(), name, args, refresh_index);
+            (key, notice, outcome)
         }
-        Err(err) => (None, Err(err)),
+        Err(err) => (None, None, Err(err)),
     }
 }
 
@@ -336,7 +348,7 @@ fn refresh_hall_session(
     hall_root: &Path,
     cwd: &camino::Utf8Path,
     watch: Option<&mut crate::action::graph::watch::Watch>,
-) -> Result<Option<String>, String> {
+) -> Result<HallSession, String> {
     let layout =
         Layout::at(camino::Utf8PathBuf::from_path_buf(hall_root.to_path_buf()).unwrap_or_default());
     let leader = watch.map(|w| w.probe(db));
@@ -348,7 +360,7 @@ fn refresh_session(
     layout: &Layout,
     cwd: &camino::Utf8Path,
     leader: Option<crate::action::graph::watch::LeaderState>,
-) -> Result<Option<String>, String> {
+) -> Result<HallSession, String> {
     let view = resolve_session_view(layout, cwd)
         .map_err(|err| format!("could not resolve the ivar session for this call: {err}"))?;
     ensure_session_freshness_watched(db, layout, &view, leader).map_err(|err| match &view {
@@ -357,7 +369,10 @@ fn refresh_session(
             "the feature layer for `{feature_name}` could not be refreshed, so the graph would answer from stale or base code: {err}"
         ),
     })?;
-    Ok(resolve_session_key(cwd))
+    Ok(HallSession {
+        key: resolve_session_key(cwd),
+        notice: index_notice(db, &crate::git::System, &view),
+    })
 }
 
 fn tool_error(id: Option<&Value>, err_msg: &str) -> Value {
