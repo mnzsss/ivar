@@ -319,6 +319,9 @@ pub fn narrate_impact(res: &ImpactResult) -> String {
         if item.path_via.len() > 2 {
             let _ = write!(out, " via {}", item.path_via.join(" -> "));
         }
+        if item.inferred {
+            out.push_str(" (inferred from a name match)");
+        }
         out.push('\n');
     }
     push_remainder(&mut out, items.len());

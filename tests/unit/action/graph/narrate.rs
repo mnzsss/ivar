@@ -731,6 +731,7 @@ fn impact_groups_consumers_by_depth_in_a_fraction_of_the_json() {
             file_path: format!("src/c{}.ts", i % 5),
             depth: 1 + i % 2,
             path_via: vec!["Session".into(), format!("consumer{i}")],
+            inferred: false,
         })
         .collect();
     let res = ImpactResult {

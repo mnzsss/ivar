@@ -76,6 +76,9 @@ pub struct ImpactItem {
     pub file_path: String,
     pub depth: usize,
     pub path_via: Vec<String>,
+    /// True when the path to this symbol includes a hop matched by name alone.
+    #[serde(default)]
+    pub inferred: bool,
 }
 
 /// Result of blast radius impact query.
