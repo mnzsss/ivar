@@ -823,11 +823,13 @@ fn collect_repo_facts(
             let feature_head = revision(git, &bare, feature.branch.as_str(), &mut inspection_error);
             let base_head = revision(git, &bare, effective_base.as_str(), &mut inspection_error);
             let local_branch_exists = feature_head.is_some();
-            let unmerged_commits = match base::unmerged_commits(
+            let unmerged_commits = match base::unmerged_commits_with_integration(
                 git,
-                &bare,
-                effective_base.as_str(),
-                feature.branch.as_str(),
+                layout,
+                manifest,
+                feature,
+                repo,
+                &effective_base,
             ) {
                 Ok(commits) => Some(commits),
                 Err(error) => {
