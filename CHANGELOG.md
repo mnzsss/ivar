@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.2](https://github.com/mnzsss/ivar/compare/v0.17.1...v0.17.2) - 2026-10-26
+
+### Added
+
+- ignore the hall-root .tmp/ scratch dir ([#201](https://github.com/mnzsss/ivar/pull/201))
+
+### Fixed
+
+- gate name-only callers by language and generic names ([#203](https://github.com/mnzsss/ivar/pull/203))
+- treat integrated children as delivered after parent rebase ([#202](https://github.com/mnzsss/ivar/pull/202))
+- page and filter the skill picker, skip existing skills ([#191](https://github.com/mnzsss/ivar/pull/191))
+- copy and paste in the repo view ([#190](https://github.com/mnzsss/ivar/pull/190))
+- keep repo view drag selection highlighted ([#186](https://github.com/mnzsss/ivar/pull/186))
+
 ## [0.17.1](https://github.com/mnzsss/ivar/compare/v0.17.0...v0.17.1) - 2026-10-22
 
 ### Added
