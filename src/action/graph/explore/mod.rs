@@ -80,12 +80,23 @@ fn explore_within(
     let not_shown = found.not_shown;
 
     if candidates.is_empty() && file_matches.is_empty() {
+        let unresolved =
+            query::find::resolve_query_paths(db, trimmed_query, repo)?.unresolved_paths;
+        let summary = if unresolved.is_empty() {
+            format!("No symbols found matching query '{query}'.")
+        } else {
+            format!(
+                "No symbols found matching query '{query}'. No indexed file or directory matches {}; \
+                 a hall directory outside the repos is indexed with `ivar graph index --path <dir>`.",
+                unresolved.join(", ")
+            )
+        };
         return Ok(ExploreResult {
             query: query.to_owned(),
             file_matches: Vec::new(),
             primary_symbols: Vec::new(),
             call_flows: Vec::new(),
-            impact_summary: Some(format!("No symbols found matching query '{query}'.")),
+            impact_summary: Some(summary),
             direct_relations: Vec::new(),
             entry_points: Vec::new(),
             transitive_consumers: Vec::new(),

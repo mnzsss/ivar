@@ -320,6 +320,14 @@ The codebase graph indexes all Git-tracked UTF-8 text files, but applies clear o
   are rejected as binary and skipped without failing the repository index.
 - **Excluded files:** Untracked files, Git-ignored files, and ignored build/dependency directories
   (such as `target/`, `node_modules/`, `.git/`, `.ivar/`) are not indexed.
+- **Hall files:** Directories listed in `graph.paths` (including the hall's committed
+  `.ivar/skills`) are indexed from the filesystem under the repo id `hall`, tracked or not, with
+  hall-relative paths. Other `.ivar` state is never indexed.
+- **Path queries stay in their repo:** A path in a query resolves by exact path first, then as the tail
+  of an indexed path. A shorter indexed path matches only behind a workspace prefix that names its own
+  repo (`services/api/src/a.ts`, `.ivar/repos/api/main/src/a.ts`), so `brand/DESIGN.md` never returns a
+  `DESIGN.md` from another repo. A query that names only paths the index lacks returns no symbols
+  instead of unrelated fuzzy matches, and says which paths are missing.
 - **Plain-text files without grammars:** Text files lacking tree-sitter grammars participate in path,
   basename, and full-text search, but do not produce synthetic AST symbols, callers, callees, or
   call graph edges.

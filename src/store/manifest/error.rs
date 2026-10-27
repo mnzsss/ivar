@@ -217,7 +217,7 @@ impl From<Error> for Failure {
                 format!("Fix the configuration for `{name}`."),
             )),
             Error::InvalidGraphPath { path, reason } => Failure::blocked("manifest.invalid_graph_path", what)
-            .expected("a directory relative to the hall root, outside `.ivar`")
+            .expected("a directory relative to the hall root, outside `.ivar` (except `.ivar/skills`)")
             .actual(format!("`{path}`: {reason}"))
             .fix(FixAction::safe(
                 "manifest.fix_graph_path",

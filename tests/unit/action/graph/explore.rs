@@ -1067,3 +1067,203 @@ fn a_hall_file_is_returned_by_its_hall_relative_path_and_by_content_with_repo_ha
         "{by_content:?}"
     );
 }
+
+fn file_matches_of(result: &ExploreResult) -> Vec<(String, String)> {
+    result
+        .file_matches
+        .iter()
+        .map(|f| (f.repo.clone(), f.file_path.clone()))
+        .collect()
+}
+
+#[test]
+fn a_hall_path_never_resolves_to_a_shorter_path_in_another_repo() {
+    let fixture = explore_fixture();
+    fixture.index_text("valhalla", "DESIGN.md", "# valhalla design\n");
+    fixture.index_text("cheat-sheets", "index.html", "<html>cheat</html>\n");
+
+    for query in ["brand/DESIGN.md", "brand/moodboard/index.html"] {
+        let result = explore(&fixture.db, fixture.root(), query, None).unwrap();
+        assert!(result.file_matches.is_empty(), "{query}: {result:?}");
+        assert!(result.sources.is_empty(), "{query}: {result:?}");
+        let summary = result.impact_summary.unwrap();
+        assert!(
+            summary.contains("No indexed file or directory"),
+            "{summary}"
+        );
+    }
+}
+
+#[test]
+fn an_indexed_hall_path_wins_over_a_repo_file_with_the_same_basename() {
+    let fixture = explore_fixture();
+    fixture.index_text("valhalla", "DESIGN.md", "# valhalla design\n");
+    fixture.index_text("hall", "brand/DESIGN.md", "# brand design\n");
+
+    let result = explore(&fixture.db, fixture.root(), "brand/DESIGN.md", None).unwrap();
+
+    assert_eq!(
+        file_matches_of(&result),
+        vec![("hall".to_owned(), "brand/DESIGN.md".to_owned())]
+    );
+}
+
+#[test]
+fn an_exact_path_in_several_repos_returns_those_files_and_no_suffix_neighbours() {
+    let fixture = explore_fixture();
+    fixture.index_text("api", ".github/workflows/ci.yml", "name: api\n");
+    fixture.index_text("web", ".github/workflows/ci.yml", "name: web\n");
+    fixture.index_text("web", "tools/.github/workflows/ci.yml", "name: nested\n");
+
+    let result = explore(
+        &fixture.db,
+        fixture.root(),
+        ".github/workflows/ci.yml",
+        None,
+    )
+    .unwrap();
+
+    let mut found = file_matches_of(&result);
+    found.sort();
+    assert_eq!(
+        found,
+        vec![
+            ("api".to_owned(), ".github/workflows/ci.yml".to_owned()),
+            ("web".to_owned(), ".github/workflows/ci.yml".to_owned()),
+        ]
+    );
+}
+
+#[test]
+fn a_directory_glob_names_the_files_under_the_directory() {
+    let fixture = explore_fixture();
+    fixture.index_text("hall", "brand/wayfinder/gtm/plan.md", "# plan\n");
+    fixture.index_text("hall", "brand/wayfinder/gtm/notes/a.md", "# a\n");
+    fixture.index_text("hall", "brand/other.md", "# other\n");
+
+    for query in [
+        "brand/wayfinder/gtm/**",
+        "brand/wayfinder/gtm/*",
+        "brand/wayfinder/gtm/",
+    ] {
+        let result = explore(&fixture.db, fixture.root(), query, None).unwrap();
+        let mut found: Vec<String> = result
+            .file_matches
+            .into_iter()
+            .map(|f| f.file_path)
+            .collect();
+        found.sort();
+        assert_eq!(
+            found,
+            vec![
+                "brand/wayfinder/gtm/notes/a.md",
+                "brand/wayfinder/gtm/plan.md"
+            ],
+            "{query}"
+        );
+    }
+}
+
+#[test]
+fn an_unindexed_path_is_not_answered_with_unrelated_symbols() {
+    let (db, temp) = index_single_file(
+        "pub fn mcp_server() {}\n",
+        "src/mcp.rs",
+        &[("mcp_server", 1, 1)],
+    );
+
+    let result = explore(
+        &db,
+        temp.path(),
+        "brand/wayfinder/mcp-go-to-market/**",
+        None,
+    )
+    .unwrap();
+
+    assert!(result.primary_symbols.is_empty(), "{result:?}");
+    assert!(result.file_matches.is_empty(), "{result:?}");
+    assert!(result.sources.is_empty(), "{result:?}");
+}
+
+#[test]
+fn manifests_lockfiles_infra_and_extensionless_files_are_resolved_by_name() {
+    let fixture = explore_fixture();
+    fixture.index_text(
+        "infra",
+        "terraform/main.tf",
+        "resource \"aws_security_group\" \"sg\" {}\n",
+    );
+    fixture.index_text("infra", "Makefile", "build:\n\tcargo build\n");
+    fixture.index_text("web", "pnpm-lock.yaml", "lockfileVersion: 9\n");
+    fixture.index_text("web", "package.json", "{\"name\": \"web\"}\n");
+
+    for (query, path) in [
+        ("main.tf", "terraform/main.tf"),
+        ("Makefile", "Makefile"),
+        ("pnpm-lock.yaml", "pnpm-lock.yaml"),
+        ("package.json", "package.json"),
+    ] {
+        let result = explore(&fixture.db, fixture.root(), query, None).unwrap();
+        let first = result
+            .file_matches
+            .first()
+            .unwrap_or_else(|| panic!("{query}: {result:?}"));
+        assert_eq!(first.file_path, path, "{query}");
+        assert!(!result.sources.is_empty(), "{query}");
+    }
+}
+
+#[test]
+fn is_path_like_recognises_files_by_extension_and_well_known_name() {
+    use crate::action::graph::query::find::is_path_like;
+
+    for token in [
+        "main.tf",
+        "Makefile",
+        "Dockerfile",
+        "CODEOWNERS",
+        "a.hcl",
+        "vite.config.ts",
+    ] {
+        assert!(is_path_like(token), "{token}");
+    }
+    for token in [
+        "makefile",
+        "GraphDb",
+        "1.5",
+        "v2.0",
+        ".",
+        "trailing.",
+        "plain",
+    ] {
+        assert!(!is_path_like(token) || token == ".", "{token}");
+    }
+}
+
+#[test]
+fn a_workspace_prefix_naming_another_repo_does_not_resolve_to_this_repos_file() {
+    let fixture = explore_fixture();
+    fixture.index_text("api", "src/auth.ts", "export const auth = 1;\n");
+
+    let named = explore(
+        &fixture.db,
+        fixture.root(),
+        "services/api/src/auth.ts",
+        None,
+    )
+    .unwrap();
+    assert_eq!(
+        file_matches_of(&named),
+        vec![("api".to_owned(), "src/auth.ts".to_owned())]
+    );
+
+    let other = explore(
+        &fixture.db,
+        fixture.root(),
+        "services/web/src/auth.ts",
+        None,
+    )
+    .unwrap();
+    assert!(other.file_matches.is_empty(), "{other:?}");
+    assert!(other.sources.is_empty(), "{other:?}");
+}
