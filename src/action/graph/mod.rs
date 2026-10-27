@@ -16,6 +16,7 @@ pub mod mcp_registration;
 pub mod narrate;
 pub mod outcome;
 pub mod path;
+pub mod provenance;
 pub mod query;
 pub mod reconcile;
 pub mod session;
