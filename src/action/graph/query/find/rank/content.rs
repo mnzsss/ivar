@@ -1,6 +1,7 @@
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 
 use super::ContentHitInfo;
+use super::coverage::term_key;
 use crate::action::graph::query::types::QueryError;
 use crate::store::graph::db::GraphDb;
 
@@ -19,14 +20,18 @@ pub(super) fn search_content_hits(
         for hit in term_hits {
             let key = (hit.repo.clone(), hit.path.clone());
             let (start_line, excerpt) = find_line_and_excerpt(&hit.indexed_content, term);
-            hits.entry(key).or_insert(ContentHitInfo {
-                repo: hit.repo,
-                path: hit.path,
-                rank: hit.rank,
-                start_line,
-                excerpt,
-                content_truncated: hit.content_truncated,
-            });
+            hits.entry(key)
+                .or_insert_with(|| ContentHitInfo {
+                    repo: hit.repo,
+                    path: hit.path,
+                    rank: hit.rank,
+                    start_line,
+                    excerpt,
+                    content_truncated: hit.content_truncated,
+                    terms: BTreeSet::new(),
+                })
+                .terms
+                .insert(term_key(term));
         }
     }
     Ok(hits)

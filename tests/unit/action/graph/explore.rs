@@ -1067,3 +1067,31 @@ fn a_hall_file_is_returned_by_its_hall_relative_path_and_by_content_with_repo_ha
         "{by_content:?}"
     );
 }
+
+#[test]
+fn a_weak_intent_query_returns_candidates_without_source() {
+    let fixture = explore_fixture();
+    fixture.index_text(
+        "web",
+        "src/billing/rewardful.ts",
+        "export const rewardful = 1;\n",
+    );
+
+    let result = explore(
+        &fixture.db,
+        fixture.root(),
+        "useRealtime rewardful useUnsavedChangesBlocker",
+        None,
+    )
+    .unwrap();
+
+    assert!(result.primary_symbols.is_empty());
+    assert!(result.file_matches.is_empty());
+    assert!(result.sources.is_empty(), "weak candidates carry no source");
+    let weak = result.weak_matches.expect("weak answer");
+    assert_eq!(weak.candidates[0].file_path, "src/billing/rewardful.ts");
+    assert_eq!(
+        weak.unmatched_terms,
+        ["useRealtime", "useUnsavedChangesBlocker"]
+    );
+}

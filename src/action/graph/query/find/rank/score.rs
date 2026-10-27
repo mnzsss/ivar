@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use rusqlite::params;
 
+use super::coverage::{TermCoverage, term_key};
 use super::{FileCandidates, PATH_TIER_SQL, PinnedFiles};
 use crate::action::graph::query::find::candidate::{ScoredCandidate, add_score};
 use crate::action::graph::query::find::intent::{ParsedExploreQuery, ResolvedPath};
@@ -74,18 +75,36 @@ pub(super) fn search_terms_for(query: &str, parsed: &ParsedExploreQuery) -> Vec<
 }
 
 /// Step 2: Weighted multi-tier search for remaining terms (Exact > Prefix > Route > FTS5).
+///
+/// Returns which terms matched a symbol in each file.
 pub(super) fn score_matching_terms(
     conn: &rusqlite::Connection,
     terms: &[String],
     repo: Option<&str>,
     route_intent: bool,
     file_candidates: &mut FileCandidates,
-) -> Result<(), QueryError> {
+) -> Result<TermCoverage, QueryError> {
+    let mut coverage = TermCoverage::new();
     for term in terms {
         if term.is_empty() {
             continue;
         }
-        score_term_tiers(conn, term, repo, file_candidates)?;
+        let mut matched = FileCandidates::new();
+        score_term_tiers(conn, term, repo, &mut matched)?;
+        let key = term_key(term);
+        for (file, candidates) in matched {
+            if !candidates.is_empty() {
+                coverage.entry(file).or_default().insert(key.clone());
+            }
+            for candidate in candidates {
+                add_score(
+                    file_candidates,
+                    candidate.symbol,
+                    candidate.file_path,
+                    candidate.score,
+                );
+            }
+        }
     }
 
     // Tier D: HTTP route symbols when the query asks about routes (+30.0)
@@ -108,7 +127,7 @@ pub(super) fn score_matching_terms(
         }
     }
 
-    Ok(())
+    Ok(coverage)
 }
 
 /// Scores a single search term across the exact, prefix, path, word, and FTS5 tiers.

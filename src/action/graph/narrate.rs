@@ -17,7 +17,7 @@ use crate::action::graph::query::{
 };
 use crate::domain::graph::{
     EdgeKind, ExploreResult, FileMatch, FileMention, MentionedSymbol, Provenance, SourceFile,
-    SymbolSnippet,
+    SymbolSnippet, WeakMatches,
 };
 
 /// Definitions listed for a symbol before the rest are left out.
@@ -88,6 +88,11 @@ fn narrate_explore_within(res: &ExploreResult, max_chars: usize) -> String {
 
     let _ = writeln!(out, "**Exploration: {}**\n", res.query);
 
+    if let Some(weak) = &res.weak_matches {
+        narrate_weak_matches(&mut out, weak);
+        return out;
+    }
+
     if res.primary_symbols.is_empty() && res.file_matches.is_empty() {
         out.push_str(
             "No symbols matched.\n\n\
@@ -151,6 +156,46 @@ fn narrate_explore_within(res: &ExploreResult, max_chars: usize) -> String {
     narrate_not_shown(&mut out, &left_out, &res.not_shown);
 
     out
+}
+
+/// Renders an intent query nothing matched well: the honest miss first, then
+/// the weak candidates, marked as such and without source.
+fn narrate_weak_matches(out: &mut String, weak: &WeakMatches) {
+    let _ = writeln!(
+        out,
+        "**No confident match.** No indexed file matches {} of the {} terms in this query, \
+         so the candidates below are weak and probably unrelated. No source is shown.\n",
+        weak.required_terms, weak.total_terms,
+    );
+    if !weak.unmatched_terms.is_empty() {
+        let terms: Vec<String> = weak
+            .unmatched_terms
+            .iter()
+            .map(|term| format!("`{term}`"))
+            .collect();
+        let _ = writeln!(out, "Matched nothing in the index: {}.\n", terms.join(", "));
+    }
+    out.push_str("**Weak candidates**\n\n");
+    for candidate in &weak.candidates {
+        let _ = write!(out, "- `{}` ({})", candidate.file_path, candidate.repo);
+        if !candidate.matched_terms.is_empty() {
+            let _ = write!(out, " matched {}", candidate.matched_terms.join(", "));
+        }
+        if !candidate.symbols.is_empty() {
+            let symbols: Vec<String> = candidate
+                .symbols
+                .iter()
+                .map(|s| format!("`{}` (line {})", s.name, s.line))
+                .collect();
+            let _ = write!(out, "; symbols {}", symbols.join(", "));
+        }
+        out.push('\n');
+    }
+    out.push_str(
+        "\nThe code you want may be outside the index, or named differently. Retry with an \
+         identifier or file path you expect, or fall back to a text search (rg) for the \
+         exact strings.\n",
+    );
 }
 
 /// Renders where a symbol is defined, its call sites and type uses, and the

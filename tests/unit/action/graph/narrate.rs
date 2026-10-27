@@ -161,6 +161,7 @@ fn result(query: &str) -> ExploreResult {
         transitive_consumers: Vec::new(),
         sources: Vec::new(),
         flows: Vec::new(),
+        weak_matches: None,
         not_shown: Vec::new(),
     }
 }
@@ -351,6 +352,43 @@ fn cross_repo_callers_are_marked_with_their_repo() {
 
     let out = narrate_explore(&res);
     assert!(out.contains("1 from other repos"), "got: {out}");
+}
+
+fn weak_result() -> ExploreResult {
+    let mut res = result("useRealtime rewardful useUnsavedChangesBlocker");
+    res.weak_matches = Some(crate::domain::graph::WeakMatches {
+        total_terms: 3,
+        required_terms: 2,
+        unmatched_terms: vec!["useRealtime".into(), "useUnsavedChangesBlocker".into()],
+        candidates: vec![crate::domain::graph::WeakMatch {
+            repo: "web".into(),
+            file_path: "src/billing/rewardful.ts".into(),
+            matched_terms: vec!["rewardful".into()],
+            symbols: vec![MentionedSymbol {
+                name: "applyRewardful".into(),
+                line: 12,
+            }],
+        }],
+    });
+    res
+}
+
+/// A query no file answers well says so up front and marks what it lists as weak.
+#[test]
+fn a_weak_answer_states_the_miss_before_naming_candidates() {
+    let out = narrate_explore(&weak_result());
+
+    let miss = out.find("No confident match").expect("states the miss");
+    let candidate = out
+        .find("src/billing/rewardful.ts")
+        .expect("names the file");
+    assert!(miss < candidate, "got: {out}");
+    assert!(out.contains("2 of the 3 terms"), "got: {out}");
+    assert!(out.contains("`useRealtime`, `useUnsavedChangesBlocker`"));
+    assert!(out.contains("`applyRewardful` (line 12)"));
+    assert!(out.contains("rg"), "the fallback must be named: {out}");
+    assert!(!out.contains("**Source**"), "weak answers carry no source");
+    assert!(!out.contains("Found "), "weak answers do not claim a find");
 }
 
 /// An empty result must route the reader forward rather than dead-end.
@@ -603,6 +641,7 @@ fn test_narrate_truncation_note_names_next_range() {
             changed_since_index: false,
         }],
         flows: Vec::new(),
+        weak_matches: None,
         not_shown: Vec::new(),
     };
 

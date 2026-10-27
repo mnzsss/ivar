@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use crate::action::graph::query;
-use crate::domain::graph::{ExploreResult, SymbolSnippet};
+use crate::domain::graph::{ExploreResult, SymbolSnippet, WeakMatches};
 use crate::store::graph::db::GraphDb;
 
 pub use error::ExploreError;
@@ -52,19 +52,7 @@ fn explore_within(
 ) -> Result<ExploreResult, ExploreError> {
     let trimmed_query = query.trim();
     if trimmed_query.is_empty() {
-        return Ok(ExploreResult {
-            query: query.to_owned(),
-            file_matches: Vec::new(),
-            primary_symbols: Vec::new(),
-            call_flows: Vec::new(),
-            impact_summary: None,
-            direct_relations: Vec::new(),
-            entry_points: Vec::new(),
-            transitive_consumers: Vec::new(),
-            sources: Vec::new(),
-            flows: Vec::new(),
-            not_shown: Vec::new(),
-        });
+        return Ok(bare_result(query, None, None));
     }
 
     // Step 1: Match query against symbols and files via structured exploration retrieval pipeline
@@ -79,20 +67,16 @@ fn explore_within(
     let file_matches = found.files;
     let not_shown = found.not_shown;
 
+    if let Some(weak) = found.weak {
+        return Ok(bare_result(query, None, Some(weak)));
+    }
+
     if candidates.is_empty() && file_matches.is_empty() {
-        return Ok(ExploreResult {
-            query: query.to_owned(),
-            file_matches: Vec::new(),
-            primary_symbols: Vec::new(),
-            call_flows: Vec::new(),
-            impact_summary: Some(format!("No symbols found matching query '{query}'.")),
-            direct_relations: Vec::new(),
-            entry_points: Vec::new(),
-            transitive_consumers: Vec::new(),
-            sources: Vec::new(),
-            flows: Vec::new(),
-            not_shown: Vec::new(),
-        });
+        return Ok(bare_result(
+            query,
+            Some(format!("No symbols found matching query '{query}'.")),
+            None,
+        ));
     }
 
     // Step 2: Fetch source snippets surgically
@@ -255,7 +239,30 @@ fn explore_within(
         sources,
         flows,
         not_shown,
+        weak_matches: None,
     })
+}
+
+/// An answer with no matches: nothing found, or only weak candidates.
+fn bare_result(
+    query: &str,
+    impact_summary: Option<String>,
+    weak_matches: Option<WeakMatches>,
+) -> ExploreResult {
+    ExploreResult {
+        query: query.to_owned(),
+        file_matches: Vec::new(),
+        primary_symbols: Vec::new(),
+        call_flows: Vec::new(),
+        impact_summary,
+        direct_relations: Vec::new(),
+        entry_points: Vec::new(),
+        transitive_consumers: Vec::new(),
+        sources: Vec::new(),
+        flows: Vec::new(),
+        not_shown: Vec::new(),
+        weak_matches,
+    }
 }
 
 fn matches_path(file_path: &str, query_path: &str) -> bool {

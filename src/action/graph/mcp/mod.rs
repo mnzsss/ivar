@@ -39,6 +39,8 @@ names instead of reading them.
 - Trust its callers and blast radius; a grep only adds files outside the index.
 - A file changed since the last index comes back whole and flagged, so its source stays \
 current.
+- An answer headed \"No confident match\" is a miss: its candidates are weak and carry no \
+source. Retry with an identifier or path, or grep for the exact strings.
 
 If a graph answer was empty or did not actually help (the wrong symbol, a stale result, \
 a call you expected but did not see), call graph_feedback with the query you asked and why \

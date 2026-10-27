@@ -10,13 +10,42 @@ use crate::action::graph::index::{IndexOutcome, RepoFailure};
 use crate::action::graph::narrate::{MAX_LIST_ITEMS, MAX_OUTPUT_CHARS};
 use crate::action::graph::reconcile::Removed;
 use crate::action::graph::view::types::ViewSeed;
-use crate::domain::graph::{AffectedResult, ExploreResult, PathResult};
+use crate::domain::graph::{AffectedResult, ExploreResult, PathResult, WeakMatches};
 use crate::error::WriteHuman;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ExploreOutcome(pub ExploreResult);
 
+fn write_weak_matches(w: &mut impl io::Write, weak: &WeakMatches) -> io::Result<()> {
+    writeln!(
+        w,
+        "  No confident match: no file matches {} of the {} query terms.",
+        weak.required_terms, weak.total_terms
+    )?;
+    if !weak.unmatched_terms.is_empty() {
+        writeln!(
+            w,
+            "  Matched nothing in the index: {}",
+            weak.unmatched_terms.join(", ")
+        )?;
+    }
+    writeln!(w, "  Weak candidates (probably unrelated):")?;
+    for candidate in &weak.candidates {
+        writeln!(w, "    - [{}] {}", candidate.repo, candidate.file_path)?;
+        if !candidate.matched_terms.is_empty() {
+            writeln!(w, "      Matched: {}", candidate.matched_terms.join(", "))?;
+        }
+        for symbol in &candidate.symbols {
+            writeln!(w, "      Symbol: {} (line {})", symbol.name, symbol.line)?;
+        }
+    }
+    Ok(())
+}
+
 fn write_primary_symbols(w: &mut impl io::Write, res: &ExploreResult) -> io::Result<()> {
+    if let Some(weak) = &res.weak_matches {
+        return write_weak_matches(w, weak);
+    }
     if res.primary_symbols.is_empty() && res.file_matches.is_empty() {
         writeln!(w, "  No symbols found matching query.")?;
     } else {

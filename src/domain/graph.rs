@@ -544,6 +544,29 @@ pub struct FileMatch {
     pub content_truncated: bool,
 }
 
+/// A file that matched only part of an intent query.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct WeakMatch {
+    pub repo: String,
+    pub file_path: String,
+    /// Query terms this file matched, lowercased.
+    pub matched_terms: Vec<String>,
+    pub symbols: Vec<MentionedSymbol>,
+}
+
+/// The honest answer to an intent query no file matched well enough: the best
+/// candidates, marked weak, with no source attached.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct WeakMatches {
+    /// Distinct query terms the match is judged on.
+    pub total_terms: usize,
+    /// Terms a file has to match to count as a confident match.
+    pub required_terms: usize,
+    /// Query terms no candidate matched at all, lowercased.
+    pub unmatched_terms: Vec<String>,
+    pub candidates: Vec<WeakMatch>,
+}
+
 /// Result of an exploration query across the graph.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct ExploreResult {
@@ -565,6 +588,9 @@ pub struct ExploreResult {
     pub flows: Vec<PathResult>,
     #[serde(default)]
     pub not_shown: Vec<FileMention>,
+    /// Set when no confident match exists; then the answer carries no source.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub weak_matches: Option<WeakMatches>,
 }
 /// A causal step linking a changed dependency or symbol to an affected test.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]

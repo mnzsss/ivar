@@ -247,6 +247,45 @@ fn test_encode_path() {
 }
 
 #[test]
+fn a_weak_explore_encodes_the_miss_and_its_candidates_only() {
+    let explore = ExploreResult {
+        file_matches: Vec::new(),
+        query: "useRealtime rewardful useUnsavedChangesBlocker".into(),
+        primary_symbols: Vec::new(),
+        call_flows: vec![],
+        impact_summary: None,
+        direct_relations: vec![],
+        entry_points: vec![],
+        transitive_consumers: vec![],
+        sources: vec![],
+        flows: vec![],
+        weak_matches: Some(crate::domain::graph::WeakMatches {
+            total_terms: 3,
+            required_terms: 2,
+            unmatched_terms: vec!["useRealtime".into(), "useUnsavedChangesBlocker".into()],
+            candidates: vec![crate::domain::graph::WeakMatch {
+                repo: "web".into(),
+                file_path: "src/rewardful.ts".into(),
+                matched_terms: vec!["rewardful".into()],
+                symbols: vec![crate::domain::graph::MentionedSymbol {
+                    name: "applyRewardful".into(),
+                    line: 12,
+                }],
+            }],
+        }),
+        not_shown: vec![],
+    };
+
+    assert_eq!(
+        encode_explore(&explore),
+        format!(
+            "{WEAK_SUMMARY_SCHEMA}\nnone|2|3|useRealtime;useUnsavedChangesBlocker\n\
+             {WEAK_MATCH_SCHEMA}\nweb|src/rewardful.ts|rewardful|applyRewardful:12"
+        )
+    );
+}
+
+#[test]
 fn test_encode_explore() {
     let explore = ExploreResult {
         file_matches: Vec::new(),
@@ -262,6 +301,7 @@ fn test_encode_explore() {
         impact_summary: None,
         sources: vec![],
         flows: vec![],
+        weak_matches: None,
         not_shown: vec![],
         direct_relations: vec![crate::domain::graph::OperationalRelation {
             source: crate::domain::graph::RelationEndpoint {
@@ -330,6 +370,7 @@ fn complete_compact_exploration_keeps_every_distinct_consumer() {
             .collect(),
         sources: vec![],
         flows: vec![],
+        weak_matches: None,
         not_shown: vec![],
     };
     let text = encode_explore(&res);

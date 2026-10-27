@@ -1349,3 +1349,101 @@ fn test_split_line_range_cases() {
         ("src/foo.rs", Some((0, 10)))
     );
 }
+
+#[test]
+fn an_intent_query_matching_one_stray_term_is_a_weak_miss() {
+    let db = retrieval_fixture();
+    db.index_symbol_and_text(
+        "gaio",
+        "src/billing/rewardful.ts",
+        "applyRewardful",
+        "applyRewardful referral",
+    );
+    db.index_symbol("gaio", "src/ui/toolbar.tsx", "Toolbar");
+
+    let found = explore_find(
+        &db,
+        "useRealtime rewardful useUnsavedChangesBlocker",
+        None,
+        6,
+    )
+    .unwrap();
+
+    assert!(found.symbols.is_empty() && found.files.is_empty());
+    let weak = found.weak.expect("a weak answer, not a confident one");
+    assert_eq!((weak.required_terms, weak.total_terms), (2, 3));
+    assert_eq!(
+        weak.unmatched_terms,
+        ["useRealtime", "useUnsavedChangesBlocker"]
+    );
+    assert_eq!(weak.candidates[0].file_path, "src/billing/rewardful.ts");
+    assert_eq!(weak.candidates[0].matched_terms, ["rewardful"]);
+}
+
+#[test]
+fn an_intent_query_a_file_covers_is_confident() {
+    let db = retrieval_fixture();
+    db.index_text(
+        "web",
+        "docs/changesets.md",
+        "A changeset is required on every pull request. CI checks it.",
+    );
+    db.index_symbol("web", "src/app.ts", "pullRequestCount");
+
+    let found = explore_find(&db, "changeset required pull request CI check", None, 6).unwrap();
+
+    assert!(found.weak.is_none());
+    assert_eq!(found.files[0].file_path, "docs/changesets.md");
+}
+
+#[test]
+fn short_queries_are_never_held_to_the_coverage_floor() {
+    let db = retrieval_fixture();
+    db.index_symbol("web", "src/session.ts", "SessionGuard");
+
+    let found = explore_find(&db, "session enforcement", None, 6).unwrap();
+
+    assert!(found.weak.is_none());
+    assert_eq!(found.symbols[0].symbol.name, "SessionGuard");
+}
+
+#[test]
+fn an_exact_identifier_keeps_a_long_query_confident() {
+    let db = retrieval_fixture();
+    db.index_symbol("web", "src/nodes.ts", "duplicateNode");
+    db.index_symbol("web", "src/ui/toolbar.tsx", "Toolbar");
+
+    let found = explore_find(
+        &db,
+        "node toolbar duplicate clone workflow editor duplicateNode",
+        None,
+        6,
+    )
+    .unwrap();
+
+    assert!(found.weak.is_none());
+    assert_eq!(found.symbols[0].symbol.name, "duplicateNode");
+}
+
+#[test]
+fn intent_queries_rank_documentation_above_code_symbols() {
+    let db = retrieval_fixture();
+    for index in 0..6 {
+        db.index_symbol_and_text(
+            "web",
+            &format!("src/steps/step{index}.ts"),
+            &format!("checkStep{index}"),
+            "ci workflow check",
+        );
+    }
+    db.index_text(
+        "web",
+        ".github/workflows/ci.yml",
+        "name: CI\n# workflow: check the changeset policy",
+    );
+
+    let found = explore_find(&db, "ci workflow changeset check policy", None, 6).unwrap();
+
+    assert!(found.weak.is_none());
+    assert_eq!(found.files[0].file_path, ".github/workflows/ci.yml");
+}

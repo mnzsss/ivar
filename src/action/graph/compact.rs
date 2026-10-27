@@ -21,6 +21,9 @@ pub const PATH_SCHEMA: &str = "#SCHEMA: step|symbol|kind|file|edge_kind";
 pub const RELATION_SCHEMA: &str = "#SCHEMA: source_symbol|source_repo|source_file|direction|target_symbol|target_repo|target_file|edge_kind|provenance|confidence|line|hop_count|cross_repo";
 pub const EXPLORE_IMPACT_SCHEMA: &str = "#SCHEMA: symbol|repo|file|depth|path_via|cross_repo";
 pub const FILE_MATCH_SCHEMA: &str = "#SCHEMA: repo|file|match_kind|line|excerpt|truncated";
+pub const WEAK_SUMMARY_SCHEMA: &str =
+    "#SCHEMA: confidence|required_terms|total_terms|unmatched_terms";
+pub const WEAK_MATCH_SCHEMA: &str = "#SCHEMA: repo|file|matched_terms|symbols";
 /// Trait for converting domain types and results to compact pipe-delimited string representations.
 pub trait ToCompact {
     fn to_compact(&self) -> String;
@@ -305,10 +308,60 @@ impl ExploreRecord<'_> {
     }
 }
 
+/// Writes a field that is itself a list: `;` between items, no pipes or newlines inside them.
+fn write_list(
+    out: &mut impl std::fmt::Write,
+    items: impl IntoIterator<Item = String>,
+) -> std::fmt::Result {
+    for (index, item) in items.into_iter().enumerate() {
+        if index != 0 {
+            out.write_char(';')?;
+        }
+        for ch in item.chars() {
+            out.write_char(match ch {
+                '\n' => ' ',
+                '|' | ';' => '/',
+                other => other,
+            })?;
+        }
+    }
+    Ok(())
+}
+
+/// Writes an intent query's weak candidates: no match is confident, so no source follows.
+fn write_weak_matches(
+    weak: &crate::domain::graph::WeakMatches,
+    out: &mut impl std::fmt::Write,
+) -> std::fmt::Result {
+    write!(
+        out,
+        "{WEAK_SUMMARY_SCHEMA}\nnone|{}|{}|",
+        weak.required_terms, weak.total_terms
+    )?;
+    write_list(out, weak.unmatched_terms.iter().cloned())?;
+    write!(out, "\n{WEAK_MATCH_SCHEMA}")?;
+    for candidate in &weak.candidates {
+        write!(out, "\n{}|{}|", candidate.repo, candidate.file_path)?;
+        write_list(out, candidate.matched_terms.iter().cloned())?;
+        out.write_char('|')?;
+        write_list(
+            out,
+            candidate
+                .symbols
+                .iter()
+                .map(|s| format!("{}:{}", s.name, s.line)),
+        )?;
+    }
+    Ok(())
+}
+
 pub(crate) fn write_explore(
     explore: &ExploreResult,
     out: &mut impl std::fmt::Write,
 ) -> std::fmt::Result {
+    if let Some(weak) = &explore.weak_matches {
+        return write_weak_matches(weak, out);
+    }
     let mut has_emitted = false;
     if !explore.file_matches.is_empty() {
         out.write_str(FILE_MATCH_SCHEMA)?;

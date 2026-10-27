@@ -15,6 +15,7 @@ fn empty_result() -> ExploreResult {
         transitive_consumers: vec![],
         sources: vec![],
         flows: vec![],
+        weak_matches: None,
         not_shown: vec![],
     }
 }

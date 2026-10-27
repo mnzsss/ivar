@@ -136,6 +136,7 @@ fn test_explore_result_json_roundtrip() {
             content_truncated: false,
         }],
         flows: Vec::new(),
+        weak_matches: None,
         not_shown: Vec::new(),
         primary_symbols: vec![SymbolSnippet {
             symbol: Symbol {

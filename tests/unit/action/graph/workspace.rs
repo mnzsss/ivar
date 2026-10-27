@@ -94,6 +94,7 @@ fn explore_answers_name_files_the_way_the_agent_sees_them() {
             changed_since_index: false,
         }],
         flows: Vec::new(),
+        weak_matches: None,
         not_shown: vec![FileMention {
             repo: "api".into(),
             file_path: "src/routes/admin.ts".into(),
@@ -262,6 +263,7 @@ fn workspace_fixture_with_file_match(repo_name: &str, file_rel_path: &str) -> Wo
             changed_since_index: false,
         }],
         flows: Vec::new(),
+        weak_matches: None,
         not_shown: Vec::new(),
     };
 

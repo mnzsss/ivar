@@ -193,6 +193,7 @@ fn cli_explore_outcome_caps_direct_relations_at_max_list_items_with_remainder() 
         transitive_consumers: Vec::new(),
         sources: Vec::new(),
         flows: Vec::new(),
+        weak_matches: None,
         not_shown: Vec::new(),
     };
 
@@ -268,6 +269,7 @@ fn cli_explore_outcome_stops_appending_sections_when_exceeding_max_output_chars(
         transitive_consumers,
         sources: Vec::new(),
         flows: Vec::new(),
+        weak_matches: None,
         not_shown: Vec::new(),
     };
 

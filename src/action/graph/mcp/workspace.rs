@@ -55,6 +55,11 @@ impl WorkspacePaths {
         for file in &mut res.not_shown {
             self.rewrite(db, &file.repo, &mut file.file_path);
         }
+        if let Some(weak) = &mut res.weak_matches {
+            for candidate in &mut weak.candidates {
+                self.rewrite(db, &candidate.repo, &mut candidate.file_path);
+            }
+        }
     }
 
     pub fn rewrite_callers(

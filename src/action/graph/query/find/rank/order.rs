@@ -1,10 +1,14 @@
 use std::collections::{HashMap, HashSet};
 
+use super::coverage::is_doc_or_config_path;
 use super::{ContentHitInfo, FileCandidates, PinnedFiles, RankedFileEntry, is_test_path};
 use crate::action::graph::query::find::intent::{
     ParsedExploreQuery, ResolvedPath, is_identifier_shaped,
 };
 use crate::domain::graph::FileMatchKind;
+
+/// Score multiplier for documentation and configuration files on intent queries.
+const DOC_CONFIG_BOOST: f64 = 2.0;
 
 /// Step 3: Compute deterministic lexicographic ranking for files.
 #[allow(clippy::too_many_lines)]
@@ -14,6 +18,7 @@ pub(super) fn rank_all_files(
     content_hits: &HashMap<(String, String), ContentHitInfo>,
     parsed: &ParsedExploreQuery,
     target_repos: &[String],
+    prefer_docs: bool,
 ) -> Vec<RankedFileEntry> {
     let mut all_keys = HashSet::new();
     for key in file_candidates.keys() {
@@ -134,6 +139,11 @@ pub(super) fn rank_all_files(
         if !asks_for_tests && is_test_path(&path) {
             structured_score *= 0.5;
             content_score *= 0.5;
+        }
+
+        if prefer_docs && is_doc_or_config_path(&path) {
+            structured_score *= DOC_CONFIG_BOOST;
+            content_score *= DOC_CONFIG_BOOST;
         }
 
         let loose_score = structured_score + content_score;

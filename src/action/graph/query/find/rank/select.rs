@@ -110,5 +110,6 @@ pub(super) fn collect_final_results(
         symbols: final_symbols,
         files: final_files,
         not_shown,
+        weak: None,
     }
 }
