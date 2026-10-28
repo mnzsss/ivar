@@ -249,9 +249,11 @@ fn test_encode_path() {
 #[test]
 fn test_encode_explore() {
     let explore = ExploreResult {
+        confidence: crate::domain::graph::ExploreConfidence::High,
         file_matches: Vec::new(),
         query: "fetch".into(),
         primary_symbols: vec![SymbolSnippet {
+            weak: false,
             symbol: sample_symbol(Some(10), "fetch", SymbolKind::Fn, 1, 0),
             file_path: "src/net.rs".into(),
             code: "fn fetch() {}".into(),
@@ -305,9 +307,11 @@ fn test_encode_explore() {
 #[test]
 fn complete_compact_exploration_keeps_every_distinct_consumer() {
     let res = ExploreResult {
+        confidence: crate::domain::graph::ExploreConfidence::High,
         query: "fetch".into(),
         file_matches: vec![],
         primary_symbols: vec![SymbolSnippet {
+            weak: false,
             symbol: sample_symbol(Some(10), "fetch", SymbolKind::Fn, 1, 0),
             file_path: "src/net.rs".into(),
             code: "fn fetch() {}".into(),

@@ -336,3 +336,9 @@ The codebase graph indexes all Git-tracked UTF-8 text files, but applies clear o
 - **Response budgets and truncation:** Exploration outputs enforce deterministic budgets (18,000 characters
   for standard exploration; 24,000 for explicit file requests). When files or sources exceed budgets,
   omitted files are listed under `not_shown` with an exact JSON `paths` continuation call.
+- **Relevance floor:** `graph_explore` compares the words of an intent query with each candidate file's
+  path, symbol names and content. A file that covers less than half of the query's distinct words (after
+  generic words are dropped) is `weak`, unless the query names it by path, basename or exact symbol. When
+  every candidate is weak the answer says `confidence: none` and lists them as locations without source;
+  see [graph_explore precision](../product/012-graph-explore-precision.md). Matching is by whole word
+  (plurals folded), so a query whose words are synonyms of the code's names can still miss.

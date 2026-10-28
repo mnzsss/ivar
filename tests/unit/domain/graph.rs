@@ -126,8 +126,10 @@ fn test_graph_stats_json_roundtrip() {
 #[test]
 fn test_explore_result_json_roundtrip() {
     let explore = ExploreResult {
+        confidence: crate::domain::graph::ExploreConfidence::High,
         query: "Symbol".to_owned(),
         file_matches: vec![FileMatch {
+            weak: false,
             repo: "ivar".to_owned(),
             file_path: "Dockerfile".to_owned(),
             match_kind: FileMatchKind::ExactBasename,
@@ -138,6 +140,7 @@ fn test_explore_result_json_roundtrip() {
         flows: Vec::new(),
         not_shown: Vec::new(),
         primary_symbols: vec![SymbolSnippet {
+            weak: false,
             symbol: Symbol {
                 id: Some(1),
                 file_id: Some(1),
@@ -344,6 +347,7 @@ fn truncate_for_storage_keeps_text_up_to_the_limit_and_cuts_by_chars() {
 fn miss_kind_parses_known_kinds_and_rejects_unknown_ones() {
     assert_eq!("followup".parse::<MissKind>(), Ok(MissKind::Followup));
     assert_eq!("Feedback".parse::<MissKind>(), Ok(MissKind::Feedback));
+    assert_eq!("weak".parse::<MissKind>(), Ok(MissKind::Weak));
     assert!("nope".parse::<MissKind>().is_err());
     assert_eq!(
         serde_json::to_string(&MissKind::Skipped).unwrap(),
@@ -359,4 +363,18 @@ fn old_explore_result_json_lacking_file_matches_deserializes() {
         serde_json::from_str(old_json).expect("deserialize old explore result");
     assert_eq!(deserialized.query, "test");
     assert!(deserialized.file_matches.is_empty());
+    assert_eq!(deserialized.confidence, ExploreConfidence::High);
+}
+
+#[test]
+fn explore_confidence_serializes_lowercase_and_only_when_not_high() {
+    assert_eq!(
+        serde_json::to_string(&ExploreConfidence::NoMatch).unwrap(),
+        "\"none\""
+    );
+    assert_eq!(
+        serde_json::from_str::<ExploreConfidence>("\"partial\"").unwrap(),
+        ExploreConfidence::Partial
+    );
+    assert!(ExploreConfidence::High.is_high());
 }

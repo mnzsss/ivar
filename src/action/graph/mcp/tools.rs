@@ -35,7 +35,7 @@ pub fn list_tools(surface: ToolSurface) -> Value {
 fn tool_graph_explore() -> Value {
     json!({
         "name": "graph_explore",
-        "description": "PRIMARY TOOL, call it first for any question about this code and before any edit: it returns the verbatim, line-numbered source of the relevant files (treat it as already Read), who depends on them, and the call path between the symbols you name. Query with symbol names, file or directory paths, or a short intent, several at once. When an answer lists files under \"Not shown\", send the `Next:` call it gives. Files requested via `paths` come back as full source, cheaper than reading them one by one. Compact and JSON may report partial output: use the supplied next arguments to inspect omitted evidence.",
+        "description": "PRIMARY TOOL, call it first for any question about this code and before any edit: it returns the verbatim, line-numbered source of the relevant files (treat it as already Read), who depends on them, and the call path between the symbols you name. Query with symbol names, file or directory paths, or a short intent, several at once. When an answer lists files under \"Not shown\", send the `Next:` call it gives. Files requested via `paths` come back as full source, cheaper than reading them one by one. Compact and JSON may report partial output: use the supplied next arguments to inspect omitted evidence. An answer marked \"No confident match\" (`confidence: none`) lists only weak candidates, as locations without source: do not treat them as the answer; refine the query or search the text.",
         "_meta": { "anthropic/alwaysLoad": true },
         "annotations": { "readOnlyHint": true },
         "inputSchema": {

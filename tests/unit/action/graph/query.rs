@@ -6,7 +6,7 @@
 )]
 
 use super::*;
-use crate::domain::graph::{EdgeKind, Provenance, Span, SymbolKind};
+use crate::domain::graph::{EdgeKind, ExploreConfidence, Provenance, Span, SymbolKind};
 
 fn setup_test_db() -> (GraphDb, i64, i64, i64) {
     let db = GraphDb::open_in_memory().expect("open in-memory db");
@@ -1369,4 +1369,200 @@ fn test_split_line_range_cases() {
         split_line_range("src/foo.rs:0-10"),
         ("src/foo.rs", Some((0, 10)))
     );
+}
+
+// Relevance floor: an intent query whose words only meet unrelated symbols is
+// an honest miss, not a plausible-looking answer.
+
+fn app_noise_fixture() -> RetrievalTestDb {
+    let db = retrieval_fixture();
+    for (path, name) in [
+        ("apps/site/src/diagrams/route.ts", "requestDiagram"),
+        ("apps/site/src/install-script.ts", "installScript"),
+        ("apps/site/src/schema-document.ts", "checkSchemaDocument"),
+        ("apps/site/src/opengraph-image.tsx", "renderImage"),
+    ] {
+        db.index_symbol_and_text(
+            "site",
+            path,
+            name,
+            &format!("export function {name}() {{}}"),
+        );
+    }
+    db
+}
+
+const CHANGESET_QUERY: &str = "changeset required pull request CI changesets check";
+
+#[test]
+fn intent_query_with_only_unrelated_symbols_is_an_honest_miss() {
+    let db = app_noise_fixture();
+
+    let found = explore_find(&db, CHANGESET_QUERY, None, 6).unwrap();
+
+    assert_eq!(found.confidence, ExploreConfidence::NoMatch);
+    assert!(!found.symbols.is_empty(), "weak candidates are still named");
+    assert!(found.files.iter().all(|file| file.weak));
+    assert!(found.symbols.iter().all(|c| {
+        found
+            .weak_files
+            .contains(&(c.symbol.repo.clone(), c.file_path.clone()))
+    }));
+}
+
+#[test]
+fn workflow_yaml_beats_app_symbols_for_a_changeset_policy_query() {
+    let db = app_noise_fixture();
+    db.index_text(
+        "site",
+        ".github/workflows/changeset-check.yml",
+        "name: Changeset check\non:\n  pull_request:\njobs:\n  check:\n    steps:\n      - run: pnpm changeset status\n        # a changeset is required on every pull request",
+    );
+
+    let found = explore_find(&db, CHANGESET_QUERY, None, 6).unwrap();
+
+    assert_ne!(found.confidence, ExploreConfidence::NoMatch);
+    let first = &found.files[0];
+    assert_eq!(first.file_path, ".github/workflows/changeset-check.yml");
+    assert!(!first.weak);
+    assert!(!first.excerpt.is_empty());
+}
+
+#[test]
+fn weak_candidates_follow_the_strong_ones_without_source() {
+    let db = app_noise_fixture();
+    db.index_text(
+        "site",
+        ".github/workflows/changeset-check.yml",
+        "a changeset is required on every pull request: check it in CI",
+    );
+
+    let found = explore_find(&db, CHANGESET_QUERY, None, 6).unwrap();
+
+    assert_eq!(found.confidence, ExploreConfidence::Partial);
+    let strong = found.files.iter().position(|file| !file.weak).unwrap();
+    let first_weak = found.files.iter().position(|file| file.weak);
+    assert!(first_weak.is_none_or(|weak| weak > strong));
+    assert!(
+        found
+            .files
+            .iter()
+            .filter(|f| f.weak)
+            .all(|f| f.excerpt.is_empty())
+    );
+    assert!(
+        found.symbols.iter().all(|c| found
+            .weak_files
+            .contains(&(c.symbol.repo.clone(), c.file_path.clone()))),
+        "the strong file has no symbols, so every symbol is weak"
+    );
+}
+
+#[test]
+fn two_identifier_terms_where_only_one_exists_is_a_miss() {
+    let db = retrieval_fixture();
+    db.index_symbol_and_text(
+        "web",
+        "src/billing/rewardful.ts",
+        "loadRewardfulScript",
+        "export function loadRewardfulScript() {}",
+    );
+    db.index_text("web", "src/lib/format.ts", "export const format = 1;");
+
+    let found = explore_find(
+        &db,
+        "useRealtime rewardful useUnsavedChangesBlocker",
+        None,
+        6,
+    )
+    .unwrap();
+
+    assert_eq!(found.confidence, ExploreConfidence::NoMatch);
+}
+
+#[test]
+fn an_exact_symbol_keeps_the_answer_confident_among_unmatched_words() {
+    let db = retrieval_fixture_with_feedback_corpus();
+
+    let found = explore_find(
+        &db,
+        "node toolbar duplicate clone workflow editor duplicateNode",
+        None,
+        6,
+    )
+    .unwrap();
+
+    assert_eq!(found.symbols[0].symbol.name, "duplicateNode");
+    assert!(
+        found
+            .weak_files
+            .iter()
+            .all(|(_, path)| { path != "apps/console/src/screens/canvas/node-toolbar/actions.ts" })
+    );
+}
+
+#[test]
+fn terms_found_in_one_file_are_a_match() {
+    let db = app_noise_fixture();
+    db.index_text(
+        "site",
+        "docs/releasing.md",
+        "Every pull request needs a changeset. CI runs the check.",
+    );
+
+    let found = explore_find(&db, CHANGESET_QUERY, None, 6).unwrap();
+
+    assert_ne!(found.confidence, ExploreConfidence::NoMatch);
+    assert_eq!(found.files[0].file_path, "docs/releasing.md");
+}
+
+#[test]
+fn a_path_only_query_is_confident() {
+    let db = retrieval_fixture_with_feedback_corpus();
+
+    let found = explore_find(&db, "apps/console/src/screens/canvas", None, 6).unwrap();
+
+    assert_eq!(found.confidence, ExploreConfidence::High);
+    assert!(found.weak_files.is_empty());
+}
+
+#[test]
+fn a_plain_language_query_prefers_docs_and_workflows_to_code() {
+    let db = retrieval_fixture();
+    let body = "session lifecycle handling for the guard";
+    db.index_text("api", "app/session/guard.ts", body);
+    db.index_text("api", "docs/session-guard.md", body);
+
+    let found = explore_find(&db, "session lifecycle guard", None, 6).unwrap();
+    assert_eq!(found.files[0].file_path, "docs/session-guard.md");
+}
+
+#[test]
+fn an_identifier_in_the_query_switches_the_docs_preference_off() {
+    let db = retrieval_fixture();
+    let body = "session lifecycle handling for the guard";
+    db.index_text("api", "app/session/guard.ts", body);
+    db.index_text("api", "docs/session-guard.md", body);
+
+    let found = explore_find(&db, "session lifecycle sessionGuard", None, 6).unwrap();
+    assert_eq!(found.files[0].file_path, "app/session/guard.ts");
+    assert_eq!(found.confidence, ExploreConfidence::High);
+}
+
+#[test]
+fn among_strong_files_the_one_covering_more_of_the_query_comes_first() {
+    let db = retrieval_fixture();
+    // Many matching symbols pile up score, but cover one word of the query.
+    for name in ["checkA", "checkB", "checkC", "checkD", "checkE"] {
+        db.index_symbol_and_text("api", "src/checks.ts", name, "check check check");
+    }
+    db.index_text(
+        "api",
+        ".github/workflows/ci.yml",
+        "jobs:\n  lint:\n    steps:\n      - run: cargo clippy\n      - run: cargo fmt --check",
+    );
+
+    let found = explore_find(&db, "ci runs clippy and fmt check", None, 6).unwrap();
+
+    assert_eq!(found.files[0].file_path, ".github/workflows/ci.yml");
 }

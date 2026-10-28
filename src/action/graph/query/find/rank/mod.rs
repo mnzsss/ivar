@@ -1,20 +1,22 @@
 //! Explore ranking: collect pinned and scored symbol candidates, add file-content
 //! hits, order files lexicographically, then fill the combined result budget.
 
+mod confidence;
 mod content;
 mod order;
 mod score;
 mod select;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use super::candidate::ScoredCandidate;
 use super::intent::resolve_query_paths;
 use crate::action::graph::query::types::{QueryError, SymbolLocation};
-use crate::domain::graph::{FileMatch, FileMatchKind, FileMention};
+use crate::domain::graph::{ExploreConfidence, FileMatch, FileMatchKind, FileMention};
 use crate::store::graph::db::GraphDb;
+use confidence::{QueryWords, is_natural_language};
 use content::search_content_hits;
-use order::rank_all_files;
+use order::{QueryIntent, rank_all_files};
 use score::{
     boost_route_intent_symbols, collect_pinned_candidates, score_matching_terms, search_terms_for,
 };
@@ -29,6 +31,11 @@ pub struct ExploreCandidates {
     pub symbols: Vec<SymbolLocation>,
     pub files: Vec<FileMatch>,
     pub not_shown: Vec<FileMention>,
+    /// How well the candidates cover the query. `NoMatch` when none does.
+    pub confidence: ExploreConfidence,
+    /// `(repo, path)` of the files below the relevance floor. They follow the
+    /// strong files and their source is not worth showing.
+    pub weak_files: HashSet<(String, String)>,
 }
 
 impl ExploreCandidates {
@@ -63,6 +70,10 @@ pub const MAX_EXPLORE_CANDIDATES: usize = 20;
 pub const MAX_SYMBOLS_PER_FILE: usize = 6;
 /// Maximum file matches returned for exploration.
 pub const MAX_FILE_CANDIDATES: usize = 6;
+/// Files below the relevance floor an answer still names.
+pub const MAX_WEAK_FILES: usize = 5;
+/// Symbols named for one weak file.
+pub const MAX_SYMBOLS_PER_WEAK_FILE: usize = 3;
 
 /// Checks if a file path is a test file.
 pub fn is_test_path(path: &str) -> bool {
@@ -92,6 +103,8 @@ struct ContentHitInfo {
     start_line: usize,
     excerpt: String,
     content_truncated: bool,
+    /// Query words the file's content holds.
+    covered: HashSet<String>,
 }
 
 /// Ranks files and symbols for an exploration, keeping
@@ -135,17 +148,26 @@ pub fn explore_find(
     }
 
     // Also collect file content matches
-    let content_hits = search_content_hits(db, &terms_to_search, single_repo_scope)?;
+    let query_words = QueryWords::from_terms(&terms_to_search);
+    let content_hits = search_content_hits(db, &terms_to_search, &query_words, single_repo_scope)?;
 
+    let intent = QueryIntent {
+        natural_language: is_natural_language(&terms_to_search, !parsed.path_tokens.is_empty()),
+        words: &query_words,
+    };
     let ranked_files = rank_all_files(
         &file_candidates,
         &pinned_files,
         &content_hits,
         &parsed,
         &parsed.target_repos,
+        &intent,
     );
     if ranked_files.is_empty() {
-        return Ok(ExploreCandidates::default());
+        return Ok(ExploreCandidates {
+            confidence: ExploreConfidence::NoMatch,
+            ..ExploreCandidates::default()
+        });
     }
 
     let shown_files = ranked_files.len().min(max_files);
@@ -174,4 +196,8 @@ struct RankedFileEntry {
     content_score: f64,
     loose_score: f64,
     match_kind: Option<FileMatchKind>,
+    /// Names the file or covers enough of the query's words.
+    strong: bool,
+    /// How many distinct query words the file covers.
+    coverage: usize,
 }

@@ -183,6 +183,7 @@ fn cli_explore_outcome_caps_direct_relations_at_max_list_items_with_remainder() 
         .collect();
 
     let res = ExploreResult {
+        confidence: crate::domain::graph::ExploreConfidence::High,
         query: "target_fn".to_owned(),
         file_matches: Vec::new(),
         primary_symbols: Vec::new(),
@@ -229,6 +230,7 @@ fn cli_explore_outcome_stops_appending_sections_when_exceeding_max_output_chars(
     // Create a large primary symbol source that consumes almost all characters
     let long_code = "x".repeat(MAX_OUTPUT_CHARS + 500);
     let primary_symbols = vec![SymbolSnippet {
+        weak: false,
         symbol: Symbol {
             id: Some(1),
             file_id: Some(1),
@@ -258,6 +260,7 @@ fn cli_explore_outcome_stops_appending_sections_when_exceeding_max_output_chars(
     }];
 
     let res = ExploreResult {
+        confidence: crate::domain::graph::ExploreConfidence::High,
         query: "huge_fn".to_owned(),
         file_matches: Vec::new(),
         primary_symbols,

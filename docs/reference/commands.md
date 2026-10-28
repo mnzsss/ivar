@@ -1188,7 +1188,7 @@ List recorded graph misses (skipped/follow-up searches, feedback)
 
 | flag | value | default | description |
 | --- | --- | --- | --- |
-| `--kind` | `<KIND>` |  | Filter by miss kind: `skipped`, `followup`, or `feedback` |
+| `--kind` | `<KIND>` |  | Filter by miss kind: `skipped`, `followup`, `feedback`, or `weak` |
 | `--since` | `<SINCE>` |  | Only include misses at or after this time: a Unix timestamp, or a relative duration like `30m`, `24h`, or `7d` |
 | `--limit` | `<LIMIT>` | `10` | Maximum number of misses to display (0 for unlimited) |
 
@@ -1397,7 +1397,10 @@ command) without having asked the graph anything, and a `followup` miss for the
 first grep within two minutes of a graph call, carrying that call's query. The
 `graph_feedback` MCP tool, advertised under both `--tools` surfaces, lets the
 agent record a `feedback` miss with the query it asked and why the answer did
-not help. `--kind skipped|followup|feedback` filters by kind; `--since` takes a
+not help. `graph_explore` itself records a `weak` miss, with the query and the reason
+`weak`, when no candidate covers enough of the query's words (see
+[graph_explore precision](../product/012-graph-explore-precision.md)).
+`--kind skipped|followup|feedback|weak` filters by kind; `--since` takes a
 Unix timestamp or `Nm`/`Nh`/`Nd`. `--limit <N>` (default 10, 0 for all) bounds
 the returned rows. `--json` prints a bare array of misses, newest first, not the usual report object.
 Misses and usage rows are kept for 30 days, so `ivar graph stats` reports a 30-day window; `ivar graph misses`,

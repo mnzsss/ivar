@@ -10,6 +10,7 @@ pub(super) fn write_compact_record(
     index: usize,
     scratch: &mut BudgetBuffer,
 ) -> Result<(), String> {
+    let weak_column = !result.confidence.is_high();
     match sec {
         Section::FileMatches => {
             let fm = result
@@ -17,7 +18,7 @@ pub(super) fn write_compact_record(
                 .get(index)
                 .ok_or_else(|| "index out of bounds".to_owned())?;
             ExploreRecord::FileMatch(fm)
-                .write_to(scratch)
+                .write_row(scratch, weak_column)
                 .map_err(|e| e.to_string())
         }
         Section::PrimarySymbols => {
@@ -26,7 +27,7 @@ pub(super) fn write_compact_record(
                 .get(index)
                 .ok_or_else(|| "index out of bounds".to_owned())?;
             ExploreRecord::PrimarySymbol(sym)
-                .write_to(scratch)
+                .write_row(scratch, weak_column)
                 .map_err(|e| e.to_string())
         }
         Section::DirectRelations => {

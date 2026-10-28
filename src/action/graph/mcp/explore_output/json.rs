@@ -39,6 +39,11 @@ fn compute_json_candidate_budget(
 
     let fixed_json_skeleton = r#"{"query":,"primary_symbols":[],"call_flows":[],"impact_summary":,"direct_relations":[],"entry_points":[],"transitive_consumers":[],"sources":[],"flows":[],"not_shown":[],"output":{"partial":true,"budget_bytes":,"omitted":{},"omitted_fields":[]}}"#.len()
         + 10
+        + if result.confidence.is_high() {
+            0
+        } else {
+            r#","confidence":"partial""#.len()
+        }
         + if !result.file_matches.is_empty() { r#","file_matches":[]"#.len() } else { 0 };
 
     let worst_case_omitted_map_len = 9 * 35;

@@ -5,6 +5,7 @@ use serde_json::{Value, json};
 
 fn empty_result() -> ExploreResult {
     ExploreResult {
+        confidence: crate::domain::graph::ExploreConfidence::High,
         query: String::new(),
         file_matches: vec![],
         primary_symbols: vec![],
@@ -20,6 +21,7 @@ fn empty_result() -> ExploreResult {
 }
 fn primary(name: &str, path: &str, code: String) -> SymbolSnippet {
     SymbolSnippet {
+        weak: false,
         symbol: Symbol {
             id: Some(1),
             file_id: Some(1),
@@ -90,6 +92,7 @@ fn complete_compact_at_the_byte_boundary_stays_complete() {
         let limit = if requested { 24_000 } else { 18_000 };
         let mut res = empty_result();
         res.file_matches.push(crate::domain::graph::FileMatch {
+            weak: false,
             repo: "api".into(),
             file_path: "src/boundary.rs".into(),
             match_kind: crate::domain::graph::FileMatchKind::Content,
@@ -194,6 +197,7 @@ fn giant_escaped_symbol_keeps_the_prefix_that_fits_and_continues_after_it() {
 fn compact_metadata_escapes_pipes_without_cutting_the_next_argument() {
     let mut res = empty_result();
     res.file_matches.push(crate::domain::graph::FileMatch {
+        weak: false,
         repo: "api".into(),
         file_path: "src/a|b.rs".into(),
         match_kind: crate::domain::graph::FileMatchKind::Content,
@@ -593,4 +597,77 @@ fn a_ranged_markdown_continuation_stays_inside_its_range() {
         text.contains("-700\"] for the rest"),
         "continuation must end at the requested range: {text}"
     );
+}
+
+fn weak_result(confidence: crate::domain::graph::ExploreConfidence) -> ExploreResult {
+    let mut res = empty_result();
+    res.query = "intent query".into();
+    res.confidence = confidence;
+    for i in 0..1500 {
+        let mut weak = primary(
+            &format!("noise{i}"),
+            &format!("src/noise{i}.rs"),
+            String::new(),
+        );
+        weak.weak = true;
+        res.primary_symbols.push(weak);
+    }
+    res
+}
+
+#[test]
+fn json_carries_the_confidence_whole_and_partial() {
+    use crate::domain::graph::ExploreConfidence::{NoMatch, Partial};
+    for confidence in [NoMatch, Partial] {
+        let mut res = weak_result(confidence);
+        res.primary_symbols.truncate(2);
+        let whole: Value =
+            serde_json::from_str(&render_explore(&res, ExploreFormat::Json, false).unwrap())
+                .unwrap();
+        assert_eq!(whole["confidence"], confidence.as_str());
+        assert_eq!(whole["primary_symbols"][0]["weak"], true);
+        assert!(whole.get("output").is_none());
+
+        let big = weak_result(confidence);
+        let text = render_explore(&big, ExploreFormat::Json, false).unwrap();
+        assert!(text.len() <= 18_000);
+        let cut: Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(cut["output"]["partial"], true);
+        assert_eq!(cut["confidence"], confidence.as_str());
+    }
+}
+
+#[test]
+fn json_leaves_a_high_confidence_out_even_when_cut() {
+    let mut res = weak_result(crate::domain::graph::ExploreConfidence::High);
+    res.primary_symbols.iter_mut().for_each(|s| s.weak = false);
+    let cut: Value =
+        serde_json::from_str(&render_explore(&res, ExploreFormat::Json, false).unwrap()).unwrap();
+    assert_eq!(cut["output"]["partial"], true);
+    assert!(cut.get("confidence").is_none());
+}
+
+#[test]
+fn compact_leads_with_the_confidence_and_a_weak_column_whole_and_partial() {
+    use crate::domain::graph::ExploreConfidence::NoMatch;
+    let mut small = weak_result(NoMatch);
+    small.primary_symbols.truncate(2);
+    let text = render_explore(&small, ExploreFormat::Compact, false).unwrap();
+    let lines: Vec<&str> = text.lines().collect();
+    assert_eq!(
+        lines[..3],
+        [
+            "#SCHEMA: confidence",
+            "none",
+            "#SCHEMA: id|name|kind|file|line|col|complexity|weak"
+        ]
+    );
+    assert!(lines[3].ends_with("|true"));
+
+    let big = weak_result(NoMatch);
+    let text = render_explore(&big, ExploreFormat::Compact, false).unwrap();
+    assert!(text.len() <= 18_000);
+    assert!(text.starts_with("#SCHEMA: confidence\nnone\n#SCHEMA: id|name"));
+    assert!(text.contains("#SCHEMA: partial|budget_bytes"));
+    assert!(text.contains("primary_symbols|"));
 }

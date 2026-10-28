@@ -60,9 +60,11 @@ fn explore_answers_name_files_the_way_the_agent_sees_them() {
         .expect("insert repo");
 
     let mut res = ExploreResult {
+        confidence: crate::domain::graph::ExploreConfidence::High,
         file_matches: Vec::new(),
         query: "auth".into(),
         primary_symbols: vec![SymbolSnippet {
+            weak: false,
             symbol: Symbol {
                 id: Some(1),
                 file_id: Some(1),
@@ -235,8 +237,10 @@ fn workspace_fixture_with_file_match(repo_name: &str, file_rel_path: &str) -> Wo
     .expect("insert repo");
 
     let res = ExploreResult {
+        confidence: crate::domain::graph::ExploreConfidence::High,
         query: "workflow".into(),
         file_matches: vec![FileMatch {
+            weak: false,
             repo: repo_name.into(),
             file_path: file_rel_path.into(),
             match_kind: FileMatchKind::ExactPath,
