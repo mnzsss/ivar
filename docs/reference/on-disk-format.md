@@ -196,7 +196,7 @@ migrates without telling you because there is nothing useful to say.
 `<view dir>/state.json` is a session's record, one per View Dir
 (`.ivar/sessions/<id>/` or `.ivar/features/<feature>/sessions/<id>/`). The hall
 itself has no state file of its own. The cleanup record is the file
-`ivar feature cleanup --record` takes. A test fails the build when this table and
+`ivar feature cleanup <feature> --record <path>` takes. A test fails the build when this table and
 the version constants in the code disagree.
 
 `ivar.json` starts at 1. There is no version 0 to migrate from: a file with no
