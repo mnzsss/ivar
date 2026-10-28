@@ -22,6 +22,25 @@ fn make_range_next_call(
     }
 }
 
+/// A call for exactly `start..=end`, for continuations that must cover all the
+/// text a response left out instead of a fixed 40-line window.
+pub(super) fn make_exact_range_next_call(
+    repo: &str,
+    file_path: &str,
+    start_line: usize,
+    end_line: usize,
+) -> NextCall {
+    let start = start_line.max(1);
+    NextCall {
+        tool: "graph_explore",
+        arguments: serde_json::json!({
+            "repo": repo,
+            "paths": [format!("{file_path}:{start}-{}", end_line.max(start))],
+            "format": "markdown",
+        }),
+    }
+}
+
 fn make_query_next_call(query: &str) -> NextCall {
     NextCall {
         tool: "graph_explore",
@@ -60,12 +79,13 @@ fn next_for_primary_symbol(result: &ExploreResult, index: usize) -> Option<NextC
     } else {
         None
     };
-    Some(make_range_next_call(
-        &sym_snippet.symbol.repo,
-        &sym_snippet.file_path,
-        start,
-        known_last,
-    ))
+    let repo = &sym_snippet.symbol.repo;
+    let path = &sym_snippet.file_path;
+    // The symbol's own range: a fixed window would cut a large symbol arbitrarily.
+    Some(match known_last {
+        Some(last) => make_exact_range_next_call(repo, path, start, last),
+        None => make_range_next_call(repo, path, start, None),
+    })
 }
 
 fn next_for_flow(result: &ExploreResult, index: usize) -> Option<NextCall> {
@@ -123,17 +143,17 @@ fn next_for_source(result: &ExploreResult, index: usize) -> Option<NextCall> {
         .excerpts
         .first()
         .map_or(1, |ex| if ex.start_line == 0 { 1 } else { ex.start_line });
-    let known_last = if src.line_count > 0 {
-        Some(src.line_count)
-    } else {
-        None
-    };
-    Some(make_range_next_call(
-        &src.repo,
-        &src.file_path,
-        start,
-        known_last,
-    ))
+    // Everything the answer would have shown for this file, not a 40-line window.
+    let last = src
+        .excerpts
+        .last()
+        .map(|ex| ex.end_line)
+        .filter(|end| *end > 0)
+        .or_else(|| (src.line_count > 0).then_some(src.line_count));
+    Some(match last {
+        Some(last) => make_exact_range_next_call(&src.repo, &src.file_path, start, last),
+        None => make_range_next_call(&src.repo, &src.file_path, start, None),
+    })
 }
 
 fn next_for_call_flow(result: &ExploreResult, index: usize) -> Option<NextCall> {
@@ -257,14 +277,20 @@ pub(super) fn next_for_record(
     }
 }
 
+/// The call that continues the answer: the first record in priority order that
+/// was cut short (`truncated_next`) or left out entirely.
 pub(super) fn find_next_call(
     result: &ExploreResult,
     priority: &[Section],
     is_admitted: impl Fn(Section, usize) -> bool,
+    truncated_next: impl Fn(Section, usize) -> Option<NextCall>,
 ) -> Option<NextCall> {
     for &sec in priority {
         let count = section_item_count(result, sec);
         for i in 0..count {
+            if let Some(next) = truncated_next(sec, i) {
+                return Some(next);
+            }
             if !is_admitted(sec, i)
                 && let Some(next) = next_for_record(result, sec, i)
             {

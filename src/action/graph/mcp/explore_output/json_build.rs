@@ -49,6 +49,15 @@ pub(super) fn build_json_output_meta(
         ),
     );
 
+    let truncated: Vec<serde_json::Value> = admitted_records
+        .iter()
+        .filter_map(|r| r.truncation.as_ref())
+        .map(super::truncate::Truncation::to_json)
+        .collect();
+    if !truncated.is_empty() {
+        output_map.insert("truncated".to_owned(), serde_json::Value::Array(truncated));
+    }
+
     if let Some(next) = next_call {
         let mut next_map = serde_json::Map::new();
         next_map.insert(
@@ -108,7 +117,14 @@ pub(super) fn build_json_string(
             .iter()
             .any(|r| r.section == sec && r.index == idx)
     };
-    let next_call = find_next_call(result, &JSON_PRIORITY, is_admitted);
+    let truncated_next = |sec: Section, idx: usize| {
+        admitted_records
+            .iter()
+            .find(|r| r.section == sec && r.index == idx)
+            .and_then(|r| r.truncation.as_ref())
+            .map(super::truncate::Truncation::next_call)
+    };
+    let next_call = find_next_call(result, &JSON_PRIORITY, is_admitted, truncated_next);
     let out_meta_json = build_json_output_meta(
         result,
         limit,

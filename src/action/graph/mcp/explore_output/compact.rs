@@ -99,7 +99,7 @@ fn build_compact_string(
             .iter()
             .any(|r| r.section == sec && r.index == idx)
     };
-    let next_call = find_next_call(result, &COMPACT_PRIORITY, is_admitted);
+    let next_call = find_next_call(result, &COMPACT_PRIORITY, is_admitted, |_, _| None);
 
     let mut out = String::new();
     let mut has_emitted = false;
@@ -250,6 +250,7 @@ pub(super) fn partial_compact_output(
                     index: i,
                     start,
                     len,
+                    truncation: None,
                 });
             }
         }
