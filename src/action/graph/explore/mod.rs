@@ -42,6 +42,56 @@ pub fn explore_files(
     explore_within(db, hall_root, query, repo, true)
 }
 
+/// The hall directory a path sits in: `.ivar/skills` for the hall's skills,
+/// otherwise the first component.
+fn hall_dir_of(path: &str) -> Option<String> {
+    let mut parts = path.trim_start_matches("./").split('/');
+    let first = parts.next()?;
+    if first == ".ivar" {
+        return (parts.next()? == "skills").then(|| ".ivar/skills".to_owned());
+    }
+    Some(first.to_owned())
+}
+
+/// Why a directory-qualified path matched nothing, so the agent knows whether
+/// to list the directory in `graph.paths`, look for a typo, or read the file
+/// from disk. It never names a file of another repo.
+fn unresolved_path_reason(
+    db: &GraphDb,
+    hall_root: &Path,
+    path: &str,
+) -> Result<String, ExploreError> {
+    let clean = path.trim_start_matches("./").trim_end_matches(['*', '/']);
+    let generic = format!("No indexed file or directory matches `{path}`.");
+    let Some(dir) = hall_dir_of(clean) else {
+        return Ok(generic);
+    };
+    if !hall_root.join(&dir).is_dir() {
+        return Ok(generic);
+    }
+    let prefix = format!("{dir}/");
+    let dir_indexed = db
+        .get_files_for_repo(crate::action::graph::index::HALL_REPO)?
+        .iter()
+        .any(|file| file.path.starts_with(&prefix));
+    if !dir_indexed {
+        return Ok(format!(
+            "No indexed file or directory matches `{path}`: `{dir}` is a hall directory the graph \
+             does not index. List it in `graph.paths` in ivar.json, or run `ivar graph index --path {dir}`."
+        ));
+    }
+    if hall_root.join(clean).is_file() {
+        return Ok(format!(
+            "`{path}` exists in the hall but the graph holds no text for it: it is binary or \
+             in an ignored directory. Read it from disk."
+        ));
+    }
+    Ok(format!(
+        "No indexed file or directory matches `{path}`; `{dir}` is indexed but holds nothing at that \
+         path. If the file is new, run `ivar graph index --path {dir}`."
+    ))
+}
+
 #[allow(clippy::too_many_lines)]
 fn explore_within(
     db: &GraphDb,
@@ -80,12 +130,26 @@ fn explore_within(
     let not_shown = found.not_shown;
 
     if candidates.is_empty() && file_matches.is_empty() {
+        let unresolved =
+            query::find::resolve_query_paths(db, trimmed_query, repo)?.unresolved_paths;
+        let summary = if unresolved.is_empty() {
+            format!("No symbols found matching query '{query}'.")
+        } else {
+            let reasons = unresolved
+                .iter()
+                .map(|path| unresolved_path_reason(db, hall_root, path))
+                .collect::<Result<Vec<_>, _>>()?;
+            format!(
+                "No symbols found matching query '{query}'. {}",
+                reasons.join(" ")
+            )
+        };
         return Ok(ExploreResult {
             query: query.to_owned(),
             file_matches: Vec::new(),
             primary_symbols: Vec::new(),
             call_flows: Vec::new(),
-            impact_summary: Some(format!("No symbols found matching query '{query}'.")),
+            impact_summary: Some(summary),
             direct_relations: Vec::new(),
             entry_points: Vec::new(),
             transitive_consumers: Vec::new(),

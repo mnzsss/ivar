@@ -584,6 +584,7 @@ fn with_graph_path_added_rejects_the_root_escapes_and_ivar() {
         "../up",
         "a/../../b",
         ".ivar/repos",
+        ".ivar/setups",
         ".ivar",
         "./.ivar",
         ".//.ivar/x",
@@ -698,4 +699,13 @@ fn a_hosted_provider_with_its_host_is_accepted_and_is_not_a_config_owner() {
         manifest.providers().config_owners().collect::<Vec<_>>(),
         vec![Provider::ClaudeCode]
     );
+}
+
+#[test]
+fn with_graph_path_added_accepts_the_hall_skills_directory() {
+    let manifest = empty_manifest()
+        .with_graph_path_added(".ivar/skills/")
+        .unwrap();
+
+    assert_eq!(manifest.graph_paths(), [".ivar/skills"]);
 }

@@ -1888,6 +1888,51 @@ fn doctor_names_a_repo_whose_graph_lags_its_worktree_head() {
 }
 
 #[test]
+fn doctor_names_hall_directories_the_graph_does_not_index() {
+    let (_guard, root) = hall_with_indexed_graph();
+    std::fs::create_dir_all(root.join("brand")).unwrap();
+    std::fs::write(root.join("brand/GUIDELINE.md"), "# guideline\n").unwrap();
+    std::fs::create_dir_all(root.join("docs")).unwrap();
+
+    let report = doctor(&Ctx::new(root)).unwrap();
+
+    let finding = finding(&report.value, "graph.hall_paths_unset");
+    assert!(finding.what.contains("`brand`"), "was: {}", finding.what);
+    assert!(
+        !finding.what.contains("`docs`"),
+        "an empty directory is not named: {}",
+        finding.what
+    );
+    assert!(finding.fix.contains("ivar graph index --path brand"));
+}
+
+#[test]
+fn doctor_is_quiet_about_hall_directories_once_graph_paths_lists_one() {
+    let (_guard, root) = hall_with_indexed_graph();
+    std::fs::create_dir_all(root.join("brand")).unwrap();
+    std::fs::write(root.join("brand/GUIDELINE.md"), "# guideline\n").unwrap();
+    let layout = Layout::at(root.clone());
+    let manifest = crate::store::manifest::Manifest::read(&layout)
+        .unwrap()
+        .unwrap()
+        .with_graph_path_added("brand")
+        .unwrap();
+    crate::store::manifest::Manifest::write(&layout, &manifest).unwrap();
+
+    let report = doctor(&Ctx::new(root)).unwrap();
+
+    assert!(
+        report
+            .value
+            .findings
+            .iter()
+            .all(|f| f.code != "graph.hall_paths_unset"),
+        "{:?}",
+        report.value.findings
+    );
+}
+
+#[test]
 fn doctor_names_a_graph_schema_other_than_the_expected_one() {
     let (_guard, root) = hall_with_indexed_graph();
     rusqlite::Connection::open(root.join(".ivar/memory.db").as_std_path())

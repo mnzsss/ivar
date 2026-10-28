@@ -711,6 +711,7 @@ fn graph_diagnoses(layout: &Layout, manifest: &Manifest, git: &impl Git) -> Vec<
             });
         }
     }
+    findings.extend(unindexed_hall_dirs_diagnosis(layout, manifest));
     let facts = HallFacts::gather(layout, manifest);
     findings.extend(orphan_graph_diagnoses(&db, &facts));
     let leader = crate::action::graph::watch::lease::leader_pid(layout);
@@ -743,6 +744,50 @@ fn graph_diagnoses(layout: &Layout, manifest: &Manifest, git: &impl Git) -> Vec<
         }
     }
     findings
+}
+
+/// Hall directories that hold documents, brand material or skills, which the
+/// graph never reads until `graph.paths` lists them.
+const HALL_DOC_DIRS: &[&str] = &["docs", "brand", ".ivar/skills"];
+
+/// A hall with documentation directories and an empty `graph.paths`: the graph
+/// answers for the repos only, and every path in those directories misses.
+fn unindexed_hall_dirs_diagnosis(layout: &Layout, manifest: &Manifest) -> Option<Diagnosis> {
+    if !manifest.graph_paths().is_empty() {
+        return None;
+    }
+    let present: Vec<&str> = HALL_DOC_DIRS
+        .iter()
+        .copied()
+        .filter(|dir| {
+            layout.root().join(dir).is_dir()
+                && crate::action::graph::index::walk_hall_dir(layout.root().as_std_path(), dir)
+                    .is_ok_and(|files| !files.is_empty())
+        })
+        .collect();
+    if present.is_empty() {
+        return None;
+    }
+    let names = present
+        .iter()
+        .map(|dir| format!("`{dir}`"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let flags = present
+        .iter()
+        .map(|dir| format!("--path {dir}"))
+        .collect::<Vec<_>>()
+        .join(" ");
+    Some(Diagnosis {
+        code: "graph.hall_paths_unset",
+        what: format!(
+            "the hall has {names} but `graph.paths` in `ivar.json` is empty, so the graph \
+             cannot answer for files in them"
+        ),
+        fix: format!(
+            "Run `ivar graph index {flags}` to list them in `graph.paths` and index them."
+        ),
+    })
 }
 
 /// Base repos the manifest no longer declares and layers whose feature is

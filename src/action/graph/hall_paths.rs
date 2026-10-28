@@ -48,7 +48,9 @@ pub fn validate_hall_path(
     }
     let ivar_dir =
         crate::infra::fs::canonicalize(&layout.ivar_dir()).unwrap_or_else(|_| layout.ivar_dir());
-    if canonical.starts_with(&ivar_dir) {
+    let skills_dir = crate::infra::fs::canonicalize(&layout.hall_skills())
+        .unwrap_or_else(|_| layout.hall_skills());
+    if canonical.starts_with(&ivar_dir) && !canonical.starts_with(&skills_dir) {
         let in_repo = manifest.repos().iter().any(|r| {
             let repo_dir = crate::infra::fs::canonicalize(&layout.repo_dir(r.name()))
                 .unwrap_or_else(|_| layout.repo_dir(r.name()));
@@ -64,7 +66,7 @@ pub fn validate_hall_path(
         } else {
             Failure::blocked(
                 "graph.path_in_ivar",
-                format!("`{dir}` is inside `.ivar`, which is never indexed"),
+                format!("`{dir}` is inside `.ivar`, which is never indexed except `.ivar/skills`"),
             )
         });
     }

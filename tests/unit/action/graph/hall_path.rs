@@ -87,3 +87,32 @@ fn a_hall_file_over_the_text_bound_is_stored_truncated() {
         .expect("file row");
     assert!(row.content_truncated, "{row:?}");
 }
+
+#[test]
+fn indexing_the_hall_skills_stores_their_scripts_under_hall_relative_paths() {
+    let (_tmp, root) = hall_with(&[
+        (".ivar/skills/ivar-metrics/SKILL.md", "# metrics"),
+        (
+            ".ivar/skills/ivar-metrics/scripts/lib/util.mjs",
+            "export function tally() {}\n",
+        ),
+        (".ivar/setups/dev.sh", "echo no"),
+    ]);
+    let db = GraphDb::open_in_memory().unwrap();
+
+    index_hall_path(&db, root.as_std_path(), ".ivar/skills", false, &Silent).unwrap();
+
+    let paths: Vec<String> = db
+        .get_files_for_repo(HALL_REPO)
+        .unwrap()
+        .into_iter()
+        .map(|f| f.path)
+        .collect();
+    assert_eq!(
+        paths,
+        vec![
+            ".ivar/skills/ivar-metrics/SKILL.md",
+            ".ivar/skills/ivar-metrics/scripts/lib/util.mjs"
+        ]
+    );
+}

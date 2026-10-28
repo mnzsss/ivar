@@ -1412,6 +1412,7 @@ Misses and usage rows are kept for 30 days, so `ivar graph stats` reports a 30-d
 | `graph.watch_scope_orphaned` | a watcher scope with no repo, feature or path behind it | `ivar graph index` |
 | `graph.watch_scope_failed` | a scope with a live target the watcher could not reindex | `ivar graph index`; a leader retries once the scope is watched again |
 | `graph.repo_stale` | a repo indexed behind its worktree HEAD | `ivar graph index --repo <name>` |
+| `graph.hall_paths_unset` | the hall has `docs`, `brand` or `.ivar/skills` with files and `graph.paths` is empty | `ivar graph index --path <dir>` lists the directory in `graph.paths` and indexes it |
 | `graph.schema_mismatch` | database schema older or newer than the binary | `ivar graph index` or `ivar upgrade` |
 
 **`ivar session start` is the one verb that takes over your terminal.** It opens

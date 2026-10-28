@@ -447,7 +447,8 @@ at the document for the version it was written as:
 `graph.paths` lists hall-root directories that `ivar graph index --path <dir>` added.
 Each later `ivar graph index` and the graph watcher keep them indexed;
 `ivar graph clean --path <dir>` removes an entry. The key is absent when the
-list is empty.
+list is empty. `.ivar` is ivar's own state and cannot be listed, except
+`.ivar/skills`, the hall's committed skills.
 
 An editor that supports JSON Schema (VS Code, Cursor, Zed, OpenCode) uses that
 reference to validate the file, offer completion for every field and enum value,

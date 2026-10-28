@@ -89,3 +89,26 @@ fn validate_hall_path_refuses_a_symlink_that_leaves_the_hall() {
         "graph.path_outside_hall"
     );
 }
+
+#[test]
+fn validate_hall_path_accepts_the_hall_skills_and_nothing_else_in_ivar() {
+    let (_tmp, root) = hall_with(&[
+        (".ivar/skills/metrics/SKILL.md", "# skill"),
+        (".ivar/state.json", "{}"),
+    ]);
+    let layout = Layout::at(root.clone());
+    let m = manifest(&["api"]);
+
+    assert_eq!(
+        validate_hall_path(&layout, &m, ".ivar/skills").unwrap(),
+        ".ivar/skills"
+    );
+    assert_eq!(
+        validate_hall_path(&layout, &m, ".ivar/skills/metrics").unwrap(),
+        ".ivar/skills/metrics"
+    );
+    assert_eq!(
+        validate_hall_path(&layout, &m, ".ivar").unwrap_err().code,
+        "graph.path_invalid"
+    );
+}
