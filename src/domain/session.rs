@@ -27,7 +27,7 @@ use super::name::{FeatureName, SessionId};
 use super::provider::Provider;
 
 /// The schema version of `state.json`, stamped by `store::session`.
-const CURRENT_VERSION: u32 = 1;
+pub(crate) const CURRENT_VERSION: u32 = 1;
 
 /// The scratch directory every session view dir carries, for an agent's
 /// temporary and working files.

@@ -37,7 +37,6 @@ half-understood state file is worse than no state file.
   .ivar/agents/state/<agent>/<tool>/ local   a host agent's private copy of the tool's login, mode 700
   .ivar/secrets/agents.env      local        agent secrets, NAME=value, mode 600
   .ivar/secrets/                local        secret material (hand-maintained files, plus mcp.env)
-  .ivar/state.json              local        hall state, health, bookkeeping
   .ivar/memory.db               local        codebase dependency graph and text FTS index
   .ivar/graph-watch.lock        local        graph watcher leader lease (pid)
   .ivar/repos/                  local        bare clones and worktrees
@@ -187,13 +186,24 @@ migrates without telling you because there is nothing useful to say.
 
 | file | version |
 | --- | --- |
-| `ivar.json` | 3 |
+| `ivar.json` | 5 |
 | `.ivar/features/<feature>/feature.json` | 3 |
+| `.ivar/features/<feature>/execution/run.json` | 2 |
+| `<view dir>/state.json` | 1 |
+| `.ivar/agents/runs/<agent>/<run-id>.json` | 1 |
+| `docs/updates/<NNN>-<feature>.cleanup.json` | 1 |
+
+Session state is not a hall-level file: each session's `state.json` lives in
+that session's view dir (`.ivar/sessions/<id>/` or
+`.ivar/features/<feature>/sessions/<id>/`). The cleanup record is the one entry
+that lives in a repository rather than under `.ivar/`; its version field is
+named `schema_version`. A test fails the build when this table disagrees with
+the version constants in the code.
 
 `ivar.json` starts at 1. There is no version 0 to migrate from: a file with no
 `version` field is not an `ivar.json`, and is rejected rather than adopted. A
 migration chain may begin at its format's earliest supported version — `ivar.json`'s
-chain is `[1→2, 2→3]` — and v0 stays unreachable.
+chain is `[1→2, 2→3, 3→4, 4→5]` — and v0 stays unreachable.
 
 ### `ivar.json` v2
 

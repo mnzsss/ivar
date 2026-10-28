@@ -17,7 +17,7 @@ use super::delivery::Guard;
 use super::integration::{IntegrationOverride, IntegrationReceipt};
 
 /// The schema version of `feature.json`, stamped by `store::feature`.
-const CURRENT_VERSION: u32 = 3;
+pub(crate) const CURRENT_VERSION: u32 = 3;
 
 /// One feature: a branch name and the set of repos promoted onto it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

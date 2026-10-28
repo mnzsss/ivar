@@ -22,3 +22,7 @@ pub mod session;
 pub mod setup_receipt;
 pub mod skill;
 pub mod versioned;
+
+#[cfg(test)]
+#[path = "../../tests/unit/store.rs"]
+mod tests;

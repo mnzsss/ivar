@@ -65,6 +65,8 @@ pub use integration::{
     UnknownIntegrationStrategy, UnknownIntegrationVia, VerificationEvidence, VerificationResult,
     classify,
 };
+#[cfg(test)]
+pub(crate) use promotion::CURRENT_VERSION as FEATURE_CURRENT_VERSION;
 pub use promotion::{
     Feature, FeatureBoard, Promotion, PromotionOutcome, UnknownOutcome, WorktreeState,
 };

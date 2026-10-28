@@ -29,7 +29,7 @@ use super::error::Error;
 /// registration; v4 adds `McpOauth.token_url` and `McpOauth.resource` so
 /// refresh metadata survives across sessions; v5 drops `skills`, whose targets
 /// are derived from `providers.available`.
-pub(super) const CURRENT_VERSION: u32 = 5;
+pub(crate) const CURRENT_VERSION: u32 = 5;
 
 /// The hall's identity, committed and team-shared. See the module doc comment
 /// for the full JSON shape, the contract, and how the invariants are
