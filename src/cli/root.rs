@@ -46,6 +46,9 @@ pub struct Cli {
     pub json: bool,
 
     /// Output token-optimized compact pipe-delimited records with schema header.
+    ///
+    /// Only `ivar graph` verbs have a compact format; any other verb refuses
+    /// the flag with a usage error.
     #[arg(long, global = true)]
     pub compact: bool,
 

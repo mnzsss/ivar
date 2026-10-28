@@ -68,7 +68,7 @@ use crate::cli::root::{
     PlanCommand, ProviderCommand, RepoCommand, ReviewCommand, SessionCommand, SkillCommand,
 };
 use crate::domain::discovery::DiscoveryStatus;
-use crate::error::Report;
+use crate::error::{Failure, FixAction, Report};
 use crate::infra::progress;
 use crate::infra::term;
 
@@ -82,6 +82,17 @@ use crate::infra::term;
 pub fn run(cli: Cli) -> ExitCode {
     let json = cli.json;
     let compact = cli.compact;
+    // `--compact` is global so it parses on either side of the verb, but only
+    // `graph` renders it. Everywhere else it would be silently dropped and the
+    // human table printed, so refuse it before anything runs.
+    if compact && !matches!(cli.command, Command::Graph(_)) {
+        return respond_failure(
+            &compact_unsupported(),
+            json,
+            &mut io::stdout(),
+            &mut io::stderr(),
+        );
+    }
     // Prime both per-stream colour decisions with the flag, before any output
     // exists to render. `term`'s caches take their value from the first call
     // and ignore the argument afterwards, which is what lets `respond` and
@@ -1168,6 +1179,20 @@ pub fn run(cli: Cli) -> ExitCode {
     };
     notice.finish(&mut stderr);
     code
+}
+
+/// The usage error for `--compact` on a verb that has no compact format.
+fn compact_unsupported() -> Failure {
+    Failure::blocked(
+        "cli.compact_unsupported",
+        "`--compact` is only supported by `ivar graph`",
+    )
+    .expected("`--compact` on an `ivar graph` verb")
+    .actual("`--compact` on a verb with no compact format")
+    .fix(FixAction::safe(
+        "cli.drop_compact",
+        "Run the command without `--compact`.",
+    ))
 }
 
 /// Parse argv with the styled command. Pure: no stream, no exit.
