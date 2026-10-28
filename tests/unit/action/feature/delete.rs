@@ -510,6 +510,8 @@ fn hall_with_promoted_feature_on(branch: Option<&str>) -> (tempfile::TempDir, Ut
             path: Utf8PathBuf::from("."),
             name: Some("acme".to_owned()),
             provider: None,
+            git: false,
+            origin: None,
         },
     )
     .unwrap();

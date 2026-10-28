@@ -26,6 +26,8 @@ fn hall_with_promoted_feature() -> (tempfile::TempDir, Utf8PathBuf) {
             path: Utf8PathBuf::from("."),
             name: Some("acme".to_owned()),
             provider: None,
+            git: false,
+            origin: None,
         },
     )
     .unwrap();
@@ -81,6 +83,8 @@ fn hall_with_promoted_feature_based_on_an_open_base() -> (tempfile::TempDir, Utf
             path: Utf8PathBuf::from("."),
             name: Some("acme".to_owned()),
             provider: None,
+            git: false,
+            origin: None,
         },
     )
     .unwrap();

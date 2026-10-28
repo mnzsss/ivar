@@ -33,6 +33,8 @@ fn hall_with_feature(repos: &[&str], branch: Option<&str>) -> (tempfile::TempDir
             path: Utf8PathBuf::from("."),
             name: Some("acme".to_owned()),
             provider: None,
+            git: false,
+            origin: None,
         },
     )
     .unwrap();

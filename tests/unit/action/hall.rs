@@ -27,6 +27,8 @@ fn fresh_input() -> InitInput {
         path: Utf8PathBuf::from("."),
         name: None,
         provider: None,
+        git: false,
+        origin: None,
     }
 }
 
@@ -293,6 +295,8 @@ fn init_honours_an_explicit_name_and_provider() {
             path: Utf8PathBuf::from("."),
             name: Some("acme".to_owned()),
             provider: Some("opencode".to_owned()),
+            git: false,
+            origin: None,
         },
     )
     .unwrap();
@@ -328,6 +332,8 @@ fn init_rejects_nesting_inside_an_existing_hall() {
             path: Utf8PathBuf::from("nested"),
             name: None,
             provider: None,
+            git: false,
+            origin: None,
         },
     )
     .unwrap_err();
@@ -358,6 +364,8 @@ fn init_rejects_an_invalid_explicit_name() {
             path: Utf8PathBuf::from("."),
             name: Some("../etc".to_owned()),
             provider: None,
+            git: false,
+            origin: None,
         },
     )
     .unwrap_err();
@@ -395,6 +403,8 @@ fn init_rejects_an_invalid_provider_id() {
             path: Utf8PathBuf::from("."),
             name: None,
             provider: Some("claude".to_owned()),
+            git: false,
+            origin: None,
         },
     )
     .unwrap_err();
@@ -446,6 +456,8 @@ fn init_materialises_commands_for_its_selected_provider() {
             path: Utf8PathBuf::from("."),
             name: Some("acme".to_owned()),
             provider: Some("opencode".to_owned()),
+            git: false,
+            origin: None,
         },
     )
     .unwrap();
@@ -478,6 +490,8 @@ fn init_returns_warning_when_command_materialisation_fails() {
             path: Utf8PathBuf::from("."),
             name: Some("acme".to_owned()),
             provider: Some("opencode".to_owned()),
+            git: false,
+            origin: None,
         },
     )
     .unwrap();
@@ -507,6 +521,8 @@ fn write_human_names_the_hall_root_and_provider() {
         root: Utf8PathBuf::from("/hall"),
         name: HallName::new("acme").unwrap(),
         provider: Provider::ClaudeCode,
+        git: false,
+        origin: None,
     };
 
     let mut out = Vec::new();
@@ -516,6 +532,231 @@ fn write_human_names_the_hall_root_and_provider() {
         String::from_utf8(out).unwrap(),
         "Initialised hall `acme` at /hall (provider: claude-code)\n"
     );
+}
+
+#[test]
+fn write_human_reports_the_git_repository_and_origin() {
+    let outcome = InitOutcome {
+        root: Utf8PathBuf::from("/hall"),
+        name: HallName::new("acme").unwrap(),
+        provider: Provider::ClaudeCode,
+        git: true,
+        origin: Some("git@example.com:acme/hall.git".to_owned()),
+    };
+
+    let mut out = Vec::new();
+    outcome.write_human(&mut out).unwrap();
+
+    assert_eq!(
+        String::from_utf8(out).unwrap(),
+        "Initialised hall `acme` at /hall (provider: claude-code)\nGit repository ready (origin: git@example.com:acme/hall.git)\n"
+    );
+}
+
+// -- init --git / --origin -------------------------------------------------
+
+fn git_out(cwd: &Utf8Path, args: &[&str]) -> String {
+    let out = std::process::Command::new("git")
+        .args(args)
+        .current_dir(cwd)
+        .output()
+        .unwrap();
+    String::from_utf8_lossy(&out.stdout).trim().to_owned()
+}
+
+fn init_with(path: &str, git: bool, origin: Option<&str>) -> InitInput {
+    InitInput {
+        path: Utf8PathBuf::from(path),
+        name: Some("acme".to_owned()),
+        provider: None,
+        git,
+        origin: origin.map(str::to_owned),
+    }
+}
+
+const ORIGIN: &str = "git@example.com:acme/hall.git";
+
+#[test]
+fn init_without_git_flags_leaves_the_directory_alone() {
+    let (_guard, root) = hall_root();
+
+    let report = init(&Ctx::new(root.clone()), &fresh_input()).unwrap();
+
+    assert!(!root.join(".git").exists());
+    assert!(!report.value.git);
+    assert_eq!(report.value.origin, None);
+}
+
+#[test]
+fn init_origin_creates_a_repository_on_main_with_that_origin() {
+    let (_guard, root) = hall_root();
+
+    let report = init(
+        &Ctx::new(root.clone()),
+        &init_with(".", false, Some(ORIGIN)),
+    )
+    .unwrap();
+
+    assert!(report.is_clean(), "{:?}", report.warnings);
+    assert!(report.value.git);
+    assert_eq!(report.value.origin.as_deref(), Some(ORIGIN));
+    assert_eq!(git_out(&root, &["symbolic-ref", "--short", "HEAD"]), "main");
+    assert_eq!(git_out(&root, &["remote", "get-url", "origin"]), ORIGIN);
+    let json = serde_json::to_value(&report.value).unwrap();
+    assert_eq!(json["git"], true);
+    assert_eq!(json["origin"], ORIGIN);
+}
+
+#[test]
+fn init_git_without_url_creates_a_repository_with_no_origin() {
+    let (_guard, root) = hall_root();
+
+    let report = init(&Ctx::new(root.clone()), &init_with(".", true, None)).unwrap();
+
+    assert!(report.value.git);
+    assert_eq!(report.value.origin, None);
+    assert_eq!(git_out(&root, &["remote"]), "");
+}
+
+#[test]
+fn init_origin_repeated_with_the_same_url_is_idempotent() {
+    let (_guard, root) = hall_root();
+    let ctx = Ctx::new(root.clone());
+    init(&ctx, &init_with(".", false, Some(ORIGIN))).unwrap();
+
+    let report = init(&ctx, &init_with(".", false, Some(ORIGIN))).unwrap();
+
+    assert!(report.is_clean(), "{:?}", report.warnings);
+    assert!(report.value.git);
+    assert_eq!(report.value.origin.as_deref(), Some(ORIGIN));
+    assert_eq!(git_out(&root, &["remote"]), "origin");
+}
+
+#[test]
+fn init_origin_repeated_completes_a_hall_that_was_made_without_git() {
+    let (_guard, root) = hall_root();
+    let ctx = Ctx::new(root.clone());
+    init(&ctx, &fresh_input()).unwrap();
+    let manifest_before = std::fs::read_to_string(root.join("ivar.json")).unwrap();
+
+    let report = init(
+        &ctx,
+        &InitInput {
+            name: None,
+            ..init_with(".", false, Some(ORIGIN))
+        },
+    )
+    .unwrap();
+
+    assert!(report.is_clean(), "{:?}", report.warnings);
+    assert_eq!(git_out(&root, &["remote", "get-url", "origin"]), ORIGIN);
+    assert_eq!(
+        std::fs::read_to_string(root.join("ivar.json")).unwrap(),
+        manifest_before
+    );
+}
+
+#[test]
+fn init_repeated_without_git_flags_is_still_refused() {
+    let (_guard, root) = hall_root();
+    let ctx = Ctx::new(root.clone());
+    init(&ctx, &init_with(".", false, Some(ORIGIN))).unwrap();
+
+    let error = init(&ctx, &fresh_input()).unwrap_err();
+
+    assert_eq!(error.code, "hall.already_initialised");
+}
+
+#[test]
+fn init_origin_with_a_different_url_is_blocked_and_leaves_origin_intact() {
+    let (_guard, root) = hall_root();
+    let ctx = Ctx::new(root.clone());
+    init(&ctx, &init_with(".", false, Some(ORIGIN))).unwrap();
+
+    let error = init(
+        &ctx,
+        &init_with(".", false, Some("git@example.com:other/hall.git")),
+    )
+    .unwrap_err();
+
+    assert_eq!(error.status, Status::Blocked);
+    assert_eq!(error.code, "hall.origin_conflict");
+    assert!(error.what.contains(ORIGIN), "{}", error.what);
+    assert!(
+        error.actual.as_deref().unwrap_or_default().contains(ORIGIN),
+        "{error:?}"
+    );
+    assert!(
+        error
+            .expected
+            .as_deref()
+            .unwrap_or_default()
+            .contains("git@example.com:other/hall.git"),
+        "{error:?}"
+    );
+    assert_eq!(git_out(&root, &["remote", "get-url", "origin"]), ORIGIN);
+}
+
+#[test]
+fn init_origin_conflict_on_a_new_hall_writes_nothing() {
+    let (_guard, root) = hall_root();
+    git_out(&root, &["init", "-q", "-b", "main"]);
+    git_out(&root, &["remote", "add", "origin", ORIGIN]);
+
+    let error = init(
+        &Ctx::new(root.clone()),
+        &init_with(".", false, Some("git@example.com:other/hall.git")),
+    )
+    .unwrap_err();
+
+    assert_eq!(error.code, "hall.origin_conflict");
+    assert!(!root.join("ivar.json").exists());
+    assert!(!root.join(".ivar").exists());
+    assert_eq!(git_out(&root, &["remote", "get-url", "origin"]), ORIGIN);
+}
+
+#[test]
+fn init_in_an_existing_repository_does_not_reinitialise_it() {
+    let (_guard, root) = hall_root();
+    git_out(&root, &["init", "-q", "-b", "trunk"]);
+
+    let report = init(
+        &Ctx::new(root.clone()),
+        &init_with(".", false, Some(ORIGIN)),
+    )
+    .unwrap();
+
+    assert!(report.value.git);
+    assert_eq!(
+        git_out(&root, &["symbolic-ref", "--short", "HEAD"]),
+        "trunk"
+    );
+    assert_eq!(git_out(&root, &["remote", "get-url", "origin"]), ORIGIN);
+}
+
+#[test]
+fn init_in_a_subdirectory_of_a_repository_does_not_run_git_init() {
+    let (_guard, root) = hall_root();
+    git_out(&root, &["init", "-q", "-b", "main"]);
+    let hall = root.join("hall");
+
+    let report = init(&Ctx::new(root.clone()), &init_with("hall", true, None)).unwrap();
+
+    assert!(report.value.git);
+    assert!(!hall.join(".git").exists());
+}
+
+#[rstest]
+#[case("")]
+#[case("   ")]
+#[case("--upload-pack=evil")]
+fn init_rejects_an_unusable_origin_before_writing(#[case] url: &str) {
+    let (_guard, root) = hall_root();
+
+    let error = init(&Ctx::new(root.clone()), &init_with(".", false, Some(url))).unwrap_err();
+
+    assert_eq!(error.code, "hall.origin_invalid");
+    assert!(!root.join("ivar.json").exists());
 }
 
 // -- status ---------------------------------------------------------------
@@ -529,6 +770,8 @@ fn hall_with_repo() -> (tempfile::TempDir, Utf8PathBuf) {
             path: Utf8PathBuf::from("."),
             name: Some("acme".to_owned()),
             provider: None,
+            git: false,
+            origin: None,
         },
     )
     .unwrap();
@@ -1110,6 +1353,8 @@ fn init_creates_hall_md_and_the_selected_providers_relative_alias() {
             path: Utf8PathBuf::from("."),
             name: Some("acme".to_owned()),
             provider: Some("opencode".to_owned()),
+            git: false,
+            origin: None,
         },
     )
     .unwrap();
@@ -1383,6 +1628,8 @@ fn doctor_names_an_active_run_whose_coordinating_session_is_gone() {
             path: Utf8PathBuf::from("."),
             name: Some("acme".to_owned()),
             provider: None,
+            git: false,
+            origin: None,
         },
     )
     .unwrap();
@@ -1435,6 +1682,8 @@ fn doctor_says_nothing_about_an_active_run_with_a_live_session() {
             path: Utf8PathBuf::from("."),
             name: Some("acme".to_owned()),
             provider: None,
+            git: false,
+            origin: None,
         },
     )
     .unwrap();

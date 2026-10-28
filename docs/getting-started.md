@@ -115,9 +115,17 @@ You are setting up the directory the rest of the team will clone.
 
 ```sh
 mkdir acme && cd acme
-git init
-ivar init --name acme
+ivar init --name acme --origin git@github.com:acme/hall.git
 ```
+
+`--origin <url>` also runs `git init -b main` (unless the directory is already
+inside a git repository) and adds the `origin` remote, so `ivar repo create
+--local` works right away — it needs the hall's `origin` to push to. Use `--git`
+alone to create the repository with no remote yet. Both are safe to repeat: an
+existing repository is never reinitialised, an `origin` with the same URL is
+left alone, and one with a different URL is refused rather than overwritten.
+Without either flag, `ivar init` does not touch git, and you can run `git init`
+yourself first as before.
 
 That writes three things: `ivar.json` (committed — the hall's identity), `.ivar/`
 (local, gitignored — clones, worktrees, state), and the `.gitignore` lines that

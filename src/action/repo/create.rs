@@ -156,7 +156,9 @@ fn hall_origin_url(root: &Utf8Path) -> Result<String, Failure> {
             Failure::blocked("repo.hall_has_no_origin", "hall has no `origin` remote").fix(
                 FixAction::safe(
                     "repo.set_origin",
-                    format!("In `{root}`, run `git remote add origin <url>`."),
+                    format!(
+                        "In `{root}`, run `git remote add origin <url>`, or for a hall with no git repository yet, `ivar init --origin <url>`."
+                    ),
                 ),
             ),
         )

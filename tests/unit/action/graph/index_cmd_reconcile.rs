@@ -19,6 +19,8 @@ fn index_warns_and_keeps_layers_when_the_features_directory_is_unreadable() {
             path: Utf8PathBuf::from("."),
             name: Some("acme".to_owned()),
             provider: None,
+            git: false,
+            origin: None,
         },
     )
     .unwrap();

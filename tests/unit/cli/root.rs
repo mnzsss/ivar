@@ -192,6 +192,8 @@ fn init_args_convert_into_init_input_without_change() {
         path: Utf8PathBuf::from("some/dir"),
         name: Some("acme".to_owned()),
         provider: Some("opencode".to_owned()),
+        git: true,
+        origin: Some("git@example.com:acme/hall.git".to_owned()),
     };
 
     let input: InitInput = args.into();
@@ -199,6 +201,11 @@ fn init_args_convert_into_init_input_without_change() {
     assert_eq!(input.path, Utf8PathBuf::from("some/dir"));
     assert_eq!(input.name, Some("acme".to_owned()));
     assert_eq!(input.provider, Some("opencode".to_owned()));
+    assert!(input.git);
+    assert_eq!(
+        input.origin.as_deref(),
+        Some("git@example.com:acme/hall.git")
+    );
 }
 
 #[test]
