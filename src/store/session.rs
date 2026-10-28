@@ -17,7 +17,7 @@ use crate::store::versioned::{Policy, Store};
 
 /// `state.json`'s schema version. Matches [`SessionState`]'s own constant —
 /// the type owns the number, this module just wires it into the store.
-const CURRENT_VERSION: u32 = 1;
+pub(crate) const CURRENT_VERSION: u32 = 1;
 
 /// The filename every session's record lives in, inside its View Dir.
 const STATE_FILE: &str = "state.json";

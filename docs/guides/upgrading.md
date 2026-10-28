@@ -65,7 +65,7 @@ worse than none.
 
 ## Local state: nothing to do
 
-`.ivar/state.json`, lockfiles and per-feature state migrate on read and save the
+Session `state.json` files, lockfiles and per-feature state migrate on read and save the
 migrated form without telling you. Nobody reviews these files, nobody shares
 them, and deleting them costs a re-clone rather than work — so there is nothing
 useful to say about it.

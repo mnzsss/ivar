@@ -22,3 +22,7 @@ pub mod session;
 pub mod setup_receipt;
 pub mod skill;
 pub mod versioned;
+
+#[cfg(test)]
+#[path = "../../tests/unit/store/on_disk_format.rs"]
+mod on_disk_format_tests;
