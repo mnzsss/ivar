@@ -22,6 +22,8 @@ fn hall_with_origin() -> (tempfile::TempDir, Utf8PathBuf, Utf8PathBuf) {
             path: Utf8PathBuf::from("."),
             name: Some("acme".to_owned()),
             provider: None,
+            git: false,
+            origin: None,
         },
     )
     .unwrap();
@@ -84,6 +86,62 @@ fn create_local_in_a_hall_without_origin_is_refused_before_any_write() {
     assert_eq!(error.status, Status::Blocked);
     assert_eq!(error.code, "repo.hall_has_no_origin");
     assert!(!root.join(".ivar/repos/notes").exists());
+}
+
+#[test]
+fn create_local_in_a_hall_made_with_init_git_suggests_init_origin() {
+    let (_guard, root) = hall_root();
+    let ctx = Ctx::new(root.clone());
+    let report = hall::init(
+        &ctx,
+        &InitInput {
+            path: Utf8PathBuf::from("."),
+            name: Some("acme".to_owned()),
+            provider: None,
+            git: true,
+            origin: None,
+        },
+    )
+    .unwrap();
+    assert!(report.value.git);
+
+    let error = create(&ctx, local("notes")).unwrap_err();
+
+    assert_eq!(error.code, "repo.hall_has_no_origin");
+    assert!(
+        error
+            .fix_actions
+            .iter()
+            .any(|fix| fix.what.contains("ivar init --origin <url>")),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn init_origin_then_create_local_pushes_under_the_prefix() {
+    let (_guard, root) = hall_root();
+    let origin = root.parent().unwrap().join("origins/hall.git");
+    std::fs::create_dir_all(&origin).unwrap();
+    git(&origin, &["init", "--bare", "-q"]);
+    let ctx = Ctx::new(root.clone());
+    hall::init(
+        &ctx,
+        &InitInput {
+            path: Utf8PathBuf::from("."),
+            name: Some("acme".to_owned()),
+            provider: None,
+            git: false,
+            origin: Some(origin.as_str().to_owned()),
+        },
+    )
+    .unwrap();
+
+    let report = create(&ctx, local("notes")).unwrap();
+
+    assert!(report.is_clean());
+    assert_eq!(remote_refs(&origin).trim(), "refs/heads/repos/notes/main");
+    let manifest = crate::action::read_manifest(&Layout::at(root.clone())).unwrap();
+    assert_eq!(manifest.repos()[0].url(), origin.as_str());
 }
 
 #[test]

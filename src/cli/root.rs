@@ -268,6 +268,16 @@ pub struct InitArgs {
     /// provider. Defaults to `claude-code`.
     #[arg(long)]
     pub provider: Option<String>,
+
+    /// Run `git init -b main` in the hall root if it is not already inside a
+    /// git repository.
+    #[arg(long)]
+    pub git: bool,
+
+    /// Add an `origin` remote with this URL; implies `--git`. An existing
+    /// `origin` with a different URL is refused, never overwritten.
+    #[arg(long, value_name = "URL")]
+    pub origin: Option<String>,
 }
 
 /// Arguments for `ivar sync`.
@@ -308,11 +318,15 @@ impl From<InitArgs> for InitInput {
             path,
             name,
             provider,
+            git,
+            origin,
         } = args;
         Self {
             path,
             name,
             provider,
+            git,
+            origin,
         }
     }
 }

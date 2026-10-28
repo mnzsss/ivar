@@ -33,6 +33,8 @@ fn hall_with_provider_session() -> (tempfile::TempDir, Utf8PathBuf) {
             path: Utf8PathBuf::from("."),
             name: Some("acme".to_owned()),
             provider: None,
+            git: false,
+            origin: None,
         },
     )
     .unwrap();
@@ -339,6 +341,8 @@ fn relay_without_a_previous_session_is_blocked() {
             path: Utf8PathBuf::from("."),
             name: Some("acme".to_owned()),
             provider: None,
+            git: false,
+            origin: None,
         },
     )
     .unwrap();

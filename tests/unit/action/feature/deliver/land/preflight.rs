@@ -140,6 +140,8 @@ fn land_no_repos_blocks() {
             path: Utf8PathBuf::from("."),
             name: Some("acme".to_owned()),
             provider: None,
+            git: false,
+            origin: None,
         },
     )
     .unwrap();

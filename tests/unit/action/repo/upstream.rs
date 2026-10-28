@@ -26,6 +26,8 @@ fn hall_with_repo() -> (tempfile::TempDir, Utf8PathBuf) {
             path: Utf8PathBuf::from("."),
             name: Some("acme".to_owned()),
             provider: None,
+            git: false,
+            origin: None,
         },
     )
     .unwrap();
@@ -168,6 +170,8 @@ fn upstream_is_refused_when_the_clone_is_missing() {
             path: Utf8PathBuf::from("."),
             name: Some("acme".to_owned()),
             provider: None,
+            git: false,
+            origin: None,
         },
     )
     .unwrap();

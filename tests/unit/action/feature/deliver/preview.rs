@@ -44,6 +44,8 @@ fn preview_shows_the_recorded_base_not_always_the_default_branch() {
             path: Utf8PathBuf::from("."),
             name: Some("acme".to_owned()),
             provider: None,
+            git: false,
+            origin: None,
         },
     )
     .unwrap();

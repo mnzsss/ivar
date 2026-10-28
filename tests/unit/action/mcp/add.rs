@@ -25,6 +25,8 @@ fn opencode_hall() -> (tempfile::TempDir, camino::Utf8PathBuf) {
             path: camino::Utf8PathBuf::from("."),
             name: Some("acme".to_owned()),
             provider: Some("opencode".to_owned()),
+            git: false,
+            origin: None,
         },
     )
     .unwrap();

@@ -19,6 +19,8 @@ fn hall_with_checkout() -> (tempfile::TempDir, Ctx) {
             path: Utf8PathBuf::from("."),
             name: Some("acme".to_owned()),
             provider: None,
+            git: false,
+            origin: None,
         },
     )
     .unwrap();

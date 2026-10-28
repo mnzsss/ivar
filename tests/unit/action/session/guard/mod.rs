@@ -37,6 +37,8 @@ pub(super) fn hall_with_promoted_feature() -> (tempfile::TempDir, Utf8PathBuf) {
             path: Utf8PathBuf::from("."),
             name: Some("acme".to_owned()),
             provider: None,
+            git: false,
+            origin: None,
         },
     )
     .unwrap();

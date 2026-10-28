@@ -144,3 +144,47 @@ fn a_hall_verb_outside_a_hall_fails_clearly_instead_of_pretending() {
         .code(2)
         .stderr(predicate::str::contains("no hall at"));
 }
+
+#[test]
+fn origin_flag_creates_the_repository_and_reports_it_in_json() {
+    let (_guard, root) = utf8_temp_dir();
+
+    let output = ivar()
+        .current_dir(&root)
+        .args([
+            "init",
+            "--name",
+            "acme",
+            "--origin",
+            "git@example.com:acme/hall.git",
+            "--json",
+        ])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let value: serde_json::Value = serde_json::from_slice(&output).expect("valid json");
+    assert_eq!(value["git"], true);
+    assert_eq!(value["origin"], "git@example.com:acme/hall.git");
+    assert!(root.join(".git").exists());
+}
+
+#[test]
+fn a_conflicting_origin_is_refused_with_both_urls() {
+    let (_guard, root) = utf8_temp_dir();
+    ivar()
+        .current_dir(&root)
+        .args(["init", "--origin", "git@example.com:acme/hall.git"])
+        .assert()
+        .success();
+
+    ivar()
+        .current_dir(&root)
+        .args(["init", "--origin", "git@example.com:other/hall.git"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("git@example.com:acme/hall.git"))
+        .stderr(predicate::str::contains("git@example.com:other/hall.git"));
+}

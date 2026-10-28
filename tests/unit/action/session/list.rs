@@ -26,6 +26,8 @@ fn hall() -> (tempfile::TempDir, Ctx, Layout) {
             path: Utf8PathBuf::from("."),
             name: Some("acme".to_owned()),
             provider: None,
+            git: false,
+            origin: None,
         },
     )
     .unwrap();
