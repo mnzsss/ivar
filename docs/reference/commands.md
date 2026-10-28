@@ -1363,14 +1363,22 @@ A complete structured response keeps its existing representation. An oversized
 JSON response keeps the existing result fields and adds `output` with
 `partial: true`, `budget_bytes`, per-category `omitted` record counts,
 `omitted_fields` for oversized scalar values, and `next` when omitted located
-evidence can be inspected. Rows are omitted whole; a partial result does not
-claim that omitted callers, consumers, or source do not exist.
+evidence can be inspected, plus `truncated` when source text was cut. Rows are
+omitted whole, except source text, which is cut at a line boundary; a partial
+result does not claim that omitted callers, consumers, or source do not exist.
 
 An oversized compact response retains its normal schemas and complete rows and
 adds `#SCHEMA: partial|budget_bytes`,
 `#SCHEMA: omitted_category|omitted_records`, and, when available,
 `#SCHEMA: next_tool|next_arguments`. The next_arguments cell is single-line JSON;
 a literal pipe in its values is encoded as `\u007c` so it stays one cell.
+
+Source comes before relations: the requested source (symbol, file, or `paths`
+range) is admitted first and callers, entry points, relations and consumers get
+what is left. A source larger than the room is cut at a line boundary and listed
+in `output.truncated`; `next` then names `path:start-end` from the following
+line to the end of the range, so repeating the call advances without gaps or
+overlap. See `docs/product/012-graph-explore-precision.md`.
 
 Follow the returned `graph_explore` arguments: they name an actual repository and
 source interval using Markdown, rather than repeating the broad query. This is

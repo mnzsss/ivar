@@ -40,6 +40,14 @@ fn primary(name: &str, path: &str, code: String) -> SymbolSnippet {
     }
 }
 
+/// `count` numbered lines starting at `first`, each holding `filler` repeated.
+fn numbered_code(first: usize, count: usize, filler: &str) -> String {
+    (first..first + count)
+        .map(|n| format!("{n}\t{}", filler.repeat(12)))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 #[test]
 fn complete_json_at_the_byte_boundary_stays_complete() {
     for requested in [false, true] {
@@ -142,21 +150,43 @@ fn oversized_first_identity_does_not_starve_a_later_primary_record() {
 }
 
 #[test]
-fn giant_escaped_source_record_is_omitted_whole_with_a_source_request() {
+fn giant_escaped_symbol_keeps_the_prefix_that_fits_and_continues_after_it() {
     let mut res = empty_result();
-    res.primary_symbols
-        .push(primary("large", "src/large.rs", "\"💡\\\n".repeat(10_000)));
+    let mut large = primary("large", "src/large.rs", numbered_code(1, 230, "\"💡\\ "));
+    large.end_line = 230;
+    res.primary_symbols.push(large);
     res.primary_symbols
         .push(primary("keep", "src/keep.rs", "fn keep() {}".into()));
     let text = render_explore(&res, ExploreFormat::Json, false).unwrap();
     let value: Value = serde_json::from_str(&text).unwrap();
     assert!(text.len() <= 18_000);
-    assert_eq!(value["primary_symbols"].as_array().unwrap().len(), 1);
-    assert_eq!(value["primary_symbols"][0]["symbol"]["name"], "keep");
-    assert_eq!(value["output"]["omitted"]["primary_symbols"], 1);
+    let symbols = value["primary_symbols"].as_array().unwrap();
+    assert_eq!(symbols.len(), 2);
+    assert_eq!(symbols[0]["symbol"]["name"], "large");
+    assert_eq!(symbols[1]["symbol"]["name"], "keep");
+    assert!(value["output"]["omitted"].get("primary_symbols").is_none());
+
+    let returned_end = symbols[0]["end_line"].as_u64().unwrap();
+    assert!((1..230).contains(&returned_end), "end {returned_end}");
+    let code = symbols[0]["code"].as_str().unwrap();
+    assert_eq!(code.lines().count() as u64, returned_end);
+    assert!(
+        code.lines()
+            .last()
+            .unwrap()
+            .starts_with(&format!("{returned_end}\t"))
+    );
     assert_eq!(
         value["output"]["next"]["arguments"],
-        json!({"repo":"api","paths":["src/large.rs:1-1"],"format":"markdown"})
+        json!({"repo":"api","paths":[format!("src/large.rs:{}-230", returned_end + 1)],"format":"markdown"})
+    );
+    assert_eq!(
+        value["output"]["truncated"][0]["section"],
+        "primary_symbols"
+    );
+    assert_eq!(
+        value["output"]["truncated"][0]["next_start"],
+        returned_end + 1
     );
 }
 
@@ -335,4 +365,232 @@ fn retainable_scalars_and_priority_primary_are_preserved_under_relation_and_cons
     assert_eq!(next["format"], "markdown");
     let expected_omitted_file = format!("src/caller_{:03}.rs:5-44", admitted_relations);
     assert_eq!(next["paths"], json!([expected_omitted_file]));
+}
+
+fn caller_relation(i: usize) -> crate::domain::graph::OperationalRelation {
+    crate::domain::graph::OperationalRelation {
+        source: crate::domain::graph::RelationEndpoint {
+            repo: "api".into(),
+            file_path: format!("src/caller_{i:03}.rs"),
+            symbol_name: format!("caller_{i:03}"),
+            symbol_kind: Some(SymbolKind::Fn),
+        },
+        target: crate::domain::graph::RelationEndpoint {
+            repo: "api".into(),
+            file_path: "src/big.rs".into(),
+            symbol_name: "run".into(),
+            symbol_kind: Some(SymbolKind::Fn),
+        },
+        direction: crate::domain::graph::RelationDirection::Incoming,
+        edge_kind: crate::domain::graph::EdgeKind::Calls,
+        provenance: crate::domain::graph::Provenance::Extracted,
+        confidence: 1.0,
+        line: 5,
+        hop_count: 1,
+        cross_repo: false,
+    }
+}
+
+fn big_source(lines: usize) -> crate::domain::graph::SourceFile {
+    crate::domain::graph::SourceFile {
+        repo: "api".into(),
+        file_path: "src/big.rs".into(),
+        line_count: lines,
+        excerpts: vec![crate::domain::graph::SourceExcerpt {
+            start_line: 1,
+            end_line: lines,
+            code: numbered_code(1, lines, "let value = compute(); "),
+        }],
+        changed_since_index: false,
+    }
+}
+
+/// A file with a symbol that has many callers, as `graph_explore paths:[file]` returns it.
+fn file_with_many_callers() -> ExploreResult {
+    let mut res = empty_result();
+    res.query = "src/big.rs".into();
+    res.primary_symbols
+        .push(primary("run", "src/big.rs", numbered_code(1, 3, "run(); ")));
+    res.sources.push(big_source(1_500));
+    for i in 0..300 {
+        res.call_flows.push(crate::domain::graph::CallFlowItem {
+            caller: format!("caller_{i:03}"),
+            callee: "run".into(),
+            edge_kind: crate::domain::graph::EdgeKind::Calls,
+            provenance: crate::domain::graph::Provenance::Extracted,
+            line: 5,
+        });
+        res.direct_relations.push(caller_relation(i));
+        res.entry_points.push(caller_relation(i));
+    }
+    for i in 0..100 {
+        res.transitive_consumers
+            .push(crate::domain::graph::ExploreImpact {
+                symbol_name: format!("consumer_{i:03}"),
+                repo: "api".into(),
+                file_path: format!("src/consumer_{i:03}.rs"),
+                depth: 2,
+                path_via: vec!["run".into()],
+                cross_repo: false,
+            });
+    }
+    res
+}
+
+#[test]
+fn many_callers_do_not_remove_the_requested_source() {
+    let res = file_with_many_callers();
+    for requested in [false, true] {
+        let limit = if requested { 24_000 } else { 18_000 };
+        let text = render_explore(&res, ExploreFormat::Json, requested).unwrap();
+        assert!(text.len() <= limit, "len {}", text.len());
+        let value: Value = serde_json::from_str(&text).unwrap();
+
+        assert_eq!(value["output"]["partial"], true);
+        let sources = value["sources"].as_array().unwrap();
+        assert_eq!(sources.len(), 1, "the requested file must be in sources");
+        assert!(value["output"]["omitted"].get("sources").is_none());
+        assert_eq!(value["primary_symbols"][0]["symbol"]["name"], "run");
+
+        // Most of the budget is source, and relations only got the remainder.
+        let source_bytes = serde_json::to_string(&sources[0]).unwrap().len();
+        assert!(source_bytes > limit / 2, "source got {source_bytes} bytes");
+        assert!(value["output"]["omitted"]["call_flows"].as_u64().unwrap() > 0);
+
+        let excerpts = sources[0]["excerpts"].as_array().unwrap();
+        let end = excerpts.last().unwrap()["end_line"].as_u64().unwrap();
+        assert!(end < 1_500);
+        assert_eq!(value["output"]["truncated"][0]["section"], "sources");
+        assert_eq!(
+            value["output"]["next"]["arguments"],
+            json!({
+                "repo": "api",
+                "paths": [format!("src/big.rs:{}-1500", end + 1)],
+                "format": "markdown",
+            }),
+            "next continues after the last returned line and covers the rest"
+        );
+    }
+}
+
+#[test]
+fn compact_keeps_symbols_ahead_of_relations_when_callers_overflow() {
+    let res = file_with_many_callers();
+    let text = render_explore(&res, ExploreFormat::Compact, true).unwrap();
+    assert!(text.len() <= 24_000);
+    assert!(text.contains("|run|fn|src/big.rs|"), "got: {text}");
+    assert!(
+        text.contains("direct_relations|"),
+        "relations are what gets omitted"
+    );
+    assert!(!text.contains("primary_symbols|"), "no symbol is omitted");
+}
+
+struct BigFile {
+    db: crate::store::graph::db::GraphDb,
+    temp: tempfile::TempDir,
+}
+
+fn big_file_fixture(lines: usize) -> BigFile {
+    let temp = tempfile::tempdir().unwrap();
+    let repo_dir = temp.path().join("api");
+    std::fs::create_dir_all(repo_dir.join("src")).unwrap();
+    let content: String = (1..=lines)
+        .map(|n| format!("    let value_{n} = compute_{n}(); // filler filler filler\n"))
+        .collect();
+    std::fs::write(repo_dir.join("src/big.rs"), &content).unwrap();
+    let db = crate::store::graph::db::GraphDb::open_in_memory().unwrap();
+    db.insert_repo("api", repo_dir.to_str().unwrap(), "main", None)
+        .unwrap();
+    let file_id = db
+        .upsert_file(
+            "api",
+            "src/big.rs",
+            &crate::infra::hash::text(&content),
+            1,
+            content.len() as i64,
+        )
+        .unwrap();
+    let mut run = primary("run", "src/big.rs", String::new()).symbol;
+    run.id = None;
+    run.file_id = Some(file_id);
+    run.span = Span::new(10, 1, lines - 10, 1);
+    db.insert_symbols(&[run]).unwrap();
+    BigFile { db, temp }
+}
+
+/// Numbered lines of every excerpt in a JSON answer, as `(line, text)`.
+fn source_lines(value: &Value) -> Vec<(usize, String)> {
+    value["sources"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|source| source["excerpts"].as_array().unwrap())
+        .flat_map(|excerpt| excerpt["code"].as_str().unwrap().lines())
+        .map(|line| {
+            let (number, text) = line.split_once('\t').unwrap();
+            (number.parse().unwrap(), text.to_owned())
+        })
+        .collect()
+}
+
+#[test]
+fn following_next_rebuilds_a_large_file_without_gaps_or_overlap() {
+    const LINES: usize = 1_200;
+    let fixture = big_file_fixture(LINES);
+    let mut query = "src/big.rs".to_owned();
+    let mut rebuilt: Vec<usize> = Vec::new();
+    let mut hops = 0;
+    loop {
+        hops += 1;
+        assert!(hops < 50, "continuation does not converge");
+        let res = crate::action::graph::explore::explore_files(
+            &fixture.db,
+            fixture.temp.path(),
+            &query,
+            Some("api"),
+        )
+        .unwrap();
+        let text = render_explore(&res, ExploreFormat::Json, true).unwrap();
+        assert!(text.len() <= 24_000);
+        let value: Value = serde_json::from_str(&text).unwrap();
+        let lines = source_lines(&value);
+        assert!(!lines.is_empty(), "hop {hops} returned no source: {text}");
+        rebuilt.extend(lines.iter().map(|(n, _)| *n));
+
+        let truncated = value["output"]["truncated"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|t| t["section"] == "sources");
+        let Some(truncated) = truncated else {
+            break;
+        };
+        let last = lines.last().unwrap().0;
+        assert_eq!(truncated["next_start"], last + 1);
+        assert_eq!(truncated["next_end"], LINES);
+        let next = &value["output"]["next"]["arguments"]["paths"][0];
+        assert_eq!(next, &json!(format!("src/big.rs:{}-{LINES}", last + 1)));
+        query = next.as_str().unwrap().to_owned();
+    }
+    assert!(hops > 1, "the file was expected to exceed one response");
+    assert_eq!(rebuilt, (1..=LINES).collect::<Vec<_>>());
+}
+
+#[test]
+fn a_ranged_markdown_continuation_stays_inside_its_range() {
+    let fixture = big_file_fixture(1_200);
+    let res = crate::action::graph::explore::explore_files(
+        &fixture.db,
+        fixture.temp.path(),
+        "src/big.rs:100-700",
+        Some("api"),
+    )
+    .unwrap();
+    let text = crate::action::graph::narrate::narrate_requested_files(&res);
+    assert!(text.contains("…truncated after line"), "got: {text}");
+    assert!(
+        text.contains("-700\"] for the rest"),
+        "continuation must end at the requested range: {text}"
+    );
 }

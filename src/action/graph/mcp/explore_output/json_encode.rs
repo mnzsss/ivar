@@ -86,6 +86,8 @@ pub(super) fn encode_json_next(nc: &NextCall, scratch: &mut BudgetBuffer) -> Res
     Ok(!scratch.overflowed)
 }
 
+const NEXT_LINE_NUMBER_SLACK: usize = 24;
+
 pub(super) fn json_max_next_len(result: &ExploreResult, limit: usize) -> Result<usize, String> {
     let mut max_next_len = 0;
     let mut scratch = BudgetBuffer::new(limit);
@@ -103,7 +105,9 @@ pub(super) fn json_max_next_len(result: &ExploreResult, limit: usize) -> Result<
             }
         }
     }
-    Ok(max_next_len)
+    // A continuation after a truncation carries line numbers that no record's
+    // own next call has; leave room for a few more digits.
+    Ok(max_next_len + NEXT_LINE_NUMBER_SLACK)
 }
 
 pub(super) fn encode_scalar_json<T: serde::Serialize>(

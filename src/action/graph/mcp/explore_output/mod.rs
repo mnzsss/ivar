@@ -4,6 +4,10 @@
 //! file requests) on structured MCP responses (`compact` and `json`), outputting complete
 //! responses when within budget or structurally valid partial responses with accounted
 //! omission metadata and actionable continuation calls when the budget is exceeded.
+//!
+//! Source text is never starved by relations: it is admitted first and, when a single source
+//! is larger than the budget, cut at a line boundary with a `next` call that starts at the
+//! following line (see [`truncate`]).
 
 mod compact;
 mod compact_row;
@@ -11,6 +15,7 @@ mod json;
 mod json_build;
 mod json_encode;
 mod next;
+mod truncate;
 
 use crate::domain::graph::ExploreResult;
 use compact::partial_compact_output;
@@ -58,11 +63,16 @@ impl Section {
     }
 }
 
+/// Admission order of a partial JSON response: what the agent asked to read
+/// (file matches, then source) comes before the symbols that locate it, and
+/// those before the relations around it. Callers, entry points and consumers
+/// only get what is left, so a symbol with hundreds of callers cannot push the
+/// requested source out of the response.
 const JSON_PRIORITY: [Section; 9] = [
     Section::FileMatches,
+    Section::Sources,
     Section::PrimarySymbols,
     Section::Flows,
-    Section::Sources,
     Section::CallFlows,
     Section::EntryPoints,
     Section::DirectRelations,
@@ -204,6 +214,8 @@ struct EncodedRow {
     index: usize,
     start: usize,
     len: usize,
+    /// Set when the row holds only a line prefix of its source text.
+    truncation: Option<truncate::Truncation>,
 }
 
 #[cfg(test)]

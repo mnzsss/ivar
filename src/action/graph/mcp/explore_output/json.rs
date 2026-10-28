@@ -2,7 +2,30 @@ use crate::domain::graph::ExploreResult;
 
 use super::json_build::{JsonScalarState, build_json_string};
 use super::json_encode::{encode_scalar_json, json_max_next_len, serialize_record_json};
-use super::{BudgetBuffer, EncodedRow, JSON_PRIORITY, section_item_count};
+use super::truncate::{Truncation, truncate_primary_symbol, truncate_source};
+use super::{BudgetBuffer, EncodedRow, JSON_PRIORITY, Section, section_item_count};
+
+/// Worst case for `output.truncated`: at most one truncated source and one
+/// truncated symbol, each naming its file and a line range.
+fn truncated_metadata_len(result: &ExploreResult) -> usize {
+    let longest = result
+        .sources
+        .iter()
+        .map(|s| (s.repo.len(), s.file_path.len()))
+        .chain(
+            result
+                .primary_symbols
+                .iter()
+                .map(|s| (s.symbol.repo.len(), s.file_path.len())),
+        )
+        .map(|(repo, path)| repo + path)
+        .max();
+    longest.map_or(0, |len| {
+        // `,"truncated":[` + `]` and two entries; JSON escaping can double a string.
+        const ENTRY_OVERHEAD: usize = 140;
+        16 + 2 * (ENTRY_OVERHEAD + 2 * len + 1)
+    })
+}
 
 fn compute_json_candidate_budget(
     result: &ExploreResult,
@@ -28,6 +51,7 @@ fn compute_json_candidate_budget(
         + worst_case_omitted_map_len
         + omitted_fields_max_len
         + max_next_len
+        + truncated_metadata_len(result)
         + if *omit_query {
             r#""""#.len()
         } else {
@@ -57,6 +81,81 @@ fn compute_json_candidate_budget(
     Ok(limit.saturating_sub(reserved_metadata))
 }
 
+/// Share of the record budget kept for symbols while source is admitted, so a
+/// large source cannot erase the symbols that locate it.
+const SYMBOL_RESERVE_DIVISOR: usize = 4;
+
+/// Encodes one record into `scratch`; `None` when it alone exceeds the limit.
+fn encode_row(
+    result: &ExploreResult,
+    sec: Section,
+    index: usize,
+    limit: usize,
+    scratch: &mut BudgetBuffer,
+) -> Result<Option<usize>, String> {
+    scratch.reset(limit);
+    match serialize_record_json(result, sec, index, scratch) {
+        Ok(()) => Ok(Some(scratch.bytes.len())),
+        Err(_) if scratch.overflowed => Ok(None),
+        Err(err) => Err(err),
+    }
+}
+
+/// Bytes held back from source for the primary symbols: what they cost, up to a
+/// quarter of the record budget.
+fn symbol_reserve(
+    result: &ExploreResult,
+    candidate_budget: usize,
+    limit: usize,
+    scratch: &mut BudgetBuffer,
+) -> Result<usize, String> {
+    if result.sources.is_empty() {
+        return Ok(0);
+    }
+    let cap = candidate_budget / SYMBOL_RESERVE_DIVISOR;
+    let mut cost = 0usize;
+    for i in 0..result.primary_symbols.len() {
+        let row = encode_row(result, Section::PrimarySymbols, i, limit, scratch)?;
+        cost = cost.saturating_add(row.map_or(cap, |len| len + 1));
+        if cost >= cap {
+            return Ok(cap);
+        }
+    }
+    Ok(cost)
+}
+
+/// Whether an admitted source row already shows the file of this primary
+/// symbol, in which case a truncated copy of the symbol would only repeat it.
+fn source_shows_file(result: &ExploreResult, admitted: &[EncodedRow], sym_index: usize) -> bool {
+    let Some(sym) = result.primary_symbols.get(sym_index) else {
+        return false;
+    };
+    admitted
+        .iter()
+        .filter(|r| r.section == Section::Sources)
+        .filter_map(|r| result.sources.get(r.index))
+        .any(|src| src.repo == sym.symbol.repo && src.file_path == sym.file_path)
+}
+
+fn push_row(
+    arena: &mut Vec<u8>,
+    admitted: &mut Vec<EncodedRow>,
+    section: Section,
+    index: usize,
+    bytes: &[u8],
+    truncation: Option<Truncation>,
+) {
+    let start = arena.len();
+    arena.extend_from_slice(bytes);
+    admitted.push(EncodedRow {
+        section,
+        index,
+        start,
+        len: bytes.len(),
+        truncation,
+    });
+}
+
 fn admit_json_records(
     result: &ExploreResult,
     candidate_budget: usize,
@@ -65,33 +164,88 @@ fn admit_json_records(
     admitted_records: &mut Vec<EncodedRow>,
     scratch: &mut BudgetBuffer,
 ) -> Result<(), String> {
+    let reserve = symbol_reserve(result, candidate_budget, limit, scratch)?;
     let mut total_admitted_len = 0;
     for &sec in &JSON_PRIORITY {
+        let budget = if sec == Section::Sources {
+            candidate_budget.saturating_sub(reserve)
+        } else {
+            candidate_budget
+        };
         let count = section_item_count(result, sec);
+        let mut first_symbol_misfit = None;
+        let mut source_truncated = false;
         for i in 0..count {
-            scratch.reset(limit);
-            if let Err(err) = serialize_record_json(result, sec, i, scratch) {
-                if !scratch.overflowed {
-                    return Err(err);
-                }
+            let row_len = encode_row(result, sec, i, limit, scratch)?;
+            if let Some(len) = row_len
+                && total_admitted_len + len < budget
+            {
+                total_admitted_len += len + 1;
+                push_row(arena, admitted_records, sec, i, &scratch.bytes, None);
                 continue;
             }
-
-            let row_cost = scratch.bytes.len() + 1;
-            if total_admitted_len + row_cost <= candidate_budget {
-                total_admitted_len += row_cost;
-                let start = arena.len();
-                let len = scratch.bytes.len();
-                arena.extend_from_slice(&scratch.bytes);
-                admitted_records.push(EncodedRow {
-                    section: sec,
-                    index: i,
-                    start,
-                    len,
-                });
+            match sec {
+                // The requested source is cut where it stops fitting, in place,
+                // so it comes before anything later in the section.
+                Section::Sources if !source_truncated => {
+                    source_truncated = true;
+                    let room = budget.saturating_sub(total_admitted_len + 1);
+                    let cut = result
+                        .sources
+                        .get(i)
+                        .map(|source| truncate_source(source, room))
+                        .transpose()?
+                        .flatten();
+                    if let Some(row) = cut {
+                        total_admitted_len += row.bytes.len() + 1;
+                        push_row(
+                            arena,
+                            admitted_records,
+                            sec,
+                            i,
+                            &row.bytes,
+                            Some(row.truncation),
+                        );
+                    }
+                }
+                Section::PrimarySymbols if first_symbol_misfit.is_none() => {
+                    first_symbol_misfit = Some(i);
+                }
+                _ => {}
+            }
+        }
+        // Symbols that fit whole come first; the first one that did not gets
+        // what remains, unless a source already shows that file.
+        if let Some(i) = first_symbol_misfit
+            && !source_shows_file(result, admitted_records, i)
+        {
+            let room = budget.saturating_sub(total_admitted_len + 1);
+            let cut = result
+                .primary_symbols
+                .get(i)
+                .map(|snippet| truncate_primary_symbol(snippet, room))
+                .transpose()?
+                .flatten();
+            if let Some(row) = cut {
+                total_admitted_len += row.bytes.len() + 1;
+                push_row(
+                    arena,
+                    admitted_records,
+                    sec,
+                    i,
+                    &row.bytes,
+                    Some(row.truncation),
+                );
             }
         }
     }
+    // Rows were appended in admission order; the response lists each section by index.
+    admitted_records.sort_by_key(|row| {
+        (
+            JSON_PRIORITY.iter().position(|&s| s == row.section),
+            row.index,
+        )
+    });
     Ok(())
 }
 
