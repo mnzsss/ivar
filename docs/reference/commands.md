@@ -45,7 +45,7 @@ Multi-repo worktrees for coding agents: one feature across repos, on one branch,
 | flag | value | default | description |
 | --- | --- | --- | --- |
 | `--json` |  |  | Emit machine-readable output. Prints exactly the value the command computed. The human-readable text is a rendering of that same value, so the two can never tell you different things — script against this. |
-| `--compact` |  |  | Output token-optimized compact pipe-delimited records with schema header |
+| `--compact` |  |  | Output token-optimized compact pipe-delimited records with schema header. Only `ivar graph` verbs support it; any other verb refuses it with a usage error (exit 2) rather than printing the human output. |
 | `--color` | `<COLOR>` | `auto` | When to colour output. `auto` follows `NO_COLOR`, then `FORCE_COLOR`, then whether the stream is a terminal — a pipe or a redirect gets none. `always` and `never` override all of that. Only labels are ever coloured; values never are, so `--json` is unaffected either way. |
 
 

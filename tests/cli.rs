@@ -17,6 +17,9 @@ mod agent;
 #[path = "cli/cli_styling.rs"]
 mod cli_styling;
 
+#[path = "cli/compact_flag.rs"]
+mod compact_flag;
+
 #[path = "cli/feature_cleanup.rs"]
 mod feature_cleanup;
 

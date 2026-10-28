@@ -133,6 +133,13 @@ pub fn run(cli: Cli) -> ExitCode {
     let mut stdout = term::auto(io::stdout(), term::Stream::Stdout);
     let mut stderr = term::auto(io::stderr(), term::Stream::Stderr);
 
+    // `--compact` is global for parsing's sake, but only `ivar graph` renders
+    // it. Anywhere else it would be silently ignored and the human table
+    // printed, so refuse before running (or mutating) anything.
+    if compact && !matches!(cli.command, Command::Graph(_)) {
+        return respond_failure(&compact_unsupported(), json, &mut stdout, &mut stderr);
+    }
+
     // Decided from the cache before the command runs; printed after it, so
     // the line never interleaves with the command's own output.
     let notice = Notice::start(&super::notice::notice_context(json, &cli.command));
@@ -1168,6 +1175,16 @@ pub fn run(cli: Cli) -> ExitCode {
     };
     notice.finish(&mut stderr);
     code
+}
+
+/// The refusal for `--compact` on a verb that has no compact form.
+fn compact_unsupported() -> crate::error::Failure {
+    crate::error::Failure::blocked(
+        "cli.compact_unsupported",
+        "`--compact` is only supported by `ivar graph`",
+    )
+    .expected("`--compact` together with an `ivar graph` verb")
+    .actual("`--compact` on a verb outside `ivar graph`")
 }
 
 /// Parse argv with the styled command. Pure: no stream, no exit.
