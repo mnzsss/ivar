@@ -100,6 +100,8 @@ mod persistence;
 mod schema;
 
 pub use error::Error;
+#[cfg(test)]
+pub(crate) use model::CURRENT_VERSION;
 pub(crate) use model::normalise_graph_path;
 pub use model::{Graph, Manifest, Providers, Repo, local_ref_prefix};
 pub use persistence::MigrationPlan;

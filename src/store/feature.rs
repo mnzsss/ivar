@@ -30,7 +30,7 @@ use crate::store::versioned::{Migration, Policy, Store};
 
 /// `feature.json`'s schema version. Matches [`Feature`]'s own constant —
 /// the type owns the number, this module just wires it into the store.
-const CURRENT_VERSION: u32 = 3;
+pub(crate) const CURRENT_VERSION: u32 = 3;
 
 /// `approvals.json`'s schema version. v2 removed the retired fourth gate;
 /// see [`approvals_v1_to_v2`].
