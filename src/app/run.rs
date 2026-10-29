@@ -100,8 +100,8 @@ pub fn run(cli: Cli) -> ExitCode {
     };
     let _ = term::colour_for(term::Stream::Stdout, colour_override);
     let _ = term::colour_for(term::Stream::Stderr, colour_override);
-    // indicatif and dialoguer paint through `console`, which has its own
-    // global switch; give it ivar's stderr decision so both follow the flag.
+    // indicatif paints through `console`, which has its own
+    // global switch; give it ivar's stderr decision so it follows the flag.
     console::set_colors_enabled_stderr(term::colour_for(term::Stream::Stderr, colour_override));
 
     if !json && term::is_tty(term::Stream::Stdout) {

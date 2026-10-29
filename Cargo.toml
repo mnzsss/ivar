@@ -55,7 +55,6 @@ anstream = "1"
 annotate-snippets = "0.12"
 comfy-table = "8"
 indicatif = "0.18"
-dialoguer = { version = "0.12", default-features = false }
 inquire = { version = "0.9", default-features = false, features = ["crossterm"] }
 console = "0.16"
 

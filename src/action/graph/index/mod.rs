@@ -11,7 +11,6 @@ use std::sync::mpsc;
 use std::time::Instant;
 
 use camino::{Utf8Path, Utf8PathBuf};
-use sha2::{Digest, Sha256};
 use types::classify_text;
 
 use crate::action::progress::Progress;
@@ -385,22 +384,13 @@ enum Extraction {
     Failed(String),
 }
 
-fn hex(bytes: &[u8]) -> String {
-    use std::fmt::Write;
-    let mut out = String::with_capacity(bytes.len() * 2);
-    for b in bytes {
-        let _ = write!(out, "{b:02x}");
-    }
-    out
-}
-
 fn extract_job(repo_id: &str, job: &ExtractJob) -> Extraction {
     let bytes = match std::fs::read(&job.full_path) {
         Ok(bytes) => bytes,
         Err(error) => return Extraction::Failed(error.to_string()),
     };
 
-    let content_hash = hex(&Sha256::digest(&bytes));
+    let content_hash = crate::infra::hash::bytes(&bytes);
     if job.known_hash.as_deref() == Some(content_hash.as_str()) {
         return Extraction::Unchanged;
     }
