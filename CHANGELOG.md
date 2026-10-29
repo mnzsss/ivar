@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.18.0](https://github.com/mnzsss/ivar/compare/v0.17.2...v0.18.0) - 2026-10-29
+
+### Added
+
+- add catchup for missed agent schedules ([#214](https://github.com/mnzsss/ivar/pull/214))
+- report weak graph_explore matches as an honest miss ([#212](https://github.com/mnzsss/ivar/pull/212))
+- add --git and --origin flags to ivar init ([#207](https://github.com/mnzsss/ivar/pull/207))
+- report the indexed commit and staleness in MCP graph answers ([#205](https://github.com/mnzsss/ivar/pull/205))
+
+### Documentation
+
+- fix on-disk format versions and add drift test ([#208](https://github.com/mnzsss/ivar/pull/208))
+
+### Fixed
+
+- keep graph path queries in their repo and flag unindexed hall dirs ([#211](https://github.com/mnzsss/ivar/pull/211))
+- reject --compact on verbs outside graph ([#209](https://github.com/mnzsss/ivar/pull/209))
+- prioritize requested source over callers in graph_explore budget ([#210](https://github.com/mnzsss/ivar/pull/210))
+- resolve explicit worktree paths in graph_explore to their own layer ([#204](https://github.com/mnzsss/ivar/pull/204))
+
 ## [0.17.2](https://github.com/mnzsss/ivar/compare/v0.17.1...v0.17.2) - 2026-10-26
 
 ### Added
