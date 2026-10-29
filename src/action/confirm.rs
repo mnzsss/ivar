@@ -190,10 +190,10 @@ struct Interactive;
 /// Columns a picker row spends on the cursor and checkbox before its label.
 const PICKER_ROW_PREFIX_COLS: usize = 8;
 
-/// Format a list of [`SelectOption`]s as item label strings for dialoguer menus,
+/// Format a list of [`SelectOption`]s as item label strings for selection menus,
 /// `"{id}"` or `"{id} — {description}"`, cut to `term_cols` so no row wraps.
 ///
-/// dialoguer clears the menu by counting one terminal line per item; a wrapped
+/// The picker clears the menu by counting one terminal line per item; a wrapped
 /// row leaves residue and corrupts the screen on redraw.
 fn select_items(options: &[SelectOption], term_cols: usize) -> Vec<String> {
     let width = term_cols.saturating_sub(PICKER_ROW_PREFIX_COLS).max(1);
@@ -234,22 +234,20 @@ fn picker_failure(error: &inquire::InquireError) -> Failure {
 impl Confirm for Interactive {
     fn confirm(&self, question: &str, caveat: Option<&str>) -> Result<bool, Failure> {
         let term = console::Term::stderr();
-        let theme = dialoguer::theme::ColorfulTheme::default();
         if let Some(caveat) = caveat {
             let _ = term.write_line(caveat);
         }
-        let result = dialoguer::Confirm::with_theme(&theme)
-            .with_prompt(question)
-            .default(false)
-            .show_default(true)
-            .interact_on_opt(&term)
-            .map_err(|source| {
-                Failure::failed(
-                    "confirm.read_answer",
-                    format!("could not read your answer: {source}"),
-                )
-            })?;
-        Ok(result.unwrap_or(false))
+        match inquire::Confirm::new(question).with_default(false).prompt() {
+            Ok(answer) => Ok(answer),
+            Err(
+                inquire::InquireError::OperationCanceled
+                | inquire::InquireError::OperationInterrupted,
+            ) => Ok(false),
+            Err(source) => Err(Failure::failed(
+                "confirm.read_answer",
+                format!("could not read your answer: {source}"),
+            )),
+        }
     }
 
     fn select_many(&self, prompt: &str, options: &[SelectOption]) -> Result<Vec<usize>, Failure> {
