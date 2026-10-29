@@ -16,11 +16,19 @@ fn service_runs_the_scheduled_trigger_from_the_hall() {
 
 #[test]
 fn timer_points_at_its_service_and_installs_into_timers_target() {
-    let text = render_timer("1a2b3c4d", "nightly", "*-*-* 09:00:00");
+    let text = render_timer("1a2b3c4d", "nightly", "*-*-* 09:00:00", false);
     assert!(text.contains("\nOnCalendar=*-*-* 09:00:00\n"));
     assert!(text.contains("\nUnit=ivar-agent-1a2b3c4d-nightly.service\n"));
     assert!(text.contains("\n[Install]\nWantedBy=timers.target\n"));
     assert!(owned_by(&text, "1a2b3c4d"));
+}
+
+#[test]
+fn timer_is_persistent_only_when_the_agent_asks_for_catchup() {
+    let without = render_timer("1a2b3c4d", "nightly", "*-*-* 09:00:00", false);
+    let with = render_timer("1a2b3c4d", "nightly", "*-*-* 09:00:00", true);
+    assert!(!without.contains("Persistent="));
+    assert!(with.contains("\n[Timer]\nOnCalendar=*-*-* 09:00:00\nPersistent=true\nUnit="));
 }
 
 #[test]

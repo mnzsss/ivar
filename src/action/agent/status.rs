@@ -136,7 +136,7 @@ pub fn status_in(ctx: &Ctx, unit_dir: &Utf8Path, ivar_bin: &Utf8Path) -> Outcome
                     service.as_deref(),
                     timer.as_deref(),
                     &render_service(&hash, &spec.name, layout.root().as_str(), ivar_bin.as_str()),
-                    &render_timer(&hash, &spec.name, spec.schedule.on_calendar()),
+                    &render_timer(&hash, &spec.name, spec.schedule.on_calendar(), spec.catchup),
                 );
                 if matches!(status.sync, UnitSync::InSync | UnitSync::Stale) {
                     status.next_run = systemd::next_elapse(&format!("{stem}.timer"));

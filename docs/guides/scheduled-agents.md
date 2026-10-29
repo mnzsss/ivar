@@ -35,6 +35,7 @@ ivar runs no process of its own between runs. Linux with systemd only.
 | `secrets` | `[]` | names (`^[A-Z][A-Z0-9_]*$`) read from `.ivar/secrets/agents.env` |
 | `notify` | — | `http(s)://` URL that receives a JSON run summary |
 | `timeout` | `30m` | `90s`, `45m`, `2h`; at most `24h` |
+| `catchup` | `false` | `true`: when the machine was off or asleep at the scheduled time, run once as soon as the timer is active again, however many runs were missed. Sets `Persistent=true` on the timer; run `ivar agent sync` after changing it |
 
 ## Commands
 

@@ -30,6 +30,8 @@ pub struct AgentFrontmatter {
     pub notify: Option<String>,
     pub timeout: Option<String>,
     pub workdir: Option<String>,
+    #[serde(default)]
+    pub catchup: bool,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -66,6 +68,7 @@ pub struct AgentSpec {
     pub notify: Option<String>,
     pub timeout: Duration,
     pub workdir: Option<String>,
+    pub catchup: bool,
     pub prompt: String,
 }
 
@@ -204,6 +207,7 @@ impl AgentSpec {
             notify: fm.notify,
             timeout,
             workdir: fm.workdir,
+            catchup: fm.catchup,
             prompt: prompt.to_owned(),
         })
     }

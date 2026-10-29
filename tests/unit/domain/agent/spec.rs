@@ -18,6 +18,7 @@ fn a_minimal_agent_defaults_to_read_access_and_thirty_minutes() {
     let spec = AgentSpec::from_parts("nightly", base(), "Summarise open PRs.\n").unwrap();
     assert_eq!(spec.access, Access::Read);
     assert_eq!(spec.timeout, DEFAULT_TIMEOUT);
+    assert!(!spec.catchup);
     assert_eq!(
         spec.schedule.on_calendar(),
         "Mon,Tue,Wed,Thu,Fri *-*-* 09:00:00"
@@ -31,6 +32,15 @@ fn a_minimal_agent_defaults_to_read_access_and_thirty_minutes() {
     );
     assert_eq!(spec.prompt, "Summarise open PRs.\n");
     assert_eq!(spec.feature_name(), "agent-nightly");
+}
+
+#[test]
+fn catchup_is_carried_into_the_spec() {
+    let fm = AgentFrontmatter {
+        catchup: true,
+        ..base()
+    };
+    assert!(AgentSpec::from_parts("nightly", fm, "").unwrap().catchup);
 }
 
 #[test]

@@ -120,7 +120,7 @@ pub fn sync_with(ctx: &Ctx, env: &SyncEnv<'_>) -> Outcome<SyncOutcome> {
             layout.root().as_str(),
             env.ivar_bin.as_str(),
         );
-        let timer = render_timer(&hash, &spec.name, spec.schedule.on_calendar());
+        let timer = render_timer(&hash, &spec.name, spec.schedule.on_calendar(), spec.catchup);
         let old_service = fs::read_text(&service_path)?;
         let old_timer = fs::read_text(&timer_path)?;
         let bucket = match (&old_service, &old_timer) {

@@ -30,12 +30,16 @@ pub fn render_service(hall_hash: &str, agent: &str, hall_root: &str, ivar_bin: &
 }
 
 /// The timer that fires the agent's service on `on_calendar`.
+///
+/// With `catchup`, `Persistent=true` makes systemd run the agent once when the
+/// timer comes back after a missed elapse, however many were missed.
 #[must_use]
-pub fn render_timer(hall_hash: &str, agent: &str, on_calendar: &str) -> String {
+pub fn render_timer(hall_hash: &str, agent: &str, on_calendar: &str, catchup: bool) -> String {
     let stem = unit_stem(hall_hash, agent);
+    let persistent = if catchup { "Persistent=true\n" } else { "" };
     format!(
         "[Unit]\nDescription=ivar agent {agent} schedule\n{OWNED_KEY}={hall_hash}\n\n\
-         [Timer]\nOnCalendar={on_calendar}\nUnit={stem}.service\n\n\
+         [Timer]\nOnCalendar={on_calendar}\n{persistent}Unit={stem}.service\n\n\
          [Install]\nWantedBy=timers.target\n"
     )
 }
