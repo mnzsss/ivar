@@ -13,7 +13,9 @@ use crate::action::graph::query::find::{is_path_like, resolve_query_paths, split
 use crate::action::graph::{
     affected, compact, complexity, dead_code, explore, hierarchy, narrate, path, query,
 };
-use crate::domain::graph::{MissEvent, MissKind, truncate_for_storage};
+use crate::domain::graph::{
+    ExploreConfidence, ExploreResult, MissEvent, MissKind, truncate_for_storage,
+};
 use crate::store::graph::db::GraphDb;
 use crate::store::layout::Layout;
 
@@ -89,6 +91,7 @@ where
                 explore::explore(db, root, &q, repo)
             }
             .map_err(|e| format!("explore failed: {e}"))?;
+            record_weak_miss(db, session, &q, &res);
             let count = Some(if !res.file_matches.is_empty() {
                 res.file_matches.len() + res.primary_symbols.len()
             } else {
@@ -400,6 +403,23 @@ where
 
         _ => Err(format!("Unknown tool: {name}")),
     }
+}
+
+/// Records an explore answer made only of weak candidates, so `ivar graph
+/// misses --kind weak` shows which intent queries the index cannot answer.
+/// Best-effort: the answer is already built and must not depend on this write.
+fn record_weak_miss(db: &GraphDb, session: Option<&str>, query: &str, res: &ExploreResult) {
+    let named_candidates = !res.primary_symbols.is_empty() || !res.file_matches.is_empty();
+    if res.confidence != ExploreConfidence::NoMatch || !named_candidates {
+        return;
+    }
+    let _ = db.record_miss(&MissEvent {
+        session: session.map(str::to_owned),
+        kind: MissKind::Weak,
+        query: Some(truncate_for_storage(query)),
+        pattern: None,
+        reason: Some("weak".to_owned()),
+    });
 }
 
 enum FileTarget {

@@ -16,8 +16,8 @@ use crate::action::graph::query::{
     CalleeInfo, CallerInfo, FileOutline, ImpactResult, ReferenceSite, SymbolLocation,
 };
 use crate::domain::graph::{
-    EdgeKind, ExploreResult, FileMatch, FileMention, MentionedSymbol, Provenance, SourceFile,
-    SymbolSnippet,
+    EdgeKind, ExploreConfidence, ExploreResult, FileMatch, FileMention, MentionedSymbol,
+    Provenance, SourceFile, SymbolSnippet,
 };
 
 /// Definitions listed for a symbol before the rest are left out.
@@ -28,6 +28,8 @@ const MAX_BLAST_SYMBOLS: usize = 8;
 const MAX_CALLER_FILES: usize = 3;
 /// Files the "not shown" list names before counting the rest.
 const MAX_NOT_SHOWN_FILES: usize = 10;
+/// Weak candidates the answer lists before counting the rest.
+const MAX_WEAK_LISTED: usize = 12;
 /// Symbol names listed for one file that got no source.
 const MAX_NAMES_PER_FILE: usize = 6;
 /// Entries a callers, callees or impact answer lists before counting the rest.
@@ -98,31 +100,42 @@ fn narrate_explore_within(res: &ExploreResult, max_chars: usize) -> String {
         return out;
     }
 
+    if res.confidence == ExploreConfidence::NoMatch {
+        narrate_no_match(&mut out, res);
+        return out;
+    }
+
     let files = files_in_rank_order(res);
-    if !res.primary_symbols.is_empty() {
+    let symbols = res.primary_symbols.iter().filter(|s| !s.weak).count();
+    let file_matches = res.file_matches.iter().filter(|f| !f.weak).count();
+    if symbols > 0 {
         let _ = writeln!(
             out,
-            "Found {} symbol{} across {} file{}.\n",
-            res.primary_symbols.len(),
-            plural(res.primary_symbols.len()),
+            "Found {symbols} symbol{} across {} file{}.\n",
+            plural(symbols),
             files.len(),
             plural(files.len()),
         );
     } else {
         let _ = writeln!(
             out,
-            "Found {} file match{} across {} file{}.\n",
-            res.file_matches.len(),
-            plural(res.file_matches.len()),
+            "Found {file_matches} file match{} across {} file{}.\n",
+            plural(file_matches),
             files.len(),
             plural(files.len()),
+        );
+    }
+    if res.confidence == ExploreConfidence::Partial {
+        out.push_str(
+            "Confidence: partial. Some candidates cover too little of the query; they are \
+             listed last, weak and without source.\n\n",
         );
     }
 
     narrate_named_flows(&mut out, res);
     narrate_blast_radius(&mut out, res);
 
-    if is_list_intent(&res.query) && res.primary_symbols.is_empty() {
+    if is_list_intent(&res.query) && symbols == 0 {
         out.push_str("**Matching Files**\n\n");
         for file in &files {
             let _ = writeln!(out, "- `{}` ({})", file.path, file.repo);
@@ -144,13 +157,53 @@ fn narrate_explore_within(res: &ExploreResult, max_chars: usize) -> String {
             .collect();
         let mentions_refs: Vec<&FileMention> = file_mentions.iter().collect();
         narrate_next_call(&mut out, &mentions_refs);
+        narrate_weak(&mut out, res);
         return out;
     }
 
     let left_out = narrate_source(&mut out, res, &files, max_chars);
     narrate_not_shown(&mut out, &left_out, &res.not_shown);
+    narrate_weak(&mut out, res);
 
     out
+}
+
+/// Answers a query no candidate covers: says so, and lists the closest
+/// candidates as locations only, so the agent does not read them as an answer.
+fn narrate_no_match(out: &mut String, res: &ExploreResult) {
+    let _ = writeln!(
+        out,
+        "Confidence: none. No confident match for '{}'.\n\n\
+         No indexed file covers enough of the query's words. The candidates below are weak \
+         guesses, listed as locations without source: do not treat them as the answer. Search \
+         with a name or path from the topic, or fall back to a text search.\n",
+        res.query
+    );
+    narrate_weak(out, res);
+}
+
+/// Lists the weak candidates as `path:line`, after the strong ones.
+fn narrate_weak(out: &mut String, res: &ExploreResult) {
+    let mut locations: Vec<String> = Vec::new();
+    for fm in res.file_matches.iter().filter(|f| f.weak) {
+        locations.push(format!("{}:{}", fm.file_path, fm.start_line));
+    }
+    for snippet in res.primary_symbols.iter().filter(|s| s.weak) {
+        locations.push(format!(
+            "{}:{} `{}`",
+            snippet.file_path, snippet.start_line, snippet.symbol.name
+        ));
+    }
+    if locations.is_empty() {
+        return;
+    }
+    out.push_str("**Weak matches (below the relevance threshold, no source)**\n\n");
+    for location in locations.iter().take(MAX_WEAK_LISTED) {
+        let _ = writeln!(out, "- {location}");
+    }
+    if locations.len() > MAX_WEAK_LISTED {
+        let _ = writeln!(out, "- …and {} more", locations.len() - MAX_WEAK_LISTED);
+    }
 }
 
 /// Renders where a symbol is defined, its call sites and type uses, and the
@@ -370,7 +423,7 @@ pub fn narrate_outline(outline: &FileOutline) -> String {
 /// Groups matched symbols and file matches by file in the order explore ranked them.
 fn files_in_rank_order(res: &ExploreResult) -> Vec<FileMatches<'_>> {
     let mut files: Vec<FileMatches<'_>> = Vec::new();
-    for snippet in &res.primary_symbols {
+    for snippet in res.primary_symbols.iter().filter(|s| !s.weak) {
         match files
             .iter_mut()
             .find(|f| f.repo == snippet.symbol.repo && f.path == snippet.file_path)
@@ -384,7 +437,7 @@ fn files_in_rank_order(res: &ExploreResult) -> Vec<FileMatches<'_>> {
             }),
         }
     }
-    for fm in &res.file_matches {
+    for fm in res.file_matches.iter().filter(|f| !f.weak) {
         match files
             .iter_mut()
             .find(|f| f.repo == fm.repo && f.path == fm.file_path)

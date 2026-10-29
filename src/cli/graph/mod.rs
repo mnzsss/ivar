@@ -288,7 +288,7 @@ mod tests;
 
 #[derive(Debug, Args)]
 pub struct GraphMissesArgs {
-    /// Filter by miss kind: `skipped`, `followup`, or `feedback`.
+    /// Filter by miss kind: `skipped`, `followup`, `feedback`, or `weak`.
     #[arg(long)]
     pub kind: Option<String>,
     /// Only include misses at or after this time: a Unix timestamp, or a

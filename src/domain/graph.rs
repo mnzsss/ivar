@@ -334,6 +334,8 @@ pub enum MissKind {
     Skipped,
     Followup,
     Feedback,
+    /// `graph_explore` found only candidates below its relevance threshold.
+    Weak,
 }
 
 impl MissKind {
@@ -343,6 +345,7 @@ impl MissKind {
             Self::Skipped => "skipped",
             Self::Followup => "followup",
             Self::Feedback => "feedback",
+            Self::Weak => "weak",
         }
     }
 }
@@ -360,7 +363,7 @@ impl std::fmt::Display for UnknownMissKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "unknown miss kind `{}`: use `skipped`, `followup`, or `feedback`",
+            "unknown miss kind `{}`: use `skipped`, `followup`, `feedback`, or `weak`",
             self.0
         )
     }
@@ -376,6 +379,7 @@ impl std::str::FromStr for MissKind {
             "skipped" => Ok(Self::Skipped),
             "followup" => Ok(Self::Followup),
             "feedback" => Ok(Self::Feedback),
+            "weak" => Ok(Self::Weak),
             _ => Err(UnknownMissKind(s.to_owned())),
         }
     }
@@ -434,6 +438,9 @@ pub struct SymbolSnippet {
     pub code: String,
     pub start_line: usize,
     pub end_line: usize,
+    /// Below the relevance threshold of the query: `code` is left empty.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub weak: bool,
 }
 
 /// A step in a call flow sequence.
@@ -542,12 +549,49 @@ pub struct FileMatch {
     pub start_line: usize,
     pub excerpt: String,
     pub content_truncated: bool,
+    /// Below the relevance threshold of the query: `excerpt` is left empty.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub weak: bool,
+}
+
+/// How far an exploration's candidates cover what the query asked for.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub enum ExploreConfidence {
+    /// Every candidate covers the query well enough. Not printed.
+    #[default]
+    #[serde(rename = "high")]
+    High,
+    /// Some candidates are weak; they follow the strong ones.
+    #[serde(rename = "partial")]
+    Partial,
+    /// No candidate covers the query: all are weak and carry no source.
+    #[serde(rename = "none")]
+    NoMatch,
+}
+
+impl ExploreConfidence {
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::High => "high",
+            Self::Partial => "partial",
+            Self::NoMatch => "none",
+        }
+    }
+
+    #[must_use]
+    pub fn is_high(&self) -> bool {
+        matches!(self, Self::High)
+    }
 }
 
 /// Result of an exploration query across the graph.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct ExploreResult {
     pub query: String,
+    /// Left out of the answer when `high`.
+    #[serde(default, skip_serializing_if = "ExploreConfidence::is_high")]
+    pub confidence: ExploreConfidence,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub file_matches: Vec<FileMatch>,
     pub primary_symbols: Vec<SymbolSnippet>,

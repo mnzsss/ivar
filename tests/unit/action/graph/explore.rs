@@ -1361,3 +1361,132 @@ fn exact_paths_of_manifests_workflows_and_infra_resolve_inside_their_repo() {
         assert!(!result.sources.is_empty(), "{repo}: {path}");
     }
 }
+
+fn indexed_hall_with_calls() -> (tempfile::TempDir, GraphDb) {
+    let temp = tempdir().expect("create temp dir");
+    let repo_dir = temp.path().join("test-repo");
+    fs::create_dir_all(repo_dir.join("src")).expect("create src dir");
+    let content = "pub fn init_hall() {\n    setup_logging();\n}\n\npub fn caller_func() {\n    init_hall();\n}\n";
+    fs::write(repo_dir.join("src/hall.rs"), content).expect("write source file");
+
+    let db = GraphDb::open_in_memory().expect("open memory db");
+    db.insert_repo("test-repo", repo_dir.to_str().unwrap(), "main", Some("c1"))
+        .expect("insert repo");
+    let file_id = db
+        .upsert_file("test-repo", "src/hall.rs", "h", 1000, content.len() as i64)
+        .expect("upsert file");
+    let symbol = |name: &str, start: usize, end: usize| Symbol {
+        id: None,
+        file_id: Some(file_id),
+        repo: "test-repo".to_owned(),
+        name: name.to_owned(),
+        kind: SymbolKind::Fn,
+        scope: None,
+        signature: None,
+        docstring: None,
+        span: Span::new(start, 1, end, 2),
+        is_exported: true,
+        complexity: None,
+    };
+    let ids = db
+        .insert_symbols(&[symbol("init_hall", 1, 3), symbol("caller_func", 5, 7)])
+        .expect("insert symbols");
+    db.insert_edges(&[crate::domain::graph::Edge {
+        id: None,
+        file_id: Some(file_id),
+        repo: "test-repo".to_owned(),
+        from_symbol_id: Some(ids[1]),
+        to_symbol_id: Some(ids[0]),
+        to_name: Some("init_hall".to_owned()),
+        kind: EdgeKind::Calls,
+        provenance: Provenance::Extracted,
+        line: 6,
+        col: 5,
+        confidence: 1.0,
+    }])
+    .expect("insert edges");
+    (temp, db)
+}
+
+#[test]
+fn an_intent_query_that_covers_only_a_symbol_name_is_a_miss_with_no_source() {
+    let (temp, db) = indexed_hall_with_calls();
+
+    let result = explore(
+        &db,
+        temp.path(),
+        "init hall timeout retry budget quota",
+        None,
+    )
+    .expect("explore should succeed");
+
+    assert_eq!(
+        result.confidence,
+        crate::domain::graph::ExploreConfidence::NoMatch
+    );
+    assert!(!result.primary_symbols.is_empty());
+    assert!(
+        result
+            .primary_symbols
+            .iter()
+            .all(|s| s.weak && s.code.is_empty())
+    );
+    assert!(result.file_matches.iter().all(|f| f.weak));
+    assert!(result.sources.is_empty(), "weak candidates carry no source");
+    assert!(result.direct_relations.is_empty());
+    assert!(result.call_flows.is_empty());
+    assert!(result.transitive_consumers.is_empty());
+    assert_eq!(
+        result.impact_summary.as_deref(),
+        Some("No confident match for 'init hall timeout retry budget quota'.")
+    );
+}
+
+#[test]
+fn a_miss_says_so_in_markdown_json_and_compact() {
+    use crate::action::graph::{compact, narrate};
+    let (temp, db) = indexed_hall_with_calls();
+    let result = explore(
+        &db,
+        temp.path(),
+        "init hall timeout retry budget quota",
+        None,
+    )
+    .expect("explore should succeed");
+
+    let markdown = narrate::narrate_explore(&result);
+    assert!(markdown.contains("Confidence: none"), "{markdown}");
+    assert!(markdown.contains("No confident match for 'init hall timeout retry budget quota'"));
+    assert!(markdown.contains("src/hall.rs:1 `init_hall`"), "{markdown}");
+    assert!(!markdown.contains("**Source**"));
+
+    let json: serde_json::Value = serde_json::to_value(&result).unwrap();
+    assert_eq!(json["confidence"], "none");
+    assert_eq!(json["primary_symbols"][0]["weak"], true);
+
+    let compact = compact::encode_explore(&result);
+    let mut lines = compact.lines();
+    assert_eq!(lines.next(), Some("#SCHEMA: confidence"));
+    assert_eq!(lines.next(), Some("none"));
+    assert!(compact.contains("|complexity|weak"), "{compact}");
+    assert!(
+        compact.lines().any(|row| row.ends_with("|true")),
+        "{compact}"
+    );
+}
+
+#[test]
+fn a_confident_answer_leaves_the_confidence_out() {
+    let (temp, db) = indexed_hall_with_calls();
+
+    let result = explore(&db, temp.path(), "init_hall", None).expect("explore should succeed");
+
+    assert_eq!(
+        result.confidence,
+        crate::domain::graph::ExploreConfidence::High
+    );
+    let json = serde_json::to_value(&result).unwrap();
+    assert!(json.get("confidence").is_none(), "{json}");
+    assert!(json["primary_symbols"][0].get("weak").is_none(), "{json}");
+    assert!(!result.sources.is_empty());
+}

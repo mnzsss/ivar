@@ -1,7 +1,8 @@
 use std::fmt::Write as _;
 
 use crate::action::graph::compact::{
-    EXPLORE_IMPACT_SCHEMA, FILE_MATCH_SCHEMA, RELATION_SCHEMA, SYMBOL_SCHEMA,
+    CONFIDENCE_SCHEMA, EXPLORE_IMPACT_SCHEMA, RELATION_SCHEMA, explore_symbol_schema,
+    file_match_schema,
 };
 use crate::domain::graph::ExploreResult;
 
@@ -103,10 +104,20 @@ fn build_compact_string(
 
     let mut out = String::new();
     let mut has_emitted = false;
+    let weak_column = !result.confidence.is_high();
+    let file_schema = file_match_schema(weak_column);
+    let symbol_schema = explore_symbol_schema(weak_column);
+
+    if weak_column {
+        write!(out, "{CONFIDENCE_SCHEMA}\n{}", result.confidence.as_str())
+            .map_err(|e| e.to_string())?;
+        has_emitted = true;
+    }
+    let lead_len = out.len();
 
     emit_compact_section(
         &mut out,
-        FILE_MATCH_SCHEMA,
+        file_schema,
         Section::FileMatches,
         &mut has_emitted,
         arena,
@@ -119,14 +130,20 @@ fn build_compact_string(
     if ps_admitted {
         emit_compact_section(
             &mut out,
-            SYMBOL_SCHEMA,
+            symbol_schema,
             Section::PrimarySymbols,
             &mut has_emitted,
             arena,
             admitted_records,
         )?;
-    } else if !has_emitted && result.file_matches.is_empty() && !result.primary_symbols.is_empty() {
-        out.push_str(SYMBOL_SCHEMA);
+    } else if out.len() == lead_len
+        && result.file_matches.is_empty()
+        && !result.primary_symbols.is_empty()
+    {
+        if lead_len > 0 {
+            out.push('\n');
+        }
+        out.push_str(symbol_schema);
         has_emitted = true;
     }
 
@@ -175,7 +192,15 @@ pub(super) fn partial_compact_output(
 ) -> Result<String, String> {
     let max_next_len = compact_max_next_len(result, limit)?;
 
-    let reserved_metadata = 1
+    let weak_column = !result.confidence.is_high();
+    let confidence_len = if weak_column {
+        // Schema, newline, and the longest value (`partial`).
+        1 + CONFIDENCE_SCHEMA.len() + 1 + "partial".len()
+    } else {
+        0
+    };
+    let reserved_metadata = confidence_len
+        + 1
         + PARTIAL_SCHEMA.len()
         + 1
         + "true|".len()
@@ -226,8 +251,8 @@ pub(super) fn partial_compact_output(
             let is_first_in_sec = admitted_lens_by_sec.get(sec_idx).copied().unwrap_or(0) == 0;
             let schema_overhead = if is_first_in_sec {
                 match sec {
-                    Section::FileMatches => FILE_MATCH_SCHEMA.len() + 1,
-                    Section::PrimarySymbols => SYMBOL_SCHEMA.len() + 1,
+                    Section::FileMatches => file_match_schema(weak_column).len() + 1,
+                    Section::PrimarySymbols => explore_symbol_schema(weak_column).len() + 1,
                     Section::DirectRelations => RELATION_SCHEMA.len() + 1,
                     Section::TransitiveConsumers => EXPLORE_IMPACT_SCHEMA.len() + 1,
                     _ => 0,

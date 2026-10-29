@@ -21,6 +21,32 @@ pub const PATH_SCHEMA: &str = "#SCHEMA: step|symbol|kind|file|edge_kind";
 pub const RELATION_SCHEMA: &str = "#SCHEMA: source_symbol|source_repo|source_file|direction|target_symbol|target_repo|target_file|edge_kind|provenance|confidence|line|hop_count|cross_repo";
 pub const EXPLORE_IMPACT_SCHEMA: &str = "#SCHEMA: symbol|repo|file|depth|path_via|cross_repo";
 pub const FILE_MATCH_SCHEMA: &str = "#SCHEMA: repo|file|match_kind|line|excerpt|truncated";
+/// Explore answers that are not `high` confidence add a trailing `weak` column to
+/// file matches and primary symbols, and lead with a confidence record.
+pub const FILE_MATCH_WEAK_SCHEMA: &str =
+    "#SCHEMA: repo|file|match_kind|line|excerpt|truncated|weak";
+pub const SYMBOL_WEAK_SCHEMA: &str = "#SCHEMA: id|name|kind|file|line|col|complexity|weak";
+pub const CONFIDENCE_SCHEMA: &str = "#SCHEMA: confidence";
+
+/// Header of the file-match rows of an explore answer.
+#[must_use]
+pub fn file_match_schema(weak_column: bool) -> &'static str {
+    if weak_column {
+        FILE_MATCH_WEAK_SCHEMA
+    } else {
+        FILE_MATCH_SCHEMA
+    }
+}
+
+/// Header of the primary-symbol rows of an explore answer.
+#[must_use]
+pub fn explore_symbol_schema(weak_column: bool) -> &'static str {
+    if weak_column {
+        SYMBOL_WEAK_SCHEMA
+    } else {
+        SYMBOL_SCHEMA
+    }
+}
 /// Trait for converting domain types and results to compact pipe-delimited string representations.
 pub trait ToCompact {
     fn to_compact(&self) -> String;
@@ -224,6 +250,15 @@ pub(crate) enum ExploreRecord<'a> {
 }
 impl ExploreRecord<'_> {
     pub(crate) fn write_to(&self, out: &mut impl std::fmt::Write) -> std::fmt::Result {
+        self.write_row(out, false)
+    }
+
+    /// Writes the row, with the trailing `weak` column when `weak_column` is set.
+    pub(crate) fn write_row(
+        &self,
+        out: &mut impl std::fmt::Write,
+        weak_column: bool,
+    ) -> std::fmt::Result {
         match self {
             Self::FileMatch(fm) => {
                 let kind_str = match fm.match_kind {
@@ -244,7 +279,11 @@ impl ExploreRecord<'_> {
                         other => other,
                     })?;
                 }
-                write!(out, "|{}", fm.content_truncated)
+                write!(out, "|{}", fm.content_truncated)?;
+                if weak_column {
+                    write!(out, "|{}", fm.weak)?;
+                }
+                Ok(())
             }
             Self::PrimarySymbol(snippet) => {
                 let sym = &snippet.symbol;
@@ -262,6 +301,9 @@ impl ExploreRecord<'_> {
                 )?;
                 if let Some(value) = sym.complexity {
                     write!(out, "{value}")?;
+                }
+                if weak_column {
+                    write!(out, "|{}", snippet.weak)?;
                 }
                 Ok(())
             }
@@ -310,23 +352,31 @@ pub(crate) fn write_explore(
     out: &mut impl std::fmt::Write,
 ) -> std::fmt::Result {
     let mut has_emitted = false;
+    let weak_column = !explore.confidence.is_high();
+    if weak_column {
+        write!(out, "{CONFIDENCE_SCHEMA}\n{}", explore.confidence.as_str())?;
+        has_emitted = true;
+    }
     if !explore.file_matches.is_empty() {
-        out.write_str(FILE_MATCH_SCHEMA)?;
+        if has_emitted {
+            out.write_char('\n')?;
+        }
+        out.write_str(file_match_schema(weak_column))?;
         has_emitted = true;
         for fm in &explore.file_matches {
             out.write_char('\n')?;
-            ExploreRecord::FileMatch(fm).write_to(out)?;
+            ExploreRecord::FileMatch(fm).write_row(out, weak_column)?;
         }
     }
     if !explore.primary_symbols.is_empty() || explore.file_matches.is_empty() {
         if has_emitted {
             out.write_char('\n')?;
         }
-        out.write_str(SYMBOL_SCHEMA)?;
+        out.write_str(explore_symbol_schema(weak_column))?;
         has_emitted = true;
         for sym_snippet in &explore.primary_symbols {
             out.write_char('\n')?;
-            ExploreRecord::PrimarySymbol(sym_snippet).write_to(out)?;
+            ExploreRecord::PrimarySymbol(sym_snippet).write_row(out, weak_column)?;
         }
     }
     if !explore.direct_relations.is_empty() {

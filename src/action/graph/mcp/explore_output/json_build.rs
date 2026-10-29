@@ -98,6 +98,26 @@ pub(super) fn emit_json_section(
     Ok(())
 }
 
+fn push_query(out: &mut String, scalars: &JsonScalarState<'_>) -> Result<(), String> {
+    out.push_str("\"query\":");
+    match scalars.query_encoded {
+        Some(bytes) if !scalars.omit_query => {
+            out.push_str(std::str::from_utf8(bytes).map_err(|e| e.to_string())?);
+        }
+        _ => out.push_str("\"\""),
+    }
+    Ok(())
+}
+
+/// `"confidence"` follows the query, and is left out when it is `high`.
+fn push_confidence(out: &mut String, result: &ExploreResult) {
+    if !result.confidence.is_high() {
+        out.push_str(",\"confidence\":\"");
+        out.push_str(result.confidence.as_str());
+        out.push('"');
+    }
+}
+
 pub(super) struct JsonScalarState<'a> {
     pub(super) query_encoded: Option<&'a [u8]>,
     pub(super) impact_encoded: Option<&'a [u8]>,
@@ -137,13 +157,8 @@ pub(super) fn build_json_string(
     let mut out = String::new();
     out.push('{');
 
-    out.push_str("\"query\":");
-    if scalars.omit_query || scalars.query_encoded.is_none() {
-        out.push_str("\"\"");
-    } else if let Some(q_bytes) = scalars.query_encoded {
-        let q_str = std::str::from_utf8(q_bytes).map_err(|e| e.to_string())?;
-        out.push_str(q_str);
-    }
+    push_query(&mut out, scalars)?;
+    push_confidence(&mut out, result);
 
     if !result.file_matches.is_empty() {
         emit_json_section(

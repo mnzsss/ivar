@@ -127,3 +127,79 @@ fn graph_feedback_records_the_resolved_session_on_the_miss() {
     let misses = db.list_misses(&Default::default()).expect("list_misses");
     assert_eq!(misses[0].session.as_deref(), Some("sess-1"));
 }
+
+fn weak_explore(confidence: ExploreConfidence, with_candidates: bool) -> ExploreResult {
+    let mut res = ExploreResult {
+        query: "q".to_owned(),
+        confidence,
+        file_matches: vec![],
+        primary_symbols: vec![],
+        call_flows: vec![],
+        impact_summary: None,
+        direct_relations: vec![],
+        entry_points: vec![],
+        transitive_consumers: vec![],
+        sources: vec![],
+        flows: vec![],
+        not_shown: vec![],
+    };
+    if with_candidates {
+        res.file_matches.push(crate::domain::graph::FileMatch {
+            repo: "api".to_owned(),
+            file_path: "src/a.ts".to_owned(),
+            match_kind: crate::domain::graph::FileMatchKind::Content,
+            start_line: 1,
+            excerpt: String::new(),
+            content_truncated: false,
+            weak: true,
+        });
+    }
+    res
+}
+
+#[test]
+fn an_explore_made_only_of_weak_candidates_is_recorded_as_a_weak_miss() {
+    let db = GraphDb::open_in_memory().expect("open db");
+
+    record_weak_miss(
+        &db,
+        Some("sess-1"),
+        "changeset required",
+        &weak_explore(ExploreConfidence::NoMatch, true),
+    );
+
+    let misses = db.list_misses(&Default::default()).expect("list_misses");
+    assert_eq!(misses.len(), 1);
+    assert_eq!(misses[0].kind, crate::domain::graph::MissKind::Weak);
+    assert_eq!(misses[0].query.as_deref(), Some("changeset required"));
+    assert_eq!(misses[0].reason.as_deref(), Some("weak"));
+    assert_eq!(misses[0].session.as_deref(), Some("sess-1"));
+    let weak_only = db
+        .list_misses(&crate::store::graph::db::usage::MissFilter {
+            kind: Some(crate::domain::graph::MissKind::Weak),
+            ..Default::default()
+        })
+        .expect("filter by kind");
+    assert_eq!(weak_only.len(), 1);
+}
+
+#[test]
+fn confident_and_empty_explores_record_no_weak_miss() {
+    let db = GraphDb::open_in_memory().expect("open db");
+
+    record_weak_miss(
+        &db,
+        None,
+        "q",
+        &weak_explore(ExploreConfidence::Partial, true),
+    );
+    record_weak_miss(&db, None, "q", &weak_explore(ExploreConfidence::High, true));
+    record_weak_miss(
+        &db,
+        None,
+        "q",
+        &weak_explore(ExploreConfidence::NoMatch, false),
+    );
+
+    assert!(db.list_misses(&Default::default()).unwrap().is_empty());
+}

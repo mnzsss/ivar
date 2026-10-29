@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use crate::action::graph::query;
-use crate::domain::graph::{ExploreResult, SymbolSnippet};
+use crate::domain::graph::{ExploreConfidence, ExploreResult, SymbolSnippet};
 use crate::store::graph::db::GraphDb;
 
 pub use error::ExploreError;
@@ -104,6 +104,7 @@ fn explore_within(
     if trimmed_query.is_empty() {
         return Ok(ExploreResult {
             query: query.to_owned(),
+            confidence: ExploreConfidence::High,
             file_matches: Vec::new(),
             primary_symbols: Vec::new(),
             call_flows: Vec::new(),
@@ -128,6 +129,12 @@ fn explore_within(
     let candidates = found.symbols;
     let file_matches = found.files;
     let not_shown = found.not_shown;
+    let confidence = found.confidence;
+    let is_weak = |repo: &str, path: &str| {
+        found
+            .weak_files
+            .contains(&(repo.to_owned(), path.to_owned()))
+    };
 
     if candidates.is_empty() && file_matches.is_empty() {
         let unresolved =
@@ -146,6 +153,7 @@ fn explore_within(
         };
         return Ok(ExploreResult {
             query: query.to_owned(),
+            confidence: ExploreConfidence::NoMatch,
             file_matches: Vec::new(),
             primary_symbols: Vec::new(),
             call_flows: Vec::new(),
@@ -165,6 +173,18 @@ fn explore_within(
     let mut file_spans: Vec<FileSpans> = Vec::new();
 
     for candidate in &candidates {
+        // A weak candidate is a location, not a read: no source, no relations.
+        if is_weak(&candidate.symbol.repo, &candidate.file_path) {
+            primary_symbols.push(SymbolSnippet {
+                symbol: candidate.symbol.clone(),
+                file_path: candidate.file_path.clone(),
+                code: String::new(),
+                start_line: candidate.symbol.span.start_line,
+                end_line: candidate.symbol.span.end_line,
+                weak: true,
+            });
+            continue;
+        }
         let repo_root = if let Some(repo_row) = db.get_visible_repo(&candidate.symbol.repo)? {
             PathBuf::from(repo_row.root_path)
         } else {
@@ -202,11 +222,12 @@ fn explore_within(
             code,
             start_line,
             end_line,
+            weak: false,
         });
     }
 
     // Also include spans for file_matches (content / text matches without symbols)
-    for fm in &file_matches {
+    for fm in file_matches.iter().filter(|fm| !fm.weak) {
         // If the file already has spans from primary symbols, don't inject fallback spans
         if file_spans
             .iter()
@@ -295,20 +316,27 @@ fn explore_within(
         }
     }
     let sources = collect_sources(db, &file_cache, file_spans, whole_files)?;
-    let flows = named_flows(db, trimmed_query, &candidates)?;
+    let strong: Vec<_> = candidates
+        .into_iter()
+        .filter(|c| !is_weak(&c.symbol.repo, &c.file_path))
+        .collect();
+    let flows = named_flows(db, trimmed_query, &strong)?;
 
     // Step 3: Immediate call flows & operational relations (for primary symbols)
-    let relations = collect_relations(db, &candidates, repo)?;
+    let relations = collect_relations(db, &strong, repo)?;
 
     // Step 4: Blast radius / impact summary & transitive consumers
-    let (impact_summary, transitive_consumers) = if candidates.is_empty() {
-        (None, Vec::new())
+    let (impact_summary, transitive_consumers) = if strong.is_empty() {
+        let summary = (confidence == ExploreConfidence::NoMatch)
+            .then(|| format!("No confident match for '{query}'."));
+        (summary, Vec::new())
     } else {
-        collect_impact(db, &candidates)?
+        collect_impact(db, &strong)?
     };
 
     Ok(ExploreResult {
         query: query.to_owned(),
+        confidence,
         file_matches,
         primary_symbols,
         call_flows: relations.call_flows,

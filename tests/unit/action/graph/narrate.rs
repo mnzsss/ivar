@@ -35,6 +35,7 @@ fn symbol(name: &str, repo: &str, line: usize) -> Symbol {
 
 fn snippet(name: &str, repo: &str, file: &str, line: usize) -> SymbolSnippet {
     SymbolSnippet {
+        weak: false,
         symbol: symbol(name, repo, line),
         file_path: file.into(),
         code: format!("{line}\tfn {name}() {{}}"),
@@ -151,6 +152,7 @@ fn relation(
 
 fn result(query: &str) -> ExploreResult {
     ExploreResult {
+        confidence: crate::domain::graph::ExploreConfidence::High,
         file_matches: Vec::new(),
         query: query.into(),
         primary_symbols: Vec::new(),
@@ -565,9 +567,11 @@ fn a_file_larger_than_the_limit_is_cut_at_a_line() {
 #[test]
 fn test_narrate_truncation_note_names_next_range() {
     let res = ExploreResult {
+        confidence: crate::domain::graph::ExploreConfidence::High,
         query: "huge".to_owned(),
         file_matches: Vec::new(),
         primary_symbols: vec![SymbolSnippet {
+            weak: false,
             symbol: Symbol {
                 id: Some(1),
                 file_id: Some(1),
@@ -844,6 +848,7 @@ fn an_intent_answer_never_exceeds_the_character_cap() {
 }
 fn file_match(path: String, excerpt: &str) -> FileMatch {
     FileMatch {
+        weak: false,
         repo: "api".into(),
         file_path: path,
         match_kind: FileMatchKind::Content,
@@ -925,4 +930,27 @@ fn truncated_output_names_omissions_and_exact_follow_up() {
     assert!(out.contains("Not shown"), "got: {out}");
     assert!(out.contains("{\"paths\":["), "got: {out}");
     assert!(out.contains("graph_explore"), "got: {out}");
+}
+
+#[test]
+fn a_partial_answer_shows_source_for_strong_files_and_lists_weak_ones_last() {
+    let mut res = result("changeset policy");
+    res.confidence = crate::domain::graph::ExploreConfidence::Partial;
+    res.primary_symbols
+        .push(snippet("checkChangeset", "api", "src/changeset.ts", 10));
+    let mut weak = snippet("loadRoute", "api", "src/route.ts", 3);
+    weak.weak = true;
+    weak.code.clear();
+    res.primary_symbols.push(weak);
+    res.sources.push(source("api", "src/changeset.ts", 20));
+
+    let out = narrate_explore(&res);
+
+    assert!(out.contains("Found 1 symbol across 1 file."), "{out}");
+    assert!(out.contains("Confidence: partial"), "{out}");
+    assert!(out.contains("line 1 of src/changeset.ts"), "{out}");
+    let weak_at = out.find("**Weak matches").expect("weak list");
+    assert!(weak_at > out.find("**Source**").expect("source section"));
+    assert!(out.contains("- src/route.ts:3 `loadRoute`"), "{out}");
+    assert!(!out.contains("line 1 of src/route.ts"));
 }
