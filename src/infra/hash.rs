@@ -104,7 +104,7 @@ impl From<Error> for Failure {
 }
 
 /// Lowercase hex encoding. No external crate needed for something this small.
-fn to_hex(bytes: impl AsRef<[u8]>) -> String {
+pub(crate) fn to_hex(bytes: impl AsRef<[u8]>) -> String {
     use std::fmt::Write as _;
 
     let bytes = bytes.as_ref();

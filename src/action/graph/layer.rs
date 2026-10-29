@@ -37,16 +37,7 @@ fn compute_layer_fingerprint(base_commit: &str, head: Option<&str>, diff: &Workt
         hasher.update(b"changed\0");
         hasher.update(path.as_str().as_bytes());
     }
-    hex(&hasher.finalize())
-}
-
-fn hex(bytes: &[u8]) -> String {
-    use std::fmt::Write;
-    let mut out = String::with_capacity(bytes.len() * 2);
-    for b in bytes {
-        let _ = write!(out, "{b:02x}");
-    }
-    out
+    crate::infra::hash::to_hex(hasher.finalize())
 }
 
 fn layer_error(message: String) -> Failure {
@@ -206,7 +197,7 @@ fn index_layer_file(
         return drop_layer_file(db, layer_repo, rel_path, existing);
     };
 
-    let hash = hex(&Sha256::digest(&bytes));
+    let hash = crate::infra::hash::bytes(&bytes);
     if let Some(row) = existing
         && row.content_hash == hash
     {
