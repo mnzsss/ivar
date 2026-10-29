@@ -73,6 +73,9 @@ pub struct ParsedExploreQuery {
     pub resolved_paths: Vec<ResolvedPath>,
     pub search_terms: Vec<String>,
     pub route_intent: bool,
+    /// Directory-qualified path tokens (`a/b`, `a/b/**`) that name no indexed
+    /// file or directory. They are never answered with a fuzzy symbol match.
+    pub unresolved_paths: Vec<String>,
 }
 
 /// Checks if a token is identifier-shaped (contains an uppercase letter after a lowercase one,
@@ -103,48 +106,42 @@ pub(crate) fn is_identifier_shaped(token: &str) -> bool {
     false
 }
 
+/// Extensionless file names that identify a file on their own.
+const EXTENSIONLESS_FILES: &[&str] = &[
+    "Dockerfile",
+    "Makefile",
+    "Justfile",
+    "Procfile",
+    "Gemfile",
+    "Rakefile",
+    "Jenkinsfile",
+    "Vagrantfile",
+    "CODEOWNERS",
+];
+
+/// Whether `token` can name a file: it has a directory part, a leading dot or
+/// a dash, a well-known extensionless name, or a dotted extension of up to ten
+/// letters and digits. The index decides whether the file exists, so a token
+/// that merely looks like a file name costs a lookup and pins nothing.
 pub fn is_path_like(token: &str) -> bool {
     token.contains('/')
         || token.contains('\\')
         || token.starts_with('.')
         || token.contains('-')
-        || (token.contains('.')
-            && token.split('.').next_back().is_some_and(|ext| {
-                matches!(
-                    ext,
-                    "rs" | "ts"
-                        | "tsx"
-                        | "js"
-                        | "jsx"
-                        | "mjs"
-                        | "cjs"
-                        | "py"
-                        | "go"
-                        | "c"
-                        | "cpp"
-                        | "h"
-                        | "hpp"
-                        | "java"
-                        | "kt"
-                        | "swift"
-                        | "proto"
-                        | "sql"
-                        | "graphql"
-                        | "sh"
-                        | "txt"
-                        | "lock"
-                        | "dockerfile"
-                        | "xml"
-                        | "html"
-                        | "css"
-                        | "scss"
-                        | "json"
-                        | "toml"
-                        | "yaml"
-                        | "yml"
-                        | "md"
-                )
-            }))
+        || EXTENSIONLESS_FILES.contains(&token)
+        || token.rsplit_once('.').is_some_and(|(stem, ext)| {
+            !stem.is_empty()
+                && !ext.is_empty()
+                && ext.len() <= 10
+                && ext.chars().all(|c| c.is_ascii_alphanumeric())
+                && ext.chars().any(|c| c.is_ascii_alphabetic())
+        })
+}
+
+/// Drops a trailing glob (`/**`, `/*`, `**`, `*`) and slashes, so a directory
+/// glob names the directory.
+fn strip_trailing_glob(path: &str) -> &str {
+    path.trim_end_matches(['*', '/'])
 }
 
 /// Splits an optional trailing line range suffix `:<start>-<end>` (1-based inclusive)
@@ -229,6 +226,7 @@ pub fn resolve_query_paths(
     let mut path_tokens = Vec::new();
     let mut resolved_paths = Vec::new();
     let mut remaining_words = Vec::new();
+    let mut unresolved_paths = Vec::new();
     let mut route_intent = false;
 
     for clean_token in unconsumed_tokens {
@@ -238,10 +236,11 @@ pub fn resolve_query_paths(
 
         let (path_token, _line_range) = split_line_range(clean_token);
         let is_pl = is_path_like(path_token);
-        let trimmed = path_token.trim_start_matches("./");
+        let trimmed = strip_trailing_glob(path_token.trim_start_matches("./"));
 
-        if is_pl {
+        if is_pl && !trimmed.is_empty() {
             path_tokens.push(path_token.to_owned());
+            let before = resolved_paths.len();
             if target_repos.is_empty() {
                 if let Some(resolved) = resolve_path_token(db, conn, None, trimmed)? {
                     resolved_paths.push(resolved);
@@ -254,6 +253,9 @@ pub fn resolve_query_paths(
                         resolved_paths.push(resolved);
                     }
                 }
+            }
+            if resolved_paths.len() == before && trimmed.contains('/') {
+                unresolved_paths.push(path_token.to_owned());
             }
         }
         if !clean_token.contains('/') {
@@ -273,6 +275,7 @@ pub fn resolve_query_paths(
         resolved_paths,
         search_terms: remaining_words,
         route_intent,
+        unresolved_paths,
     })
 }
 
@@ -284,7 +287,7 @@ fn resolve_path_token(
 ) -> Result<Option<ResolvedPath>, QueryError> {
     // 1. Check exact match: f.path = ? OR repo = repo AND f.path = subpath
     let mut exact_stmt = conn.prepare_cached(
-        "SELECT id, repo, path FROM visible_files WHERE (?1 IS NULL OR repo = ?1) AND path = ?2 LIMIT 2",
+        "SELECT id, repo, path FROM visible_files WHERE (?1 IS NULL OR repo = ?1) AND path = ?2 LIMIT 10",
     )?;
     let exact_matches: Vec<(i64, String, String)> = exact_stmt
         .query_map(params![repo, trimmed], |r| {
@@ -297,6 +300,14 @@ fn resolve_path_token(
             file_id: *file_id,
             repo: r.clone(),
             path: p.clone(),
+        }));
+    }
+
+    // The same exact path in several repos is that many answers, and nothing
+    // shorter or longer may stand in for them.
+    if exact_matches.len() > 1 {
+        return Ok(Some(ResolvedPath::AmbiguousBasename {
+            files: exact_matches,
         }));
     }
 
@@ -321,14 +332,23 @@ fn resolve_path_token(
         }
     }
 
-    // 2. Check workspace-relative / suffix match
+    // 2. Check workspace-relative match: the query path is the tail of an
+    // indexed path, or an indexed path is the tail of the query behind a
+    // workspace prefix that names that file's own repo
+    // (`services/api/src/a.ts`, `.ivar/repos/api/main/src/a.ts` for `src/a.ts`
+    // in `api`). A tail with any other prefix (a `DESIGN.md` at another repo's
+    // root for `brand/DESIGN.md`) is a different file and never matches.
     let mut rel_stmt = conn.prepare_cached(
         "SELECT id, repo, path FROM visible_files
          WHERE (?1 IS NULL OR repo = ?1)
            AND (
              path = ?2
              OR path LIKE '%/' || ?2
-             OR ?2 LIKE '%/' || path
+             OR (
+               ?2 LIKE '%/' || path
+               AND repo != 'hall'
+               AND instr('/' || substr(?2, 1, length(?2) - length(path)), '/' || repo || '/') > 0
+             )
            )
          LIMIT 10",
     )?;

@@ -1253,6 +1253,27 @@ fn hybrid_path_symbol_query_keeps_results_inside_the_pinned_path() {
 }
 
 #[test]
+fn a_directory_qualified_path_without_an_exact_match_never_falls_back_to_another_repo() {
+    let db = GraphDb::open_in_memory().expect("open in-memory db");
+    db.insert_repo("valhalla", "/workspace/valhalla", "main", None)
+        .expect("insert repo");
+    db.upsert_file("valhalla", "DESIGN.md", "h_design", 10, 100)
+        .expect("upsert file");
+
+    let missing = explore_find(&db, "brand/DESIGN.md", None, 10).unwrap();
+    assert!(missing.files.is_empty(), "{:?}", missing.files);
+    assert!(missing.symbols.is_empty());
+
+    let parsed = find::resolve_query_paths(&db, "brand/DESIGN.md", None).unwrap();
+    assert!(parsed.resolved_paths.is_empty());
+    assert_eq!(parsed.unresolved_paths, vec!["brand/DESIGN.md".to_owned()]);
+
+    let basename = explore_find(&db, "DESIGN.md", None, 10).unwrap();
+    assert_eq!(basename.files.len(), 1);
+    assert_eq!(basename.files[0].repo, "valhalla");
+}
+
+#[test]
 fn test_explore_find_multi_repo_package_json_in_any_order() {
     let db = GraphDb::open_in_memory().expect("open in-memory db");
     db.insert_repo("gaio-backend", "/workspace/gaio-backend", "main", None)

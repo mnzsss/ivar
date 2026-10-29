@@ -224,7 +224,8 @@ impl Manifest {
     /// # Errors
     ///
     /// Returns [`Error::InvalidGraphPath`] when `dir` is empty, the hall root,
-    /// absolute, leaves the hall, or enters `.ivar`; or any rebuild error.
+    /// absolute, leaves the hall, or enters `.ivar` outside `.ivar/skills`; or any
+    /// rebuild error.
     pub fn with_graph_path_added(&self, dir: &str) -> Result<Self, Error> {
         let dir = normalise_graph_path(dir)?;
         let mut paths: Vec<String> = self.graph_paths().to_vec();
@@ -616,6 +617,9 @@ impl Graph {
     }
 }
 
+/// The one directory of `.ivar` a graph path may name: the hall's committed skills.
+const HALL_SKILLS_DIR: &str = "skills";
+
 pub(crate) fn normalise_graph_path(raw: &str) -> Result<String, Error> {
     let invalid = |reason: &str| Error::InvalidGraphPath {
         path: raw.to_owned(),
@@ -638,8 +642,10 @@ pub(crate) fn normalise_graph_path(raw: &str) -> Result<String, Error> {
     if components.contains(&"..") {
         return Err(invalid("must not leave the hall root"));
     }
-    if components.first() == Some(&".ivar") {
-        return Err(invalid("`.ivar` is ivar's own state"));
+    if components.first() == Some(&".ivar") && components.get(1) != Some(&HALL_SKILLS_DIR) {
+        return Err(invalid(
+            "`.ivar` is ivar's own state; only `.ivar/skills`, the hall's committed skills, can be indexed",
+        ));
     }
     Ok(components.join("/"))
 }

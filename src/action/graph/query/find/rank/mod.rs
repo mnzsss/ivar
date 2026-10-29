@@ -104,6 +104,14 @@ pub fn explore_find(
     max_files: usize,
 ) -> Result<ExploreCandidates, QueryError> {
     let parsed = resolve_query_paths(db, query, repo)?;
+    // A query that only names paths the index lacks has nothing to search for:
+    // falling back to fuzzy symbol matching would answer with unrelated code.
+    if parsed.resolved_paths.is_empty()
+        && parsed.search_terms.is_empty()
+        && !parsed.unresolved_paths.is_empty()
+    {
+        return Ok(ExploreCandidates::default());
+    }
     let single_repo_scope = if parsed.target_repos.len() == 1 {
         parsed.target_repos.first().map(String::as_str)
     } else {
