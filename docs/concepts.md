@@ -122,7 +122,12 @@ the view dir, the absolute path of each linked repo's root instruction file.
 The provider root aliases (`CLAUDE.md` / `AGENTS.md` at the hall root) are
 relative symlinks to `HALL.md`, never sources. When `HALL.md` is missing, a
 session still opens, with a warning and no shared content. The bootstrap block
-is what lets a relay from one provider to another pick the work back up.
+is what lets a relay from one provider to another pick the work back up. The
+file is a copy, regenerated only when the view dir is materialised (`session
+start`, `connect`, `convert`, `feature promote`, `feature rename`), so an edit to
+`HALL.md`, or a repo gaining its first root instruction file, reaches a running
+session after `ivar session connect`, not before. Edits to a repo's instruction
+file need no reconnect: the guard sends the changed file again, marked `UPDATED`.
 
 Each linked repo's **own** instruction files — `CLAUDE.md` / `AGENTS.md` at its
 root and in nested directories — reach the agent as it works, and nothing is
