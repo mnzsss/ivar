@@ -61,6 +61,22 @@ fn edge(
     }
 }
 
+fn unresolved_edge(repo: &str, file_id: i64, from: i64, to_name: String) -> Edge {
+    Edge {
+        id: None,
+        repo: repo.to_owned(),
+        file_id: Some(file_id),
+        from_symbol_id: Some(from),
+        to_symbol_id: None,
+        to_name: Some(to_name),
+        kind: EdgeKind::Calls,
+        provenance: Provenance::Inferred,
+        line: 1,
+        col: 1,
+        confidence: 1.0,
+    }
+}
+
 fn seed(db: &GraphDb) {
     db.insert_repo("app", "/app", "main", None).unwrap();
     let mut previous: Option<(i64, String)> = None;
@@ -73,7 +89,7 @@ fn seed(db: &GraphDb) {
             .collect();
         let ids = db.insert_symbols(&symbols).unwrap();
         let mut edges = Vec::new();
-        for (id, sym) in ids.iter().zip(&symbols) {
+        for (index, (id, sym)) in ids.iter().zip(&symbols).enumerate() {
             if let Some((prev_id, _)) = &previous {
                 edges.push(edge(
                     "app",
@@ -92,6 +108,15 @@ fn seed(db: &GraphDb) {
                 sym.name.clone(),
                 EdgeKind::References,
             ));
+            edges.push(unresolved_edge(
+                "app",
+                file_id,
+                *id,
+                format!("external_{}", sym.name),
+            ));
+            if file == 0 && index == 0 {
+                edges.push(unresolved_edge("app", file_id, *id, target_name()));
+            }
             previous = Some((*id, sym.name.clone()));
         }
         db.insert_edges(&edges).unwrap();
@@ -236,6 +261,18 @@ fn session_view_queries_seek_indexes() {
     let (_dir, db, target) = seeded_db();
     configure_one_layer(&db);
     assert_no_table_walks(heavy_queries(&db, target));
+}
+
+#[test]
+fn callers_of_reports_the_unresolved_edge_naming_the_target() {
+    let (_dir, db, target) = seeded_db();
+
+    let callers = get_callers_of(&db, target, 0.0).unwrap();
+
+    let names: Vec<&str> = callers.iter().map(|c| c.caller.name.as_str()).collect();
+    assert_eq!(names, vec!["f500_s9", "f0_s0"]);
+    assert_eq!(callers[0].provenance, Provenance::Extracted);
+    assert_eq!(callers[1].provenance, Provenance::Inferred);
 }
 
 #[test]

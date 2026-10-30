@@ -90,6 +90,8 @@ pub fn get_callers_of(
     let target_lang = language_sql("tf.path");
     let caller_lang = language_sql("f.path");
     let generic = generic_names_sql();
+    // Without the id prefilter SQLite answers the OR below by walking every unresolved edge, which
+    // is most of a hall. The predicate after the prefilter stays the check.
     let sql = format!(
         "SELECT s.id, s.file_id, s.repo, s.name, s.kind, s.scope, s.signature, s.docstring,
                 s.start_line, s.start_col, s.end_line, s.end_col, s.is_exported, s.complexity, f.path,
@@ -100,7 +102,16 @@ pub fn get_callers_of(
          JOIN visible_files f ON s.file_id = f.id
          LEFT JOIN visible_symbols t ON t.id = ?1
          LEFT JOIN visible_files tf ON t.file_id = tf.id
-         WHERE (
+         WHERE e.id IN (
+             SELECT by_target.id FROM visible_edges by_target WHERE by_target.to_symbol_id = ?1
+             UNION
+             SELECT by_name.id
+             FROM visible_symbols named
+             JOIN visible_edges by_name ON by_name.to_name = named.name
+             WHERE named.id = ?1
+               AND (by_name.to_symbol_id IS NULL OR by_name.to_symbol_id IN (SELECT id FROM hidden_symbols))
+         )
+         AND (
              e.to_symbol_id = ?1
              OR (
                  (e.to_symbol_id IS NULL OR e.to_symbol_id IN (SELECT id FROM hidden_symbols))
