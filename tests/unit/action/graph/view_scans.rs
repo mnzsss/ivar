@@ -63,17 +63,10 @@ fn edge(
 
 fn unresolved_edge(repo: &str, file_id: i64, from: i64, to_name: String) -> Edge {
     Edge {
-        id: None,
-        repo: repo.to_owned(),
-        file_id: Some(file_id),
         from_symbol_id: Some(from),
         to_symbol_id: None,
-        to_name: Some(to_name),
-        kind: EdgeKind::Calls,
         provenance: Provenance::Inferred,
-        line: 1,
-        col: 1,
-        confidence: 1.0,
+        ..edge(repo, file_id, None, 0, to_name, EdgeKind::Calls)
     }
 }
 
@@ -264,18 +257,6 @@ fn session_view_queries_seek_indexes() {
 }
 
 #[test]
-fn callers_of_reports_the_unresolved_edge_naming_the_target() {
-    let (_dir, db, target) = seeded_db();
-
-    let callers = get_callers_of(&db, target, 0.0).unwrap();
-
-    let names: Vec<&str> = callers.iter().map(|c| c.caller.name.as_str()).collect();
-    assert_eq!(names, vec!["f500_s9", "f0_s0"]);
-    assert_eq!(callers[0].provenance, Provenance::Extracted);
-    assert_eq!(callers[1].provenance, Provenance::Inferred);
-}
-
-#[test]
 fn edges_into_a_shadowed_symbol_resolve_by_name_in_the_session() {
     let (_dir, db, _) = seeded_db();
     let id_of = |name: &str, repo: &str| -> i64 {
@@ -314,4 +295,16 @@ fn edges_into_a_shadowed_symbol_resolve_by_name_in_the_session() {
     let callers_of = get_callers_of(&db, layer_symbol, 0.0).unwrap();
     assert_eq!(callers_of.len(), 1);
     assert_eq!(callers_of[0].caller.name, "f5_s0");
+}
+
+#[test]
+fn index_seeking_callers_of_still_reports_the_unresolved_caller() {
+    let (_dir, db, target) = seeded_db();
+
+    let callers = get_callers_of(&db, target, 0.0).unwrap();
+
+    let names: Vec<&str> = callers.iter().map(|c| c.caller.name.as_str()).collect();
+    assert_eq!(names, vec!["f500_s9", "f0_s0"]);
+    assert_eq!(callers[0].provenance, Provenance::Extracted);
+    assert_eq!(callers[1].provenance, Provenance::Inferred);
 }

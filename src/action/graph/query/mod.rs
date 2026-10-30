@@ -90,8 +90,8 @@ pub fn get_callers_of(
     let target_lang = language_sql("tf.path");
     let caller_lang = language_sql("f.path");
     let generic = generic_names_sql();
-    // Without the id prefilter SQLite answers the OR below by walking every unresolved edge, which
-    // is most of a hall. The predicate after the prefilter stays the check.
+    // The id prefilter keeps SQLite from walking every unresolved edge to evaluate the OR below;
+    // that predicate remains the filter.
     let sql = format!(
         "SELECT s.id, s.file_id, s.repo, s.name, s.kind, s.scope, s.signature, s.docstring,
                 s.start_line, s.start_col, s.end_line, s.end_col, s.is_exported, s.complexity, f.path,
