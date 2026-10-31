@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.18.1](https://github.com/mnzsss/ivar/compare/v0.18.0...v0.18.1) - 2026-10-31
+
+### Changed
+
+- prefilter edge ids in graph callers query ([#217](https://github.com/mnzsss/ivar/pull/217))
+
 ## [0.18.0](https://github.com/mnzsss/ivar/compare/v0.17.2...v0.18.0) - 2026-10-29
 
 ### Added
