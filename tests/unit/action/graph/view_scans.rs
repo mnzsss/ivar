@@ -61,6 +61,15 @@ fn edge(
     }
 }
 
+fn unresolved_edge(repo: &str, file_id: i64, from: i64, to_name: String) -> Edge {
+    Edge {
+        from_symbol_id: Some(from),
+        to_symbol_id: None,
+        provenance: Provenance::Inferred,
+        ..edge(repo, file_id, None, 0, to_name, EdgeKind::Calls)
+    }
+}
+
 fn seed(db: &GraphDb) {
     db.insert_repo("app", "/app", "main", None).unwrap();
     let mut previous: Option<(i64, String)> = None;
@@ -73,7 +82,7 @@ fn seed(db: &GraphDb) {
             .collect();
         let ids = db.insert_symbols(&symbols).unwrap();
         let mut edges = Vec::new();
-        for (id, sym) in ids.iter().zip(&symbols) {
+        for (index, (id, sym)) in ids.iter().zip(&symbols).enumerate() {
             if let Some((prev_id, _)) = &previous {
                 edges.push(edge(
                     "app",
@@ -92,6 +101,15 @@ fn seed(db: &GraphDb) {
                 sym.name.clone(),
                 EdgeKind::References,
             ));
+            edges.push(unresolved_edge(
+                "app",
+                file_id,
+                *id,
+                format!("external_{}", sym.name),
+            ));
+            if file == 0 && index == 0 {
+                edges.push(unresolved_edge("app", file_id, *id, target_name()));
+            }
             previous = Some((*id, sym.name.clone()));
         }
         db.insert_edges(&edges).unwrap();
@@ -277,4 +295,16 @@ fn edges_into_a_shadowed_symbol_resolve_by_name_in_the_session() {
     let callers_of = get_callers_of(&db, layer_symbol, 0.0).unwrap();
     assert_eq!(callers_of.len(), 1);
     assert_eq!(callers_of[0].caller.name, "f5_s0");
+}
+
+#[test]
+fn index_seeking_callers_of_still_reports_the_unresolved_caller() {
+    let (_dir, db, target) = seeded_db();
+
+    let callers = get_callers_of(&db, target, 0.0).unwrap();
+
+    let names: Vec<&str> = callers.iter().map(|c| c.caller.name.as_str()).collect();
+    assert_eq!(names, vec!["f500_s9", "f0_s0"]);
+    assert_eq!(callers[0].provenance, Provenance::Extracted);
+    assert_eq!(callers[1].provenance, Provenance::Inferred);
 }
