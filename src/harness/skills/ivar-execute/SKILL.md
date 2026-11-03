@@ -24,7 +24,7 @@ This overrides any harness default. Pass the rule to every subagent that commits
 ## Execution modes
 
 - **`default`**: Guided execution. The human answers at wave gates, validation failures, review findings and delivery, and may let green waves run on without stopping.
-- **`goal`**: Autonomous loop from Wave 1 through `execute finish`, fixing failures within the caps, stopping before delivery or integration.
+- **`goal`**: Autonomous loop from the plan's first wave through `execute finish`, fixing failures within the caps, stopping before delivery or integration.
 
 Mode resolution:
 1. A new run passes `--mode <mode>` to `ivar feature execute start <feature>` (`default` when omitted).
@@ -80,6 +80,8 @@ Process waves in plan order; never start Wave `K+1` before Wave `K` is checkpoin
    ```bash
    ivar feature execute checkpoint <feature> --wave <n> --summary "<completed tasks; exit criteria met; Deferred validation failures: <list or none>>"
    ```
+   `<n>` is the wave's number in `plan.md`, unshifted: a plan that starts at Wave 0 is checkpointed from `--wave 0`, and `execute status` lists it as `wave 0:`. A number the plan does not declare is refused with the plan's wave list.
+
    Never edit `plan.md` during a run — not task checkboxes, not wave notes, not deferred failures. If the plan itself must change, stop and ask the human; re-approval followed by `ivar feature execute accept-revision` is their decision. A request outside the plan is not a plan change: it becomes a child feature (`/ivar-feature-create`).
 
 ## Phase 3: Review barrier

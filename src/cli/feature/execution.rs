@@ -84,8 +84,8 @@ pub struct ExecuteAcceptRevisionArgs {
 #[derive(Debug, Args)]
 pub struct ExecuteCheckpointArgs {
     pub feature: Option<String>,
-    /// The 1-based wave number from `plan.md`.
-    #[arg(long, value_parser = clap::value_parser!(u32).range(1..))]
+    /// The wave number exactly as `plan.md` numbers it (a plan may start at Wave 0 or Wave 1).
+    #[arg(long)]
     pub wave: u32,
     /// Completed tasks, satisfied exit criteria, and deferred validation failures.
     #[arg(long)]

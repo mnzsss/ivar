@@ -723,7 +723,7 @@ fn execute_finish_help_points_to_print_schema() {
 }
 
 #[test]
-fn execute_checkpoint_requires_a_positive_wave_and_a_summary() {
+fn execute_checkpoint_accepts_wave_zero_and_requires_a_summary() {
     assert!(
         Cli::try_parse_from([
             "ivar",
@@ -752,7 +752,7 @@ fn execute_checkpoint_requires_a_positive_wave_and_a_summary() {
             "--summary",
             "x",
         ])
-        .is_err()
+        .is_ok()
     );
 }
 

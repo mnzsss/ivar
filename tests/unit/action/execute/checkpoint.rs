@@ -142,3 +142,97 @@ fn execute_checkpoint_refuses_a_run_that_is_over() {
     let stored = RunReceipt::read(&layout, &feature).unwrap().unwrap();
     assert_eq!(stored.status, RunStatus::Interrupted);
 }
+
+fn start_run_with_plan(root: &Utf8PathBuf, plan: &str) -> (Ctx, FeatureName) {
+    let ctx = Ctx::new(root.clone());
+    let layout = discover_hall(&ctx).unwrap();
+    let feature = FeatureName::new("child-feature").unwrap();
+    let plan_path = root.join("plan.md");
+    std::fs::write(&plan_path, plan).unwrap();
+    RunReceipt::start(
+        RunId::new("00000000-0000-4000-8000-000000000001").unwrap(),
+        feature.clone(),
+        plan_path,
+        "hash123",
+        RunBaseline::empty(),
+        SessionId::new("00000000-0000-4000-8000-000000000002").unwrap(),
+        Provider::ClaudeCode,
+        rfc3339_now(),
+    )
+    .write(&layout)
+    .unwrap();
+    (ctx, feature)
+}
+
+fn record(ctx: &Ctx, feature: &FeatureName, wave: u32) -> Outcome<CheckpointOutcome> {
+    checkpoint(
+        ctx,
+        CheckpointInput {
+            feature: feature.to_string(),
+            wave,
+            summary: format!("wave {wave} approved"),
+        },
+    )
+}
+
+#[test]
+fn execute_checkpoint_records_wave_zero_without_shifting_it() {
+    let (_guard, root) = seeded_hall();
+    let (ctx, feature) = start_run_with_plan(
+        &root,
+        "## Changes\n\n### Wave 0 — split\n\n### Wave 1 — behaviour ✅\n",
+    );
+
+    let outcome = record(&ctx, &feature, 0).expect("wave 0 is in the plan");
+    record(&ctx, &feature, 1).expect("wave 1 is in the plan");
+
+    let numbers: Vec<u32> = outcome
+        .value
+        .receipt
+        .checkpoints
+        .iter()
+        .filter_map(|c| c.wave.as_ref().map(|w| w.number))
+        .collect();
+    assert_eq!(numbers, [0]);
+    let stored = RunReceipt::read(&discover_hall(&ctx).unwrap(), &feature)
+        .unwrap()
+        .unwrap();
+    let numbers: Vec<u32> = stored
+        .checkpoints
+        .iter()
+        .filter_map(|c| c.wave.as_ref().map(|w| w.number))
+        .collect();
+    assert_eq!(numbers, [0, 1]);
+}
+
+#[test]
+fn execute_checkpoint_keeps_plans_starting_at_wave_one_working() {
+    let (_guard, root) = seeded_hall();
+    let (ctx, feature) = start_run_with_plan(&root, "### Wave 1 — first\n\n### Wave 2 — second\n");
+
+    record(&ctx, &feature, 1).expect("wave 1 is in the plan");
+    let failure = record(&ctx, &feature, 0).unwrap_err();
+    assert_eq!(failure.code, "execute.wave_not_in_plan");
+}
+
+#[test]
+fn execute_checkpoint_names_the_plan_waves_when_the_wave_is_unknown() {
+    let (_guard, root) = seeded_hall();
+    let (ctx, feature) = start_run_with_plan(
+        &root,
+        "### Wave 0 — split\n\n```md\n### Wave 9 — example\n```\n\n### Wave 1 — next\n",
+    );
+
+    let failure = record(&ctx, &feature, 7).unwrap_err();
+
+    assert_eq!(failure.code, "execute.wave_not_in_plan");
+    assert!(
+        failure.what.contains("Wave 0, Wave 1") && !failure.what.contains("Wave 9"),
+        "{}",
+        failure.what
+    );
+    let stored = RunReceipt::read(&discover_hall(&ctx).unwrap(), &feature)
+        .unwrap()
+        .unwrap();
+    assert!(stored.checkpoints.iter().all(|c| c.wave.is_none()));
+}
