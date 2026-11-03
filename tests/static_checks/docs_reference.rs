@@ -155,14 +155,14 @@ fn render_command(out: &mut String, command: &mut Command, path: &str, depth: us
         let _ = writeln!(out, "| flag | value | default | description |");
         let _ = writeln!(out, "| --- | --- | --- | --- |");
         for arg in &options {
-            let long = arg
-                .get_long()
-                .map(|long| format!("`--{long}`"))
-                .unwrap_or_default();
-            let short = arg
-                .get_short()
-                .map(|short| format!(" / `-{short}`"))
-                .unwrap_or_default();
+            let flag = [
+                arg.get_long().map(|long| format!("`--{long}`")),
+                arg.get_short().map(|short| format!("`-{short}`")),
+            ]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>()
+            .join(" / ");
             // A boolean flag has no value, but clap still reports a value *name*
             // for it (the id, uppercased). Rendering that would document
             // `--json <JSON>`, which is not accepted.
@@ -183,11 +183,7 @@ fn render_command(out: &mut String, command: &mut Command, path: &str, depth: us
                 .map(|value| format!("`{}`", value.to_string_lossy()))
                 .collect::<Vec<_>>()
                 .join(", ");
-            let _ = writeln!(
-                out,
-                "| {long}{short} | {value} | {default} | {} |",
-                describe(arg)
-            );
+            let _ = writeln!(out, "| {flag} | {value} | {default} | {} |", describe(arg));
         }
         out.push('\n');
     }

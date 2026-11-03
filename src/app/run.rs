@@ -118,6 +118,16 @@ pub fn run(cli: Cli) -> ExitCode {
     // `$CI` run, or a run with nobody on stderr may not prompt — a pipe is not
     // consent. Everything that must ask before it acts (`cleanup`, `migrate`,
     // and later integration's parent-promotion prompt) reads this one decision.
+    let mut stdout = term::auto(io::stdout(), term::Stream::Stdout);
+    let mut stderr = term::auto(io::stderr(), term::Stream::Stderr);
+
+    // `-C <dir>` moves the whole process before anything reads the working
+    // directory (hall discovery, session lookup, relative paths), so every
+    // verb inherits it without a per-verb change.
+    if let Err(failure) = apply_chdir(&cli.chdir) {
+        return respond_failure(&failure, json, &mut stdout, &mut stderr);
+    }
+
     let ctx = Ctx::new(current_dir())
         .with_session_feature(feature_from_env())
         .with_progress(progress::reporter(!json))
@@ -129,9 +139,6 @@ pub fn run(cli: Cli) -> ExitCode {
         ));
 
     let session_id = std::env::var("IVAR_SESSION_ID").ok();
-
-    let mut stdout = term::auto(io::stdout(), term::Stream::Stdout);
-    let mut stderr = term::auto(io::stderr(), term::Stream::Stderr);
 
     // `--compact` is global for parsing's sake, but only `ivar graph` renders
     // it. Anywhere else it would be silently ignored and the human table
@@ -1175,6 +1182,22 @@ pub fn run(cli: Cli) -> ExitCode {
     };
     notice.finish(&mut stderr);
     code
+}
+
+/// Apply each `-C <dir>` in order, like `git -C`: a relative one is resolved
+/// against the directory the previous one left the process in.
+fn apply_chdir(dirs: &[std::path::PathBuf]) -> Result<(), crate::error::Failure> {
+    for dir in dirs {
+        std::env::set_current_dir(dir).map_err(|err| {
+            crate::error::Failure::blocked(
+                "cli.chdir_failed",
+                format!("cannot change directory to `{}`: {err}", dir.display()),
+            )
+            .expected("`-C` to name an existing directory")
+            .actual(format!("`{}` could not be entered", dir.display()))
+        })?;
+    }
+    Ok(())
 }
 
 /// The refusal for `--compact` on a verb that has no compact form.
