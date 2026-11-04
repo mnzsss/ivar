@@ -61,6 +61,20 @@ pub struct Cli {
     #[arg(long = "color", global = true, value_enum, default_value_t = ColorMode::Auto)]
     pub color: ColorMode,
 
+    /// Run as if `ivar` was started in `<dir>`.
+    ///
+    /// Applied before the hall or session is looked up, so every verb sees
+    /// `<dir>` as its working directory — like `git -C`. Repeated `-C` options
+    /// compose: each relative one is resolved against the one before it.
+    #[arg(
+        short = 'C',
+        value_name = "dir",
+        global = true,
+        action = clap::ArgAction::Append,
+        value_hint = clap::ValueHint::DirPath
+    )]
+    pub chdir: Vec<std::path::PathBuf>,
+
     #[command(subcommand)]
     pub command: Command,
 }
