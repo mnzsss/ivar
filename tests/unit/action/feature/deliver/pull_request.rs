@@ -164,7 +164,7 @@ fn status_reports_a_gh_failure_instead_of_a_pr_state() {
     let (_guard, root, fake) = on_github(&["api"]);
     let _gh = fake_gh_on_this_thread(&fake);
     deliver_json(&root, preview_input("checkout"));
-    fake.fail_pr_view("url,number,state,mergeCommit,headRefOid,isDraft");
+    fake.fail_pr_view("url,number,state,mergeCommit,headRefOid,isDraft,mergedAt");
 
     let report = crate::action::feature::status::status(
         &Ctx::new(root.clone()),

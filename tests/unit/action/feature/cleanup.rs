@@ -148,6 +148,7 @@ fn pull_request(state: &str, head_oid: Option<&str>) -> PullRequest {
         state: state.to_owned(),
         head_oid: head_oid.map(str::to_owned),
         merge_commit: None,
+        merged_at: None,
         is_draft: false,
     }
 }

@@ -43,6 +43,8 @@ pub(crate) struct PullRequest {
     pub head_oid: Option<String>,
     /// The merge commit, once merged. `None` while open.
     pub merge_commit: Option<String>,
+    /// When the forge merged the PR; `None` while open.
+    pub merged_at: Option<String>,
     /// Is this PR a draft?
     pub is_draft: bool,
 }
@@ -57,7 +59,7 @@ impl PullRequest {
     }
 }
 
-/// The `--json url,number,state,mergeCommit,headRefOid,isDraft` shape `gh pr
+/// The `--json url,number,state,mergeCommit,headRefOid,isDraft,mergedAt` shape `gh pr
 /// list` and `gh pr view` both emit.
 #[derive(Debug, Deserialize)]
 pub(super) struct GhPrRecord {
@@ -72,6 +74,8 @@ pub(super) struct GhPrRecord {
     pub(super) merge_commit: Option<GhOid>,
     #[serde(default, rename = "headRefOid")]
     pub(super) head_ref_oid: Option<String>,
+    #[serde(default, rename = "mergedAt")]
+    pub(super) merged_at: Option<String>,
 }
 
 /// `mergeCommit` is an object `{"oid": …}` when merged, `null` otherwise.
@@ -89,6 +93,7 @@ impl From<GhPrRecord> for PullRequest {
             is_draft: record.is_draft,
             head_oid: record.head_ref_oid,
             merge_commit: record.merge_commit.map(|commit| commit.oid),
+            merged_at: record.merged_at.filter(|at| !at.is_empty()),
         }
     }
 }
@@ -146,3 +151,7 @@ pub(super) fn pr_url(stdout: &str) -> Option<String> {
 pub(super) fn pr_number(url: &str) -> Option<u64> {
     url.rsplit('/').next()?.parse().ok()
 }
+
+#[cfg(test)]
+#[path = "../../../../tests/unit/action/feature/pull_requests.rs"]
+mod tests;

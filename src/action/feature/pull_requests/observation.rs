@@ -161,7 +161,7 @@ fn view_pull_request(git_dir: &Utf8Path, url: &str) -> Result<PullRequest, Failu
                 "view",
                 url,
                 "--json",
-                "url,number,state,mergeCommit,headRefOid,isDraft",
+                "url,number,state,mergeCommit,headRefOid,isDraft,mergedAt",
             ])
             .cwd(git_dir),
         "pr view",
