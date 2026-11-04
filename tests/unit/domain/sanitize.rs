@@ -105,11 +105,17 @@ fn debug_of_the_context_never_prints_env_values() {
 fn a_huge_body_is_cut_before_redaction_and_still_never_leaks_a_secret() {
     let secret = "ghp_0123456789abcdefghijklmnopqrstuvwxyzAB";
     let filler = "a ".repeat(10 * 1024 * 1024);
-    let started = std::time::Instant::now();
+    let body = format!("{filler}{secret}");
+    let context = ctx();
+    let redactor_input_len = std::cell::Cell::new(0);
 
-    let clean = Sanitized::sanitize(observation(&format!("{filler}{secret}")), &ctx()).unwrap();
+    let clean = sanitize_with(observation(&body), &context, |text| {
+        redactor_input_len.set(text.len());
+        patterns::redact_secrets(text)
+    })
+    .unwrap();
 
-    assert!(started.elapsed() < std::time::Duration::from_secs(1));
+    assert!(redactor_input_len.get() <= context.body_limit * PRE_REDACTION_FACTOR);
     assert!(clean.as_observation().body.len() <= SanitizeContext::DEFAULT_BODY_LIMIT + 3);
     assert!(!clean.as_observation().body.contains("ghp_"));
 }
