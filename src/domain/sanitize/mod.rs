@@ -6,13 +6,13 @@
 
 mod patterns;
 
+use crate::domain::observation::Observation;
+use camino::Utf8PathBuf;
+
 /// Bounds the regex work on the agent's synchronous path: a body is cut to
 /// this many body limits before redaction, so a multi-megabyte tool input
 /// costs the same as a small one.
 const PRE_REDACTION_FACTOR: usize = 8;
-
-use crate::domain::observation::Observation;
-use camino::Utf8PathBuf;
 
 #[derive(Debug)]
 pub struct Sanitized<T>(T);
