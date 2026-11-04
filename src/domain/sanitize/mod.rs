@@ -83,13 +83,15 @@ fn sanitize_with(
     ctx: &SanitizeContext,
     redact: impl Fn(&str) -> String,
 ) -> Result<Sanitized<Observation>, SanitizeError> {
-    let redacted = redact(patterns::cut_before_redaction(
+    let pre_cut = patterns::cut_before_redaction(
         &observation.body,
         ctx.body_limit.saturating_mul(PRE_REDACTION_FACTOR),
-    ));
+    );
+    let input_was_cut = pre_cut.len() < observation.body.len();
+    let redacted = redact(pre_cut);
     let confined = patterns::confine_paths(&redacted, &ctx.hall_root);
     let enveloped = patterns::redact_env_values(&confined, &ctx.env_values);
-    let bounded = patterns::truncate(&enveloped, ctx.body_limit);
+    let bounded = patterns::truncate(&enveloped, ctx.body_limit, input_was_cut);
     if patterns::contains_secret(&bounded) {
         return Err(SanitizeError::ResidualSecret);
     }

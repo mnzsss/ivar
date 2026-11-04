@@ -176,8 +176,8 @@ pub(super) fn confine_paths(text: &str, hall_root: &Utf8Path) -> String {
         .into_owned()
 }
 
-pub(super) fn truncate(text: &str, limit: usize) -> String {
-    if text.len() <= limit {
+pub(super) fn truncate(text: &str, limit: usize, input_was_cut: bool) -> String {
+    if text.len() <= limit && !input_was_cut {
         return text.to_owned();
     }
     let cut = text.floor_char_boundary(limit);

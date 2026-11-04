@@ -133,3 +133,23 @@ fn a_secret_split_by_the_pre_cut_does_not_survive_when_redaction_shrinks_the_tex
         clean.as_observation().body
     );
 }
+
+#[test]
+fn a_body_shortened_by_the_pre_cut_is_marked_even_when_redaction_shrinks_it_under_the_limit() {
+    let mut context = ctx();
+    context.body_limit = 64;
+    let body = format!("sk-{} {}", "a".repeat(400), "z".repeat(400));
+
+    let clean = Sanitized::sanitize(observation(&body), &context).unwrap();
+
+    let stored = &clean.as_observation().body;
+    assert!(stored.len() <= context.body_limit, "{stored}");
+    assert!(stored.ends_with('…'), "{stored}");
+}
+
+#[test]
+fn a_body_that_fits_untouched_is_not_marked() {
+    let clean = Sanitized::sanitize(observation("short body"), &ctx()).unwrap();
+
+    assert_eq!(clean.as_observation().body, "short body");
+}
