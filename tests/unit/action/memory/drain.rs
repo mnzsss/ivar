@@ -236,3 +236,51 @@ fn drain_one_returns_an_empty_report_while_another_process_holds_the_lock() {
     assert_eq!(report, DrainReport::default());
     assert!(layout.memory_spool_dir().join("s1.jsonl").exists());
 }
+
+#[test]
+fn drops_survive_a_drain_whose_state_cannot_be_written_and_are_counted_by_the_next_one() {
+    let (_guard, root) = crate::test_support::seeded_hall();
+    let layout = Layout::at(root);
+    let dir = layout.memory_spool_dir();
+    std::fs::create_dir_all(dir.join(STATE_FILE)).unwrap();
+    std::fs::write(dir.join("s1.dropped"), "xxx").unwrap();
+
+    assert!(drain(&layout).is_err());
+
+    assert_eq!(crate::store::memory::spool::dropped_count(&dir), 3);
+    std::fs::remove_dir(dir.join(STATE_FILE)).unwrap();
+    drain(&layout).unwrap();
+    assert_eq!(read_state(&layout).dropped_total, 3);
+    assert_eq!(crate::store::memory::spool::dropped_count(&dir), 0);
+}
+
+#[test]
+fn a_drop_recorded_while_a_drain_acknowledges_is_kept_for_the_next_drain() {
+    let (_guard, root) = crate::test_support::seeded_hall();
+    let dir = Layout::at(root).memory_spool_dir();
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("s1.dropped"), "xx").unwrap();
+
+    let acknowledgement = begin_acknowledgement(&dir);
+    std::fs::write(dir.join("s1.dropped"), "x").unwrap();
+    acknowledgement.finish();
+
+    assert_eq!(acknowledgement.count, 2);
+    assert_eq!(std::fs::read(dir.join("s1.dropped")).unwrap(), b"x");
+}
+
+#[test]
+fn an_acknowledgement_left_by_a_crash_is_folded_into_the_next_drain() {
+    let (_guard, root) = crate::test_support::seeded_hall();
+    let layout = Layout::at(root);
+    let dir = layout.memory_spool_dir();
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("s1.dropped.17.ack"), "xx").unwrap();
+    std::fs::write(dir.join("s1.dropped"), "x").unwrap();
+
+    drain(&layout).unwrap();
+
+    assert_eq!(read_state(&layout).dropped_total, 3);
+    assert!(!dir.join("s1.dropped.17.ack").exists());
+    assert!(!dir.join("s1.dropped").exists());
+}

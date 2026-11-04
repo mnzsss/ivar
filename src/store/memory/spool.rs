@@ -87,14 +87,20 @@ fn append_line(dir: &Utf8Path, key: &SpoolKey, line: &str) -> io::Result<Appende
     Ok(Appended::Written)
 }
 
-/// Lines dropped at the cap, one byte per drop across every session counter.
+/// Lines dropped at the cap, one byte per drop across every session counter,
+/// including counters a drain renamed to `*.ack` but has not recorded yet.
 #[must_use]
 pub fn dropped_count(dir: &Utf8Path) -> u64 {
     std::fs::read_dir(dir)
         .into_iter()
         .flatten()
         .flatten()
-        .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "dropped"))
+        .filter(|entry| {
+            entry
+                .path()
+                .extension()
+                .is_some_and(|ext| ext == "dropped" || ext == "ack")
+        })
         .filter_map(|entry| entry.metadata().ok())
         .map(|metadata| metadata.len())
         .sum()

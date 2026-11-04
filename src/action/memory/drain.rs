@@ -75,9 +75,9 @@ pub(crate) fn drain_locked(layout: &Layout, max_files: usize) -> Result<DrainRep
     let mut state = read_state(layout);
     match drain_files(layout, &dir, max_files) {
         Ok(report) => {
-            let acknowledged = acknowledge_dropped(&dir);
-            if acknowledged > 0 {
-                state.dropped_total += acknowledged;
+            let acknowledgement = begin_acknowledgement(&dir);
+            if acknowledgement.count > 0 {
+                state.dropped_total += acknowledgement.count;
                 state.dropped_last_epoch_secs = Some(epoch_secs_now());
             }
             state.drained_total += u64::try_from(report.inserted).unwrap_or(u64::MAX);
@@ -85,6 +85,7 @@ pub(crate) fn drain_locked(layout: &Layout, max_files: usize) -> Result<DrainRep
             state.last_error = None;
             write_state(&dir, &state)
                 .map_err(|error| Failure::failed("memory.drain_failed", error.to_string()))?;
+            acknowledgement.finish();
             Ok(report)
         }
         Err(error) => {
@@ -175,15 +176,42 @@ fn draining_files(dir: &Utf8Path, max_files: usize) -> Vec<Utf8PathBuf> {
     files
 }
 
-fn acknowledge_dropped(dir: &Utf8Path) -> u64 {
-    files_with_extension(dir, "dropped")
-        .into_iter()
-        .filter_map(|path| {
-            let count = std::fs::metadata(&path).ok()?.len();
-            std::fs::remove_file(&path).ok()?;
-            Some(count)
-        })
-        .sum()
+/// Drop counters that were renamed for acknowledgement and counted, but not
+/// yet deleted.
+struct Acknowledgement {
+    count: u64,
+    files: Vec<Utf8PathBuf>,
+}
+
+impl Acknowledgement {
+    fn finish(&self) {
+        for file in &self.files {
+            let _ = std::fs::remove_file(file);
+        }
+    }
+}
+
+/// Renaming a counter to `*.dropped.<nanos>.ack` before reading it sends any
+/// later drop to a fresh `*.dropped`, so none is lost between the read and the
+/// delete. The `.ack` files are deleted only after the new total is persisted;
+/// one left by a crash is folded into the next drain. A crash between
+/// persisting and deleting counts those drops twice, which over-reports rather
+/// than hides them.
+fn begin_acknowledgement(dir: &Utf8Path) -> Acknowledgement {
+    let nanos = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    for path in files_with_extension(dir, "dropped") {
+        let _ = std::fs::rename(&path, path.with_extension(format!("dropped.{nanos}.ack")));
+    }
+    let files = files_with_extension(dir, "ack");
+    let count = files
+        .iter()
+        .filter_map(|path| std::fs::metadata(path).ok())
+        .map(|metadata| metadata.len())
+        .sum();
+    Acknowledgement { count, files }
 }
 
 fn files_with_extension(dir: &Utf8Path, extension: &str) -> Vec<Utf8PathBuf> {

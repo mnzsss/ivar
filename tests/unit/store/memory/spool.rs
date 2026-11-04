@@ -89,3 +89,14 @@ fn append_writes_the_sanitized_observation_as_one_json_line() {
     assert_eq!(&parsed, sanitized.as_observation());
     assert!(!text.contains("ghp_"));
 }
+
+#[test]
+fn drops_being_acknowledged_still_count_until_the_acknowledgement_is_recorded() {
+    let (_tmp, dir) = dir();
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("s.dropped"), "x").unwrap();
+    std::fs::write(dir.join("s.dropped.17.ack"), "xx").unwrap();
+
+    assert_eq!(dropped_count(&dir), 3);
+    assert!(!has_pending(&dir));
+}
