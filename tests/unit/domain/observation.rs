@@ -22,7 +22,11 @@ fn source_events_round_trip_through_their_names() {
         assert_eq!(SourceEvent::parse(event.as_str()), Some(event));
         assert!(event.as_str().starts_with("session."));
     }
-    assert_eq!(SourceEvent::parse("delivery.pr"), None);
+    assert_eq!(
+        SourceEvent::parse("delivery.pr"),
+        Some(SourceEvent::DeliveryPr)
+    );
+    assert_eq!(SourceEvent::parse("delivery.nope"), None);
 }
 
 #[test]

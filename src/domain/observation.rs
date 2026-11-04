@@ -10,14 +10,36 @@ pub enum SourceEvent {
     SessionPrompted,
     SessionTool,
     SessionEnded,
+    DeliveryRefused,
+    DeliveryPushed,
+    DeliveryPr,
+    DeliveryLanded,
+    DeliveryChecks,
+    DeliveryRebased,
+    DeliveryIntegrated,
+    DeliveryMerged,
+    DeliveryCleaned,
+    DeliveryClosed,
+    DeliveryDeleted,
 }
 
 impl SourceEvent {
-    const ALL: [Self; 4] = [
+    const ALL: [Self; 15] = [
         Self::SessionStarted,
         Self::SessionPrompted,
         Self::SessionTool,
         Self::SessionEnded,
+        Self::DeliveryRefused,
+        Self::DeliveryPushed,
+        Self::DeliveryPr,
+        Self::DeliveryLanded,
+        Self::DeliveryChecks,
+        Self::DeliveryRebased,
+        Self::DeliveryIntegrated,
+        Self::DeliveryMerged,
+        Self::DeliveryCleaned,
+        Self::DeliveryClosed,
+        Self::DeliveryDeleted,
     ];
 
     #[must_use]
@@ -27,6 +49,17 @@ impl SourceEvent {
             Self::SessionPrompted => "session.prompted",
             Self::SessionTool => "session.tool",
             Self::SessionEnded => "session.ended",
+            Self::DeliveryRefused => "delivery.refused",
+            Self::DeliveryPushed => "delivery.pushed",
+            Self::DeliveryPr => "delivery.pr",
+            Self::DeliveryLanded => "delivery.landed",
+            Self::DeliveryChecks => "delivery.checks",
+            Self::DeliveryRebased => "delivery.rebased",
+            Self::DeliveryIntegrated => "delivery.integrated",
+            Self::DeliveryMerged => "delivery.merged",
+            Self::DeliveryCleaned => "delivery.cleaned",
+            Self::DeliveryClosed => "delivery.closed",
+            Self::DeliveryDeleted => "delivery.deleted",
         }
     }
 
@@ -104,6 +137,21 @@ impl Importance {
             ToolEffect::Reads => Self(2),
         }
     }
+
+    #[must_use]
+    pub const fn delivery_failure() -> Self {
+        Self(7)
+    }
+
+    #[must_use]
+    pub const fn delivery_merged() -> Self {
+        Self(6)
+    }
+
+    #[must_use]
+    pub const fn delivery_routine() -> Self {
+        Self(4)
+    }
 }
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -158,10 +206,34 @@ pub fn event_id(
         "{native_session_id}\u{1f}{}\u{1f}{occurred_at}\u{1f}{pid}",
         source_event.as_str()
     );
+    digest(&key)
+}
+
+fn digest(key: &str) -> String {
     Sha256::digest(key.as_bytes())
         .iter()
         .map(|byte| format!("{byte:02x}"))
         .collect()
+}
+
+#[must_use]
+pub fn delivery_event_id(
+    attempt_id: &str,
+    source_event: SourceEvent,
+    repo: &str,
+    sequence: u32,
+) -> String {
+    digest(&format!(
+        "{attempt_id}\u{1f}{}\u{1f}{repo}\u{1f}{sequence}",
+        source_event.as_str()
+    ))
+}
+
+#[must_use]
+pub fn merged_event_id(repo: &str, url: &str, merge_commit: &str) -> String {
+    digest(&format!(
+        "delivery.merged\u{1f}{repo}\u{1f}{url}\u{1f}{merge_commit}"
+    ))
 }
 
 #[cfg(test)]
