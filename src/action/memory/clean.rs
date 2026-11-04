@@ -43,11 +43,11 @@ pub fn clean(ctx: &Ctx) -> Outcome<MemoryCleanOutcome> {
     }
     let _lock = fs::lock_exclusive(&layout.memory_lock())?;
     let mut removed = Vec::new();
-    for file in [
-        path.clone(),
-        Utf8PathBuf::from(format!("{path}-wal")),
-        Utf8PathBuf::from(format!("{path}-shm")),
-    ] {
+    // Sidecars go first: a WAL or journal left beside a database that is
+    // recreated later would be replayed into it.
+    for file in
+        ["-wal", "-shm", "-journal", ""].map(|suffix| Utf8PathBuf::from(format!("{path}{suffix}")))
+    {
         if fs::exists(&file)? {
             fs::remove_file(&file)?;
             removed.push(file);

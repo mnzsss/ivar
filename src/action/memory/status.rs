@@ -29,6 +29,7 @@ pub struct MemoryStatusOutcome {
 pub fn status(ctx: &Ctx) -> Outcome<MemoryStatusOutcome> {
     let layout = discover_hall(ctx)?;
     crate::action::graph::graph_db_path(&layout)?;
+    let _lock = fs::lock_exclusive(&layout.memory_lock())?;
     let path = layout.memory_db();
     drop(MemoryDb::open(path.as_std_path()).map_err(|error| {
         Failure::failed(

@@ -59,3 +59,31 @@ fn status_json_carries_every_field() {
         assert!(json.get(field).is_some(), "{field} missing from {json}");
     }
 }
+
+#[test]
+fn status_waits_for_the_memory_lock_before_repairing() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root.clone());
+    drop(GraphDb::open(layout.graph_db().as_std_path()).unwrap());
+    status(&Ctx::new(root.clone())).unwrap();
+    drop(GraphDb::open(layout.memory_db().as_std_path()).unwrap());
+    let held = crate::infra::fs::lock_exclusive(&layout.memory_lock()).unwrap();
+    let worker = std::thread::spawn(move || status(&Ctx::new(root)).is_ok());
+
+    std::thread::sleep(std::time::Duration::from_secs(2));
+    assert!(!worker.is_finished(), "status must wait for memory.lock");
+    assert!(
+        MemoryDb::inspect(layout.memory_db().as_std_path())
+            .unwrap()
+            .polluted,
+        "status must not repair memory.db while memory.lock is held"
+    );
+    drop(held);
+
+    assert!(worker.join().unwrap());
+    assert!(
+        !MemoryDb::inspect(layout.memory_db().as_std_path())
+            .unwrap()
+            .polluted
+    );
+}

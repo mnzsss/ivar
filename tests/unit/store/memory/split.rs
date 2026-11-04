@@ -292,3 +292,38 @@ fn a_legacy_database_locked_by_another_connection_is_busy_not_skipped() {
     assert!(!layout.graph_db().exists());
     holder.execute_batch("ROLLBACK;").unwrap();
 }
+
+#[test]
+fn a_graph_last_written_before_graph_misses_existed_is_still_moved() {
+    let (_guard, layout) = hall();
+    legacy(&layout);
+    Connection::open(layout.memory_db().as_std_path())
+        .unwrap()
+        .execute_batch("DROP TABLE graph_misses;")
+        .unwrap();
+
+    ensure_split(&layout).unwrap();
+
+    assert_eq!(marker(&layout.graph_db()), "kept");
+    let memory = MemoryDb::inspect(layout.memory_db().as_std_path()).unwrap();
+    assert_eq!(memory.application_id, APPLICATION_ID);
+}
+
+#[test]
+fn the_new_memory_database_holds_its_schema_in_the_main_file() {
+    let (_guard, layout) = hall();
+
+    ensure_split(&layout).unwrap();
+
+    let ivar_dir = std::fs::read_dir(layout.ivar_dir()).unwrap();
+    let leftovers: Vec<_> = ivar_dir
+        .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+        .filter(|name| name.starts_with("memory.db.new") || name == "memory.db-wal")
+        .collect();
+    assert!(leftovers.is_empty(), "{leftovers:?}");
+    let copy_dir = tempfile::tempdir().unwrap();
+    let copy = copy_dir.path().join("memory.db");
+    std::fs::copy(layout.memory_db(), &copy).unwrap();
+    let memory = MemoryDb::inspect(&copy).unwrap();
+    assert_eq!(memory.schema_version, 1);
+}

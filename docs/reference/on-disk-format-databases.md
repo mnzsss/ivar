@@ -74,19 +74,21 @@ and `ivar feature rename` never touch it.
 ### Moving a legacy graph
 
 Before the split the graph lived at `.ivar/memory.db`. The first command that opens
-the graph with a newer `ivar` finds a `memory.db` carrying `files`, `symbols` and
-`graph_misses` and no memory `application_id`, and moves it:
+the graph with a newer `ivar` finds a `memory.db` carrying the `files` and `symbols`
+tables and no memory `application_id`, and moves it. `graph_misses` is not
+required, because a graph last written by v0.10.0 does not have it:
 
 1. it takes `.ivar/memory.lock`, then `.ivar/graph.lock`;
 2. it folds the WAL into the file (`PRAGMA wal_checkpoint(TRUNCATE)`, then
    `PRAGMA journal_mode = DELETE`);
 3. it renames `memory.db` to `graph.db` in one step;
-4. it creates the new `memory.db`. A leftover `memory.db-shm`, or an empty
+4. it creates the new `memory.db`. A leftover `memory.db-shm` or `memory.db-journal`, or an empty
    `memory.db-wal`, is removed first; a `memory.db-wal` that still holds frames
    stops the move, because SQLite would replay it into the new file. The new
    file is built as `memory.db.new` and renamed into place once its schema is
-   committed, so a crash mid-creation leaves only `memory.db.new`, which the
-   next open discards.
+   committed, its WAL folded in (`PRAGMA wal_checkpoint(TRUNCATE)`) and its
+   connection closed, so a crash mid-creation leaves only `memory.db.new`, which
+   the next open discards.
 
 The move is a rename, not a copy, and an interrupted move finishes on the next open.
 When another process still has the legacy file open (typically an MCP server of an

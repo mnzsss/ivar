@@ -41,6 +41,8 @@ fn clean_confirmed_removes_the_database_and_its_sidecars_but_never_the_graph() {
     let (_guard, root, layout) = hall_with_both_databases();
     let wal = Utf8PathBuf::from(format!("{}-wal", layout.memory_db()));
     std::fs::write(wal.as_std_path(), b"").unwrap();
+    let journal = Utf8PathBuf::from(format!("{}-journal", layout.memory_db()));
+    std::fs::write(journal.as_std_path(), b"").unwrap();
 
     let report = clean(&Ctx::new(root).with_confirm(fixed(true))).unwrap();
 
@@ -48,6 +50,7 @@ fn clean_confirmed_removes_the_database_and_its_sidecars_but_never_the_graph() {
     assert!(!wal.as_std_path().exists());
     assert!(report.value.removed.contains(&layout.memory_db()));
     assert!(report.value.removed.contains(&wal));
+    assert!(report.value.removed.contains(&journal));
     assert!(layout.graph_db().as_std_path().exists());
 }
 

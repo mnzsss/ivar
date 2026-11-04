@@ -124,6 +124,15 @@ impl MemoryDb {
         Ok(stored_version(&self.conn)?)
     }
 
+    /// Closes the connection, reporting the error `Drop` would swallow.
+    ///
+    /// # Errors
+    ///
+    /// [`MemoryDbError::Sqlite`] when `SQLite` cannot close the database.
+    pub(crate) fn close(self) -> Result<(), MemoryDbError> {
+        self.conn.close().map_err(|(_, error)| error.into())
+    }
+
     /// The underlying connection.
     #[must_use]
     pub fn conn(&self) -> &Connection {

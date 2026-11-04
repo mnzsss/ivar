@@ -22,6 +22,9 @@ pub enum SplitError {
         "`.ivar/memory.db-wal` holds frames but `.ivar/memory.db` is missing; move the WAL aside to recreate the memory database"
     )]
     StaleWal,
+    /// The staged `memory.db.new` kept WAL frames after its last connection closed.
+    #[error("`.ivar/memory.db.new` could not fold its WAL into the file; nothing was renamed")]
+    StagedWal,
     /// A filesystem call failed.
     #[error(transparent)]
     Io(#[from] std::io::Error),
@@ -49,13 +52,15 @@ pub fn is_legacy_graph_db(path: &Path) -> rusqlite::Result<bool> {
     if application_id == APPLICATION_ID {
         return Ok(false);
     }
+    // `graph_misses` only appeared in v0.11.0, so a graph last written by
+    // v0.10.0 carries just these two.
     let graph_tables: i64 = conn.query_row(
         "SELECT COUNT(*) FROM sqlite_master
-          WHERE type = 'table' AND name IN ('files', 'symbols', 'graph_misses')",
+          WHERE type = 'table' AND name IN ('files', 'symbols')",
         [],
         |row| row.get(0),
     )?;
-    Ok(graph_tables == 3)
+    Ok(graph_tables == 2)
 }
 
 /// [`is_legacy_graph_db`], with a lock held by another connection reported
@@ -133,14 +138,32 @@ fn move_if_legacy(memory: &Utf8Path, graph: &Utf8Path) -> Result<(), SplitError>
 
 /// `MemoryDb::open` creates the file before its migration commits, so the
 /// database is built at a sibling path and renamed into place: a crash
-/// leaves only the sibling, which the next call discards.
+/// leaves only the sibling, which the next call discards. The staged file is
+/// in WAL mode, so its WAL is folded in and the connection closed before the
+/// rename; renaming only the main file would leave the schema behind.
 fn create_memory_db(memory: &Utf8Path) -> Result<(), SplitError> {
     let staged = Utf8PathBuf::from(format!("{memory}.new"));
     for suffix in ["", "-journal", "-wal", "-shm"] {
         remove_if_present(&format!("{staged}{suffix}"))?;
     }
     clear_orphan_sidecars(memory)?;
-    drop(MemoryDb::open(staged.as_std_path())?);
+    let db = MemoryDb::open(staged.as_std_path())?;
+    let busy: i64 = db
+        .conn()
+        .query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |row| row.get(0))
+        .map_err(MemoryDbError::from)?;
+    if busy != 0 {
+        return Err(SplitError::StagedWal);
+    }
+    db.close()?;
+    let staged_wal = format!("{staged}-wal");
+    match std::fs::metadata(&staged_wal) {
+        Ok(meta) if meta.len() > 0 => return Err(SplitError::StagedWal),
+        Ok(_) => std::fs::remove_file(&staged_wal)?,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.into()),
+    }
+    remove_if_present(&format!("{staged}-shm"))?;
     std::fs::rename(&staged, memory)?;
     Ok(())
 }
@@ -164,7 +187,8 @@ fn clear_orphan_sidecars(memory: &Utf8Path) -> Result<(), SplitError> {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
         Err(error) => return Err(error.into()),
     }
-    remove_if_present(&format!("{memory}-shm"))
+    remove_if_present(&format!("{memory}-shm"))?;
+    remove_if_present(&format!("{memory}-journal"))
 }
 
 fn lock(path: &Utf8Path) -> Result<std::fs::File, SplitError> {
