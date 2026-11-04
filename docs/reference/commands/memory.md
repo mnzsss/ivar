@@ -15,3 +15,12 @@ Show the hall memory database: path, schema version, application id and size
 
 Delete the hall memory database after confirmation. Nothing else deletes it
 
+
+## `ivar memory capture`
+
+Record one session hook event into the capture spool. Always exits 0 and prints nothing
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--provider` | `<PROVIDER>` |  | Provider whose hook payload arrives on stdin |
+

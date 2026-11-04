@@ -144,6 +144,17 @@ The binary makes network requests in these cases, none of them to an ivar server
 [Concepts](docs/concepts.md) and [Limitations](docs/reference/limitations.md)
 for the exact boundaries.
 
+## Session memory
+
+`ivar` records what happens in each session into `.ivar/memory.db`, on this machine
+only: `session.started`, `session.prompted`, `session.tool` and `session.ended`, with
+secrets redacted before anything reaches disk. Capture is on by default. To turn it
+off, set `"memory": {"capture": false}` in `ivar.json` and run `ivar sync`.
+
+A provider records only the events its hooks expose. OpenCode has no session end,
+and T3's session end is unconfirmed. See the
+[limitations of session capture](docs/reference/limitations-memory.md).
+
 ## MCP server
 
 `ivar graph mcp` serves the hall's code graph to your harness over MCP, with the

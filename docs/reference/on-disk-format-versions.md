@@ -109,6 +109,22 @@ version bump — one person upgrades, the team agrees, then you edit and commit.
 See [Migration and provider translation](on-disk-format.md#migration-and-provider-translation)
 for how each canonical value materialises at each provider boundary.
 
+### `ivar.json` `memory` key
+
+`memory` is an optional object with one field, `capture`. It adds no `ivar.json`
+version: a hall that never sets it stays at its current version and keeps capturing.
+
+```json
+{ "memory": { "capture": false } }
+```
+
+An `ivar` older than the key rejects the whole file as having an unknown field, so
+a hall that sets it needs every teammate on a release that knows it. Turning
+capture back on removes the key.
+
+The hall memory database has its own schema version, `memory_schema.version`, which is
+2 today; see [Memory database](on-disk-format-databases.md#memory-database-ivarmemorydb).
+
 ### `feature.json` v3
 
 v3 adds the nested-subfeature fields. Only the child side of the lineage is

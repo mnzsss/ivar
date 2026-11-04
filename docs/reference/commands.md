@@ -182,6 +182,10 @@ Misses and usage rows are kept for 30 days, so `ivar graph stats` reports a 30-d
 | `memory.db_polluted` | an older `ivar` created graph tables inside `.ivar/memory.db` | stop the older `ivar`, then `ivar memory status` repairs it |
 | `memory.split_busy` | a legacy graph at `.ivar/memory.db` is open in another process, so it was not moved | stop sessions and MCP servers of an older `ivar`, then `ivar doctor` |
 | `memory.split_failed` | moving the legacy graph failed for another reason | check `.ivar/` permissions and free space, then `ivar doctor` |
+| `memory.spool_orphan` | a capture spool file has waited over an hour to be drained | `ivar memory status` drains it |
+| `memory.spool_dropped` | events were dropped because a session spool reached 8 MiB | `ivar memory status`, or keep `ivar graph mcp` running, so a drain acknowledges them |
+| `memory.drain_failed` | the last drain of the capture spool failed | `ivar memory status`; if the error repeats, read the database findings of `ivar doctor` |
+| `provider.capture_hook_missing` | `memory.capture` is on and a provider has no capture hook | `ivar sync`, or set `memory.capture` to false in `ivar.json` |
 
 **`ivar session start` is the one verb that takes over your terminal.** It opens
 a TUI. Everything else prints and exits.
