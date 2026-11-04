@@ -138,3 +138,75 @@ fn opencode_plugin_appends_the_guard_stdout_to_the_tool_output() {
     );
     assert!(!js.contains("export default"), "{js}");
 }
+
+#[test]
+fn capture_artifacts_are_separate_from_the_guard_artifacts() {
+    assert!(providers::capture_artifacts(Provider::ClaudeCode).is_empty());
+    assert!(providers::capture_artifacts(Provider::T3).is_empty());
+
+    let omp = providers::capture_artifacts(Provider::Omp);
+    assert_eq!(omp.len(), 1);
+    assert_eq!(
+        omp[0].relative_path,
+        Utf8PathBuf::from(".omp/hooks/pre/ivar-memory.js")
+    );
+
+    let opencode = providers::capture_artifacts(Provider::OpenCode);
+    assert_eq!(opencode.len(), 1);
+    assert_eq!(
+        opencode[0].relative_path,
+        Utf8PathBuf::from(".opencode/plugins/ivar-memory.js")
+    );
+    assert_eq!(providers::managed_artifacts(Provider::OpenCode).len(), 1);
+}
+
+#[test]
+fn the_omp_capture_artifact_sits_in_the_directory_session_views_mirror() {
+    let mirrored = camino::Utf8Path::new(Provider::OMP_HOOKS_DIR).join("pre");
+    let artifact = providers::capture_artifacts(Provider::Omp).remove(0);
+    assert_eq!(artifact.relative_path.parent(), Some(mirrored.as_path()));
+}
+
+#[test]
+fn the_omp_capture_hook_is_pure_esm_registers_the_native_events_and_swallows_errors() {
+    let hook = providers::capture_artifacts(Provider::Omp)
+        .remove(0)
+        .contents;
+    assert!(hook.contains("export default"));
+    assert!(!hook.contains("require("));
+    assert!(hook.contains("node:child_process"));
+    for event in [
+        "session_start",
+        "before_agent_start",
+        "tool_result",
+        "session_shutdown",
+    ] {
+        assert!(hook.contains(&format!("pi.on(\"{event}\"")), "{event}");
+    }
+    assert!(
+        !hook.contains("tool_call"),
+        "capture must not touch the pre-tool event"
+    );
+    assert!(hook.contains("\"memory\", \"capture\", \"--provider\", \"omp\""));
+    assert!(
+        hook.matches("catch").count() >= 4,
+        "every handler swallows its errors"
+    );
+}
+
+#[test]
+fn the_opencode_capture_plugin_has_no_session_end_and_never_blocks() {
+    let plugin = providers::capture_artifacts(Provider::OpenCode)
+        .remove(0)
+        .contents;
+    assert!(plugin.contains("export const IvarMemoryPlugin"));
+    assert!(plugin.contains("\"chat.message\""));
+    assert!(plugin.contains("\"tool.execute.after\""));
+    assert!(plugin.contains("session.created"));
+    assert!(
+        !plugin.contains("session.idle"),
+        "idle is a turn boundary, not a session end"
+    );
+    assert!(plugin.contains("\"memory\", \"capture\", \"--provider\", \"opencode\""));
+    assert!(!plugin.contains("throw"));
+}

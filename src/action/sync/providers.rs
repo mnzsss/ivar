@@ -229,6 +229,21 @@ pub(crate) fn sync_artifacts(
             Err(error) => record_failure(entries, warnings, provider.id(), &label, error.into()),
         }
     }
+
+    let capture_wanted = is_listed && manifest.memory_capture();
+    for artifact in crate::providers::capture_artifacts(provider) {
+        let path = layout.root().join(&artifact.relative_path);
+        let label = format!("{} managed artifact", artifact.relative_path);
+        let result = if capture_wanted {
+            config::artifact::reconcile_managed_artifact(&path, artifact.contents)
+        } else {
+            config::artifact::remove_managed_artifact(&path)
+        };
+        match result {
+            Ok(change) => entries.push(Entry::new(provider.id(), label, change.into())),
+            Err(error) => record_failure(entries, warnings, provider.id(), &label, error.into()),
+        }
+    }
 }
 
 pub(crate) fn sync_commands(

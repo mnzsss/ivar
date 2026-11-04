@@ -59,3 +59,57 @@ pub(crate) fn managed_artifacts() -> Vec<ManagedArtifact> {
         contents: OMP_HOOK,
     }]
 }
+
+pub const OMP_CAPTURE_HOOK: &str = r#"// ivar memory capture hook for OMP
+// Materialised by `ivar sync`. Do not edit.
+
+import { spawn } from "node:child_process";
+
+// ponytail: one detached process per event; a long-lived socket if the per-event spawn cost shows up in latency.
+function send(payload) {
+  try {
+    const child = spawn("ivar", ["memory", "capture", "--provider", "omp"], {
+      stdio: ["pipe", "ignore", "ignore"],
+      detached: true,
+    });
+    child.on("error", () => {});
+    child.stdin.on("error", () => {});
+    child.stdin.end(JSON.stringify(payload));
+    child.unref();
+  } catch {}
+}
+
+export default function ivarMemory(pi) {
+  const session = (ctx) => ctx?.sessionManager?.getSessionId?.() ?? "";
+  const cwd = (ctx) => ctx?.cwd ?? process.cwd();
+  pi.on("session_start", async (_event, ctx) => {
+    try { send({ event: "started", session: session(ctx), cwd: cwd(ctx) }); } catch {}
+  });
+  pi.on("before_agent_start", async (event, ctx) => {
+    try { send({ event: "prompted", session: session(ctx), cwd: cwd(ctx), text: event?.prompt ?? "" }); } catch {}
+  });
+  pi.on("tool_result", async (event, ctx) => {
+    try {
+      send({
+        event: "tool",
+        session: session(ctx),
+        cwd: cwd(ctx),
+        tool: event?.toolName,
+        args: event?.input ?? {},
+        failed: event?.isError === true,
+        result: typeof event?.content === "string" ? event.content : JSON.stringify(event?.content ?? ""),
+      });
+    } catch {}
+  });
+  pi.on("session_shutdown", async (_event, ctx) => {
+    try { send({ event: "ended", session: session(ctx), cwd: cwd(ctx) }); } catch {}
+  });
+}
+"#;
+
+pub(crate) fn capture_artifacts() -> Vec<ManagedArtifact> {
+    vec![ManagedArtifact {
+        relative_path: Utf8Path::new(Provider::OMP_HOOKS_DIR).join("pre/ivar-memory.js"),
+        contents: OMP_CAPTURE_HOOK,
+    }]
+}

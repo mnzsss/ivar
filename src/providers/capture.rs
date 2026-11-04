@@ -4,7 +4,7 @@ use camino::Utf8PathBuf;
 use serde::Deserialize;
 
 use crate::domain::provider::Provider;
-use crate::providers::{claude_code, omp, opencode};
+use crate::providers::{ManagedArtifact, claude_code, omp, opencode};
 
 #[derive(Debug, PartialEq)]
 pub enum CaptureKind {
@@ -41,6 +41,14 @@ pub fn parse_capture(provider: Provider, stdin: &str) -> Result<CaptureEvent, Pa
         Provider::ClaudeCode | Provider::T3 => claude_code::capture::parse(stdin),
         Provider::OpenCode => opencode::capture::parse(stdin),
         Provider::Omp => omp::capture::parse(stdin),
+    }
+}
+
+pub fn capture_artifacts(provider: Provider) -> Vec<ManagedArtifact> {
+    match provider {
+        Provider::ClaudeCode | Provider::T3 => Vec::new(),
+        Provider::OpenCode => opencode::hook::capture_artifacts(),
+        Provider::Omp => omp::hook::capture_artifacts(),
     }
 }
 

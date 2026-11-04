@@ -107,3 +107,37 @@ fn sync_honours_memory_capture_false_in_the_manifest() {
     let settings = std::fs::read_to_string(root.join(".claude/settings.json")).unwrap();
     assert!(!settings.contains("ivar memory capture"), "{settings}");
 }
+
+#[test]
+fn sync_writes_the_capture_artifacts_and_removes_them_when_capture_is_off() {
+    let (_guard, root) = hall_with_all_providers();
+    let layout = Layout::at(root.clone());
+    let files = [
+        ".omp/hooks/pre/ivar-memory.js",
+        ".opencode/plugins/ivar-memory.js",
+    ];
+    sync(&Ctx::new(root.clone()), &SyncInput::default()).unwrap();
+    for file in files {
+        assert!(root.join(file).is_file(), "{file}");
+    }
+
+    let off = Manifest::read(&layout)
+        .unwrap()
+        .unwrap()
+        .with_memory_capture(false)
+        .unwrap();
+    Manifest::write(&layout, &off).unwrap();
+    sync(&Ctx::new(root.clone()), &SyncInput::default()).unwrap();
+
+    for file in files {
+        assert!(!root.join(file).exists(), "{file} should be removed");
+    }
+    assert!(
+        root.join(".omp/hooks/pre/ivar.js").is_file(),
+        "guard hook untouched"
+    );
+    assert!(
+        root.join(".opencode/plugins/ivar.js").is_file(),
+        "guard plugin untouched"
+    );
+}

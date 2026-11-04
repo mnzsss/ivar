@@ -97,3 +97,59 @@ pub(crate) fn managed_artifacts() -> Vec<ManagedArtifact> {
         contents: OPENCODE_PLUGIN,
     }]
 }
+
+pub const OPENCODE_CAPTURE_PLUGIN: &str = r#"// ivar memory capture plugin for OpenCode
+// Materialised by `ivar sync`. Do not edit.
+
+import { spawn } from "node:child_process";
+
+// ponytail: one detached process per event; a long-lived socket if the per-event spawn cost shows up in latency.
+function send(payload) {
+  try {
+    const child = spawn("ivar", ["memory", "capture", "--provider", "opencode"], {
+      stdio: ["pipe", "ignore", "ignore"],
+      detached: true,
+    });
+    child.on("error", () => {});
+    child.stdin.on("error", () => {});
+    child.stdin.end(JSON.stringify(payload));
+    child.unref();
+  } catch {}
+}
+
+export const IvarMemoryPlugin = async () => ({
+  event: async ({ event }) => {
+    try {
+      if (event?.type === "session.created") {
+        send({ event: "started", session: event.properties?.info?.id ?? "", cwd: event.properties?.info?.directory ?? process.cwd() });
+      }
+    } catch {}
+  },
+  "chat.message": async (input, output) => {
+    try {
+      const text = (output?.parts ?? []).filter((part) => part.type === "text").map((part) => part.text).join("\n");
+      send({ event: "prompted", session: input?.sessionID ?? "", cwd: process.cwd(), text });
+    } catch {}
+  },
+  "tool.execute.after": async (input, output) => {
+    try {
+      send({
+        event: "tool",
+        session: input?.sessionID ?? "",
+        cwd: process.cwd(),
+        tool: input?.tool,
+        args: input?.args ?? {},
+        failed: false,
+        result: typeof output?.output === "string" ? output.output : "",
+      });
+    } catch {}
+  },
+});
+"#;
+
+pub(crate) fn capture_artifacts() -> Vec<ManagedArtifact> {
+    vec![ManagedArtifact {
+        relative_path: Utf8Path::new(Provider::OPENCODE_PLUGINS_DIR).join("ivar-memory.js"),
+        contents: OPENCODE_CAPTURE_PLUGIN,
+    }]
+}
