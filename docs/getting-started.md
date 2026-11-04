@@ -161,7 +161,7 @@ ivar repo setup api        # runs .ivar/setups/api.sh against api's worktree
 Commit it. It is part of the hall, and it is what makes your teammates' `ivar
 sync` produce a working checkout instead of a bare one.
 
-Declare the MCP servers your agents use. `figma` and `linear` are known
+Declare the MCP servers your agents use. `figma`, `linear` and `slack` are known
 names; any other HTTP server takes `--url`, and a stdio server takes
 `--command` with its arguments after `--`:
 

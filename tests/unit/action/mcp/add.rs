@@ -102,7 +102,7 @@ fn add_unknown_preset_without_url_is_blocked_and_leaves_manifest_untouched() {
     let (_guard, root) = seeded_hall();
     let ctx = Ctx::new(root.clone());
     let input = AddInput {
-        name: "slack".to_owned(),
+        name: "discord".to_owned(),
         url: None,
         command: None,
         args: vec![],
