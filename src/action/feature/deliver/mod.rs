@@ -6,6 +6,7 @@ pub mod metadata;
 pub mod outcome;
 
 pub(crate) mod attribution;
+mod events;
 mod preview;
 mod push;
 mod repos;
@@ -19,7 +20,9 @@ use crate::action::feature::relations;
 #[cfg(test)]
 use crate::action::feature::relations::read_feature;
 use crate::action::feature::verification;
+use crate::action::memory::delivery::Emitter;
 use crate::action::read_manifest;
+use crate::domain::delivery_event::DeliveryScope;
 use crate::domain::feature::{
     DeliveryMode, DeliveryPreview, DeliveryTreeBlocker, Feature, FeatureIntegrationState, Gate,
     GateState,
@@ -118,10 +121,12 @@ fn preflight_and_resolve(
 }
 
 fn run_land_checks(
+    git: &impl git::Git,
     manifest: &Manifest,
     layout: &Layout,
     feature: &Feature,
     preview: &DeliveryPreview,
+    emitter: &Emitter<'_>,
 ) -> Result<Vec<RepoCheckResult>, Failure> {
     let mut checks = Vec::new();
     for repo in &preview.repos {
@@ -129,11 +134,18 @@ fn run_land_checks(
         let repo_checks = verification::checks_for(manifest, &repo.repo);
         let run = verification::run(&repo_checks, &worktree)?;
         let passed = run.results.iter().all(|result| result.success);
-        checks.push(RepoCheckResult {
+        let result_for_repo = RepoCheckResult {
             repo: repo.repo.clone(),
             passed,
             results: run.results,
-        });
+        };
+        let head = git.head_commit(&worktree).unwrap_or_default();
+        events::emit_checks(
+            emitter,
+            DeliveryScope::for_repo(feature, repo.repo.as_str(), &head),
+            &result_for_repo,
+        );
+        checks.push(result_for_repo);
         if !passed {
             return Err(Failure::blocked(
                 "deliver.checks_failed",
@@ -155,10 +167,27 @@ fn run_land_checks(
 
 pub fn deliver(ctx: &Ctx, input: DeliverInput) -> Outcome<DeliverOutcome> {
     let layout = discover_hall(ctx)?;
-    let manifest = read_manifest(&layout)?;
+    let emitter = ctx.emitter(&layout);
+    let applying = !input.preview;
+    let feature = input.feature.clone();
+    let presented = input.fingerprint.clone();
+    let result = run(ctx, &layout, &emitter, input);
+    if applying && let Err(failure) = &result {
+        events::emit_refused(&emitter, &layout, &feature, presented.as_deref(), failure);
+    }
+    result
+}
+
+fn run(
+    ctx: &Ctx,
+    layout: &Layout,
+    emitter: &Emitter<'_>,
+    input: DeliverInput,
+) -> Outcome<DeliverOutcome> {
+    let manifest = read_manifest(layout)?;
     let git = git::System;
     let (feature_name, feature, preview) =
-        preflight_and_resolve(ctx, &layout, &manifest, &git, &input)?;
+        preflight_and_resolve(ctx, layout, &manifest, &git, &input)?;
 
     if input.preview {
         let apply_command = apply_command(&input, &preview.fingerprint);
@@ -197,7 +226,7 @@ pub fn deliver(ctx: &Ctx, input: DeliverInput) -> Outcome<DeliverOutcome> {
 
     if preview.plan_gate != GateState::Approved {
         let plan_written =
-            crate::action::plan::artifact_path(&layout, &feature_name, Gate::Plan).exists();
+            crate::action::plan::artifact_path(layout, &feature_name, Gate::Plan).exists();
         return Err(plan_not_approved(
             &feature_name,
             preview.plan_gate,
@@ -229,11 +258,12 @@ pub fn deliver(ctx: &Ctx, input: DeliverInput) -> Outcome<DeliverOutcome> {
     }
 
     if input.land {
-        let plans = land::preflight(&git, &layout, &feature, &preview)?;
+        let plans = land::preflight(&git, layout, &feature, &preview)?;
         refuse_blockers(&feature_name, &preview)?;
         let mut warnings = Vec::new();
-        let checks = run_land_checks(&manifest, &layout, &feature, &preview)?;
-        let land_results = land::execute(&git, &layout, &plans, &mut warnings)?;
+        let checks = run_land_checks(&git, &manifest, layout, &feature, &preview, emitter)?;
+        let land_results = land::execute(&git, layout, &plans, &mut warnings)?;
+        events::emit_land_outcome(emitter, &git, layout, &feature, &land_results);
         return Ok(Report::with_warnings(
             DeliverOutcome {
                 root: layout.root().to_path_buf(),
@@ -249,7 +279,9 @@ pub fn deliver(ctx: &Ctx, input: DeliverInput) -> Outcome<DeliverOutcome> {
     }
 
     refuse_blockers(&feature_name, &preview)?;
-    push::execute(&git, &layout, &manifest, &feature_name, &feature, preview)
+    let report = push::execute(&git, layout, &manifest, &feature_name, &feature, preview)?;
+    events::emit_push_outcome(emitter, &git, layout, &feature, &report.value);
+    Ok(report)
 }
 
 /// The catch-all after the specific refusals above: whatever the preview
