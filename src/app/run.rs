@@ -31,6 +31,7 @@ use crate::action::sync;
 use crate::action::upgrade::Notice;
 use crate::action::upgrade::command as upgrade_cmd;
 use crate::app::respond::{current_dir, respond, respond_failure};
+use crate::cli::MemoryCommand;
 use crate::cli::root::{
     Cli, Command, CommentCommand, McpCommand, ProviderCommand, RepoCommand, ReviewCommand,
 };
@@ -318,6 +319,20 @@ pub fn run(cli: Cli) -> ExitCode {
             &mut stdout,
             &mut stderr,
         ),
+        Command::Memory(cmd) => match cmd {
+            MemoryCommand::Status => respond(
+                crate::action::memory::status::status(&ctx),
+                json,
+                &mut stdout,
+                &mut stderr,
+            ),
+            MemoryCommand::Clean => respond(
+                crate::action::memory::clean::clean(&ctx),
+                json,
+                &mut stdout,
+                &mut stderr,
+            ),
+        },
         // Git's credential protocol is raw on stdin/stdout — it must not pass
         // through `respond`, which would render a `Report` on top of it.
         Command::GitCredential(args) => {

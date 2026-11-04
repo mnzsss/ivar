@@ -66,6 +66,7 @@ Multi-repo worktrees for coding agents: one feature across repos, on one branch,
 | [`ivar skill`](commands/skill.md) | Manage skills |
 | [`ivar mcp`](commands/mcp.md) | Authenticate the hall's declared MCP servers |
 | [`ivar graph`](commands/graph.md) | Query and index the codebase dependency graph |
+| [`ivar memory`](commands/memory.md) | Inspect or delete the hall memory database (`.ivar/memory.db`) |
 | [`ivar feedback`](commands/feedback.md) | Record bugs, proposals, and submit issues |
 | [`ivar agent`](commands/agent.md) | Schedule and run unattended agents in containers |
 | [`ivar guard`](commands/guard.md) | Guard: evaluate a tool request against the session's writable set |

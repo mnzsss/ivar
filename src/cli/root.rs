@@ -119,6 +119,9 @@ pub enum Command {
     /// Query and index the codebase dependency graph.
     #[command(subcommand)]
     Graph(super::graph::GraphCommand),
+    /// Inspect or delete the hall memory database (`.ivar/memory.db`).
+    #[command(subcommand)]
+    Memory(super::memory::MemoryCommand),
     /// Record bugs, proposals, and submit issues.
     #[command(subcommand)]
     Feedback(super::feedback::FeedbackCommand),
