@@ -26,6 +26,7 @@ pub mod feedback;
 pub mod graph;
 pub mod hall;
 pub mod mcp;
+pub mod memory;
 pub mod plan;
 pub mod provider;
 pub mod repo;

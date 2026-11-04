@@ -89,7 +89,7 @@ fn wait_for(what: &str, mut ok: impl FnMut() -> bool) {
 }
 
 fn start(layout: &Layout, repo: &Utf8Path) -> (Worker, GraphDb) {
-    let db_path = layout.ivar_dir().join("memory.db");
+    let db_path = layout.graph_db();
     let db = GraphDb::open(db_path.as_std_path()).unwrap();
     let t = target(repo);
     let worker = Worker::spawn(
@@ -152,7 +152,7 @@ fn an_idle_indexed_repo_never_retriggers_itself() {
     let (_tmp, layout, repo) = hall_with_repo();
     let sentinel = init_repo(layout.root(), "web");
     let targets = vec![target(&repo), base_target("web", &sentinel)];
-    let db_path = layout.ivar_dir().join("memory.db");
+    let db_path = layout.graph_db();
     let db = GraphDb::open(db_path.as_std_path()).unwrap();
     let _worker = Worker::spawn(
         layout.clone(),
@@ -190,7 +190,7 @@ fn dropping_the_worker_stops_it_within_a_tick() {
 #[test]
 fn a_layer_target_is_reindexed_on_an_uncommitted_edit_against_the_indexed_base() {
     let (_tmp, layout, repo) = hall_with_repo();
-    let db_path = layout.ivar_dir().join("memory.db");
+    let db_path = layout.graph_db();
     let db = GraphDb::open(db_path.as_std_path()).unwrap();
     crate::action::graph::index::index_repo(
         &db,
@@ -286,7 +286,7 @@ fn symlinked_worktree_and_control_dirs_classify_canonical_fs_events() {
         crate::action::graph::watch::worker::base_targets(&sym_layout, &sym_manifest);
     assert_eq!(base_targets.len(), 1);
 
-    let db_path = real_root.join(".ivar/memory.db");
+    let db_path = real_root.join(".ivar/graph.db");
     let db = GraphDb::open(db_path.as_std_path()).unwrap();
 
     let mut set = crate::action::graph::watch::scopes::WatchSet::default();
@@ -385,7 +385,7 @@ fn scope_rows(db: &GraphDb) -> Vec<String> {
 fn a_scope_row_left_by_an_earlier_leader_is_forgotten_on_start() {
     let (_tmp, layout, repo) = hall_with_repo();
     {
-        let db = GraphDb::open(layout.ivar_dir().join("memory.db").as_std_path()).unwrap();
+        let db = GraphDb::open(layout.graph_db().as_std_path()).unwrap();
         db.watch_register("base:gone").unwrap();
         db.watch_register("layer:old:api").unwrap();
     }
@@ -400,7 +400,7 @@ fn a_scope_row_left_by_an_earlier_leader_is_forgotten_on_start() {
 #[test]
 fn a_leader_with_no_targets_forgets_every_row() {
     let (_tmp, layout, _repo) = hall_with_repo();
-    let db_path = layout.ivar_dir().join("memory.db");
+    let db_path = layout.graph_db();
     let db = GraphDb::open(db_path.as_std_path()).unwrap();
     db.watch_register("base:gone").unwrap();
     let _worker = Worker::spawn(layout.clone(), db_path, Box::new(|_, _| Vec::new())).unwrap();
@@ -423,7 +423,7 @@ fn a_hall_path_target_is_indexed_on_start_and_on_a_new_file() {
     let root = layout.root().to_path_buf();
     std::fs::create_dir_all(root.join("brand")).unwrap();
     std::fs::write(root.join("brand/DESIGN.md"), "# design\n").unwrap();
-    let db_path = layout.ivar_dir().join("memory.db");
+    let db_path = layout.graph_db();
     let db = GraphDb::open(db_path.as_std_path()).unwrap();
     let t = hall_target(&root, "brand");
     let _worker = Worker::spawn(

@@ -1,0 +1,356 @@
+use super::*;
+
+#[test]
+fn delete_removes_worktrees_the_feature_dir_and_working_docs() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let ctx = Ctx::new(root.clone());
+    let layout = Layout::at(root.clone());
+    let name = FeatureName::new("checkout").unwrap();
+
+    // Working documents to tear down alongside.
+    let plan_doc = layout.plan_dir(&name).join("plan.md");
+    let req_doc = layout.plan_dir(&name).join("requirements.md");
+    fs::ensure_dir(&layout.plan_dir(&name)).unwrap();
+    fs::write_text(&plan_doc, "# Plan\n").unwrap();
+    fs::write_text(&req_doc, "# Requirements\n").unwrap();
+
+    assert!(fs::is_file(&plan_doc).unwrap());
+    assert!(fs::is_file(&req_doc).unwrap());
+    assert!(fs::is_dir(&layout.feature_dir(&name)).unwrap());
+
+    let report = delete(&ctx, delete_input("checkout")).unwrap();
+
+    assert!(report.is_clean());
+    assert!(report.value.feature_removed);
+    assert_eq!(report.value.worktrees.len(), 1);
+    assert!(report.value.worktrees[0].removed);
+
+    assert!(!fs::exists(&layout.feature_dir(&name)).unwrap());
+    assert!(!fs::exists(&plan_doc).unwrap());
+    assert!(!fs::exists(&req_doc).unwrap());
+    assert!(!fs::exists(&root.join(".ivar/repos/api/checkout")).unwrap());
+}
+
+#[test]
+fn delete_leaves_no_empty_parent_behind_a_slashed_branch() {
+    let (_guard, root) = hall_with_promoted_feature_on(Some("feat/checkout"));
+    let ctx = Ctx::new(root.clone());
+    assert!(fs::is_dir(&root.join(".ivar/repos/api/feat/checkout")).unwrap());
+
+    let report = delete(&ctx, delete_input("checkout")).unwrap();
+
+    assert!(report.is_clean());
+    assert!(report.value.worktrees[0].removed);
+    assert!(!fs::exists(&root.join(".ivar/repos/api/feat/checkout")).unwrap());
+    // `feat/` only ever existed to hold that worktree: it goes with it.
+    assert!(
+        !fs::exists(&root.join(".ivar/repos/api/feat")).unwrap(),
+        "the branch prefix directory was left behind as an empty orphan"
+    );
+    // The repo dir itself is the floor — pruning stops there.
+    assert!(fs::is_dir(&root.join(".ivar/repos/api")).unwrap());
+    assert!(fs::is_dir(&root.join(".ivar/repos/api/.bare")).unwrap());
+}
+
+#[test]
+fn delete_preflight_blocks_on_an_unwritable_path_and_mutates_nothing() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let ctx = Ctx::new(root.clone());
+
+    // A directory with its write bits stripped — the preflight must name
+    // it and refuse, leaving the feature fully intact.
+    let planning = root.join(".ivar/features/checkout/planning");
+    fs::ensure_dir(&planning).unwrap();
+    fs::write_text(&planning.join("approvals.json"), "{}").unwrap();
+    let original = fs_err::metadata(planning.as_std_path())
+        .unwrap()
+        .permissions()
+        .mode();
+    fs_err::set_permissions(
+        planning.as_std_path(),
+        std::fs::Permissions::from_mode(0o555),
+    )
+    .unwrap();
+
+    let failure = delete(&ctx, delete_input("checkout")).unwrap_err();
+    // Restore so TempDir can clean up.
+    fs_err::set_permissions(
+        planning.as_std_path(),
+        std::fs::Permissions::from_mode(original),
+    )
+    .unwrap();
+
+    assert_eq!(failure.status, Status::Blocked);
+    assert_eq!(failure.code, "feature.delete_blocked");
+    let blockers: Vec<DeleteBlocker> =
+        serde_json::from_value(failure.details.clone().expect("blockers in details")).unwrap();
+    assert!(
+        blockers.iter().any(|blocker| blocker.path == planning),
+        "blockers were: {blockers:?}"
+    );
+    assert_eq!(blockers[0].mode.unwrap() & 0o222, 0);
+    // Nothing was mutated.
+    assert!(fs::is_file(&root.join(".ivar/features/checkout/feature.json")).unwrap());
+    assert!(fs::is_dir(&root.join(".ivar/repos/api/checkout")).unwrap());
+}
+
+#[test]
+fn delete_removes_read_only_files_inside_writable_directories() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let ctx = Ctx::new(root.clone());
+    let name = FeatureName::new("checkout").unwrap();
+    let layout = Layout::at(root.clone());
+
+    // Git writes loose objects as 0444; unlinking them only needs the parent
+    // directory to be writable.
+    let objects = layout.feature_dir(&name).join("clone/.git/objects/ab");
+    fs::ensure_dir(&objects).unwrap();
+    let object = objects.join("cdef");
+    fs::write_text(&object, "blob").unwrap();
+    fs_err::set_permissions(object.as_std_path(), std::fs::Permissions::from_mode(0o444)).unwrap();
+
+    let report = delete(&ctx, delete_input("checkout")).unwrap();
+
+    assert!(report.value.feature_removed);
+    assert!(!fs::exists(&layout.feature_dir(&name)).unwrap());
+}
+
+#[test]
+fn delete_after_a_successful_delete_is_a_clean_refusal() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let ctx = Ctx::new(root.clone());
+    delete(&ctx, delete_input("checkout")).unwrap();
+
+    // The record is gone, so a second delete refuses cleanly — the system
+    // is in a stable, fully-deleted state, and retrying is safe.
+    let failure = delete(&ctx, delete_input("checkout")).unwrap_err();
+
+    assert_eq!(failure.status, Status::Blocked);
+    assert_eq!(failure.code, "feature.not_found");
+}
+
+#[test]
+fn delete_is_rejected_for_a_missing_feature() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let ctx = Ctx::new(root);
+
+    let failure = delete(&ctx, delete_input("ghost")).unwrap_err();
+
+    assert_eq!(failure.status, Status::Blocked);
+    assert_eq!(failure.code, "feature.not_found");
+}
+
+#[test]
+fn delete_propagates_a_worktree_existence_check_failure() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let ctx = Ctx::new(root.clone());
+    let repo_dir = root.join(".ivar/repos/api");
+    fs_err::set_permissions(
+        repo_dir.as_std_path(),
+        std::fs::Permissions::from_mode(0o000),
+    )
+    .unwrap();
+
+    let forced = DeleteInput {
+        force: true,
+        ..delete_input("checkout")
+    };
+    let result = delete(&ctx, forced);
+
+    fs_err::set_permissions(
+        repo_dir.as_std_path(),
+        std::fs::Permissions::from_mode(0o755),
+    )
+    .unwrap();
+
+    let failure = result.unwrap_err();
+    assert_eq!(failure.status, Status::Blocked);
+    assert_eq!(failure.code, "fs.metadata_failed");
+    // The feature is still intact: teardown never got past the failed check.
+    assert!(fs::is_file(&root.join(".ivar/features/checkout/feature.json")).unwrap());
+}
+
+#[test]
+fn the_human_surface_names_what_was_deleted() {
+    let outcome = DeleteOutcome {
+        root: Utf8PathBuf::from("/hall"),
+        name: FeatureName::new("checkout").unwrap(),
+        worktrees: vec![WorktreeRemoval {
+            repo: RepoName::new("api").unwrap(),
+            removed: true,
+            detail: None,
+        }],
+        feature_removed: true,
+        descendants: Vec::new(),
+    };
+
+    let mut out = Vec::new();
+    outcome.write_human(&mut out).unwrap();
+
+    assert_eq!(
+        String::from_utf8(out).unwrap(),
+        "Deleted feature `checkout` in /hall\n"
+    );
+}
+
+/// Working documents are local to the unit of work (`.ivar/features/<feature>/`).
+/// Deleting a feature removes its local directory and everything in it,
+/// including `discovery.md` and `plan.md`. Undistilled discovery dies with the
+/// feature; distillation into `docs/` is what preserves anything worth keeping.
+#[test]
+fn delete_removes_the_features_working_documents() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let ctx = Ctx::new(root.clone());
+    let layout = Layout::at(root.clone());
+    let name = FeatureName::new("checkout").unwrap();
+
+    crate::action::discovery::create::create(
+        &ctx,
+        crate::action::discovery::create::CreateInput {
+            name: "checkout".to_owned(),
+            title: None,
+        },
+    )
+    .unwrap();
+
+    fs::ensure_dir(&layout.plan_dir(&name)).unwrap();
+    fs::write_text(&layout.plan_dir(&name).join("plan.md"), "# Plan\n").unwrap();
+
+    assert!(fs::is_dir(&layout.plan_dir(&name)).unwrap());
+    assert!(fs::is_file(&layout.discovery_doc(&name)).unwrap());
+
+    delete(
+        &ctx,
+        DeleteInput {
+            name: "checkout".to_owned(),
+            force: false,
+            descendants: Descendants::Ask,
+        },
+    )
+    .unwrap();
+
+    assert!(
+        !fs::is_dir(&layout.plan_dir(&name)).unwrap(),
+        "plan directory is removed"
+    );
+    assert!(
+        !fs::is_dir(&layout.feature_dir(&name)).unwrap(),
+        "local feature directory is removed"
+    );
+    assert!(
+        !fs::is_file(&layout.discovery_doc(&name)).unwrap(),
+        "discovery.md is destroyed with the feature"
+    );
+}
+
+#[test]
+fn delete_removes_a_worktree_whose_dir_differs_from_the_branch() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let ctx = Ctx::new(root.clone());
+    let bare = root.join(".ivar/repos/api/.bare");
+    let moved = root.join(".ivar/repos/api/elsewhere");
+    git::System
+        .move_worktree(&bare, &root.join(".ivar/repos/api/checkout"), &moved)
+        .unwrap();
+
+    let report = delete(&ctx, delete_input("checkout")).unwrap();
+
+    assert!(report.value.feature_removed);
+    assert!(report.value.worktrees[0].removed);
+    assert!(!fs::exists(&moved).unwrap());
+    assert!(
+        git::System
+            .list_worktrees(&bare)
+            .unwrap()
+            .iter()
+            .all(|entry| entry.branch.as_deref() != Some("checkout"))
+    );
+}
+
+#[test]
+fn delete_prunes_a_worktree_whose_directory_is_gone() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let ctx = Ctx::new(root.clone());
+    let bare = root.join(".ivar/repos/api/.bare");
+    std::fs::remove_dir_all(root.join(".ivar/repos/api/checkout")).unwrap();
+
+    let report = delete(&ctx, delete_input("checkout")).unwrap();
+
+    assert!(report.value.feature_removed);
+    assert!(report.value.worktrees[0].removed);
+    assert!(
+        git::System
+            .list_worktrees(&bare)
+            .unwrap()
+            .iter()
+            .all(|entry| entry.branch.as_deref() != Some("checkout"))
+    );
+}
+
+#[test]
+fn delete_keeps_the_record_when_a_worktree_cannot_be_removed() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let ctx = Ctx::new(root.clone());
+    let layout = Layout::at(root.clone());
+    let worktree = root.join(".ivar/repos/api/checkout");
+    crate::test_support::git(
+        &root,
+        &[
+            "--git-dir",
+            root.join(".ivar/repos/api/.bare").as_str(),
+            "worktree",
+            "lock",
+            worktree.as_str(),
+        ],
+    );
+
+    let report = delete(&ctx, delete_input("checkout")).unwrap();
+
+    assert!(!report.value.feature_removed);
+    assert!(!report.value.worktrees[0].removed);
+    assert!(fs::is_dir(&worktree).unwrap());
+    assert!(
+        crate::domain::feature::Feature::read(&layout, &FeatureName::new("checkout").unwrap())
+            .unwrap()
+            .is_some()
+    );
+}
+
+#[test]
+fn delete_refuses_an_untracked_file_in_a_worktree_unless_forced() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let ctx = Ctx::new(root.clone());
+    let draft = root.join(".ivar/repos/api/checkout/draft.md");
+    fs::write_text(&draft, "unsaved\n").unwrap();
+
+    let failure = delete(&ctx, delete_input("checkout")).unwrap_err();
+
+    assert_eq!(failure.code, "feature.delete_unsaved_work");
+    assert!(
+        fs::is_file(&draft).unwrap(),
+        "a refused delete kept the draft"
+    );
+    let forced = DeleteInput {
+        force: true,
+        ..delete_input("checkout")
+    };
+    assert!(delete(&ctx, forced).unwrap().value.feature_removed);
+}
+
+#[test]
+fn delete_warns_when_the_graph_database_cannot_drop_the_layers() {
+    let (_guard, root) = hall_with_promoted_feature();
+    std::fs::write(root.join(".ivar/graph.db"), b"not sqlite").unwrap();
+    let ctx = Ctx::new(root.clone());
+
+    let report = delete(&ctx, delete_input("checkout")).unwrap();
+
+    assert!(
+        report
+            .warnings
+            .iter()
+            .any(|w| w.code == "graph.layers_not_dropped" && w.subject == "checkout"),
+        "warnings: {:?}",
+        report.warnings
+    );
+}

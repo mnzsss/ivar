@@ -31,14 +31,14 @@ fn recording_outside_a_hall_does_not_panic() {
             query: None,
         },
     );
-    assert!(!dir.path().join(".ivar/memory.db").exists());
+    assert!(!dir.path().join(".ivar/graph.db").exists());
     assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
 }
 
 #[test]
 fn recording_against_a_missing_database_creates_nothing() {
     let dir = tempfile::tempdir().unwrap();
-    let db_path = dir.path().join(".ivar").join("memory.db");
+    let db_path = dir.path().join(".ivar").join("graph.db");
     record_usage_at(
         &db_path,
         &UsageEvent {

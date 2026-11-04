@@ -281,10 +281,13 @@ fn forget_repo_in_graph(
     steps: &mut Vec<Entry>,
     warnings: &mut Vec<Warning>,
 ) {
-    let graph_db = layout.ivar_dir().join("memory.db");
-    if !graph_db.is_file() {
-        return;
-    }
+    let graph_db = match crate::action::graph::graph_db_path(layout) {
+        Ok(path) if path.is_file() => path,
+        Ok(_) => return,
+        Err(failure) => {
+            return record_step(steps, warnings, "graph", name.to_string(), failure);
+        }
+    };
     let forgotten = crate::action::graph::lock_index(layout).and_then(|_lock| {
         GraphDb::open(graph_db.as_std_path())
             .and_then(|db| db.forget_repo(name.as_str()))

@@ -12,8 +12,10 @@
 //! rule the other way round: the committed file is the artifact, and CI fails
 //! the moment the binary and the file disagree.
 //!
-//! So the generated half lives in `commands.md` between two markers, and
-//! everything outside them is prose this test never touches.
+//! So the index in `commands.md` lives between two markers, and everything
+//! outside them is prose this test never touches. Each verb has a whole page,
+//! generated end to end, in `docs/reference/commands/<verb>.md`. A page no verb
+//! renders fails this test, and `IVAR_UPDATE_DOCS=1` removes it.
 //!
 //! A broken relative link anywhere in `docs/`, `README.md`, or `ARCHITECTURE.md`
 //! is the other half of documentation drifting from the repository, and fails
@@ -43,6 +45,39 @@ const END: &str = "<!-- END GENERATED COMMANDS -->";
 
 fn reference_path() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("docs/reference/commands.md")
+}
+
+fn verbs_dir() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("docs/reference/commands")
+}
+
+/// The public top-level verbs, in `--help` order. `help` is clap's own, and a
+/// hidden verb (`git-credential`) is absent from `--help`, so from the pages too.
+fn public_subcommands(command: &Command) -> Vec<String> {
+    command
+        .get_subcommands()
+        .filter(|sub| sub.get_name() != "help")
+        .filter(|sub| !sub.is_hide_set())
+        .map(|sub| sub.get_name().to_owned())
+        .collect()
+}
+
+#[test]
+fn every_public_verb_has_its_own_reference_page() {
+    let cli = Cli::command();
+    let missing: Vec<String> = public_subcommands(&cli)
+        .into_iter()
+        .filter(|verb| !verbs_dir().join(format!("{verb}.md")).is_file())
+        .collect();
+    assert!(
+        missing.is_empty(),
+        "verbs without a page under docs/reference/commands/: {missing:?}"
+    );
+    let index = std::fs::read_to_string(reference_path()).unwrap();
+    assert!(
+        index.len() / 4 < 5000,
+        "docs/reference/commands.md must stay an index under the 5,000-token commit limit"
+    );
 }
 
 /// Every Markdown file whose links this test checks: the two root documents
@@ -99,21 +134,49 @@ fn link_targets(text: &str) -> Vec<String> {
     found
 }
 
-/// Render the whole command tree, depth-first, in declaration order — the same
-/// order `--help` lists them, so the page and the binary agree on more than
-/// just content.
-fn render(command: &mut Command) -> String {
-    let mut out = String::new();
-    out.push_str(
-        "<!-- Generated from clap by tests/static_checks/docs_reference.rs. Do not edit by hand: run\n     \
-         `IVAR_UPDATE_DOCS=1 cargo test --test static_checks`. -->\n",
-    );
-    let name = command.get_name().to_owned();
-    render_command(&mut out, command, &name, 3);
+const GENERATED_NOTICE: &str = "<!-- Generated from clap by tests/static_checks/docs_reference.rs. Do not edit by hand: run\n     \
+     `IVAR_UPDATE_DOCS=1 cargo test --test static_checks`. -->\n";
+
+/// The block between the markers in `commands.md`: the root's global flags,
+/// then one row per verb linking to its own page.
+fn render_index(cli: &mut Command) -> String {
+    let mut out = String::from(GENERATED_NOTICE);
+    let root = cli.get_name().to_owned();
+    render_section(&mut out, cli, &root, 3);
+    out.push_str("| verb | what it does |\n| --- | --- |\n");
+    for verb in public_subcommands(cli) {
+        let about = cli
+            .find_subcommand(&verb)
+            .and_then(Command::get_about)
+            .map(|about| collapse(&about.to_string()))
+            .unwrap_or_default();
+        let _ = writeln!(out, "| [`{root} {verb}`](commands/{verb}.md) | {about} |");
+    }
     out
 }
 
+/// One verb's whole page, generated end to end: it has no hand-written half.
+fn render_verb(verb: &mut Command, path: &str) -> String {
+    let mut out = String::from(GENERATED_NOTICE);
+    render_command(&mut out, verb, path, 1);
+    out
+}
+
+/// Render a command and its public subcommands, depth-first, in declaration
+/// order — the same order `--help` lists them, so the page and the binary agree
+/// on more than just content.
 fn render_command(out: &mut String, command: &mut Command, path: &str, depth: usize) {
+    render_section(out, command, path, depth);
+    for name in public_subcommands(command) {
+        let child_path = format!("{path} {name}");
+        let child = command
+            .find_subcommand_mut(&name)
+            .expect("subcommand just enumerated");
+        render_command(out, child, &child_path, depth + 1);
+    }
+}
+
+fn render_section(out: &mut String, command: &mut Command, path: &str, depth: usize) {
     let heading = "#".repeat(depth.min(6));
     let _ = writeln!(out, "\n{heading} `{path}`\n");
 
@@ -132,7 +195,7 @@ fn render_command(out: &mut String, command: &mut Command, path: &str, depth: us
         .get_arguments()
         .filter(|arg| !arg.is_positional())
         // `--json` and `--color` are global and documented once, at the root.
-        .filter(|arg| depth == 3 || !arg.is_global_set())
+        .filter(|arg| !path.contains(' ') || !arg.is_global_set())
         .filter(|arg| !arg.is_hide_set())
         .collect();
 
@@ -191,25 +254,6 @@ fn render_command(out: &mut String, command: &mut Command, path: &str, depth: us
         }
         out.push('\n');
     }
-
-    let subcommand_names: Vec<String> = command
-        .get_subcommands()
-        .filter(|sub| sub.get_name() != "help")
-        // A hidden command is absent from `--help`, and this page documents the
-        // public surface. `git-credential` is the case: git invokes it through
-        // the credential-helper protocol, and a reader has no use for it.
-        .filter(|sub| !sub.is_hide_set())
-        .map(|sub| sub.get_name().to_owned())
-        .collect();
-
-    for name in subcommand_names {
-        let child_path = format!("{path} {name}");
-        let child = command
-            .get_subcommands_mut()
-            .find(|sub| sub.get_name() == name)
-            .expect("subcommand just enumerated");
-        render_command(out, child, &child_path, depth + 1);
-    }
 }
 
 fn describe(arg: &clap::Arg) -> String {
@@ -232,43 +276,76 @@ fn collapse(text: &str) -> String {
 
 #[test]
 fn the_command_reference_matches_the_binary() {
-    let path = reference_path();
-    let generated = render(&mut Cli::command());
+    let update = std::env::var_os("IVAR_UPDATE_DOCS").is_some();
+    let mut cli = Cli::command();
+    let root = cli.get_name().to_owned();
+    let mut stale = Vec::new();
 
-    let existing = std::fs::read_to_string(&path).unwrap_or_else(|error| {
+    let index_path = reference_path();
+    let existing = std::fs::read_to_string(&index_path).unwrap_or_else(|error| {
         panic!(
             "{} is missing ({error}). Create it with the two markers, then run \
              `IVAR_UPDATE_DOCS=1 cargo test --test static_checks`.",
-            path.display()
+            index_path.display()
         )
     });
-
     let (before, rest) = existing.split_once(BEGIN).unwrap_or_else(|| {
         panic!(
             "{} has no `{BEGIN}` marker — the generated block needs somewhere to go",
-            path.display()
+            index_path.display()
         )
     });
     let (_, after) = rest
         .split_once(END)
-        .unwrap_or_else(|| panic!("{} has `{BEGIN}` but no `{END}`", path.display()));
+        .unwrap_or_else(|| panic!("{} has `{BEGIN}` but no `{END}`", index_path.display()));
+    let index = format!("{before}{BEGIN}\n{}{END}{after}", render_index(&mut cli));
+    sync_file(&index_path, &index, update, &mut stale);
 
-    let rebuilt = format!("{before}{BEGIN}\n{generated}{END}{after}");
-
-    if rebuilt == existing {
-        return;
+    let dir = verbs_dir();
+    let mut expected = std::collections::BTreeSet::new();
+    for verb in public_subcommands(&cli) {
+        let path = dir.join(format!("{verb}.md"));
+        let command = cli
+            .find_subcommand_mut(&verb)
+            .expect("verb just enumerated");
+        sync_file(
+            &path,
+            &render_verb(command, &format!("{root} {verb}")),
+            update,
+            &mut stale,
+        );
+        expected.insert(path);
+    }
+    for entry in std::fs::read_dir(&dir).into_iter().flatten() {
+        let path = entry.unwrap().path();
+        if expected.contains(&path) {
+            continue;
+        }
+        if update {
+            std::fs::remove_file(&path).unwrap();
+        } else {
+            stale.push(format!("{} (no verb renders it)", path.display()));
+        }
     }
 
-    if std::env::var_os("IVAR_UPDATE_DOCS").is_some() {
-        std::fs::write(&path, &rebuilt).unwrap();
-        return;
-    }
-
-    panic!(
-        "{} is out of date with the CLI.\n\nRegenerate it:\n    \
+    assert!(
+        stale.is_empty(),
+        "the command reference is out of date with the CLI:\n  {}\n\nRegenerate it:\n    \
          IVAR_UPDATE_DOCS=1 cargo test --test static_checks\n",
-        path.display()
+        stale.join("\n  ")
     );
+}
+
+fn sync_file(path: &Path, wanted: &str, update: bool, stale: &mut Vec<String>) {
+    if std::fs::read_to_string(path).ok().as_deref() == Some(wanted) {
+        return;
+    }
+    if update {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, wanted).unwrap();
+    } else {
+        stale.push(path.display().to_string());
+    }
 }
 
 #[test]

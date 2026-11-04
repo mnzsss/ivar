@@ -192,6 +192,16 @@ pub(crate) fn materialise(
     materialise_session_settings(layout, provider, view_dir, &mut report);
     materialise_repo_skills(layout, manifest, provider, view_dir, &mut report);
     materialise_session_instructions(layout, manifest, provider, feature, view_dir, &mut report)?;
+    // Opening a session is the first command most halls run after an
+    // upgrade, so it finishes the split; a legacy database still held by an
+    // older ivar must not keep the session from opening.
+    if let Err(failure) = crate::action::graph::graph_db_path(layout) {
+        report.warnings.push(Warning::new(
+            "memory.split_deferred",
+            layout.memory_db().as_str(),
+            failure.what,
+        ));
+    }
 
     Ok(report)
 }
@@ -384,3 +394,7 @@ fn repo_instructions_section(
         pointers.concat()
     ))
 }
+
+#[cfg(test)]
+#[path = "../../../tests/unit/action/session/view_split.rs"]
+mod tests;

@@ -56,7 +56,7 @@ impl Watch {
                 if db.watch_mark_all_catchup().is_err() {
                     return LeaderState::None;
                 }
-                let db_path = self.layout.ivar_dir().join("memory.db");
+                let db_path = self.layout.graph_db();
                 match Worker::spawn(self.layout.clone(), db_path, (self.discover)()) {
                     Ok(worker) => {
                         self.leader = Some((lease, worker));

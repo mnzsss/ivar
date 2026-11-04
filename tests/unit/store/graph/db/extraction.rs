@@ -1,0 +1,423 @@
+use super::*;
+
+#[test]
+fn test_fts5_triggers_and_search() {
+    let db = GraphDb::open_in_memory().expect("open");
+    db.insert_repo("ivar", "/path", "main", None).unwrap();
+    let file_id = db
+        .upsert_file("ivar", "src/service.rs", "hash_srv", 1, 500)
+        .unwrap();
+
+    let sym = Symbol {
+        id: None,
+        file_id: Some(file_id),
+        repo: "ivar".to_owned(),
+        name: "compute_hash".to_owned(),
+        kind: SymbolKind::Fn,
+        scope: Some("module::service".to_owned()),
+        signature: Some("pub fn compute_hash(data: &[u8]) -> String".to_owned()),
+        docstring: Some("Computes SHA256 digest of input payload.".to_owned()),
+        span: Span::new(10, 1, 25, 1),
+        is_exported: true,
+        complexity: Some(2),
+    };
+    db.insert_symbols(&[sym]).unwrap();
+
+    // Search by symbol name
+    let results = db.search_symbols_fts("compute_hash", 10).unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].name, "compute_hash");
+    assert_eq!(results[0].kind, SymbolKind::Fn);
+    assert!(results[0].is_exported);
+
+    // Search by docstring token
+    let results_doc = db.search_symbols_fts("SHA256", 10).unwrap();
+    assert_eq!(results_doc.len(), 1);
+    assert_eq!(results_doc[0].name, "compute_hash");
+
+    // Search by signature token
+    let results_sig = db.search_symbols_fts("payload", 10).unwrap();
+    assert_eq!(results_sig.len(), 1);
+
+    // Delete symbol and check FTS index updated
+    db.delete_symbols_for_file(file_id).unwrap();
+    let results_after = db.search_symbols_fts("compute_hash", 10).unwrap();
+    assert_eq!(results_after.len(), 0);
+}
+
+#[test]
+fn test_relink_dangling_edges() {
+    let db = GraphDb::open_in_memory().expect("open");
+    db.insert_repo("ivar", "/path", "main", None).unwrap();
+    let file_caller = db
+        .upsert_file("ivar", "src/caller.rs", "h1", 1, 100)
+        .unwrap();
+    let file_callee = db
+        .upsert_file("ivar", "src/callee.rs", "h2", 1, 100)
+        .unwrap();
+
+    // Insert edge before callee symbol exists (dangling edge with to_symbol_id = NULL)
+    let edge = Edge {
+        id: None,
+        repo: "ivar".to_owned(),
+        file_id: Some(file_caller),
+        from_symbol_id: None,
+        to_symbol_id: None,
+        to_name: Some("target_fn".to_owned()),
+        kind: EdgeKind::Calls,
+        provenance: Provenance::Extracted,
+        line: 4,
+        col: 10,
+        confidence: 1.0,
+    };
+    db.insert_edges(&[edge]).unwrap();
+
+    // Now insert target symbol
+    let target_sym = Symbol {
+        id: None,
+        file_id: Some(file_callee),
+        repo: "ivar".to_owned(),
+        name: "target_fn".to_owned(),
+        kind: SymbolKind::Fn,
+        scope: None,
+        signature: Some("pub fn target_fn()".to_owned()),
+        docstring: None,
+        span: Span::new(1, 1, 10, 1),
+        is_exported: true,
+        complexity: Some(1),
+    };
+    let sym_ids = db.insert_symbols(&[target_sym]).unwrap();
+    let target_sym_id = sym_ids[0];
+
+    let relinked = db.relink_dangling_edges("ivar").unwrap();
+    assert_eq!(relinked, 1);
+
+    // Verify edge now points to target_sym_id
+    let to_sym_id: Option<i64> = db
+        .conn()
+        .query_row(
+            "SELECT to_symbol_id FROM edges WHERE repo = 'ivar' AND to_name = 'target_fn'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(to_sym_id, Some(target_sym_id));
+}
+
+#[test]
+fn test_index_extracted_file_resolves_from_symbol_id() {
+    let db = GraphDb::open_in_memory().expect("open");
+    db.insert_repo("ivar", "/path", "main", None).unwrap();
+
+    let extracted = crate::store::graph::extractor::ExtractedFile {
+        symbols: vec![Symbol {
+            id: None,
+            file_id: None,
+            repo: "ivar".to_owned(),
+            name: "caller_fn".to_owned(),
+            kind: SymbolKind::Fn,
+            scope: None,
+            signature: Some("pub fn caller_fn()".to_owned()),
+            docstring: None,
+            span: Span::new(10, 1, 20, 1),
+            is_exported: true,
+            complexity: Some(3),
+        }],
+        edges: vec![Edge {
+            id: None,
+            repo: "ivar".to_owned(),
+            file_id: None,
+            from_symbol_id: None,
+            to_symbol_id: None,
+            to_name: Some("callee_fn".to_owned()),
+            kind: EdgeKind::Calls,
+            provenance: Provenance::Extracted,
+            line: 15,
+            col: 5,
+            confidence: 0.95,
+        }],
+    };
+
+    db.index_extracted_file(
+        "ivar",
+        "src/lib.rs",
+        "h_test",
+        1,
+        100,
+        "",
+        false,
+        &extracted,
+    )
+    .unwrap();
+
+    let (from_sym_id, caller_id): (Option<i64>, i64) = db
+        .conn()
+        .query_row(
+            "SELECT e.from_symbol_id, s.id FROM edges e JOIN symbols s ON s.name = 'caller_fn'",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap();
+
+    assert_eq!(from_sym_id, Some(caller_id));
+}
+
+#[test]
+fn test_index_extracted_file_duplicate_symbol_names_resolves_correct_from_symbol_id() {
+    let db = GraphDb::open_in_memory().expect("open");
+    db.insert_repo("ivar", "/path", "main", None).unwrap();
+
+    let extracted = crate::store::graph::extractor::ExtractedFile {
+        symbols: vec![
+            Symbol {
+                id: None,
+                file_id: None,
+                repo: "ivar".to_owned(),
+                name: "process".to_owned(),
+                kind: SymbolKind::Method,
+                scope: Some("WorkerA".to_owned()),
+                signature: Some("fn process(&self)".to_owned()),
+                docstring: None,
+                span: Span::new(10, 5, 20, 50),
+                is_exported: true,
+                complexity: Some(2),
+            },
+            Symbol {
+                id: None,
+                file_id: None,
+                repo: "ivar".to_owned(),
+                name: "process".to_owned(),
+                kind: SymbolKind::Method,
+                scope: Some("WorkerB".to_owned()),
+                signature: Some("fn process(&self)".to_owned()),
+                docstring: None,
+                span: Span::new(30, 5, 40, 50),
+                is_exported: true,
+                complexity: Some(4),
+            },
+        ],
+        edges: vec![
+            Edge {
+                id: None,
+                repo: "ivar".to_owned(),
+                file_id: None,
+                from_symbol_id: None,
+                to_symbol_id: None,
+                to_name: Some("target_a".to_owned()),
+                kind: EdgeKind::Calls,
+                provenance: Provenance::Extracted,
+                line: 15,
+                col: 10,
+                confidence: 0.95,
+            },
+            Edge {
+                id: None,
+                repo: "ivar".to_owned(),
+                file_id: None,
+                from_symbol_id: None,
+                to_symbol_id: None,
+                to_name: Some("target_b".to_owned()),
+                kind: EdgeKind::Calls,
+                provenance: Provenance::Extracted,
+                line: 35,
+                col: 10,
+                confidence: 0.95,
+            },
+        ],
+    };
+
+    db.index_extracted_file(
+        "ivar",
+        "src/workers.rs",
+        "h_test",
+        1,
+        100,
+        "",
+        false,
+        &extracted,
+    )
+    .unwrap();
+
+    let sym_ids: Vec<i64> = db
+        .conn()
+        .prepare("SELECT id FROM symbols WHERE name = 'process' ORDER BY start_line ASC")
+        .unwrap()
+        .query_map([], |r| r.get(0))
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+
+    assert_eq!(sym_ids.len(), 2);
+
+    let from_symbol_ids: Vec<Option<i64>> = db
+        .conn()
+        .prepare("SELECT from_symbol_id FROM edges ORDER BY line ASC")
+        .unwrap()
+        .query_map([], |r| r.get(0))
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+
+    assert_eq!(from_symbol_ids, vec![Some(sym_ids[0]), Some(sym_ids[1])]);
+}
+
+#[test]
+fn test_symbol_complexity_persistence() {
+    let db = GraphDb::open_in_memory().expect("open");
+    db.insert_repo("ivar", "/path", "main", None).unwrap();
+    let file_id = db
+        .upsert_file("ivar", "src/math.rs", "h_math", 1, 100)
+        .unwrap();
+
+    let sym = Symbol {
+        id: None,
+        file_id: Some(file_id),
+        repo: "ivar".to_owned(),
+        name: "complex_calc".to_owned(),
+        kind: SymbolKind::Fn,
+        scope: None,
+        signature: Some("fn complex_calc()".to_owned()),
+        docstring: None,
+        span: Span::new(1, 1, 50, 1),
+        is_exported: true,
+        complexity: Some(12),
+    };
+    let ids = db.insert_symbols(&[sym]).unwrap();
+    assert_eq!(ids.len(), 1);
+
+    let queried: Option<i64> = db
+        .conn()
+        .query_row(
+            "SELECT complexity FROM symbols WHERE id = ?1",
+            [ids[0]],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(queried, Some(12));
+}
+
+#[test]
+fn test_index_extracted_file_duplicate_target_names_resolves_or_leaves_unresolved() {
+    let db = GraphDb::open_in_memory().expect("open");
+    db.insert_repo("ivar", "/path", "main", None).unwrap();
+
+    let extracted = crate::store::graph::extractor::ExtractedFile {
+        symbols: vec![
+            Symbol {
+                id: None,
+                file_id: None,
+                repo: "ivar".to_owned(),
+                name: "helper".to_owned(),
+                kind: SymbolKind::Method,
+                scope: Some("WorkerA".to_owned()),
+                signature: Some("fn helper(&self)".to_owned()),
+                docstring: None,
+                span: Span::new(10, 5, 20, 50),
+                is_exported: false,
+                complexity: Some(1),
+            },
+            Symbol {
+                id: None,
+                file_id: None,
+                repo: "ivar".to_owned(),
+                name: "run".to_owned(),
+                kind: SymbolKind::Method,
+                scope: Some("WorkerA".to_owned()),
+                signature: Some("fn run(&self)".to_owned()),
+                docstring: None,
+                span: Span::new(21, 5, 30, 50),
+                is_exported: true,
+                complexity: Some(2),
+            },
+            Symbol {
+                id: None,
+                file_id: None,
+                repo: "ivar".to_owned(),
+                name: "helper".to_owned(),
+                kind: SymbolKind::Method,
+                scope: Some("WorkerB".to_owned()),
+                signature: Some("fn helper(&self)".to_owned()),
+                docstring: None,
+                span: Span::new(40, 5, 50, 50),
+                is_exported: false,
+                complexity: Some(1),
+            },
+            Symbol {
+                id: None,
+                file_id: None,
+                repo: "ivar".to_owned(),
+                name: "external_caller".to_owned(),
+                kind: SymbolKind::Fn,
+                scope: None,
+                signature: Some("fn external_caller()".to_owned()),
+                docstring: None,
+                span: Span::new(60, 1, 70, 50),
+                is_exported: true,
+                complexity: Some(1),
+            },
+        ],
+        edges: vec![
+            // Edge 1: inside WorkerA::run, calling "helper" -> should resolve to WorkerA's helper (not WorkerB's)
+            Edge {
+                id: None,
+                repo: "ivar".to_owned(),
+                file_id: None,
+                from_symbol_id: None,
+                to_symbol_id: None,
+                to_name: Some("helper".to_owned()),
+                kind: EdgeKind::Calls,
+                provenance: Provenance::Extracted,
+                line: 25,
+                col: 10,
+                confidence: 0.95,
+            },
+            // Edge 2: inside external_caller (no matching scope, outside both helper spans), calling "helper"
+            // Under last-write-wins this would wrongly resolve to WorkerB's helper. Here it must remain unresolved (None).
+            Edge {
+                id: None,
+                repo: "ivar".to_owned(),
+                file_id: None,
+                from_symbol_id: None,
+                to_symbol_id: None,
+                to_name: Some("helper".to_owned()),
+                kind: EdgeKind::Calls,
+                provenance: Provenance::Extracted,
+                line: 65,
+                col: 10,
+                confidence: 0.95,
+            },
+        ],
+    };
+
+    db.index_extracted_file(
+        "ivar",
+        "src/workers.rs",
+        "h_test",
+        1,
+        100,
+        "",
+        false,
+        &extracted,
+    )
+    .unwrap();
+
+    let worker_a_helper_id: i64 = db
+        .conn()
+        .query_row(
+            "SELECT id FROM symbols WHERE name = 'helper' AND scope = 'WorkerA'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+
+    let edge_to_symbols: Vec<Option<i64>> = db
+        .conn()
+        .prepare("SELECT to_symbol_id FROM edges ORDER BY line ASC")
+        .unwrap()
+        .query_map([], |r| r.get(0))
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+
+    assert_eq!(edge_to_symbols, vec![Some(worker_a_helper_id), None]);
+}

@@ -30,7 +30,7 @@ pub(super) fn record_graph_call_at(
         None => Layout::discover(cwd).ok().flatten(),
     };
     let Some(layout) = layout else { return };
-    let db_path = layout.ivar_dir().join("memory.db");
+    let db_path = layout.graph_db();
     let Ok(db) = crate::store::graph::db::GraphDb::open_for_usage(db_path.as_std_path()) else {
         return;
     };
@@ -73,7 +73,7 @@ pub(super) fn record_search_miss_at(
 /// `followup`. Every failure is swallowed: the guard's decision is already
 /// made, and nothing here may change it or its exit code.
 pub(super) fn record_search_miss(layout: &Layout, session: &str, pattern: &str) {
-    let db_path = layout.ivar_dir().join("memory.db");
+    let db_path = layout.graph_db();
     if !db_path.exists() {
         return;
     }

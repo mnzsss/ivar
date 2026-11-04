@@ -3,6 +3,7 @@ pub mod clean;
 pub mod compact;
 pub mod complexity;
 pub mod cross_repo;
+mod db_path;
 pub mod dead_code;
 pub mod explore;
 pub mod freshness;
@@ -28,6 +29,8 @@ pub mod watch;
 use std::io;
 use std::path::Path;
 
+use camino::Utf8Path;
+
 use crate::action::Ctx;
 use crate::action::discover_hall;
 use crate::action::read_manifest;
@@ -44,6 +47,9 @@ pub use clean::clean_cmd;
 pub use compact::ToCompact;
 pub use complexity::{ComplexityError, execute_complexity};
 pub use cross_repo::{CrossRepoLinkOutcome, link_cross_repo_edges};
+pub use db_path::graph_db_path;
+pub(crate) use db_path::lock_index;
+pub(crate) use db_path::split_failure;
 pub use dead_code::{DeadCodeError, execute_dead_code};
 pub use explore::{ExploreError, explore};
 pub use hierarchy::{HierarchyError, execute_hierarchy};
@@ -61,15 +67,22 @@ pub use view::lifecycle::{ViewSession, execute_view_session, prepare_view_sessio
 pub use viz::{VizError, execute_viz};
 fn open_graph_db(ctx: &Ctx) -> Result<GraphDb, Failure> {
     let layout = discover_hall(ctx)?;
-    let db_path = layout.ivar_dir().join("memory.db");
+    let db_path = graph_db_path(&layout)?;
+    open_graph_db_at(ctx, &layout, &db_path)
+}
+
+/// Opens the graph at a path already resolved by [`graph_db_path`], so a
+/// writer can take [`lock_index`] between the two without the split taking
+/// `graph.lock` again in the same process.
+fn open_graph_db_at(ctx: &Ctx, layout: &Layout, db_path: &Utf8Path) -> Result<GraphDb, Failure> {
     let db = GraphDb::open(db_path.as_std_path()).map_err(|err| {
         Failure::failed(
             "graph.db_open_failed",
             format!("Failed to open graph database at {db_path}: {err}"),
         )
     })?;
-    let view = session::resolve_session_view(&layout, &ctx.cwd)?;
-    freshness::ensure_session_freshness(&db, &layout, &view)?;
+    let view = session::resolve_session_view(layout, &ctx.cwd)?;
+    freshness::ensure_session_freshness(&db, layout, &view)?;
     Ok(db)
 }
 
@@ -162,23 +175,6 @@ pub fn file_cmd(ctx: &Ctx, args: &FileInput) -> Outcome<FileOutcome> {
     Ok(Report::new(FileOutcome(outline)))
 }
 
-pub(crate) fn lock_index(layout: &Layout) -> Result<std::fs::File, Failure> {
-    let lock_path = layout.ivar_dir().join("memory.lock");
-    let lock_file = std::fs::File::create(lock_path.as_std_path()).map_err(|err| {
-        Failure::failed(
-            "graph.lock_failed",
-            format!("Failed to create/open index lock file at {lock_path}: {err}"),
-        )
-    })?;
-    lock_file.lock().map_err(|err| {
-        Failure::failed(
-            "graph.lock_failed",
-            format!("Failed to acquire exclusive lock on {lock_path}: {err}"),
-        )
-    })?;
-    Ok(lock_file)
-}
-
 /// Incrementally reindexes the base repositories of a hall that already has a
 /// graph database. Returns `None` when the hall never built one.
 pub fn refresh_base_graph(
@@ -186,7 +182,7 @@ pub fn refresh_base_graph(
     manifest: &Manifest,
     progress: &dyn Progress,
 ) -> Result<Option<HallIndex>, Failure> {
-    let db_path = layout.ivar_dir().join("memory.db");
+    let db_path = graph_db_path(layout)?;
     if !db_path.as_std_path().exists() {
         return Ok(None);
     }
@@ -234,9 +230,9 @@ pub fn index_cmd(ctx: &Ctx, args: IndexInput) -> Outcome<IndexBatchOutcome> {
         ));
     }
     let layout = discover_hall(ctx)?;
+    let db_path = graph_db_path(&layout)?;
     let _lock = lock_index(&layout)?;
-
-    let db = open_graph_db(ctx)?;
+    let db = open_graph_db_at(ctx, &layout, &db_path)?;
     let manifest = persist_hall_paths(&layout, read_manifest(&layout)?, &args.paths)?;
 
     let hall = if let Some(target_repo) = args.repo {

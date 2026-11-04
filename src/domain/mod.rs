@@ -10,6 +10,7 @@
 //! like. What does not: reading it, writing it, or shelling out about it.
 
 pub mod agent;
+pub mod capability;
 pub mod discovery;
 pub mod feature;
 pub mod feedback;

@@ -36,7 +36,7 @@ fn test_graph_viewer_server_endpoints_and_security() {
     hall.graph_command(hall.root(), &["index", "--repo", "app"]);
 
     // Verify read-only database opening
-    let db = GraphDb::open_read_only(hall.root().join(".ivar/memory.db").as_std_path())
+    let db = GraphDb::open_read_only(hall.root().join(".ivar/graph.db").as_std_path())
         .expect("GraphDb::open_read_only should succeed on indexed hall");
 
     // Bind server on ephemeral port with default repo seed

@@ -17,7 +17,7 @@ use crate::store::graph::db::GraphDb;
 fn populate_hall_with_graph(hall_root: &std::path::Path) -> GraphDb {
     let ivar_dir = hall_root.join(".ivar");
     std::fs::create_dir_all(&ivar_dir).unwrap();
-    let db_path = ivar_dir.join("memory.db");
+    let db_path = ivar_dir.join("graph.db");
     let db = GraphDb::open(&db_path).unwrap();
 
     // Insert repos
@@ -257,7 +257,7 @@ fn hall_with_two_paths() -> (tempfile::TempDir, Utf8PathBuf) {
         .with_graph_path_added("docs")
         .unwrap();
     crate::store::manifest::Manifest::write(&layout, &manifest).unwrap();
-    let db = GraphDb::open(root.join(".ivar/memory.db").as_std_path()).unwrap();
+    let db = GraphDb::open(root.join(".ivar/graph.db").as_std_path()).unwrap();
     db.insert_repo("hall", root.as_str(), "", None).unwrap();
     db.upsert_file("hall", "brand/DESIGN.md", "h1", 1, 1)
         .unwrap();
@@ -291,7 +291,7 @@ fn clean_path_removes_the_files_the_scope_and_the_manifest_entry() {
 
     assert_eq!(outcome.path.as_deref(), Some("brand"));
     assert_eq!(outcome.files_removed, 1);
-    let db = GraphDb::open_read_only(root.join(".ivar/memory.db").as_std_path()).unwrap();
+    let db = GraphDb::open_read_only(root.join(".ivar/graph.db").as_std_path()).unwrap();
     let paths: Vec<String> = db
         .get_files_for_repo("hall")
         .unwrap()
@@ -320,7 +320,7 @@ fn cleaning_the_last_path_drops_the_hall_repo() {
     let outcome = clean_path(&root, "docs").unwrap();
 
     assert_eq!(outcome.repos_removed, 1);
-    let db = GraphDb::open_read_only(root.join(".ivar/memory.db").as_std_path()).unwrap();
+    let db = GraphDb::open_read_only(root.join(".ivar/graph.db").as_std_path()).unwrap();
     assert!(db.get_repo("hall").unwrap().is_none());
 }
 
@@ -355,7 +355,7 @@ fn clean_refuses_path_together_with_repo() {
 fn clean_feature_runs_under_the_index_lock_while_an_unlocked_lock_file_exists() {
     let dir = tempdir().unwrap();
     populate_hall_with_graph(dir.path());
-    let lock_path = dir.path().join(".ivar/memory.lock");
+    let lock_path = dir.path().join(".ivar/graph.lock");
     std::fs::write(&lock_path, b"").unwrap();
 
     let outcome = clean_cmd(
@@ -373,4 +373,66 @@ fn clean_feature_runs_under_the_index_lock_while_an_unlocked_lock_file_exists() 
     assert_eq!(outcome.feature.as_deref(), Some("feat"));
     assert_eq!(outcome.repos_removed, 0);
     assert!(lock_path.is_file());
+}
+
+#[test]
+fn the_index_lock_is_the_graph_lock_and_leaves_the_memory_lock_free() {
+    let (_guard, root) = crate::test_support::canonical_temp_dir();
+    let layout = crate::store::layout::Layout::at(root);
+    std::fs::create_dir_all(layout.ivar_dir()).unwrap();
+
+    let _held = crate::action::graph::lock_index(&layout).unwrap();
+
+    let probe = std::fs::File::create(layout.graph_lock()).unwrap();
+    assert!(probe.try_lock().is_err(), "lock_index must hold graph.lock");
+    assert!(
+        !layout.memory_lock().exists(),
+        "lock_index must not create memory.lock"
+    );
+}
+
+#[test]
+fn clean_opens_the_graph_database_only_under_the_index_lock() {
+    let dir = tempdir().unwrap();
+    let root = dir.path().to_path_buf();
+    let layout =
+        crate::store::layout::Layout::at(Utf8PathBuf::from_path_buf(root.clone()).unwrap());
+    drop(populate_hall_with_graph(&root));
+    crate::store::memory::db::MemoryDb::open(layout.memory_db().as_std_path()).unwrap();
+    rusqlite::Connection::open(layout.graph_db())
+        .unwrap()
+        .pragma_update(None, "journal_mode", "DELETE")
+        .unwrap();
+    let write_version = || std::fs::read(layout.graph_db()).unwrap()[18];
+    assert_eq!(
+        write_version(),
+        1,
+        "fixture must start in rollback journal mode"
+    );
+
+    let held = std::fs::File::create(layout.graph_lock()).unwrap();
+    held.lock().unwrap();
+    let worker = std::thread::spawn(move || {
+        clean_cmd(
+            &make_ctx(&root),
+            CleanInput {
+                repo: None,
+                feature: Some("feat".into()),
+                all: false,
+                path: None,
+            },
+        )
+        .map(|_| ())
+        .map_err(|err| err.code)
+    });
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    assert_eq!(
+        write_version(),
+        1,
+        "graph clean must not open (and switch to WAL) the graph database before taking graph.lock"
+    );
+
+    held.unlock().unwrap();
+    worker.join().unwrap().unwrap();
+    assert_eq!(write_version(), 2);
 }

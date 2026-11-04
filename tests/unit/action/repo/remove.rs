@@ -327,7 +327,7 @@ fn remove_without_force_tears_down_a_write_guarded_worktree() {
 fn remove_forgets_the_repo_in_the_graph() {
     let (_guard, root) = hall_with_repo();
     let ctx = Ctx::new(root.clone());
-    let db_path = root.join(".ivar/memory.db");
+    let db_path = root.join(".ivar/graph.db");
     let db = crate::store::graph::db::GraphDb::open(db_path.as_std_path()).unwrap();
     db.insert_repo("api", "/api", "main", None).unwrap();
     drop(db);
@@ -342,7 +342,7 @@ fn remove_forgets_the_repo_in_the_graph() {
 fn remove_waits_for_the_index_lock_before_forgetting_the_repo() {
     let (_guard, root) = hall_with_repo();
     let ctx = Ctx::new(root.clone());
-    let db_path = root.join(".ivar/memory.db");
+    let db_path = root.join(".ivar/graph.db");
     let db = crate::store::graph::db::GraphDb::open(db_path.as_std_path()).unwrap();
     db.insert_repo("api", "/api", "main", None).unwrap();
     drop(db);
@@ -359,7 +359,7 @@ fn remove_waits_for_the_index_lock_before_forgetting_the_repo() {
 fn remove_forgets_the_repo_feature_layers_in_the_graph() {
     let (_guard, root) = hall_with_repo();
     let ctx = Ctx::new(root.clone());
-    let db_path = root.join(".ivar/memory.db");
+    let db_path = root.join(".ivar/graph.db");
     let db = crate::store::graph::db::GraphDb::open(db_path.as_std_path()).unwrap();
     let layer_id = db
         .ensure_layer_record("feat", "api", "/feat/api", "c1")
@@ -382,7 +382,7 @@ fn remove_forgets_the_repo_feature_layers_in_the_graph() {
 fn remove_without_a_graph_db_records_no_graph_step() {
     let (_guard, root) = hall_with_repo();
     let ctx = Ctx::new(root.clone());
-    let db_path = root.join(".ivar/memory.db");
+    let db_path = root.join(".ivar/graph.db");
     assert!(!db_path.exists());
 
     let report = remove(&ctx, input("api", false)).unwrap();
@@ -401,11 +401,7 @@ fn remove_without_a_graph_db_records_no_graph_step() {
 fn remove_survives_a_corrupt_graph_db() {
     let (_guard, root) = hall_with_repo();
     let ctx = Ctx::new(root.clone());
-    fs::write_text(
-        &root.join(".ivar/memory.db"),
-        "not a sqlite database at all",
-    )
-    .unwrap();
+    fs::write_text(&root.join(".ivar/graph.db"), "not a sqlite database at all").unwrap();
 
     let report = remove(&ctx, input("api", false)).unwrap();
 

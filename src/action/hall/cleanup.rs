@@ -112,7 +112,7 @@ pub fn cleanup(ctx: &Ctx) -> Outcome<CleanupOutcome> {
 }
 
 fn forget_in_graph(layout: &Layout, name: &str) -> Result<bool, String> {
-    let db_path = layout.ivar_dir().join("memory.db");
+    let db_path = crate::action::graph::graph_db_path(layout).map_err(|failure| failure.what)?;
     if !db_path.is_file() {
         return Ok(false);
     }

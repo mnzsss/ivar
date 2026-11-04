@@ -22,7 +22,7 @@ fn test_clean_feature_and_stats_reporting() {
     )
     .unwrap();
     let root_path = Utf8PathBuf::from_path_buf(hall_dir.path().to_path_buf()).unwrap();
-    let db_path = hall_dir.path().join(".ivar/memory.db");
+    let db_path = hall_dir.path().join(".ivar/graph.db");
     std::fs::create_dir_all(db_path.parent().unwrap()).unwrap();
     let db = GraphDb::open(&db_path).unwrap();
     db.ensure_views_base_mode().unwrap();

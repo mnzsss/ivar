@@ -11,7 +11,7 @@ use tempfile::tempdir;
 #[test]
 fn test_rename_and_drop_feature_layers_in_graph_db() {
     let hall_dir = tempdir().unwrap();
-    let db_path = hall_dir.path().join(".ivar/memory.db");
+    let db_path = hall_dir.path().join(".ivar/graph.db");
     std::fs::create_dir_all(db_path.parent().unwrap()).unwrap();
     let db = GraphDb::open(&db_path).unwrap();
     db.ensure_views_base_mode().unwrap();
@@ -88,7 +88,7 @@ fn test_rename_and_drop_feature_layers_in_graph_db() {
 fn dropping_feature_layers_waits_for_the_index_lock() {
     let (_dir, root) = crate::test_support::utf8_temp_dir();
     let layout = crate::store::layout::Layout::at(root.clone());
-    let db_path = root.join(".ivar/memory.db");
+    let db_path = root.join(".ivar/graph.db");
     let db = GraphDb::open(db_path.as_std_path()).unwrap();
     db.ensure_layer_record("feat", "core", "/feat/core", "c1")
         .unwrap();

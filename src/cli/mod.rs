@@ -16,6 +16,7 @@
 pub mod agent;
 pub mod feedback;
 pub mod graph;
+pub mod memory;
 pub mod root;
 
 pub use feedback::{
@@ -23,3 +24,4 @@ pub use feedback::{
     FeedbackSubmitArgs,
 };
 pub use graph::{GraphArgs, GraphCommand};
+pub use memory::MemoryCommand;

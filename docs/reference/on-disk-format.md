@@ -37,7 +37,10 @@ half-understood state file is worse than no state file.
   .ivar/agents/state/<agent>/<tool>/ local   a host agent's private copy of the tool's login, mode 700
   .ivar/secrets/agents.env      local        agent secrets, NAME=value, mode 600
   .ivar/secrets/                local        secret material (hand-maintained files, plus mcp.env)
-  .ivar/memory.db               local        codebase dependency graph and text FTS index
+  .ivar/graph.db                local        codebase dependency graph and text FTS index (derived)
+  .ivar/graph.lock              local        graph index writer lock
+  .ivar/memory.db               local        hall memory (primary data; only `ivar memory clean` deletes it)
+  .ivar/memory.lock             local        memory database writer lock
   .ivar/graph-watch.lock        local        graph watcher leader lease (pid)
   .ivar/repos/                  local        bare clones and worktrees
   .ivar/features/               local        promotion records, Run Receipts, working docs
@@ -184,193 +187,13 @@ migrates without telling you because there is nothing useful to say.
 
 ## Current versions
 
-| file | version |
-| --- | --- |
-| `ivar.json` | 5 |
-| `.ivar/features/<feature>/feature.json` | 3 |
-| `.ivar/features/<feature>/execution/run.json` | 2 |
-| `<view dir>/state.json` | 1 |
-| `.ivar/agents/runs/<agent>/<run-id>.json` | 1 |
-| cleanup record | 1 |
+The version each file carries today, and what changed at each version, are in
+[Current versions](on-disk-format-versions.md).
 
-`<view dir>/state.json` is a session's record, one per View Dir
-(`.ivar/sessions/<id>/` or `.ivar/features/<feature>/sessions/<id>/`). The hall
-itself has no state file of its own. The cleanup record is the file
-`ivar feature cleanup <feature> --record <path>` takes. A test fails the build when this table and
-the version constants in the code disagree.
+## Databases
 
-`ivar.json` starts at 1. There is no version 0 to migrate from: a file with no
-`version` field is not an `ivar.json`, and is rejected rather than adopted. A
-migration chain may begin at its format's earliest supported version — `ivar.json`'s
-chain is `[1→2, 2→3, 3→4, 4→5]` — and v0 stays unreachable.
-
-### `ivar.json` v2
-
-v2 adds two things, both with embedded defaults so v1 files migrate cleanly:
-
-```json
-{
-  "version": 2,
-  "integration": { "via": "local", "strategy": "squash" },
-  "repos": [
-    { "name": "api", "url": "git@github.com:acme/api.git",
-      "default_branch": "main", "checks": ["cargo fmt --check", "cargo test"] }
-  ]
-}
-```
-
-`integration` is the hall's per-field default (CLI > feature > hall > embedded)
-and `checks` are the repo's ordered verification commands. Migrating `ivar.json`
-from v1 is explicit — `ivar migrate` — because the file is committed.
-
-### `ivar.json` v3
-
-v3 adds one optional field to an `mcp` entry: `oauth`, a pre-provisioned OAuth
-client registration for a server whose host rejects a harness's own dynamic
-client registration (`ivar mcp auth`'s pre-registration step; `mcp.figma.com`
-today).
-
-```json
-{
-  "version": 3,
-  "mcp": [
-    {
-      "name": "figma",
-      "type": "http",
-      "url": "https://mcp.figma.com/mcp",
-      "oauth": { "client_id": "…", "client_secret_env": "IVAR_MCP_ACME_FIGMA_SECRET" }
-    }
-  ]
-}
-```
-
-`client_id` is not a secret. `client_secret_env` is the *name* of an
-environment variable — never a value — the same reference convention `env`
-already follows elsewhere in an `mcp` entry. It is optional: a public OAuth
-client that was issued no secret omits `client_secret_env` entirely. The
-`oauth` block is absent by default, so v2 → v3 adds nothing to a hall that
-never used it; migrating is still explicit (`ivar migrate`) because the file
-is committed.
-
-The `name` stored here (`figma`, above) is canonical and unqualified. Providers
-never see it directly: every provider boundary — the key in `.mcp.json` and
-`opencode.json`, the argument to `claude mcp login` / `opencode mcp auth`, the
-key OpenCode writes into `mcp-auth.json`, and the OAuth secret variable name —
-receives `<hall>-<server>` instead, derived from the hall this manifest belongs
-to (`acme-figma`, in a hall named `acme`). This is a breaking change from
-previous behaviour, where the stored name was used verbatim at every provider
-boundary. A hall whose entry is already hall-qualified (`figma-acme`, say)
-must rename it to the canonical form by hand and re-run `ivar sync`, and
-re-export any `client_secret_env` secret under the new variable name — `ivar`
-will not rewrite a committed, hand-edited file by guessing at intent.
-
-### MCP transport migration (v2 → v3 vocabulary change)
-
-The MCP `type` field uses the canonical names `http` (a remote server reached
-over HTTP) and `local` (a local process spawned via stdio). The previously
-accepted spellings — `stdio`, `sse`, and `streamable-http` in the manifest, and
-the OpenCode-native `remote` — are rejected at parse time with a diagnostic that
-names the canonical replacement.
-
-This is a **breaking change**. An existing committed `ivar.json` using any of
-those spellings stops loading until you edit it by hand:
-
-| Obsolete spelling in `ivar.json` | Canonical replacement |
-|---|---|
-| `"type": "stdio"` | `"type": "local"` |
-| `"type": "sse"` | `"type": "http"` |
-| `"type": "streamable-http"` | `"type": "http"` |
-
-`ivar migrate` advances `ivar.json`'s *schema version* (for example v1 → v2 →
-v3); it does **not** rewrite transport spellings. That rename is part of the
-manifest's content, not its version chain, so it is a team event like the
-version bump — one person upgrades, the team agrees, then you edit and commit.
-See [Migration and provider translation](#migration-and-provider-translation)
-for how each canonical value materialises at each provider boundary.
-
-### `feature.json` v3
-
-v3 adds the nested-subfeature fields. Only the child side of the lineage is
-stored — `parent` — and children are derived by scanning:
-
-```json
-{
-  "version": 3,
-  "name": "checkout-tax",
-  "branch": "checkout-tax",
-  "parent": "checkout-v2",
-  "base": "checkout-v2",
-  "integration": { "via": "pr" },
-  "promotions": {
-    "api": {
-      "worktree": "ready",
-      "base": "checkout-v2",
-      "integration_receipt": {
-        "source_sha": "…", "target_branch": "checkout-v2", "result_sha": "…",
-        "via": "pr", "strategy": "squash", "pr_url": "https://github.com/…/pull/7",
-        "verification": {
-          "command_fingerprint": "…",
-          "child": [ { "command": "cargo test", "success": true, "exit_code": 0, "diagnostic": "" } ],
-          "parent": [],
-          "pr_checks": [ { "name": "ci", "bucket": "pass" } ],
-          "verified_at": "2026-08-14T12:00:00Z"
-        }
-      }
-    }
-  }
-}
-```
-
-`parent` and `integration` default to absent, and `integration_receipt` to null,
-so v2 files migrate in place — local state migrates silently on read. No feature
-stores a child list, and no lifecycle field is persisted: the integration state
-is derived from the close record plus receipt freshness. Child branches and
-worktrees are retained after integration so receipt validation stays exact.
-
-
-## Graph database (`.ivar/memory.db`)
-
-The codebase graph is stored locally in SQLite at `.ivar/memory.db`.
-
-Hall paths are stored under the repo id `hall`, with hall-relative file paths.
-The id carries no `/` because every base view selects base rows with
-`repo NOT LIKE '%/%'`, the convention that marks feature layers. A bare
-`ivar graph index` (and `ivar sync`) also drops repos absent from `ivar.json`,
-layers of features whose directory is gone, and watch scopes with nothing
-behind them, and lists them under `removed` in its outcome.
-
-### Graph schema v10
-
-Schema version 10 introduces the dedicated `file_content_fts` table and `files.content_truncated`
-column for full-text search across all tracked UTF-8 text files up to 256 KiB per file.
-
-When migrating from older schema versions to v10, existing indexed repository metadata is invalidated
-so that the next `ivar graph index` performs a clean, complete rebuild of all tracked files rather than
-serving partial or incomplete text-search results. Active Feature Session layers join through
-`visible_files` to ensure layer shadowing and tombstones remain authoritative.
-
-### Graph schema v11
-
-Schema version 11 adds `watch_scopes`, one row per scope the graph watcher keeps fresh:
-`base:<repo>` for a default-branch worktree, `layer:<feature>:<repo>` for a feature layer.
-
-| Column | Meaning |
-| --- | --- |
-| `observed` | Bursts of filesystem events seen for the scope (monotonic) |
-| `indexed` | Highest `observed` value whose reindex finished |
-| `needs_catchup` | `1` until the leader re-ran the git incremental path for the scope |
-| `error` | Last reindex failure, cleared by the next success |
-| `updated_at` | Unix seconds of the last change |
-
-A scope is settled when `indexed >= observed`, `needs_catchup = 0` and `error` is null.
-Migrating from v10 keeps the existing index.
-
-### Watcher lease (`.ivar/graph-watch.lock`)
-
-Every `ivar graph mcp` process tries a non-blocking exclusive lock on this file on each tool call.
-The holder is the leader: it watches the hall and is the only process that reindexes from events.
-The file holds the leader's pid. The kernel releases the lock when the leader exits, and the next
-tool call from any other server takes over, runs the git catch-up and starts watching.
+The SQLite files under `.ivar/` are described in
+[Databases](on-disk-format-databases.md).
 
 ## Strictness
 
