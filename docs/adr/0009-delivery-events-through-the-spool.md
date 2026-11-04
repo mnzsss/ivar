@@ -43,8 +43,9 @@ The retention sweep deletes the rows of a session, keyed by `session_id` and
 `native_session_id`, when its newest observation is older than 30 days. A session is kept
 or deleted whole. The event names it may delete are a closed list of the four `session.*`
 names, so `delivery.*`, `memory.*` and `handoff.*` are never touched. It runs in the
-`ivar graph mcp` leader once at start and then hourly, deletes in batches of 1,000, each
-under a non-waiting `memory.lock` (a busy lock stops the sweep) and records its state in `_sweep.json`. It never creates
+`ivar graph mcp` leader once at start and then hourly, under a non-waiting `memory.lock`
+held for the whole sweep (a busy lock skips it), deletes in batches of 1,000 and records
+its state in `_sweep.json`, including a lock that cannot be created. It never creates
 `memory.db`.
 
 ### D5 — A failed write prints one stderr line and keeps exit code 0

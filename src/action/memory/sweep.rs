@@ -1,6 +1,6 @@
 //! Deletes `session.*` observations whose session ended more than the
-//! retention window ago. Takes a non-waiting `memory.lock` per batch and never
-//! creates `memory.db`.
+//! retention window ago. Runs under a non-waiting `memory.lock` held for the
+//! whole sweep and never creates `memory.db`.
 
 use std::time::SystemTime;
 
@@ -32,34 +32,47 @@ pub struct SweepReport {
     pub busy: bool,
 }
 
-/// Sweeps expired sessions in batches, taking `memory.lock` without waiting
-/// for each batch and reporting `busy` when another process holds it.
+/// Sweeps expired sessions, or reports `busy` instead of waiting when another
+/// process holds `memory.lock`. The lock is held for the whole sweep.
 ///
 /// # Errors
 ///
 /// When the lock or the database cannot be used; the error is recorded in
 /// `_sweep.json`.
 pub fn sweep(layout: &Layout, now_epoch_secs: u64) -> Result<SweepReport, Failure> {
-    let cutoff = cutoff_before(now_epoch_secs, SESSION_RETENTION_DAYS);
     let mut state = read_state(layout);
-    let outcome = delete_all_expired(layout, &cutoff);
-    match &outcome {
-        Ok(report) if report.busy && report.deleted == 0 => return outcome_report(outcome),
-        Ok(report) => {
-            state.swept_total += u64::try_from(report.deleted).unwrap_or(u64::MAX);
-            if !report.busy {
-                state.last_sweep_at = Some(rfc3339_now());
-                state.last_error = None;
-            }
+    // Held across every batch: releasing between batches lets a sibling
+    // process holding a duplicate of the closed fd make the next attempt busy.
+    let _lock = match fs::try_lock_exclusive(&layout.memory_lock()) {
+        Ok(Some(lock)) => lock,
+        Ok(None) => {
+            return Ok(SweepReport {
+                deleted: 0,
+                busy: true,
+            });
         }
-        Err(error) => state.last_error = Some(error.clone()),
+        Err(error) => return Err(record_failure(layout, &mut state, error.to_string())),
+    };
+    let cutoff = cutoff_before(now_epoch_secs, SESSION_RETENTION_DAYS);
+    match delete_all_expired(layout, &cutoff) {
+        Ok(deleted) => {
+            state.swept_total += u64::try_from(deleted).unwrap_or(u64::MAX);
+            state.last_sweep_at = Some(rfc3339_now());
+            state.last_error = None;
+            let _ = write_state(layout, &state);
+            Ok(SweepReport {
+                deleted,
+                busy: false,
+            })
+        }
+        Err(error) => Err(record_failure(layout, &mut state, error)),
     }
-    let _ = write_state(layout, &state);
-    outcome_report(outcome)
 }
 
-fn outcome_report(outcome: Result<SweepReport, String>) -> Result<SweepReport, Failure> {
-    outcome.map_err(|error| Failure::failed("memory.sweep_failed", error))
+fn record_failure(layout: &Layout, state: &mut SweepState, error: String) -> Failure {
+    state.last_error = Some(error.clone());
+    let _ = write_state(layout, state);
+    Failure::failed("memory.sweep_failed", error)
 }
 
 /// # Errors
@@ -88,35 +101,25 @@ fn write_state(layout: &Layout, state: &SweepState) -> Result<(), Box<dyn std::e
     Ok(())
 }
 
-fn delete_all_expired(layout: &Layout, cutoff: &str) -> Result<SweepReport, String> {
-    let mut deleted = 0;
+fn delete_all_expired(layout: &Layout, cutoff: &str) -> Result<usize, String> {
+    if !layout.memory_db().exists() {
+        return Ok(0);
+    }
+    let mut db = MemoryDb::open(layout.memory_db().as_std_path()).map_err(|e| e.to_string())?;
+    let mut total = 0;
     loop {
-        let Some(_lock) =
-            fs::try_lock_exclusive(&layout.memory_lock()).map_err(|e| e.to_string())?
-        else {
-            return Ok(SweepReport {
-                deleted,
-                busy: true,
-            });
-        };
-        if !layout.memory_db().exists() {
-            return Ok(SweepReport::default());
-        }
-        let mut db = MemoryDb::open(layout.memory_db().as_std_path()).map_err(|e| e.to_string())?;
-        let batch = delete_expired_sessions(&mut db, cutoff, BATCH).map_err(|e| e.to_string())?;
-        deleted += batch;
-        if batch < BATCH {
-            if deleted > 0 {
-                db.conn()
-                    .query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()))
-                    .map_err(|e| e.to_string())?;
-            }
-            return Ok(SweepReport {
-                deleted,
-                busy: false,
-            });
+        let deleted = delete_expired_sessions(&mut db, cutoff, BATCH).map_err(|e| e.to_string())?;
+        total += deleted;
+        if deleted < BATCH {
+            break;
         }
     }
+    if total > 0 {
+        db.conn()
+            .query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()))
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(total)
 }
 
 #[cfg(test)]
