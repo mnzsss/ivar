@@ -257,18 +257,18 @@ fn opencode_capture_records_the_declared_events() {
     capture_scenario(Live::OpenCode);
 }
 
-/// T3 threads live in the desktop app, so a human drives one prompt and closes the thread
-/// while this test polls. It only reports; flipping the matrix stays a manual decision.
+/// T3 threads live in the desktop app, so a human opens a thread, sends a prompt and archives
+/// it while this test polls. It only reports whether `session.ended` arrived.
 #[test]
 #[ignore = "needs a running T3 Code desktop app and a human-driven thread"]
-fn t3_session_end_is_confirmed_or_stays_undeclared() {
+fn t3_session_end_fires_when_the_thread_is_closed() {
     if std::env::var("IVAR_LIVE_T3").is_err() {
         eprintln!("skipped: IVAR_LIVE_T3 is not set");
         return;
     }
     let (_guard, root) = scratch_hall();
     let (id, view) = session(&root, "capture-t3", "t3");
-    eprintln!("open a T3 thread in {view}, send one prompt, then close the thread");
+    eprintln!("open a T3 thread in {view}, send one prompt, then archive the thread");
     let deadline = Instant::now() + T3_THREAD_WAIT;
     while Instant::now() < deadline && !captured_events(&root).contains("session.ended") {
         std::thread::sleep(Duration::from_secs(2));

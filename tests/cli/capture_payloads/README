@@ -1,4 +1,5 @@
 These payloads are hand-written from the shapes pinned in tests/unit/providers/capture.rs
 (_recorded: false). They were not captured from a live provider run.
-T3 has no ended.json: its session_ended stays NotSupported until a live run shows SessionEnd.
+T3 hosts Claude Code, so t3/ended.json mirrors the Claude Code shape with reason "other". A live run
+confirmed that T3 fires SessionEnd when a thread is closed (archived), not when a turn finishes.
 OpenCode has no ended.json: it has no session-end event.

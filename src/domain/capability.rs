@@ -32,16 +32,10 @@ const FULL: ProviderSupport = ProviderSupport {
 #[must_use]
 pub const fn provider_support(provider: Provider) -> ProviderSupport {
     match provider {
-        Provider::ClaudeCode | Provider::Omp => FULL,
+        Provider::ClaudeCode | Provider::Omp | Provider::T3 => FULL,
         Provider::OpenCode => ProviderSupport {
             session_ended: Support::NotSupported(
                 "OpenCode has no session-end event; session.idle only ends a turn",
-            ),
-            ..FULL
-        },
-        Provider::T3 => ProviderSupport {
-            session_ended: Support::NotSupported(
-                "SessionEnd on T3 is not confirmed; the matrix changes only after a recorded live run",
             ),
             ..FULL
         },

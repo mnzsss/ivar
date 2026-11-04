@@ -28,17 +28,9 @@ fn opencode_declares_no_session_end_because_idle_is_a_turn_boundary() {
 }
 
 #[test]
-fn t3_session_end_stays_unconfirmed_until_a_live_run_confirms_it() {
-    assert!(matches!(
+fn t3_declares_session_end_because_closing_a_thread_fires_it() {
+    assert_eq!(
         provider_support(Provider::T3).session_ended,
-        Support::NotSupported(reason) if reason.contains("not confirmed")
-    ));
-    assert_eq!(
-        provider_support(Provider::ClaudeCode).session_ended,
-        Support::Supported
-    );
-    assert_eq!(
-        provider_support(Provider::Omp).session_ended,
         Support::Supported
     );
 }
