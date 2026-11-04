@@ -384,7 +384,7 @@ Record an approved wave on the active run without editing the plan
 
 | flag | value | default | description |
 | --- | --- | --- | --- |
-| `--wave` | `<WAVE>` |  | The 1-based wave number from `plan.md` |
+| `--wave` | `<WAVE>` |  | The wave number exactly as `plan.md` numbers it (a plan may start at Wave 0 or Wave 1) |
 | `--summary` | `<SUMMARY>` |  | Completed tasks, satisfied exit criteria, and deferred validation failures |
 
 

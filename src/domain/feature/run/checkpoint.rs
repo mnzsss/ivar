@@ -123,7 +123,7 @@ pub struct RunCheckpoint {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct WaveProgress {
-    /// The 1-based wave number in `plan.md`.
+    /// The wave number exactly as `plan.md` numbers it (a plan may start at 0 or 1).
     pub number: u32,
     /// Completed tasks, satisfied exit criteria, and deferred validation failures.
     pub summary: String,
