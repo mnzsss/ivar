@@ -196,3 +196,19 @@ fn doctor_names_a_memory_database_an_older_ivar_polluted_and_leaves_it_alone() {
             .polluted
     );
 }
+
+#[test]
+fn doctor_names_a_newer_memory_schema_with_extra_tables_as_newer_not_polluted() {
+    let (_guard, root, layout) = initialised_hall();
+    drop(GraphDb::open(layout.graph_db().as_std_path()).unwrap());
+    let memory = MemoryDb::open(layout.memory_db().as_std_path()).unwrap();
+    memory
+        .conn()
+        .execute_batch("UPDATE memory_schema SET version = 2; CREATE TABLE v2_pages (id TEXT);")
+        .unwrap();
+    drop(memory);
+
+    let report = doctor(&Ctx::new(root)).unwrap();
+
+    assert_eq!(database_codes(&report.value), vec!["memory.schema_newer"]);
+}

@@ -122,3 +122,16 @@ fn pollution_by_an_older_ivar_is_reported_by_inspect_and_repaired_by_open() {
     assert_eq!(pragma_i64(&path, "user_version"), MEMORY_SCHEMA_VERSION);
     assert!(!MemoryDb::inspect(&path).unwrap().polluted);
 }
+
+#[test]
+fn an_empty_file_left_by_an_interrupted_create_is_created_afresh() {
+    let (_dir, path) = temp_db();
+    std::fs::write(&path, b"").unwrap();
+
+    drop(MemoryDb::open(&path).unwrap());
+
+    assert_eq!(
+        MemoryDb::inspect(&path).unwrap().application_id,
+        APPLICATION_ID
+    );
+}

@@ -245,3 +245,50 @@ fn the_fast_path_takes_no_lock() {
         "with both databases present ensure_split must not wait for a lock"
     );
 }
+
+#[test]
+fn finishing_the_legacy_move_never_creates_the_memory_database() {
+    let (_guard, layout) = hall();
+
+    finish_legacy_move(&layout).unwrap();
+    assert!(!layout.memory_db().exists());
+
+    legacy(&layout);
+    finish_legacy_move(&layout).unwrap();
+    assert_eq!(marker(&layout.graph_db()), "kept");
+    assert!(!layout.memory_db().exists());
+}
+
+#[test]
+fn a_memory_database_whose_creation_was_interrupted_is_created_afresh() {
+    let (_guard, layout) = hall();
+    let staged = format!("{}.new", layout.memory_db());
+    std::fs::write(&staged, b"").unwrap();
+    std::fs::write(format!("{staged}-journal"), b"").unwrap();
+
+    ensure_split(&layout).unwrap();
+
+    let memory = MemoryDb::inspect(layout.memory_db().as_std_path()).unwrap();
+    assert_eq!(memory.application_id, APPLICATION_ID);
+    assert!(!Utf8Path::new(&staged).exists());
+    assert!(!Utf8Path::new(&format!("{staged}-journal")).exists());
+    assert!(!Utf8Path::new(&format!("{staged}-wal")).exists());
+}
+
+#[test]
+fn a_legacy_database_locked_by_another_connection_is_busy_not_skipped() {
+    let (_guard, layout) = hall();
+    legacy(&layout);
+    let holder = Connection::open(layout.memory_db().as_std_path()).unwrap();
+    let mode: String = holder
+        .query_row("PRAGMA journal_mode = DELETE", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(mode, "delete");
+    holder.execute_batch("BEGIN EXCLUSIVE;").unwrap();
+
+    let error = ensure_split(&layout).expect_err("a locked legacy database must report busy");
+
+    assert!(matches!(error, SplitError::Busy), "{error:?}");
+    assert!(!layout.graph_db().exists());
+    holder.execute_batch("ROLLBACK;").unwrap();
+}

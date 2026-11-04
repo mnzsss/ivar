@@ -5,9 +5,11 @@ use std::io;
 use camino::Utf8PathBuf;
 use serde::Serialize;
 
+use crate::action::graph::split_failure;
 use crate::action::{Ctx, discover_hall};
 use crate::error::{Failure, FixAction, Outcome, Report, WriteHuman};
 use crate::infra::fs;
+use crate::store::memory::split::finish_legacy_move;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct MemoryCleanOutcome {
@@ -16,7 +18,7 @@ pub struct MemoryCleanOutcome {
 }
 
 /// A pre-split hall is moved first, so the `memory.db` deleted here is never
-/// the old graph database.
+/// the old graph database; a missing memory database is not created.
 ///
 /// # Errors
 ///
@@ -24,7 +26,7 @@ pub struct MemoryCleanOutcome {
 /// the split, the lock or a removal fails.
 pub fn clean(ctx: &Ctx) -> Outcome<MemoryCleanOutcome> {
     let layout = discover_hall(ctx)?;
-    crate::action::graph::graph_db_path(&layout)?;
+    finish_legacy_move(&layout).map_err(|error| split_failure(&layout, error))?;
     let path = layout.memory_db();
     if !ctx.confirm(
         &format!("Delete `{path}`?"),

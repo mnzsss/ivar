@@ -35,9 +35,14 @@ pub(crate) fn lock_index(layout: &Layout) -> Result<std::fs::File, Failure> {
 /// `memory.split_busy` while another process holds a pre-split database
 /// open; `memory.split_failed` when the split itself fails.
 pub fn graph_db_path(layout: &Layout) -> Result<Utf8PathBuf, Failure> {
-    match ensure_split(layout) {
-        Ok(()) => Ok(layout.graph_db()),
-        Err(SplitError::Busy) => Err(Failure::blocked(
+    ensure_split(layout).map_err(|error| split_failure(layout, error))?;
+    Ok(layout.graph_db())
+}
+
+/// The failure a command reports when the database split did not finish.
+pub(crate) fn split_failure(layout: &Layout, error: SplitError) -> Failure {
+    match error {
+        SplitError::Busy => Failure::blocked(
             "memory.split_busy",
             format!(
                 "`{}` is still the pre-split graph database and another process holds it open",
@@ -50,11 +55,11 @@ pub fn graph_db_path(layout: &Layout) -> Result<Utf8PathBuf, Failure> {
             "memory.stop_old_ivar",
             "Stop the sessions and MCP servers started by an older ivar \
              (`ivar session stop`, or restart the harness), then run the command again.",
-        ))),
-        Err(other) => Err(Failure::failed(
+        )),
+        other => Failure::failed(
             "memory.split_failed",
             format!("could not split the hall databases: {other}"),
-        )),
+        ),
     }
 }
 

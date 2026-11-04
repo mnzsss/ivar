@@ -47,6 +47,7 @@ pub use complexity::{ComplexityError, execute_complexity};
 pub use cross_repo::{CrossRepoLinkOutcome, link_cross_repo_edges};
 pub use db_path::graph_db_path;
 pub(crate) use db_path::lock_index;
+pub(crate) use db_path::split_failure;
 pub use dead_code::{DeadCodeError, execute_dead_code};
 pub use explore::{ExploreError, explore};
 pub use hierarchy::{HierarchyError, execute_hierarchy};

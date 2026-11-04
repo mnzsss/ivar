@@ -30,15 +30,6 @@ pub fn status(ctx: &Ctx) -> Outcome<MemoryStatusOutcome> {
     let layout = discover_hall(ctx)?;
     crate::action::graph::graph_db_path(&layout)?;
     let path = layout.memory_db();
-    if fs::stat(&path)?.is_none() {
-        return Ok(Report::new(MemoryStatusOutcome {
-            path,
-            exists: false,
-            schema_version: None,
-            application_id: None,
-            size_bytes: None,
-        }));
-    }
     drop(MemoryDb::open(path.as_std_path()).map_err(|error| {
         Failure::failed(
             "memory.open_failed",
@@ -64,9 +55,6 @@ pub fn status(ctx: &Ctx) -> Outcome<MemoryStatusOutcome> {
 impl WriteHuman for MemoryStatusOutcome {
     fn write_human(&self, w: &mut impl io::Write) -> io::Result<()> {
         writeln!(w, "Memory database: {}", self.path)?;
-        if !self.exists {
-            return writeln!(w, "  not created yet");
-        }
         let or_unknown = |value: Option<String>| value.unwrap_or_else(|| "unknown".to_owned());
         writeln!(
             w,

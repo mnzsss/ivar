@@ -12,8 +12,8 @@ use crate::action::graph::mcp_registration::runs_graph_mcp;
 use crate::store::layout::Layout;
 use crate::store::manifest::Manifest;
 use crate::store::memory::db::MemoryDb;
-use crate::store::memory::schema::{APPLICATION_ID, MEMORY_SCHEMA_VERSION};
-use crate::store::memory::split::{SplitError, ensure_split, is_legacy_graph_db};
+use crate::store::memory::schema::MEMORY_SCHEMA_VERSION;
+use crate::store::memory::split::{SplitError, ensure_split, probe_legacy_graph_db};
 
 use super::Diagnosis;
 
@@ -23,7 +23,7 @@ pub(super) fn database_diagnoses(layout: &Layout, manifest: &Manifest) -> Vec<Di
 
     if !graph_db.exists()
         && memory_db.exists()
-        && is_legacy_graph_db(memory_db.as_std_path()).unwrap_or(false)
+        && !matches!(probe_legacy_graph_db(memory_db.as_std_path()), Ok(false))
     {
         return match ensure_split(layout) {
             Ok(()) => Vec::new(),
@@ -81,20 +81,6 @@ fn memory_db_diagnosis(path: &Utf8Path) -> Option<Diagnosis> {
         Ok(verdict) => return Some(corrupt(verdict)),
         Err(error) => return Some(corrupt(error.to_string())),
     }
-    if inspection.application_id != APPLICATION_ID {
-        return Some(corrupt(format!(
-            "application_id is {:#x}, not {APPLICATION_ID:#x}",
-            inspection.application_id
-        )));
-    }
-    if inspection.polluted {
-        return Some(Diagnosis {
-            code: "memory.db_polluted",
-            what: format!("an older `ivar` created graph tables inside `{path}`"),
-            fix: "Stop every process of an older `ivar`, then run `ivar memory status` with this build to repair it."
-                .to_owned(),
-        });
-    }
     if inspection.schema_version > MEMORY_SCHEMA_VERSION {
         return Some(Diagnosis {
             code: "memory.schema_newer",
@@ -103,6 +89,14 @@ fn memory_db_diagnosis(path: &Utf8Path) -> Option<Diagnosis> {
                 inspection.schema_version
             ),
             fix: "Run `ivar upgrade` to a build that knows this schema.".to_owned(),
+        });
+    }
+    if inspection.polluted {
+        return Some(Diagnosis {
+            code: "memory.db_polluted",
+            what: format!("an older `ivar` created graph tables inside `{path}`"),
+            fix: "Stop every process of an older `ivar`, then run `ivar memory status` with this build to repair it."
+                .to_owned(),
         });
     }
     None

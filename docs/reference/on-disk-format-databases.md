@@ -66,7 +66,8 @@ The version lives in a table because an older `ivar` that opens this file runs t
 graph migrations on it and overwrites `user_version`. A file whose `memory_schema`
 version is newer than the binary is refused and left untouched.
 
-Only `ivar memory clean` deletes it, and only after confirmation. `ivar graph clean`
+Only `ivar memory clean` deletes it, and only after confirmation. It finishes a
+pending legacy move first, and never creates a `memory.db` only to delete it. `ivar graph clean`
 (any flag), the graph's reconcile and prune, `ivar repo remove`, `ivar cleanup`
 and `ivar feature rename` never touch it.
 
@@ -82,12 +83,16 @@ the graph with a newer `ivar` finds a `memory.db` carrying `files`, `symbols` an
 3. it renames `memory.db` to `graph.db` in one step;
 4. it creates the new `memory.db`. A leftover `memory.db-shm`, or an empty
    `memory.db-wal`, is removed first; a `memory.db-wal` that still holds frames
-   stops the move, because SQLite would replay it into the new file.
+   stops the move, because SQLite would replay it into the new file. The new
+   file is built as `memory.db.new` and renamed into place once its schema is
+   committed, so a crash mid-creation leaves only `memory.db.new`, which the
+   next open discards.
 
 The move is a rename, not a copy, and an interrupted move finishes on the next open.
 When another process still has the legacy file open (typically an MCP server of an
 older `ivar`), the journal mode change is refused, nothing is moved, and the command
-fails with `memory.split_busy`. The probe only sees connections that have run a
+fails with `memory.split_busy`. A legacy file locked by another connection while
+it is being recognised fails the same way. The probe only sees connections that have run a
 statement; every `ivar` open path runs one right after opening, so an older `ivar`
 is always seen. Opening a session finishes the move too, and turns a busy legacy
 file into a warning. Best-effort hook writes never move it; they skip recording
