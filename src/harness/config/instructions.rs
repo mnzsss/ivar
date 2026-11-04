@@ -49,13 +49,16 @@
 //! different product surface.
 
 use camino::{Utf8Path, Utf8PathBuf};
-use std::fmt::Write as _;
 
-use crate::domain::name::{HallName, RepoName};
 use crate::domain::provider::Provider;
-use crate::domain::session::SCRATCH_DIR;
 use crate::error::{Failure, FixAction};
 use crate::infra::fs;
+
+mod block;
+mod inspect;
+
+pub use block::build_block;
+pub use inspect::inspect;
 
 /// Opens the region of the canonical instruction file `ivar` owns.
 pub const MANAGED_START: &str = "<!-- ivar:managed:start -->";
@@ -139,75 +142,6 @@ pub struct Inspection {
     pub path: Utf8PathBuf,
     /// How the entry's integrity compares with its target state.
     pub integrity: Integrity,
-}
-
-/// Build the managed block for a hall named `hall` containing `repos`.
-///
-/// Pure: no I/O, no clock, no environment. Two calls with the same arguments
-/// produce the same bytes, which is what lets [`materialise`] decide
-/// "unchanged" by comparison instead of by bookkeeping.
-///
-/// Repos are listed in the order given — manifest order, which is the order the
-/// user wrote them in and therefore the order they expect to read them back.
-#[must_use]
-pub fn build_block(hall: &HallName, repos: &[RepoName]) -> String {
-    let mut block = String::new();
-
-    block.push_str(MANAGED_START);
-    block.push('\n');
-    let _ = write!(block, "# {hall}\n\n");
-    block.push_str(
-        "This directory is an `ivar` hall. Each repository below is a real git\n\
-         worktree mounted under `.ivar/repos/`, so a change here is a change in\n\
-         that repository — there is no copy and no sync step to remember.\n\n\
-         After pulling this hall, run `ivar sync` to bring the local checkout\n\
-         back in line with `ivar.json`.\n\n",
-    );
-
-    block.push_str("## Repositories\n\n");
-    if repos.is_empty() {
-        block.push_str(
-            "None yet. Add one to the `repos` list in `ivar.json`, then run `ivar sync`.\n",
-        );
-    } else {
-        for repo in repos {
-            block.push_str("- `");
-            block.push_str(repo.as_str());
-            block.push_str("`\n");
-        }
-    }
-
-    block.push_str("## For AI Agents\n\n");
-    block.push_str(
-        "This directory is an `ivar` orchestration hall. You are fully authorized to\n\
-         run `ivar` commands (e.g., `ivar feature create`, `ivar session start`, `ivar sync`)\n\
-         on behalf of the user to manage features, repos, and sessions.\n\n\
-         If you are unsure of the exact CLI syntax or how `ivar` works, DO NOT GUESS.\n\
-         First, fetch and read the documentation from:\n\
-         https://ivar.run/llms.txt\n",
-    );
-    let _ = write!(
-        block,
-        "\nFor edit/write, use absolute paths inside the current session's worktree\n\
-         or view dir. Store temporary files in the session's `{SCRATCH_DIR}/` rather\n\
-         than a harness scratchpad.\n\n\
-         Write temporary and working files in the current session's scratch\n\
-         directory — `{SCRATCH_DIR}/` inside the session's own view dir\n\
-         (`.ivar/sessions/<session-id>/{SCRATCH_DIR}/` for a discovery session,\n\
-         `.ivar/features/<feature>/sessions/<session-id>/{SCRATCH_DIR}/` once it is\n\
-         bound to a feature). The rest of the hall outside `.ivar/` — docs,\n\
-         `HALL.md`, harness config — is writable too, so hall files need no\n\
-         feature. The hall's git hooks and config, the provider hook\n\
-         configuration that wires `ivar guard`, the MCP config, and `.env`\n\
-         stay protected. Repos stay read-only until promoted, and a denied\n\
-         write names the writable set for you.\n\n\
-         Its contents are temporary: `ivar session stop` removes the view dir and\n\
-         everything in it. Nothing you need to keep belongs there.\n"
-    );
-
-    block.push('\n');
-    block.push_str(MANAGED_END);
-    block
 }
 
 /// Put `block` into the instruction file at `path`, touching nothing else.
@@ -306,27 +240,6 @@ pub fn reconcile(
         entries.push(reconcile_alias(alias)?);
     }
     Ok(entries)
-}
-
-/// Report every root instruction entry's integrity in one pass: the canonical
-/// file, then each alias. `block` is the expected managed-block bytes, used to
-/// judge the canonical file's block current or stale.
-///
-/// # Errors
-///
-/// Returns [`Error`] if the canonical file or any alias cannot be read or
-/// written.
-pub fn inspect(
-    canonical: &Utf8Path,
-    block: &str,
-    aliases: &[Alias],
-) -> Result<Vec<Inspection>, Error> {
-    let mut inspections = Vec::new();
-    inspections.push(inspect_canonical(canonical, block)?);
-    for alias in aliases {
-        inspections.push(inspect_alias(alias)?);
-    }
-    Ok(inspections)
 }
 
 /// Reconcile `HALL.md` itself. See [`reconcile`] for the placement rules.
@@ -429,65 +342,6 @@ fn remove_alias_entry(alias: &Alias) -> Result<Entry, Error> {
     })
 }
 
-/// Inspect the canonical file. `Current` means a regular file whose managed
-/// block matches `block` exactly.
-fn inspect_canonical(path: &Utf8Path, block: &str) -> Result<Inspection, Error> {
-    let integrity = match entry_kind(path)? {
-        EntryKind::Absent => Integrity::Missing,
-        EntryKind::Symlink(_) | EntryKind::NonRegular => Integrity::NotRegular,
-        EntryKind::Regular => match read(path)? {
-            None => Integrity::Missing,
-            Some(content) => match locate(&content) {
-                None => Integrity::ManagedBlockMissing,
-                Some(span) => {
-                    let current = content.get(span).unwrap_or_default();
-                    if current == block {
-                        Integrity::Current
-                    } else {
-                        Integrity::ManagedBlockStale
-                    }
-                }
-            },
-        },
-    };
-    Ok(Inspection {
-        path: path.to_path_buf(),
-        integrity,
-    })
-}
-
-/// Inspect one provider alias. A disabled provider's remaining entry —
-/// whatever it is — is [`Integrity::DisabledAliasPresent`].
-fn inspect_alias(alias: &Alias) -> Result<Inspection, Error> {
-    let path = &alias.path;
-    let integrity = match (entry_kind(path)?, alias.enabled) {
-        (EntryKind::Absent, true) => Integrity::Missing,
-        (EntryKind::Absent, false) => Integrity::Current,
-        (EntryKind::Regular | EntryKind::NonRegular, true) => Integrity::AliasIsRegular,
-        (EntryKind::Regular | EntryKind::NonRegular, false) => Integrity::DisabledAliasPresent,
-        (EntryKind::Symlink(current), true) => {
-            if current.as_str() == CANONICAL_FILE {
-                Integrity::Current
-            } else {
-                // Broken vs wrong target: does the target resolve to anything?
-                let resolved = path
-                    .parent()
-                    .map(|parent| parent.join(&current))
-                    .unwrap_or(current);
-                match fs::exists(&resolved).map_err(|source| io_error(path, source))? {
-                    true => Integrity::AliasWrongTarget,
-                    false => Integrity::AliasBroken,
-                }
-            }
-        }
-        (EntryKind::Symlink(_), false) => Integrity::DisabledAliasPresent,
-    };
-    Ok(Inspection {
-        path: path.clone(),
-        integrity,
-    })
-}
-
 /// A conflict entry: nothing was written to `path`, and `detail` says why.
 fn conflict(path: &Utf8Path, detail: &str) -> Entry {
     Entry {
@@ -584,5 +438,5 @@ impl From<Error> for Failure {
 }
 
 #[cfg(test)]
-#[path = "../../../tests/unit/harness/config/instructions.rs"]
+#[path = "../../../tests/unit/harness/config/instructions/mod.rs"]
 mod tests;
