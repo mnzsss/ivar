@@ -33,6 +33,7 @@ use crate::action::graph::reconcile::HallFacts;
 use crate::action::session::base_view::{self, BaseView};
 use camino::{Utf8Path, Utf8PathBuf};
 
+mod database;
 mod features;
 mod graph;
 mod harness;
@@ -93,8 +94,9 @@ impl WriteHuman for DoctorOutcome {
     }
 }
 
-/// Diagnose the hall, read-only. `status` says *how healthy*; `doctor` says
-/// *what is wrong and what to do about it*.
+/// Diagnose the hall. `status` says *how healthy*; `doctor` says *what is
+/// wrong and what to do about it*. The one write is moving a legacy graph
+/// out of `memory.db`; every other check is read-only.
 pub fn doctor(ctx: &Ctx) -> Outcome<DoctorOutcome> {
     let layout = discover_hall(ctx)?;
     let manifest = read_manifest(&layout)?;
@@ -104,6 +106,7 @@ pub fn doctor(ctx: &Ctx) -> Outcome<DoctorOutcome> {
     findings.extend(diagnose_provider_commands(&manifest, &layout));
     findings.extend(diagnose_provider_skills(&manifest, &layout));
     findings.extend(diagnose_instructions(&manifest, &layout));
+    findings.extend(database::database_diagnoses(&layout, &manifest));
     findings.extend(graph_diagnoses(&layout, &manifest, &git));
     findings.extend(diagnose_orphaned_runs(&layout)?);
     findings.extend(diagnose_orphan_worktrees(&layout, &manifest, &git));

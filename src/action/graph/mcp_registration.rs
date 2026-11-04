@@ -15,7 +15,7 @@ fn graph_server() -> McpServerDef {
         .args(vec!["graph".to_owned(), "mcp".to_owned()])
 }
 
-fn runs_graph_mcp(server: &McpServerDef) -> bool {
+pub(crate) fn runs_graph_mcp(server: &McpServerDef) -> bool {
     let is_ivar = server
         .command
         .as_deref()
