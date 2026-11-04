@@ -125,3 +125,63 @@ fn a_provider_without_the_capture_hook_is_reported_only_while_capture_is_on() {
     let off = manifest.with_memory_capture(false).unwrap();
     assert!(memory_capture_diagnoses(&layout, &off).is_empty());
 }
+
+#[test]
+fn a_failed_sweep_is_reported_with_its_error() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root);
+    std::fs::create_dir_all(layout.memory_spool_dir()).unwrap();
+    std::fs::write(
+        layout.memory_spool_dir().join("_sweep.json"),
+        r#"{"last_sweep_at":null,"last_error":"database is locked","swept_total":0}"#,
+    )
+    .unwrap();
+
+    let findings = spool_diagnoses(&layout);
+
+    assert!(
+        findings
+            .iter()
+            .any(|d| d.code == "memory.sweep_failed" && d.what.contains("database is locked"))
+    );
+}
+
+fn insert_session_observation(layout: &Layout, event_id: &str, occurred_at: &str) {
+    let db = crate::store::memory::db::MemoryDb::open(layout.memory_db().as_std_path()).unwrap();
+    db.conn()
+        .execute(
+            "INSERT INTO observations (event_id, source_event, occurred_at, session_id,
+                native_session_id, provider, ivar_version, importance, body)
+             VALUES (?1, 'session.tool', ?2, 's', 'n', 'omp', '0', 1, '{}')",
+            [event_id, occurred_at],
+        )
+        .unwrap();
+}
+
+#[test]
+fn a_session_from_2020_is_overdue_and_a_session_from_today_is_not() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root);
+    insert_session_observation(&layout, "a", "2020-01-01T00:00:00.000000000Z");
+    assert!(
+        spool_diagnoses(&layout)
+            .iter()
+            .any(|d| d.code == "memory.retention_overdue")
+    );
+
+    let db = crate::store::memory::db::MemoryDb::open(layout.memory_db().as_std_path()).unwrap();
+    db.conn().execute("DELETE FROM observations", []).unwrap();
+    drop(db);
+    assert!(
+        spool_diagnoses(&layout)
+            .iter()
+            .all(|d| d.code != "memory.retention_overdue")
+    );
+
+    insert_session_observation(&layout, "b", &crate::domain::session::rfc3339_now());
+    assert!(
+        spool_diagnoses(&layout)
+            .iter()
+            .all(|d| d.code != "memory.retention_overdue")
+    );
+}

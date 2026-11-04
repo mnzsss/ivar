@@ -131,3 +131,37 @@ fn status_drains_the_spool_before_it_reads_and_reports_counts_and_spool_state() 
         Some(&serde_json::json!(2))
     );
 }
+
+#[test]
+fn status_reports_the_retention_window_and_the_stalest_session() {
+    let (_guard, root) = crate::test_support::seeded_hall();
+    let layout = Layout::at(root.clone());
+    let db = MemoryDb::open(layout.memory_db().as_std_path()).unwrap();
+    db.conn()
+        .execute(
+            "INSERT INTO observations (event_id, source_event, occurred_at, session_id,
+                native_session_id, provider, ivar_version, importance, body)
+             VALUES ('a', 'session.tool', '2026-01-02T00:00:00.000000000Z', 's', 'n', 'omp', '0', 1, '{}')",
+            [],
+        )
+        .unwrap();
+    drop(db);
+
+    let report = status(&Ctx::new(root)).unwrap();
+
+    assert_eq!(report.value.retention.window_days, 30);
+    assert_eq!(
+        report
+            .value
+            .retention
+            .oldest_session_observation_at
+            .as_deref(),
+        Some("2026-01-02T00:00:00.000000000Z")
+    );
+    assert_eq!(report.value.retention.last_sweep_at, None);
+    let json = serde_json::to_value(&report.value).unwrap();
+    assert_eq!(
+        json.pointer("/retention/window_days"),
+        Some(&serde_json::json!(30))
+    );
+}
