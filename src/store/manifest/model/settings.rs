@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use super::Error;
+use super::{Error, Manifest};
 
 /// Which hall-root directories `ivar graph index` keeps in the graph.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
@@ -49,3 +49,40 @@ pub(crate) fn normalise_graph_path(raw: &str) -> Result<String, Error> {
     }
     Ok(components.join("/"))
 }
+
+/// How `ivar` treats the hall's session memory.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub(super) struct MemorySettings {
+    /// Whether session hooks record Observations. On unless set to `false`.
+    capture: bool,
+}
+
+impl Manifest {
+    /// Whether session hooks record Observations; on unless the hall opted out.
+    #[must_use]
+    pub fn memory_capture(&self) -> bool {
+        self.memory.as_ref().is_none_or(|settings| settings.capture)
+    }
+
+    /// Return a new `Manifest` with memory capture switched on or off. Turning it
+    /// on drops the key, so a hall that never opted out stays byte-identical.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`Error`] if the rebuilt manifest fails validation.
+    pub fn with_memory_capture(&self, enabled: bool) -> Result<Self, Error> {
+        let mut manifest = self.rebuild(self.providers.clone(), self.repos.clone())?;
+        manifest.memory = if enabled {
+            None
+        } else {
+            Some(MemorySettings { capture: false })
+        };
+        manifest.validate()?;
+        Ok(manifest)
+    }
+}
+
+#[cfg(test)]
+#[path = "../../../../tests/unit/store/manifest/memory.rs"]
+mod tests;

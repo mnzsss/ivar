@@ -30,6 +30,7 @@ mod settings;
 
 pub use repo::{Repo, local_ref_prefix};
 pub use settings::Graph;
+use settings::MemorySettings;
 pub(crate) use settings::normalise_graph_path;
 
 /// `ivar.json`'s schema version. v1 was the first public version; v2 adds the
@@ -64,6 +65,9 @@ pub struct Manifest {
     /// Hall-root directories the graph indexes on request.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     graph: Option<Graph>,
+    /// Session memory settings; absent means capture is on.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    memory: Option<MemorySettings>,
 }
 
 /// The canonical URL of the document describing manifest version `version`.
@@ -150,6 +154,7 @@ impl Manifest {
             schema: SchemaRef,
             mcp: None,
             graph: None,
+            memory: None,
         };
         manifest.validate()?;
         Ok(manifest)
@@ -343,7 +348,7 @@ impl Manifest {
     }
 
     /// The common rebuild every `with_*` ends at: the same name, integration,
-    /// MCP definitions, and graph paths as `self`, with `providers` and `repos`
+    /// MCP definitions, graph paths, and memory settings as `self`, with `providers` and `repos`
     /// replaced — so no mutation can silently drop a field it is not about.
     /// Validates, because the new combination may violate an invariant.
     fn rebuild(&self, providers: Providers, repos: Vec<Repo>) -> Result<Self, Error> {
@@ -356,6 +361,7 @@ impl Manifest {
             schema: self.schema,
             mcp: self.mcp.clone(),
             graph: self.graph.clone(),
+            memory: self.memory.clone(),
         };
         manifest.validate()?;
         Ok(manifest)
