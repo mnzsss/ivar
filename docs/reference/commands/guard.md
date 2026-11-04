@@ -1,0 +1,11 @@
+<!-- Generated from clap by tests/static_checks/docs_reference.rs. Do not edit by hand: run
+     `IVAR_UPDATE_DOCS=1 cargo test --test static_checks`. -->
+
+# `ivar guard`
+
+Guard: evaluate a tool request against the session's writable set
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--provider` | `<PROVIDER>` |  | The provider whose hook protocol to use for output shaping |
+
