@@ -23,11 +23,13 @@ const INSERT_CHUNK: usize = 500;
 const STATE_FILE: &str = "_drain.json";
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct DrainState {
     pub last_drain_at: Option<String>,
     pub last_error: Option<String>,
     pub drained_total: u64,
     pub dropped_total: u64,
+    pub dropped_last_epoch_secs: Option<u64>,
 }
 
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -73,7 +75,11 @@ pub(crate) fn drain_locked(layout: &Layout, max_files: usize) -> Result<DrainRep
     let mut state = read_state(layout);
     match drain_files(layout, &dir, max_files) {
         Ok(report) => {
-            state.dropped_total += acknowledge_dropped(&dir);
+            let acknowledged = acknowledge_dropped(&dir);
+            if acknowledged > 0 {
+                state.dropped_total += acknowledged;
+                state.dropped_last_epoch_secs = Some(epoch_secs_now());
+            }
             state.drained_total += u64::try_from(report.inserted).unwrap_or(u64::MAX);
             state.last_drain_at = Some(rfc3339_now());
             state.last_error = None;
@@ -90,6 +96,13 @@ pub(crate) fn drain_locked(layout: &Layout, max_files: usize) -> Result<DrainRep
             ))
         }
     }
+}
+
+fn epoch_secs_now() -> u64 {
+    SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
 }
 
 #[must_use]
@@ -157,7 +170,7 @@ fn draining_files(dir: &Utf8Path, max_files: usize) -> Vec<Utf8PathBuf> {
             .unwrap_or(SystemTime::UNIX_EPOCH)
     };
     let mut files = files_with_extension(dir, "draining");
-    files.sort_by_key(|path| (modified(path), path.clone()));
+    files.sort_by_cached_key(|path| (modified(path), path.clone()));
     files.truncate(max_files);
     files
 }

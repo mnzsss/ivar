@@ -11,7 +11,8 @@ the provider's hook exposes it.
 
 Each captured event is one `ivar memory capture` process. On Claude Code the hook
 adds an entry beside the guard on every tool call. On OMP and OpenCode the plugin
-spawns one process per event. The process only appends a line to a file under
+spawns one process per event. The process reads at most 8 MiB of the payload, cuts
+the event body to 32 KiB before redaction and 4 KiB after, and only appends a line to a file under
 `.ivar/spool/memory/`; it never opens SQLite. Measured on an optimised binary,
 the hook's p95 was about 15.8 ms per event. A slow disk or a debug build costs more.
 
@@ -31,7 +32,7 @@ provider that changes its payload shape is caught by `ivar doctor`
 
 - A session spool is capped at 8 MiB. Past the cap, events are counted in
   `<key>.dropped` and discarded. `ivar doctor` reports them as `memory.spool_dropped`
-  until a drain acknowledges the count.
+  until a drain acknowledges the count, and for 7 days after the last drop.
 - Events reach `memory.db` only when a drain runs. `ivar memory status` drains on demand,
   and the `ivar graph mcp` leader drains while it runs. The leader does not drain when
   `GraphDb::open` fails, so with a broken graph database only `ivar memory status`

@@ -75,6 +75,35 @@ fn a_drain_acknowledges_dropped_events_and_clears_their_counter() {
 
     assert!(!layout.memory_spool_dir().join("s1.dropped").exists());
     assert_eq!(read_state(&layout).dropped_total, 3);
+    assert!(read_state(&layout).dropped_last_epoch_secs.is_some());
+}
+
+#[test]
+fn a_drain_with_nothing_dropped_leaves_the_last_drop_time_alone() {
+    let (_guard, root) = crate::test_support::seeded_hall();
+    let layout = Layout::at(root);
+    std::fs::create_dir_all(layout.memory_spool_dir()).unwrap();
+
+    drain(&layout).unwrap();
+
+    assert_eq!(read_state(&layout).dropped_last_epoch_secs, None);
+}
+
+#[test]
+fn a_state_file_from_an_older_ivar_still_parses() {
+    let (_guard, root) = crate::test_support::seeded_hall();
+    let layout = Layout::at(root);
+    std::fs::create_dir_all(layout.memory_spool_dir()).unwrap();
+    std::fs::write(
+        layout.memory_spool_dir().join("_drain.json"),
+        r#"{"drained_total": 7}"#,
+    )
+    .unwrap();
+
+    let state = read_state(&layout);
+
+    assert_eq!(state.drained_total, 7);
+    assert_eq!(state.dropped_last_epoch_secs, None);
 }
 
 #[test]
