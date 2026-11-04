@@ -31,7 +31,7 @@ mod teardown;
 
 use self::forge::collect_repo_facts;
 #[cfg(test)]
-use self::forge::{ask_forge, read_forge_answer};
+use self::forge::read_forge_answer;
 use self::preview::{PreviewedCleanup, WorktreeLookups, preview_cleanup};
 #[cfg(test)]
 use self::preview::{cleanup_repo, fingerprint_for};
