@@ -50,9 +50,8 @@ fn try_capture(provider: Provider, stdin: &str, env: &CaptureEnv) -> Option<()> 
     };
     let observation = build_observation(provider, &event, env, &layout);
     let sanitized = Sanitized::sanitize(observation, &sanitize_context(&layout)).ok()?;
-    let line = serde_json::to_string(sanitized.as_observation()).ok()?;
     let key = SpoolKey::new(env.session_id.as_deref(), &event.native_session_id);
-    spool::append(&layout.memory_spool_dir(), &key, &line).ok()?;
+    spool::append(&layout.memory_spool_dir(), &key, &sanitized).ok()?;
     Some(())
 }
 

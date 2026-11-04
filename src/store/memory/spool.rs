@@ -7,6 +7,9 @@ use std::io::{self, Write};
 
 use camino::Utf8Path;
 
+use crate::domain::observation::Observation;
+use crate::domain::sanitize::Sanitized;
+
 pub const SPOOL_CAP_BYTES: u64 = 8 * 1024 * 1024;
 
 const MAX_KEY_LEN: usize = 128;
@@ -45,13 +48,24 @@ pub enum Appended {
     Dropped,
 }
 
-/// Appends `line` to the session's spool file, or counts it as dropped when
-/// the file would pass [`SPOOL_CAP_BYTES`].
+/// Appends the observation as one JSON line to the session's spool file, or
+/// counts it as dropped when the file would pass [`SPOOL_CAP_BYTES`]. Only a
+/// sanitized observation can reach the disk.
 ///
 /// # Errors
 ///
-/// Returns the I/O error from creating the directory or writing the file.
-pub fn append(dir: &Utf8Path, key: &SpoolKey, line: &str) -> io::Result<Appended> {
+/// Returns the I/O error from serialising, creating the directory or writing
+/// the file.
+pub fn append(
+    dir: &Utf8Path,
+    key: &SpoolKey,
+    observation: &Sanitized<Observation>,
+) -> io::Result<Appended> {
+    let line = serde_json::to_string(observation.as_observation())?;
+    append_line(dir, key, &line)
+}
+
+fn append_line(dir: &Utf8Path, key: &SpoolKey, line: &str) -> io::Result<Appended> {
     std::fs::create_dir_all(dir)?;
     let spool = dir.join(format!("{}.jsonl", key.as_str()));
     let current = std::fs::metadata(&spool).map_or(0, |m| m.len());
