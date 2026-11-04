@@ -37,6 +37,11 @@ impl SpoolKey {
     }
 
     #[must_use]
+    pub fn delivery() -> Self {
+        Self("delivery".to_owned())
+    }
+
+    #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
     }

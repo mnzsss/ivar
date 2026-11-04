@@ -226,3 +226,24 @@ pub(crate) fn process_is_gone(pid: &str) -> bool {
         gone
     })
 }
+
+#[derive(Debug, Default)]
+pub(crate) struct RecordingSink {
+    records: std::sync::Mutex<Vec<crate::action::memory::delivery::DeliveryRecord>>,
+}
+
+impl RecordingSink {
+    pub(crate) fn records(&self) -> Vec<crate::action::memory::delivery::DeliveryRecord> {
+        self.records.lock().unwrap().clone()
+    }
+}
+
+impl crate::action::memory::delivery::DeliverySink for RecordingSink {
+    fn record(
+        &self,
+        _layout: &crate::store::layout::Layout,
+        record: &crate::action::memory::delivery::DeliveryRecord,
+    ) {
+        self.records.lock().unwrap().push(record.clone());
+    }
+}

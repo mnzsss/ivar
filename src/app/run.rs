@@ -5,6 +5,7 @@
 
 use std::io::{self, Read as _, Write};
 use std::process::ExitCode;
+use std::sync::Arc;
 
 use clap::{CommandFactory as _, FromArgMatches as _};
 
@@ -18,6 +19,7 @@ use crate::action::mcp::edit as mcp_edit;
 use crate::action::mcp::remove as mcp_remove;
 use crate::action::mcp::status as mcp_status;
 use crate::action::memory::capture::CaptureEnv;
+use crate::action::memory::delivery::SpoolSink;
 use crate::action::provider::{
     add as provider_add, default as provider_default, list as provider_list,
     remove as provider_remove,
@@ -108,7 +110,8 @@ pub fn run(cli: Cli) -> ExitCode {
                 && std::env::var_os("CI").is_none()
                 && term::is_tty(term::Stream::Stderr)
                 && term::is_tty(term::Stream::Stdin),
-        ));
+        ))
+        .with_delivery_events(Arc::new(SpoolSink::from_process()));
 
     let session_id = std::env::var("IVAR_SESSION_ID").ok();
 
