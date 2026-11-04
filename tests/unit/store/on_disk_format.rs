@@ -5,7 +5,7 @@
     clippy::indexing_slicing
 )]
 
-//! Keeps the "Current versions" table in `docs/reference/on-disk-format.md`
+//! Keeps the "Current versions" table in `docs/reference/on-disk-format-versions.md`
 //! equal to the version constants the code stamps on disk.
 
 use std::collections::BTreeMap;
@@ -18,11 +18,21 @@ use crate::domain::session::SessionState;
 use crate::store::{feature, manifest, session};
 
 const DOC: &str = include_str!("../../../docs/reference/on-disk-format.md");
+const VERSIONS: &str = include_str!("../../../docs/reference/on-disk-format-versions.md");
+const DATABASES: &str = include_str!("../../../docs/reference/on-disk-format-databases.md");
+
+#[test]
+fn the_contract_page_points_at_its_split_sections() {
+    assert!(DOC.contains("](on-disk-format-versions.md)"));
+    assert!(DOC.contains("](on-disk-format-databases.md)"));
+    assert!(VERSIONS.contains("\n## Current versions\n"));
+    assert!(DATABASES.contains("\n## Graph database"));
+}
 
 /// The rows of the "Current versions" table, keyed by the file cell's text
 /// with its backticks removed.
 fn documented_versions() -> BTreeMap<String, u32> {
-    let section = DOC
+    let section = VERSIONS
         .split("\n## Current versions\n")
         .nth(1)
         .expect("doc has a `## Current versions` section");
@@ -76,14 +86,16 @@ fn current_versions_table_matches_the_code() {
     assert_eq!(
         documented_versions(),
         expected,
-        "docs/reference/on-disk-format.md `Current versions` table drifted from the code"
+        "docs/reference/on-disk-format-versions.md `Current versions` table drifted from the code"
     );
 }
 
 #[test]
 fn layout_lists_no_hall_level_state_file() {
     assert!(
-        !DOC.contains(".ivar/state.json"),
+        !DOC.contains(".ivar/state.json")
+            && !VERSIONS.contains(".ivar/state.json")
+            && !DATABASES.contains(".ivar/state.json"),
         "no hall-level `.ivar/state.json` exists; session state lives in each View Dir"
     );
 }
