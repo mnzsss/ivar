@@ -116,17 +116,16 @@ impl WriteHuman for CleanupOutcome {
 }
 
 pub fn cleanup(ctx: &Ctx, input: CleanupInput) -> Outcome<CleanupOutcome> {
-    let apply_record = if input.preview {
-        None
-    } else {
-        let Some(record_path) = &input.record else {
-            return Err(Failure::blocked(
-                "feature.cleanup_record_required",
-                "cleanup apply requires `--record <path>`",
-            ));
-        };
-        Some(record_path)
-    };
+    let apply_record = (!input.preview)
+        .then(|| {
+            input.record.as_ref().ok_or_else(|| {
+                Failure::blocked(
+                    "feature.cleanup_record_required",
+                    "cleanup apply requires `--record <path>`",
+                )
+            })
+        })
+        .transpose()?;
 
     let layout = discover_hall(ctx)?;
     let emitter = ctx.emitter(&layout);
