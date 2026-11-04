@@ -7,7 +7,7 @@ use super::*;
 use crate::store::graph::db::GraphDb;
 use crate::store::layout::Layout;
 use crate::store::memory::db::MemoryDb;
-use crate::store::memory::schema::APPLICATION_ID;
+use crate::store::memory::schema::{APPLICATION_ID, MEMORY_SCHEMA_VERSION};
 
 fn hall() -> (tempfile::TempDir, Layout) {
     let (guard, root) = crate::test_support::canonical_temp_dir();
@@ -67,7 +67,7 @@ fn assert_split_done(layout: &Layout) {
     assert!(GraphDb::open(layout.graph_db().as_std_path()).is_ok());
     let memory = MemoryDb::inspect(layout.memory_db().as_std_path()).unwrap();
     assert_eq!(memory.application_id, APPLICATION_ID);
-    assert_eq!(memory.schema_version, 1);
+    assert_eq!(memory.schema_version, MEMORY_SCHEMA_VERSION);
     assert!(!memory.polluted);
 }
 
@@ -325,5 +325,5 @@ fn the_new_memory_database_holds_its_schema_in_the_main_file() {
     let copy = copy_dir.path().join("memory.db");
     std::fs::copy(layout.memory_db(), &copy).unwrap();
     let memory = MemoryDb::inspect(&copy).unwrap();
-    assert_eq!(memory.schema_version, 1);
+    assert_eq!(memory.schema_version, MEMORY_SCHEMA_VERSION);
 }

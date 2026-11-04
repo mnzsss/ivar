@@ -4,7 +4,7 @@ use rusqlite::Connection;
 
 use super::*;
 use crate::store::graph::db::GraphDb;
-use crate::store::memory::schema::{APPLICATION_ID, MEMORY_SCHEMA_VERSION};
+use crate::store::memory::schema::{APPLICATION_ID, MEMORY_OBJECTS, MEMORY_SCHEMA_VERSION};
 
 fn temp_db() -> (tempfile::TempDir, std::path::PathBuf) {
     let dir = tempfile::tempdir().unwrap();
@@ -19,6 +19,15 @@ fn pragma_i64(path: &std::path::Path, pragma: &str) -> i64 {
         .unwrap()
 }
 
+fn memory_objects() -> Vec<String> {
+    let mut names: Vec<String> = MEMORY_OBJECTS
+        .iter()
+        .map(|name| (*name).to_owned())
+        .collect();
+    names.sort();
+    names
+}
+
 fn object_names(path: &std::path::Path) -> Vec<String> {
     let conn = Connection::open(path).unwrap();
     let mut stmt = conn
@@ -31,7 +40,7 @@ fn object_names(path: &std::path::Path) -> Vec<String> {
 }
 
 #[test]
-fn a_fresh_file_gets_the_memory_application_id_and_schema_version_one() {
+fn a_fresh_file_gets_the_memory_application_id_and_the_current_schema_version() {
     let (_dir, path) = temp_db();
 
     let db = MemoryDb::open(&path).unwrap();
@@ -43,7 +52,7 @@ fn a_fresh_file_gets_the_memory_application_id_and_schema_version_one() {
         i64::from(APPLICATION_ID)
     );
     assert_eq!(pragma_i64(&path, "user_version"), MEMORY_SCHEMA_VERSION);
-    assert_eq!(object_names(&path), vec!["memory_schema".to_owned()]);
+    assert_eq!(object_names(&path), memory_objects());
     let journal: String = Connection::open(&path)
         .unwrap()
         .query_row("PRAGMA journal_mode", [], |row| row.get(0))
@@ -70,7 +79,7 @@ fn a_newer_schema_is_refused_and_left_untouched() {
     MemoryDb::open(&path).unwrap();
     Connection::open(&path)
         .unwrap()
-        .execute_batch("UPDATE memory_schema SET version = 2; PRAGMA user_version = 2;")
+        .execute_batch("UPDATE memory_schema SET version = 3; PRAGMA user_version = 3;")
         .unwrap();
 
     let error = MemoryDb::open(&path).expect_err("newer schema must be refused");
@@ -78,13 +87,13 @@ fn a_newer_schema_is_refused_and_left_untouched() {
     assert!(matches!(
         error,
         MemoryDbError::NewerSchema {
-            found: 2,
+            found: 3,
             supported: MEMORY_SCHEMA_VERSION
         }
     ));
-    assert_eq!(pragma_i64(&path, "user_version"), 2);
+    assert_eq!(pragma_i64(&path, "user_version"), 3);
     let inspection = MemoryDb::inspect(&path).unwrap();
-    assert_eq!(inspection.schema_version, 2);
+    assert_eq!(inspection.schema_version, 3);
 }
 
 #[test]
@@ -118,7 +127,7 @@ fn pollution_by_an_older_ivar_is_reported_by_inspect_and_repaired_by_open() {
 
     drop(MemoryDb::open(&path).unwrap());
 
-    assert_eq!(object_names(&path), vec!["memory_schema".to_owned()]);
+    assert_eq!(object_names(&path), memory_objects());
     assert_eq!(pragma_i64(&path, "user_version"), MEMORY_SCHEMA_VERSION);
     assert!(!MemoryDb::inspect(&path).unwrap().polluted);
 }
@@ -134,4 +143,79 @@ fn an_empty_file_left_by_an_interrupted_create_is_created_afresh() {
         MemoryDb::inspect(&path).unwrap().application_id,
         APPLICATION_ID
     );
+}
+
+const OBSERVATION_OBJECTS: [&str; 5] = [
+    "observations",
+    "observations_session",
+    "observations_source_event",
+    "observations_time",
+    "observations_no_update",
+];
+
+fn insert_observation(db: &MemoryDb, event_id: &str) -> rusqlite::Result<usize> {
+    db.conn().execute(
+        "INSERT INTO observations
+           (event_id, source_event, occurred_at, native_session_id, provider, ivar_version, importance, body)
+         VALUES (?1, 'session.started', '2026-11-04T10:00:00.000000000Z', 'native-1', 'claude-code', '0.19.0', 1, '{}')",
+        [event_id],
+    )
+}
+
+#[test]
+fn reopening_keeps_every_observation_object() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("memory.db");
+    drop(MemoryDb::open(&path).unwrap());
+
+    let db = MemoryDb::open(&path).unwrap();
+
+    for name in OBSERVATION_OBJECTS {
+        let found: i64 = db
+            .conn()
+            .query_row(
+                "SELECT count(*) FROM sqlite_master WHERE name = ?1",
+                [name],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(found, 1, "{name} was dropped or never created");
+    }
+}
+
+#[test]
+fn a_v1_database_migrates_to_v2_and_keeps_its_schema_row() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("memory.db");
+    let conn = rusqlite::Connection::open(&path).unwrap();
+    conn.execute_batch(&format!(
+        "PRAGMA application_id = {APPLICATION_ID};
+         CREATE TABLE memory_schema (version INTEGER NOT NULL);
+         INSERT INTO memory_schema (version) VALUES (1);"
+    ))
+    .unwrap();
+    drop(conn);
+
+    let db = MemoryDb::open(&path).unwrap();
+
+    assert_eq!(db.schema_version().unwrap(), 2);
+    assert_eq!(insert_observation(&db, "e1").unwrap(), 1);
+    let extension: String = db
+        .conn()
+        .query_row("SELECT extension FROM observations", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(extension, "ivar");
+}
+
+#[test]
+fn observations_are_append_only_and_unique_by_event_id() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = MemoryDb::open(&dir.path().join("memory.db")).unwrap();
+    insert_observation(&db, "e1").unwrap();
+
+    let update = db.conn().execute("UPDATE observations SET body = 'x'", []);
+    let duplicate = insert_observation(&db, "e1");
+
+    assert!(update.is_err(), "UPDATE must be rejected");
+    assert!(duplicate.is_err(), "event_id is unique");
 }

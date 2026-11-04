@@ -165,7 +165,7 @@ fn doctor_names_a_memory_schema_newer_than_this_build() {
     let memory = MemoryDb::open(layout.memory_db().as_std_path()).unwrap();
     memory
         .conn()
-        .execute_batch("UPDATE memory_schema SET version = 2;")
+        .execute_batch("UPDATE memory_schema SET version = 3;")
         .unwrap();
     drop(memory);
 
@@ -204,7 +204,7 @@ fn doctor_names_a_newer_memory_schema_with_extra_tables_as_newer_not_polluted() 
     let memory = MemoryDb::open(layout.memory_db().as_std_path()).unwrap();
     memory
         .conn()
-        .execute_batch("UPDATE memory_schema SET version = 2; CREATE TABLE v2_pages (id TEXT);")
+        .execute_batch("UPDATE memory_schema SET version = 3; CREATE TABLE v2_pages (id TEXT);")
         .unwrap();
     drop(memory);
 
