@@ -99,6 +99,8 @@ It will not stop a determined process running as your user.
 - The `cleanup` preview records a merge it observes. It records it once, because the event
   id derives from the pull request.
 - `cleanup` records the merged pull request of the root feature only, not of its descendants.
+- `integrate` that closes the child also records `delivery.closed` under the same attempt as its
+  `delivery.integrated` events.
 - The `rebased` event also carries `base_source`, where the rebase base came from.
 - A failed write prints `ivar: memory.delivery_event_not_recorded: <reason>` on stderr and
   the command still succeeds with its exit code unchanged.
