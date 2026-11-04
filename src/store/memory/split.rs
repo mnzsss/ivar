@@ -1,0 +1,147 @@
+//! The one-time move of a pre-split `.ivar/memory.db` (the code graph) to
+//! `.ivar/graph.db`, followed by the creation of the hall memory database.
+
+use std::path::Path;
+use std::time::Duration;
+
+use camino::Utf8Path;
+use rusqlite::{Connection, OpenFlags};
+
+use super::db::{MemoryDb, MemoryDbError};
+use super::schema::APPLICATION_ID;
+use crate::store::layout::Layout;
+
+/// Why the split could not finish.
+#[derive(Debug, thiserror::Error)]
+pub enum SplitError {
+    /// Another connection holds the legacy database; nothing was moved.
+    #[error("another process still has the legacy graph database `.ivar/memory.db` open")]
+    Busy,
+    /// An orphan `memory.db-wal` with frames would replay into a new database.
+    #[error(
+        "`.ivar/memory.db-wal` holds frames but `.ivar/memory.db` is missing; move the WAL aside to recreate the memory database"
+    )]
+    StaleWal,
+    /// A filesystem call failed.
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
+    /// An `SQLite` call on the legacy database failed.
+    #[error(transparent)]
+    Sqlite(#[from] rusqlite::Error),
+    /// The new memory database could not be created.
+    #[error(transparent)]
+    Memory(#[from] MemoryDbError),
+}
+
+/// Whether `path` is a code graph database written before the split.
+///
+/// # Errors
+///
+/// Any `SQLite` error opening or reading the file, for example when it is not
+/// a database at all.
+pub fn is_legacy_graph_db(path: &Path) -> rusqlite::Result<bool> {
+    let conn = Connection::open_with_flags(
+        path,
+        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )?;
+    let application_id: i32 = conn.query_row("PRAGMA application_id", [], |row| row.get(0))?;
+    if application_id == APPLICATION_ID {
+        return Ok(false);
+    }
+    let graph_tables: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM sqlite_master
+          WHERE type = 'table' AND name IN ('files', 'symbols', 'graph_misses')",
+        [],
+        |row| row.get(0),
+    )?;
+    Ok(graph_tables == 3)
+}
+
+/// Moves a legacy `.ivar/memory.db` to `.ivar/graph.db` and creates the hall
+/// memory database when it is missing. Idempotent and resumable after a crash.
+///
+/// # Errors
+///
+/// [`SplitError::Busy`] while another connection holds the legacy database,
+/// [`SplitError::StaleWal`] when an orphan WAL would meet the new database,
+/// and the underlying error when a lock, rename or open fails.
+pub fn ensure_split(layout: &Layout) -> Result<(), SplitError> {
+    let graph = layout.graph_db();
+    let memory = layout.memory_db();
+    if graph.exists() && memory.exists() {
+        return Ok(());
+    }
+    // Always memory.lock before graph.lock. memory.lock is also the index lock
+    // of binaries older than the split, so this excludes their indexers too.
+    let _memory_lock = lock(&layout.memory_lock())?;
+    let _graph_lock = lock(&layout.graph_lock())?;
+    // An unreadable memory.db is the memory database's problem (the doctor
+    // reports it), never a reason to stop the graph from opening.
+    if !graph.exists()
+        && memory.exists()
+        && is_legacy_graph_db(memory.as_std_path()).unwrap_or(false)
+    {
+        move_legacy(&memory, &graph)?;
+    }
+    if !memory.exists() {
+        clear_orphan_sidecars(&memory)?;
+        drop(MemoryDb::open(memory.as_std_path())?);
+    }
+    Ok(())
+}
+
+/// SQLite applies a `-wal` it finds next to a database file it opens, so an
+/// orphan WAL with frames would replay old pages into the new memory
+/// database. The WAL is checked before the shm is touched, so a refusal
+/// leaves every file as it was.
+fn clear_orphan_sidecars(memory: &Utf8Path) -> Result<(), SplitError> {
+    let wal = format!("{memory}-wal");
+    match std::fs::metadata(&wal) {
+        Ok(meta) if meta.len() > 0 => return Err(SplitError::StaleWal),
+        Ok(_) => std::fs::remove_file(&wal)?,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.into()),
+    }
+    match std::fs::remove_file(format!("{memory}-shm")) {
+        Err(error) if error.kind() != std::io::ErrorKind::NotFound => Err(error.into()),
+        _ => Ok(()),
+    }
+}
+
+fn lock(path: &Utf8Path) -> Result<std::fs::File, SplitError> {
+    crate::infra::fs::lock_exclusive(path)
+        .map_err(|error| SplitError::Io(std::io::Error::other(error)))
+}
+
+/// Folds the WAL into the main file and leaves WAL mode before renaming:
+/// renaming a database another connection has open, or separating a WAL
+/// from its database, is how SQLite files get corrupted. Leaving WAL mode
+/// needs the only connection to the file, so it doubles as the busy check.
+fn move_legacy(memory: &Utf8Path, graph: &Utf8Path) -> Result<(), SplitError> {
+    {
+        let conn = Connection::open(memory.as_std_path())?;
+        conn.busy_timeout(Duration::from_millis(250))?;
+        let busy: i64 = conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |row| row.get(0))?;
+        if busy != 0 {
+            return Err(SplitError::Busy);
+        }
+        let mode: String =
+            match conn.query_row("PRAGMA journal_mode = DELETE", [], |row| row.get(0)) {
+                Err(rusqlite::Error::SqliteFailure(error, _))
+                    if error.code == rusqlite::ErrorCode::DatabaseBusy =>
+                {
+                    return Err(SplitError::Busy);
+                }
+                result => result?,
+            };
+        if !mode.eq_ignore_ascii_case("delete") {
+            return Err(SplitError::Busy);
+        }
+    }
+    std::fs::rename(memory, graph)?;
+    Ok(())
+}
+
+#[cfg(test)]
+#[path = "../../../tests/unit/store/memory/split.rs"]
+mod tests;
