@@ -138,6 +138,11 @@ impl MemoryDb {
     pub fn conn(&self) -> &Connection {
         &self.conn
     }
+
+    /// The underlying connection, for callers that open a transaction.
+    pub(crate) fn conn_mut(&mut self) -> &mut Connection {
+        &mut self.conn
+    }
 }
 
 fn application_id(conn: &Connection) -> rusqlite::Result<i32> {

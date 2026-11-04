@@ -2,6 +2,7 @@
 //! moved the code graph out of that path into `.ivar/graph.db`.
 
 pub mod db;
+pub mod observations;
 pub mod schema;
 pub mod split;
 pub mod spool;
