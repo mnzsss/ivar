@@ -79,6 +79,29 @@ On an allow, the guard's output also carries the repository instructions for the
 touched paths: `additionalContext` in the JSON body for Claude Code, stdout for
 OMP and OpenCode. A deny never carries them.
 
+## Repo view captures the mouse
+
+`ivar feature view` and `ivar repo view` ask the terminal for mouse reports for as
+long as the view is open, and restore the terminal when it exits. A terminal on the
+alternate screen turns the wheel into arrow keys unless the application captures
+the mouse, so without capture every wheel notch would be typed into the focused
+shell. With capture the wheel scrolls the panel's scrollback and the shell never
+sees it.
+
+What that costs:
+
+- **The terminal's own selection and click handling no longer see the mouse.**
+  Dragging inside the panel selects in the view instead. Holding `shift` while
+  dragging still uses the terminal's native selection in terminals that offer it.
+- **Copying relies on the terminal accepting OSC 52.** The in-app selection is
+  sent as an OSC 52 sequence, capped at 100,000 bytes; a larger selection is not
+  copied. A terminal that ignores OSC 52 does not get the text that way, so the
+  view also pipes it to the first of `wl-copy`, `xclip`, `xsel` or `pbcopy` that
+  starts. If the terminal ignores OSC 52 and no tool starts, nothing reaches the
+  clipboard.
+- **A terminal that refuses mouse reports** keeps sending arrow keys for the
+  wheel, and they are typed into the focused shell.
+
 ## Repository instructions in sessions
 
 `ivar guard` delivers the linked repos' own instruction files on the path of each

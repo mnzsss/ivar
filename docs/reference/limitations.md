@@ -10,7 +10,7 @@ The rest of the limitations are grouped by topic:
 
 - **[Sessions, sandboxing and providers](limitations-sessions.md)** — the kernel
   sandbox and where it does not apply, scheduled agents, the session write guard,
-  repository instructions and what each provider can do.
+  repository instructions, the repo view's mouse capture and what each provider can do.
 - **[Delivery and the default branch](limitations-delivery.md)** — pushing across
   several remotes and what protects the default branch.
 - **[Codebase graph](limitations-graph.md)** — indexing and plain-text bounds.

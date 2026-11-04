@@ -10,7 +10,7 @@
 //! `tmux` and by Orca, so a view running inside either would never see it.
 //! The panel's title bar always names the current prefix.
 //! The mouse wheel scrolls the panel's scrollback (which is why the view
-//! captures the mouse — see `docs/reference/limitations.md`), and typing
+//! captures the mouse — see `docs/reference/limitations-sessions.md`), and typing
 //! returns it to the live bottom.
 //! A shell whose process exits stays on screen with its last output: `enter`
 //! restarts it in the same worktree, `q` quits the view.
