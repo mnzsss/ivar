@@ -469,3 +469,21 @@ fn closing_a_feature_does_not_reseal_a_plan_that_had_already_drifted() {
         "a plan that drifted before the close stays drifted"
     );
 }
+
+#[test]
+fn closing_emits_one_closed_event_and_an_idempotent_second_close_emits_none() {
+    let (_guard, root) = seeded_hall();
+    let sink = std::sync::Arc::new(crate::test_support::RecordingSink::default());
+    let ctx = Ctx::new(root.clone()).with_delivery_events(sink.clone());
+
+    close(&ctx, close_input("delivered")).unwrap();
+    close(&ctx, close_input("delivered")).unwrap();
+
+    let records = sink.records();
+    assert_eq!(records.len(), 1);
+    assert_eq!(records[0].event.source_event().as_str(), "delivery.closed");
+    assert_eq!(records[0].scope.feature, "checkout");
+    assert!(
+        matches!(&records[0].event, DeliveryEvent::Closed { outcome } if outcome == "delivered")
+    );
+}

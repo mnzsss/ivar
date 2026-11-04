@@ -1,3 +1,5 @@
+use crate::action::memory::delivery::Emitter;
+use crate::domain::delivery_event::{DeliveryScope, ObservedBy};
 use crate::domain::feature::{
     Feature, IntegrationReceipt, IntegrationStrategy, IntegrationVia, PrCheckResult,
     VerificationEvidence, VerificationResult,
@@ -35,6 +37,7 @@ pub(crate) fn integrate_pr(
     title: &str,
     source_sha: &str,
     child_results: Vec<VerificationResult>,
+    emitter: &Emitter<'_>,
 ) -> Result<RepoIntegration, Failure> {
     let bare = layout.repo_bare(repo);
 
@@ -63,6 +66,7 @@ pub(crate) fn integrate_pr(
         &pr,
         pr_checks,
         child_results,
+        emitter,
     )
 }
 
@@ -183,12 +187,17 @@ fn merge_pr_and_advance_parent(
     pr: &pull_requests::PullRequest,
     pr_checks: Vec<PrCheckResult>,
     child_results: Vec<VerificationResult>,
+    emitter: &Emitter<'_>,
 ) -> Result<RepoIntegration, Failure> {
     let bare = layout.repo_bare(repo);
 
     // Merge, observe, then bring the parent up to the observed result.
     pull_requests::request_merge(&bare, &pr.url, source_sha, strategy, title)?;
     let merged = pull_requests::observe_merge(&bare, &pr.url)?;
+    emitter.emit(
+        DeliveryScope::for_repo(child, repo.as_str(), source_sha),
+        pull_requests::merged_event(&merged, ObservedBy::Integrate),
+    );
     let result_sha = merged.merge_commit.ok_or_else(|| {
         Failure::failed(
             "integration.merge_result_missing",

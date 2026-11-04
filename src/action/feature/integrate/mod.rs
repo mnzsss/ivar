@@ -33,6 +33,8 @@
 //! a `--json`, `$CI`, or non-tty run refuses with the exact command
 //! `ivar feature promote <parent> <repo>`.
 
+use crate::action::memory::delivery::Emitter;
+use crate::domain::delivery_event::{DeliveryEvent, DeliveryScope};
 use crate::domain::feature::{Feature, FeatureIntegrationState, GateState};
 use crate::domain::name::FeatureName;
 use crate::error::{Failure, FixAction, Outcome, Report};
@@ -179,13 +181,33 @@ pub fn integrate(ctx: &Ctx, input: IntegrateInput) -> Outcome<IntegrateOutcome> 
     // persisted immediately — partial and resumable, never atomic. The child
     // is re-read after each repo so the next persist carries every earlier
     // receipt, never clobbering it.
+    let emitter = ctx.emitter(&layout);
     let repos_out = repos::run_integration_repos(
-        &layout, &manifest, &git, &child, &parent, policy, &title, &name,
+        &layout, &manifest, &git, &child, &parent, policy, &title, &name, &emitter,
     )?;
     let child = relations::read_feature(&layout, &name)?;
+    for entry in &repos_out {
+        let ok = match entry.status {
+            RepoIntegrationStatus::Integrated => true,
+            RepoIntegrationStatus::Failed => false,
+            RepoIntegrationStatus::Reused
+            | RepoIntegrationStatus::Pending
+            | RepoIntegrationStatus::Stale => continue,
+        };
+        emitter.emit(
+            DeliveryScope::for_repo(&child, entry.repo.as_str(), &entry.source_sha),
+            DeliveryEvent::Integrated {
+                ok,
+                via: policy.via.to_string(),
+                source_sha: entry.source_sha.clone(),
+                merge_commit: entry.result_sha.clone(),
+            },
+        );
+    }
 
     // 13. Close as integrated only when every receipt is fresh and passing.
-    let (state, closed_integrated) = final_state(ctx, &layout, &manifest, &git, &child, &parent)?;
+    let (state, closed_integrated) =
+        final_state(ctx, &layout, &manifest, &git, &child, &parent, &emitter)?;
 
     Ok(Report::new(IntegrateOutcome {
         root: layout.root().to_path_buf(),
@@ -208,6 +230,7 @@ fn final_state(
     git: &impl Git,
     child: &Feature,
     parent: &Feature,
+    emitter: &Emitter<'_>,
 ) -> Result<(FeatureIntegrationState, bool), Failure> {
     if read_close(layout, &child.name)?.is_some() {
         return Ok((FeatureIntegrationState::Integrated, false));
@@ -231,12 +254,13 @@ fn final_state(
     }
 
     // Every promotion is receipted, fresh, and passing: close as integrated.
-    close::close(
+    close::close_in(
         ctx,
         CloseInput {
             name: child.name.to_string(),
             outcome: "integrated".to_owned(),
         },
+        Some(emitter),
     )?;
     Ok((FeatureIntegrationState::Integrated, true))
 }
@@ -244,3 +268,7 @@ fn final_state(
 #[cfg(test)]
 #[path = "../../../../tests/unit/action/feature/integrate.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "../../../../tests/unit/action/feature/integrate_events.rs"]
+mod events_tests;

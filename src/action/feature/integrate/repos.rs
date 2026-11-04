@@ -1,3 +1,4 @@
+use crate::action::memory::delivery::Emitter;
 use crate::domain::feature::{Feature, IntegrationPolicy, IntegrationVia};
 use crate::domain::name::{FeatureName, RepoName};
 use crate::error::Failure;
@@ -28,12 +29,15 @@ pub(crate) fn run_integration_repos(
     policy: IntegrationPolicy,
     title: &str,
     name: &FeatureName,
+    emitter: &Emitter<'_>,
 ) -> Result<Vec<RepoIntegration>, Failure> {
     let mut child = child.clone();
     let mut repos_out = Vec::new();
     let mut broken = Vec::new();
     for repo in child.promotions.keys().cloned().collect::<Vec<_>>() {
-        match integrate_repo(layout, manifest, git, &child, parent, &repo, policy, title) {
+        match integrate_repo(
+            layout, manifest, git, &child, parent, &repo, policy, title, emitter,
+        ) {
             Ok(entry) => repos_out.push(entry),
             Err(failure) => broken.push(format!("{repo}: {}", failure.what)),
         }
@@ -75,6 +79,7 @@ pub(crate) fn integrate_repo(
     repo: &RepoName,
     policy: IntegrationPolicy,
     title: &str,
+    emitter: &Emitter<'_>,
 ) -> Result<RepoIntegration, Failure> {
     let bare = layout.repo_bare(repo);
     let source_sha = git.revision_commit(&bare, child.branch.as_str())?;
@@ -94,6 +99,7 @@ pub(crate) fn integrate_repo(
             policy,
             title,
             &source_sha,
+            emitter,
         );
     };
 
@@ -144,6 +150,7 @@ fn resume_repo(
     policy: IntegrationPolicy,
     title: &str,
     source_sha: &str,
+    emitter: &Emitter<'_>,
 ) -> Result<RepoIntegration, Failure> {
     // 7/8. The preflight already guaranteed the parent promotion (or refused
     // with the exact command) and clean child/parent worktrees.
@@ -191,6 +198,7 @@ fn resume_repo(
             title,
             source_sha,
             child_results,
+            emitter,
         ),
     }
 }

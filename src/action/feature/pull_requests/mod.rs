@@ -22,6 +22,7 @@ pub(crate) use siblings::link_sibling_prs;
 
 use serde::Deserialize;
 
+use crate::domain::delivery_event::{DeliveryEvent, ObservedBy};
 use crate::error::{Failure, FixAction};
 use crate::infra::proc;
 
@@ -47,6 +48,16 @@ pub(crate) struct PullRequest {
     pub merged_at: Option<String>,
     /// Is this PR a draft?
     pub is_draft: bool,
+}
+
+pub(crate) fn merged_event(pr: &PullRequest, observed_by: ObservedBy) -> DeliveryEvent {
+    DeliveryEvent::Merged {
+        number: pr.number,
+        url: pr.url.clone(),
+        merge_commit: pr.merge_commit.clone(),
+        merged_at: pr.merged_at.clone(),
+        observed_by,
+    }
 }
 
 impl PullRequest {
