@@ -1,5 +1,6 @@
 //! Closed facade dispatching provider-native behaviors by `Provider`.
 
+pub mod capture;
 pub mod claude_code;
 pub mod omp;
 pub mod opencode;
