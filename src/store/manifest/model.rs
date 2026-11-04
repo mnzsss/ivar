@@ -18,10 +18,19 @@ use serde::{Deserialize, Serialize};
 
 use crate::domain::feature::IntegrationPolicy;
 use crate::domain::mcp::McpServerDef;
-use crate::domain::name::{BranchName, HallName, RepoName};
+#[cfg(test)]
+use crate::domain::name::BranchName;
+use crate::domain::name::{HallName, RepoName};
 use crate::domain::provider::Provider;
 
 use super::error::Error;
+
+mod repo;
+mod settings;
+
+pub use repo::{Repo, local_ref_prefix};
+pub use settings::Graph;
+pub(crate) use settings::normalise_graph_path;
 
 /// `ivar.json`'s schema version. v1 was the first public version; v2 adds the
 /// hall integration defaults and each repo's ordered verification checks; v3
@@ -495,159 +504,6 @@ impl Providers {
             .copied()
             .filter(|provider| provider.config_owner() == *provider)
     }
-}
-
-/// One repo a hall knows about.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct Repo {
-    /// A unique, non-empty, single-segment identifier for this repo.
-    #[schemars(example = &"my-repo")]
-    name: RepoName,
-    /// The git remote URL to clone from. Must not be empty.
-    #[schemars(example = &"https://github.com/org/repo.git")]
-    url: String,
-    /// The branch a fresh worktree defaults to (e.g. "main").
-    #[schemars(example = &"main")]
-    default_branch: BranchName,
-    /// The repo's ordered verification checks, run via `bash -lc` in the
-    /// relevant worktree when this repo is integrated or delivered. Empty
-    /// means "no checks" — the v1 common case, and deliberately omitted from
-    /// the on-disk shape. `#[serde(default)]` so a v1 repo still deserialises.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    checks: Vec<String>,
-    /// Optional explicit prefix that remaps the local git branches under `refs/heads/`.
-    /// Must match `repos/<name>/` when provided.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    ref_prefix: Option<String>,
-}
-
-impl Repo {
-    /// Build a `Repo`. `url` stays a plain `String` rather than one of
-    /// `domain::name`'s newtypes: it is a git remote, never joined onto a path,
-    /// so none of the path-safety rules apply to it.
-    ///
-    /// It must still be non-empty, and that is checked by
-    /// [`Manifest::validate`] alongside the other invariants rather than here —
-    /// so it is enforced on **read** too, which is the case that matters, since
-    /// this file is hand-edited. An empty `url` is the difference between a
-    /// `Failure` naming the offending repo and a bare `git clone` error the
-    /// first time someone runs `ivar sync`.
-    ///
-    /// The v1 call shape is preserved: a repo built through this constructor
-    /// carries no checks.
-    #[must_use]
-    pub fn new(name: RepoName, url: impl Into<String>, default_branch: BranchName) -> Self {
-        Self {
-            name,
-            url: url.into(),
-            default_branch,
-            checks: Vec::new(),
-            ref_prefix: None,
-        }
-    }
-
-    /// This repo's name. Unique among a manifest's repos — see
-    /// [`Manifest::validate`].
-    #[must_use]
-    pub fn name(&self) -> &RepoName {
-        &self.name
-    }
-
-    /// The git remote URL this repo clones from.
-    #[must_use]
-    pub fn url(&self) -> &str {
-        &self.url
-    }
-
-    /// The branch a fresh worktree of this repo defaults to.
-    #[must_use]
-    pub fn default_branch(&self) -> &BranchName {
-        &self.default_branch
-    }
-
-    /// The repo's ordered verification checks, in execution order. Empty when
-    /// the hall declared none for this repo.
-    #[must_use]
-    pub fn checks(&self) -> &[String] {
-        &self.checks
-    }
-
-    /// Return this repo with `checks` as its verification commands, replacing
-    /// whatever it carried before. The original is untouched.
-    ///
-    /// `cfg(test)`: a fixture builder — the CLI parses checks out of
-    /// `ivar.json`, it never grafts them onto a `Repo` in memory.
-    #[cfg(test)]
-    #[must_use]
-    pub fn with_checks(mut self, checks: Vec<String>) -> Self {
-        self.checks = checks;
-        self
-    }
-
-    #[must_use]
-    pub fn ref_prefix(&self) -> Option<&str> {
-        self.ref_prefix.as_deref()
-    }
-
-    #[must_use]
-    pub fn with_ref_prefix(mut self, prefix: impl Into<String>) -> Self {
-        self.ref_prefix = Some(prefix.into());
-        self
-    }
-}
-
-#[must_use]
-pub fn local_ref_prefix(name: &RepoName) -> String {
-    format!("repos/{name}/")
-}
-
-/// Which hall-root directories `ivar graph index` keeps in the graph.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct Graph {
-    /// Hall-relative directories, normalised and sorted.
-    paths: Vec<String>,
-}
-
-impl Graph {
-    #[must_use]
-    pub fn paths(&self) -> &[String] {
-        &self.paths
-    }
-}
-
-/// The one directory of `.ivar` a graph path may name: the hall's committed skills.
-const HALL_SKILLS_DIR: &str = "skills";
-
-pub(crate) fn normalise_graph_path(raw: &str) -> Result<String, Error> {
-    let invalid = |reason: &str| Error::InvalidGraphPath {
-        path: raw.to_owned(),
-        reason: reason.to_owned(),
-    };
-    let trimmed = raw.trim();
-    if trimmed.starts_with('/') {
-        return Err(invalid("must be relative to the hall root"));
-    }
-    if trimmed.contains('\\') {
-        return Err(invalid("use `/` as the separator"));
-    }
-    let components: Vec<&str> = trimmed
-        .split('/')
-        .filter(|c| !c.is_empty() && *c != ".")
-        .collect();
-    if components.is_empty() {
-        return Err(invalid("the hall root itself cannot be a graph path"));
-    }
-    if components.contains(&"..") {
-        return Err(invalid("must not leave the hall root"));
-    }
-    if components.first() == Some(&".ivar") && components.get(1) != Some(&HALL_SKILLS_DIR) {
-        return Err(invalid(
-            "`.ivar` is ivar's own state; only `.ivar/skills`, the hall's committed skills, can be indexed",
-        ));
-    }
-    Ok(components.join("/"))
 }
 
 /// The comma-joined provider ids in `providers`, for error messages.
