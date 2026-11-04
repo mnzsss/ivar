@@ -210,3 +210,126 @@ fn the_opencode_capture_plugin_has_no_session_end_and_never_blocks() {
     assert!(plugin.contains("\"memory\", \"capture\", \"--provider\", \"opencode\""));
     assert!(!plugin.contains("throw"));
 }
+
+fn node_available() -> bool {
+    std::process::Command::new("node")
+        .arg("--version")
+        .output()
+        .is_ok_and(|output| output.status.success())
+}
+
+const OVERSIZED_EVENT_LIMIT: usize = 100_000;
+
+/// Loads the artifact as an ES module in `node`, with a stand-in `ivar` that
+/// writes its stdin to a file, runs `driver` against it and returns what the
+/// spawned capture process received.
+fn captured_stdin(contents: &str, driver: &str) -> serde_json::Value {
+    let tmp = tempfile::tempdir().unwrap();
+    let bin = tmp.path().join("bin");
+    std::fs::create_dir(&bin).unwrap();
+    let fake = bin.join("ivar");
+    std::fs::write(&fake, "#!/bin/sh\ncat > \"$CAPTURED\"\n").unwrap();
+    std::fs::set_permissions(&fake, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+    std::fs::write(tmp.path().join("hook.mjs"), contents).unwrap();
+    std::fs::write(tmp.path().join("driver.mjs"), driver).unwrap();
+    let captured = tmp.path().join("captured.json");
+    let path = format!("{}:{}", bin.display(), std::env::var("PATH").unwrap());
+
+    let status = std::process::Command::new("node")
+        .arg(tmp.path().join("driver.mjs"))
+        .env("PATH", path)
+        .env("CAPTURED", &captured)
+        .status()
+        .unwrap();
+    assert!(status.success());
+
+    for _ in 0..100 {
+        if let Ok(text) = std::fs::read_to_string(&captured)
+            && let Ok(value) = serde_json::from_str(&text)
+        {
+            return value;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    panic!("the capture process never received a complete payload");
+}
+
+#[test]
+fn the_omp_capture_hook_bounds_an_oversized_tool_result_before_serialising_it() {
+    if !node_available() {
+        return;
+    }
+    let driver = r#"
+import ivarMemory from "./hook.mjs";
+const handlers = {};
+ivarMemory({ on: (name, handler) => { handlers[name] = handler; } });
+await handlers.tool_result({
+  toolName: "bash",
+  input: { command: "x".repeat(5_000_000) },
+  content: [{ type: "text", text: "y".repeat(5_000_000) }],
+}, { cwd: "/tmp" });
+"#;
+    let contents = providers::capture_artifacts(Provider::Omp)
+        .remove(0)
+        .contents;
+
+    let payload = captured_stdin(contents, driver);
+
+    assert_eq!(payload["event"], "tool");
+    assert!(payload.to_string().len() < OVERSIZED_EVENT_LIMIT);
+    assert!(payload["result"].as_str().unwrap().contains("yyyy"));
+}
+
+#[test]
+fn the_opencode_capture_plugin_bounds_an_oversized_tool_result_before_serialising_it() {
+    if !node_available() {
+        return;
+    }
+    let driver = r#"
+import { IvarMemoryPlugin } from "./hook.mjs";
+const hooks = await IvarMemoryPlugin();
+await hooks["tool.execute.after"](
+  { sessionID: "s", tool: "bash", args: { command: "x".repeat(5_000_000) } },
+  { output: "y".repeat(5_000_000) },
+);
+"#;
+    let contents = providers::capture_artifacts(Provider::OpenCode)
+        .remove(0)
+        .contents;
+
+    let payload = captured_stdin(contents, driver);
+
+    assert_eq!(payload["event"], "tool");
+    assert!(payload.to_string().len() < OVERSIZED_EVENT_LIMIT);
+    assert!(payload["result"].as_str().unwrap().contains("yyyy"));
+}
+
+#[test]
+fn both_capture_artifacts_are_valid_javascript_modules() {
+    if !node_available() {
+        return;
+    }
+    for (name, artifact) in [
+        ("omp.mjs", providers::capture_artifacts(Provider::Omp)),
+        (
+            "opencode.mjs",
+            providers::capture_artifacts(Provider::OpenCode),
+        ),
+    ] {
+        let tmp = tempfile::tempdir().unwrap();
+        let file = tmp.path().join(name);
+        std::fs::write(&file, artifact[0].contents).unwrap();
+
+        let output = std::process::Command::new("node")
+            .arg("--check")
+            .arg(&file)
+            .output()
+            .unwrap();
+
+        assert!(
+            output.status.success(),
+            "{name}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+}

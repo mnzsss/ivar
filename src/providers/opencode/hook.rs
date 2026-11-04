@@ -103,6 +103,24 @@ pub const OPENCODE_CAPTURE_PLUGIN: &str = r#"// ivar memory capture plugin for O
 
 import { spawn } from "node:child_process";
 
+// Bounds the work done inside the host process; `ivar` cuts every body to 4096 bytes anyway.
+const MAX_STRING = 16384;
+const MAX_ENTRIES = 32;
+const MAX_DEPTH = 4;
+
+function clip(value, depth = 0) {
+  if (typeof value === "string") {
+    const head = value.slice(0, MAX_STRING);
+    return /[\ud800-\udbff]$/.test(head) ? head.slice(0, -1) : head;
+  }
+  if (value === null || typeof value !== "object") return value;
+  if (depth >= MAX_DEPTH) return "";
+  if (Array.isArray(value)) return value.slice(0, MAX_ENTRIES).map((item) => clip(item, depth + 1));
+  const clipped = {};
+  for (const key of Object.keys(value).slice(0, MAX_ENTRIES)) clipped[key] = clip(value[key], depth + 1);
+  return clipped;
+}
+
 // ponytail: one detached process per event; a long-lived socket if the per-event spawn cost shows up in latency.
 function send(payload) {
   try {
@@ -112,7 +130,7 @@ function send(payload) {
     });
     child.on("error", () => {});
     child.stdin.on("error", () => {});
-    child.stdin.end(JSON.stringify(payload));
+    child.stdin.end(JSON.stringify(clip(payload)));
     child.unref();
   } catch {}
 }
