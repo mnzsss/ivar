@@ -494,3 +494,33 @@ fn writing_ivar_json_is_a_control_event() {
     assert!(set.is_control(&manifest));
     assert!(!set.is_control(&layout.root().join("HALL.md")));
 }
+
+#[test]
+fn the_leader_loop_drains_a_spooled_event_without_any_reindex_target() {
+    let (_guard, root) = crate::test_support::seeded_hall();
+    let layout = Layout::at(root);
+    std::fs::create_dir_all(layout.memory_spool_dir()).unwrap();
+    let spooled = layout.memory_spool_dir().join("s.jsonl");
+    std::fs::write(&spooled, observation_line("a")).unwrap();
+    let _worker = Worker::spawn(
+        layout.clone(),
+        layout.graph_db(),
+        Box::new(|_, _| Vec::new()),
+    )
+    .unwrap();
+
+    wait_for("the watcher tick to drain the spool", || !spooled.exists());
+}
+
+fn observation_line(event_id: &str) -> String {
+    format!(
+        "{}\n",
+        serde_json::json!({
+            "event_id": event_id, "source_event": "session.started",
+            "occurred_at": "2026-11-04T10:00:00.000000000Z", "session_id": "",
+            "native_session_id": "n1", "provider": "claude-code", "ivar_version": "0.19.0",
+            "feature": "", "parent_feature": "", "repo": "", "origin": "",
+            "importance": 1, "attempt_id": "", "body": "{}"
+        })
+    )
+}

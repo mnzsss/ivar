@@ -87,3 +87,47 @@ fn status_waits_for_the_memory_lock_before_repairing() {
             .polluted
     );
 }
+
+#[test]
+fn status_drains_the_spool_before_it_reads_and_reports_counts_and_spool_state() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root.clone());
+    std::fs::create_dir_all(layout.memory_spool_dir()).unwrap();
+    let event = serde_json::json!({
+        "event_id": "a", "source_event": "session.started",
+        "occurred_at": "2026-11-04T10:00:00.000000000Z", "session_id": "",
+        "native_session_id": "n1", "provider": "claude-code", "ivar_version": "0.19.0",
+        "feature": "", "parent_feature": "", "repo": "", "origin": "",
+        "importance": 1, "attempt_id": "", "body": "{}"
+    });
+    std::fs::write(
+        layout.memory_spool_dir().join("n1.jsonl"),
+        format!("{event}\n"),
+    )
+    .unwrap();
+    std::fs::write(layout.memory_spool_dir().join("n1.dropped"), "xx").unwrap();
+
+    let value = status(&Ctx::new(root)).unwrap().value;
+
+    assert_eq!(
+        value
+            .observations
+            .iter()
+            .map(|c| (c.source_event.as_str(), c.count))
+            .collect::<Vec<_>>(),
+        vec![("session.started", 1)]
+    );
+    assert_eq!(value.spool.files, 0, "drained");
+    assert_eq!(value.spool.dropped, 0, "the drain acknowledged them");
+    assert_eq!(value.spool.dropped_total, 2);
+    assert!(value.last_drain_at.is_some());
+    let json = serde_json::to_value(&value).unwrap();
+    assert!(
+        json.get("observations")
+            .is_some_and(serde_json::Value::is_array)
+    );
+    assert_eq!(
+        json.pointer("/spool/dropped_total"),
+        Some(&serde_json::json!(2))
+    );
+}

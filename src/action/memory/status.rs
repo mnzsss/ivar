@@ -2,13 +2,16 @@
 
 use std::io;
 
-use camino::Utf8PathBuf;
+use camino::{Utf8Path, Utf8PathBuf};
 use serde::Serialize;
 
+use crate::action::memory::drain::{drain_locked, read_state};
 use crate::action::{Ctx, discover_hall};
 use crate::error::{Failure, Outcome, Report, WriteHuman};
 use crate::infra::fs;
 use crate::store::memory::db::MemoryDb;
+use crate::store::memory::observations::count_by_source_event;
+use crate::store::memory::spool;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct MemoryStatusOutcome {
@@ -17,6 +20,50 @@ pub struct MemoryStatusOutcome {
     pub schema_version: Option<i64>,
     pub application_id: Option<i32>,
     pub size_bytes: Option<u64>,
+    pub observations: Vec<ObservationCount>,
+    pub spool: SpoolStatus,
+    pub last_drain_at: Option<String>,
+    pub last_drain_error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ObservationCount {
+    pub source_event: String,
+    pub count: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct SpoolStatus {
+    pub files: usize,
+    pub bytes: u64,
+    pub dropped: u64,
+    pub dropped_total: u64,
+}
+
+impl SpoolStatus {
+    fn read(dir: &Utf8Path) -> Self {
+        let pending: Vec<_> = std::fs::read_dir(dir)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .filter(|e| {
+                e.path()
+                    .extension()
+                    .is_some_and(|x| x == "jsonl" || x == "draining")
+            })
+            .collect();
+        let bytes = pending
+            .iter()
+            .filter_map(|e| e.metadata().ok())
+            .map(|m| m.len())
+            .sum();
+        Self {
+            files: pending.len(),
+            bytes,
+            dropped: spool::dropped_count(dir),
+            dropped_total: 0,
+        }
+    }
 }
 
 /// Moves a pre-split hall first, so the file reported is always the memory
@@ -37,6 +84,7 @@ pub fn status(ctx: &Ctx) -> Outcome<MemoryStatusOutcome> {
             format!("could not open `{path}`: {error}"),
         )
     })?);
+    let _ = drain_locked(&layout, usize::MAX);
     let size_bytes = fs::stat(&path)?.map(|metadata| metadata.len());
     let inspection = MemoryDb::inspect(path.as_std_path()).map_err(|error| {
         Failure::failed(
@@ -44,12 +92,33 @@ pub fn status(ctx: &Ctx) -> Outcome<MemoryStatusOutcome> {
             format!("could not read `{path}`: {error}"),
         )
     })?;
+    let db = MemoryDb::open(path.as_std_path()).map_err(|error| {
+        Failure::failed(
+            "memory.open_failed",
+            format!("could not open `{path}`: {error}"),
+        )
+    })?;
+    let observations = count_by_source_event(&db)
+        .map_err(|error| Failure::failed("memory.read_failed", error.to_string()))?
+        .into_iter()
+        .map(|(source_event, count)| ObservationCount {
+            source_event,
+            count,
+        })
+        .collect();
+    let state = read_state(&layout);
+    let mut spool = SpoolStatus::read(&layout.memory_spool_dir());
+    spool.dropped_total = state.dropped_total;
     Ok(Report::new(MemoryStatusOutcome {
         path,
         exists: true,
         schema_version: Some(inspection.schema_version),
         application_id: Some(inspection.application_id),
         size_bytes,
+        observations,
+        spool,
+        last_drain_at: state.last_drain_at,
+        last_drain_error: state.last_error,
     }))
 }
 
@@ -71,6 +140,25 @@ impl WriteHuman for MemoryStatusOutcome {
             w,
             "  size:           {} bytes",
             or_unknown(self.size_bytes.map(|v| v.to_string()))
-        )
+        )?;
+        for count in &self.observations {
+            writeln!(w, "  {}: {}", count.source_event, count.count)?;
+        }
+        writeln!(
+            w,
+            "  spool: {} files, {} bytes, {} dropped",
+            self.spool.files,
+            self.spool.bytes,
+            self.spool.dropped_total + self.spool.dropped
+        )?;
+        writeln!(
+            w,
+            "  last drain: {}",
+            self.last_drain_at.as_deref().unwrap_or("never")
+        )?;
+        if let Some(error) = &self.last_drain_error {
+            writeln!(w, "  last drain error: {error}")?;
+        }
+        Ok(())
     }
 }
