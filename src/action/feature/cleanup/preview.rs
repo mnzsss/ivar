@@ -8,6 +8,7 @@ pub(super) struct PreviewedCleanup {
     pub(super) forge_consulted: bool,
     pub(super) worktrees: WorktreeLookups,
     pub(super) descendants: Vec<(Feature, WorktreeLookups)>,
+    pub(super) merged: Vec<(RepoName, PullRequest)>,
 }
 
 /// Each promoted repo's worktree for the feature branch, looked up once per
@@ -85,13 +86,14 @@ pub(super) fn preview_cleanup(
     let (live_sessions, session_inspection_error) =
         live_sessions_of(layout, &feature.name, own_session);
     let worktrees = lookup_worktrees(git, layout, feature);
+    let merged = std::cell::RefCell::new(Vec::new());
     let repo_facts: Vec<_> = feature
         .promotions
         .iter()
         .map(|(repo, promotion)| {
             let worktree = worktrees.get(repo).unwrap_or(&Ok(None));
             collect_repo_facts(
-                git, layout, manifest, feature, repo, promotion, worktree, true,
+                git, layout, manifest, feature, repo, promotion, worktree, true, &merged,
             )
         })
         .collect();
@@ -126,7 +128,7 @@ pub(super) fn preview_cleanup(
                 .map(|(repo, promotion)| {
                     let worktree = node_worktrees.get(repo).unwrap_or(&Ok(None));
                     collect_repo_facts(
-                        git, layout, manifest, node, repo, promotion, worktree, false,
+                        git, layout, manifest, node, repo, promotion, worktree, false, &merged,
                     )
                 })
                 .collect(),
@@ -175,6 +177,7 @@ pub(super) fn preview_cleanup(
         forge_consulted,
         worktrees,
         descendants: descendant_worktrees,
+        merged: merged.into_inner(),
     })
 }
 

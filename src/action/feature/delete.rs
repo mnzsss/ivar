@@ -32,6 +32,7 @@ use std::io;
 use camino::Utf8PathBuf;
 use serde::{Deserialize, Serialize};
 
+use crate::domain::delivery_event::{DeliveryEvent, DeliveryScope};
 use crate::domain::name::FeatureName;
 #[cfg(test)]
 use crate::domain::name::RepoName;
@@ -300,6 +301,7 @@ fn preflight_subtree_removable(
 
 pub fn delete(ctx: &Ctx, input: DeleteInput) -> Outcome<DeleteOutcome> {
     let layout = discover_hall(ctx)?;
+    let emitter = ctx.emitter(&layout);
     let git = git::System;
     let name = FeatureName::new(input.name)?;
 
@@ -364,6 +366,17 @@ pub fn delete(ctx: &Ctx, input: DeleteInput) -> Outcome<DeleteOutcome> {
                 format!("could not remove feature `{}`: {source}", node.name),
             )
         })?;
+
+        emitter.emit(
+            DeliveryScope::for_feature(node),
+            DeliveryEvent::Deleted {
+                repos: worktrees
+                    .iter()
+                    .filter(|w| w.removed)
+                    .map(|w| w.repo.to_string())
+                    .collect(),
+            },
+        );
 
         if let Some(warning) = super::drop_layers_or_warn(&layout, &node.name) {
             warnings.push(warning);

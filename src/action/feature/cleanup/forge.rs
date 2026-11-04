@@ -11,6 +11,7 @@ pub(super) fn collect_repo_facts(
     promotion: &crate::domain::feature::Promotion,
     worktree_lookup: &Result<Option<WorktreeEntry>, Failure>,
     consult_forge: bool,
+    merged: &std::cell::RefCell<Vec<(RepoName, PullRequest)>>,
 ) -> CleanupRepoFacts {
     let Some(manifest_repo) = manifest
         .repos()
@@ -45,7 +46,11 @@ pub(super) fn collect_repo_facts(
             let forge_delivery = if consult_forge {
                 match (unmerged_commits, feature_head.as_deref()) {
                     (Some(1..), Some(head)) => {
-                        Some(ask_forge(&bare, feature.branch.as_str(), head))
+                        let (verdict, merged_pr) = ask_forge(&bare, feature.branch.as_str(), head);
+                        if let Some(pr) = merged_pr {
+                            merged.borrow_mut().push((repo.clone(), pr));
+                        }
+                        Some(verdict)
                     }
                     _ => None,
                 }
@@ -98,14 +103,32 @@ pub(super) fn collect_repo_facts(
     }
 }
 
-/// Ask the forge about `branch`, and read its answer as a delivery verdict.
-pub(super) fn ask_forge(bare: &Utf8Path, branch: &str, feature_head: &str) -> ForgeDelivery {
+/// Ask the forge about `branch`, and read its answer as a delivery verdict,
+/// with the pull request merged at `feature_head` when there is one.
+pub(super) fn ask_forge(
+    bare: &Utf8Path,
+    branch: &str,
+    feature_head: &str,
+) -> (ForgeDelivery, Option<PullRequest>) {
     match pull_requests::list_pull_requests(bare, branch, "all") {
-        Ok(prs) => read_forge_answer(&prs, feature_head),
-        Err(failure) => ForgeDelivery::Unavailable {
-            reason: failure.what,
-        },
+        Ok(prs) => (
+            read_forge_answer(&prs, feature_head),
+            merged_pull_request(&prs, feature_head).cloned(),
+        ),
+        Err(failure) => (
+            ForgeDelivery::Unavailable {
+                reason: failure.what,
+            },
+            None,
+        ),
     }
+}
+
+pub(super) fn merged_pull_request<'a>(
+    prs: &'a [PullRequest],
+    feature_head: &str,
+) -> Option<&'a PullRequest> {
+    prs.iter().find(|pr| pr.merged_head(feature_head))
 }
 
 /// The verdict the forge's pull requests support for `feature_head`. A merged

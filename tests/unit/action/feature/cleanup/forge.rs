@@ -117,3 +117,15 @@ fn preview_and_cleanup_follow_a_worktree_whose_dir_differs_from_the_branch() {
     assert_eq!(preview.paths_to_remove[0], moved);
     assert!(preview.repos[0].worktree_exists);
 }
+
+#[test]
+fn only_a_pull_request_merged_at_the_exact_head_is_a_merged_observation() {
+    let prs = [
+        pull_request("OPEN", Some("abc")),
+        pull_request("MERGED", Some("other")),
+        pull_request("MERGED", Some("abc")),
+    ];
+    let found = merged_pull_request(&prs, "abc").expect("the merged head matches");
+    assert_eq!(found.head_oid.as_deref(), Some("abc"));
+    assert!(merged_pull_request(&prs[..2], "abc").is_none());
+}

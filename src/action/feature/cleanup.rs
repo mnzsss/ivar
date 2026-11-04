@@ -9,6 +9,7 @@ use serde::Serialize;
 use crate::action::Ctx;
 use crate::action::feature::delete;
 use crate::action::session::lookup as session_lookup;
+use crate::domain::delivery_event::{DeliveryEvent, DeliveryScope, ObservedBy};
 use crate::domain::feature::{
     BranchDeletion, CleanupApplyOutcome, CleanupBlocker, CleanupDescendant, CleanupDescendantFacts,
     CleanupDescendantOutcome, CleanupFacts, CleanupPreview, CleanupRecord, CleanupRepo,
@@ -31,7 +32,7 @@ mod teardown;
 
 use self::forge::collect_repo_facts;
 #[cfg(test)]
-use self::forge::read_forge_answer;
+use self::forge::{merged_pull_request, read_forge_answer};
 use self::preview::{PreviewedCleanup, WorktreeLookups, preview_cleanup};
 #[cfg(test)]
 use self::preview::{cleanup_repo, fingerprint_for};
@@ -146,12 +147,58 @@ pub fn cleanup(ctx: &Ctx, input: CleanupInput) -> Outcome<CleanupOutcome> {
         &feature,
         input.session_id.as_deref(),
     )?;
+    emit_merged(ctx, &layout, &feature, &previewed.merged);
 
     Ok(Report::new(CleanupOutcome {
         root: layout.root().to_path_buf(),
         preview: previewed.preview,
         apply_outcome: None,
     }))
+}
+
+fn emit_merged(
+    ctx: &Ctx,
+    layout: &crate::store::layout::Layout,
+    feature: &Feature,
+    merged: &[(RepoName, PullRequest)],
+) {
+    let emitter = ctx.emitter(layout);
+    for (repo, pr) in merged {
+        emitter.emit(
+            DeliveryScope::for_repo(
+                feature,
+                repo.as_str(),
+                pr.head_oid.as_deref().unwrap_or_default(),
+            ),
+            pull_requests::merged_event(pr, ObservedBy::Cleanup),
+        );
+    }
+}
+
+fn emit_cleaned(
+    ctx: &Ctx,
+    layout: &crate::store::layout::Layout,
+    feature: &Feature,
+    record_path: &Utf8Path,
+    docs: &str,
+    outcome: &CleanupApplyOutcome,
+    descendants: &[(Feature, WorktreeLookups)],
+) {
+    let emitter = ctx.emitter(layout);
+    let cleaned = || DeliveryEvent::Cleaned {
+        record_path: record_path.to_string(),
+        docs: docs.to_owned(),
+    };
+    emitter.emit(DeliveryScope::for_feature(feature), cleaned());
+    for node in outcome
+        .descendants
+        .iter()
+        .filter(|node| node.feature_removed)
+    {
+        if let Some((descendant, _)) = descendants.iter().find(|(f, _)| f.name == node.feature) {
+            emitter.emit(DeliveryScope::for_feature(descendant), cleaned());
+        }
+    }
 }
 
 fn apply_cleanup(
@@ -177,7 +224,9 @@ fn apply_cleanup(
         forge_consulted,
         worktrees,
         descendants,
+        merged,
     } = preview_cleanup(&git, &layout, &manifest, &feature, own_session)?;
+    emit_merged(ctx, &layout, &feature, &merged);
 
     validate_record_against_preview(&record, &preview, forge_consulted)?;
     preflight_deletable(&layout, &feature, &descendants)?;
@@ -239,7 +288,7 @@ fn apply_cleanup(
 
     let apply_outcome = CleanupApplyOutcome {
         feature: feature.name.clone(),
-        branch: feature.branch,
+        branch: feature.branch.clone(),
         fingerprint: preview.fingerprint.clone(),
         worktrees: worktree_removals,
         branches: branch_deletions,
@@ -247,7 +296,18 @@ fn apply_cleanup(
         descendants: descendant_outcomes,
     };
 
+    let docs = record.approvals.documentation.decision.to_string();
     write_record_outcome(&layout, record, record_path, &apply_outcome)?;
+
+    emit_cleaned(
+        ctx,
+        &layout,
+        &feature,
+        record_path,
+        &docs,
+        &apply_outcome,
+        &descendants,
+    );
 
     Ok(Report::with_warnings(
         CleanupOutcome {

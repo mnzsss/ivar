@@ -354,3 +354,32 @@ fn delete_warns_when_the_graph_database_cannot_drop_the_layers() {
         report.warnings
     );
 }
+
+#[test]
+fn deleting_a_feature_emits_one_deleted_event_naming_its_repos() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let sink = std::sync::Arc::new(crate::test_support::RecordingSink::default());
+    let ctx = Ctx::new(root).with_delivery_events(sink.clone());
+
+    delete(&ctx, delete_input("checkout")).unwrap();
+
+    let records = sink.records();
+    assert_eq!(records.len(), 1);
+    assert_eq!(records[0].scope.feature, "checkout");
+    assert!(matches!(
+        &records[0].event,
+        crate::domain::delivery_event::DeliveryEvent::Deleted { repos } if repos == &vec!["api".to_owned()]
+    ));
+}
+
+#[test]
+fn a_delete_refused_for_unsaved_work_emits_nothing() {
+    let (_guard, root) = hall_with_promoted_feature();
+    std::fs::write(root.join(".ivar/repos/api/checkout/wip.txt"), "unsaved\n").unwrap();
+    let sink = std::sync::Arc::new(crate::test_support::RecordingSink::default());
+    let ctx = Ctx::new(root).with_delivery_events(sink.clone());
+
+    assert!(delete(&ctx, delete_input("checkout")).is_err());
+
+    assert!(sink.records().is_empty());
+}
