@@ -21,7 +21,7 @@ the hook's p95 was about 15.8 ms per event. A slow disk or a debug build costs m
 | Provider | Gap |
 | --- | --- |
 | OpenCode | No session end, so no `session.ended` is recorded. Its `tool.execute.after` reports `failed: false`, so no OpenCode `session.tool` is recorded as a failure and none gets importance 6. |
-| T3 Code | The `SessionEnd` hook is unconfirmed: the provider matrix marks it unsupported and no live run has confirmed it. T3 hosts Claude Code, so it uses the Claude Code hooks for the other three events. |
+| T3 Code | `session.ended` is recorded when the thread is closed (archived) with reason `other`, not when a turn finishes, so an idle open thread has no end yet. Deleting a thread or quitting the app was not tested. T3 hosts Claude Code, so it uses the Claude Code hooks. |
 
 The payload fixtures under `tests/cli/capture_payloads` are written by hand from each
 provider's documented hook format. They were not recorded from live sessions, so a

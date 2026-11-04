@@ -152,7 +152,8 @@ secrets redacted before anything reaches disk. Capture is on by default. To turn
 off, set `"memory": {"capture": false}` in `ivar.json` and run `ivar sync`.
 
 A provider records only the events its hooks expose. OpenCode has no session end,
-and T3's session end is unconfirmed. See the
+and T3 records its session end when a thread is closed (archived), not when a turn
+finishes. See the
 [limitations of session capture](docs/reference/limitations-memory.md).
 
 ## MCP server
