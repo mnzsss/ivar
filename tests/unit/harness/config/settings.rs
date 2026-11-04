@@ -356,7 +356,7 @@ fn remove_deletes_a_file_holding_only_ivar_keys_and_hall_approvals() {
     assert!(!path.exists());
 }
 
-const CAPTURE: &str = "ivar memory capture --provider claude-code";
+const CAPTURE: &str = "ivar memory capture --provider claude-code || true";
 
 fn commands(doc: &serde_json::Value, event: &str) -> Vec<String> {
     doc["hooks"][event]

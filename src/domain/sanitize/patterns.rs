@@ -181,3 +181,14 @@ pub(super) fn truncate(text: &str, limit: usize) -> String {
     let cut = text.floor_char_boundary(limit);
     format!("{}…", &text[..cut])
 }
+
+/// Cuts at a char boundary, then back to the last delimiter so a secret split
+/// by the cut leaves no usable prefix behind once redaction shrinks the text.
+pub(super) fn cut_before_redaction(text: &str, limit: usize) -> &str {
+    if text.len() <= limit {
+        return text;
+    }
+    let head = &text[..text.floor_char_boundary(limit)];
+    head.rfind(|c: char| c.is_whitespace() || matches!(c, '"' | '\'' | ',' | ';' | ':' | '='))
+        .map_or(head, |end| &head[..end])
+}

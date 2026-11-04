@@ -106,7 +106,7 @@ impl Importance {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Observation {
     pub event_id: String,
     pub source_event: String,
@@ -122,6 +122,27 @@ pub struct Observation {
     pub importance: Importance,
     pub attempt_id: String,
     pub body: String,
+}
+
+impl std::fmt::Debug for Observation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Observation")
+            .field("event_id", &self.event_id)
+            .field("source_event", &self.source_event)
+            .field("occurred_at", &self.occurred_at)
+            .field("session_id", &self.session_id)
+            .field("native_session_id", &self.native_session_id)
+            .field("provider", &self.provider)
+            .field("ivar_version", &self.ivar_version)
+            .field("feature", &self.feature)
+            .field("parent_feature", &self.parent_feature)
+            .field("repo", &self.repo)
+            .field("origin", &self.origin)
+            .field("importance", &self.importance)
+            .field("attempt_id", &self.attempt_id)
+            .field("body", &format_args!("[{} bytes]", self.body.len()))
+            .finish()
+    }
 }
 
 /// Never hashes the body: it may hold a secret before sanitisation. The process

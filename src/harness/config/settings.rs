@@ -30,7 +30,10 @@ const IVAR_KEYS: [&str; 2] = [IVAR_HOOKS, IVAR_ATTRIBUTION];
 /// Claude Code's approval list for `.mcp.json` servers. Partly ivar's:
 /// entries named `<hall>-…` are this hall's, every other entry is the user's.
 const MCP_APPROVALS: &str = "enabledMcpjsonServers";
-const CAPTURE_COMMAND: &str = "ivar memory capture --provider claude-code";
+/// `|| true` because Claude Code treats exit 2 from a `UserPromptSubmit` hook
+/// as a block that erases the prompt, and an older `ivar` on PATH exits 2 on
+/// the unknown subcommand.
+const CAPTURE_COMMAND: &str = "ivar memory capture --provider claude-code || true";
 const ENV: &str = "env";
 const LEGACY_ENV_IVAR_HALL: &str = "IVAR_HALL";
 

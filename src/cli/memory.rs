@@ -10,9 +10,9 @@ pub enum MemoryCommand {
     Clean,
     /// Record one session hook event into the capture spool. Always exits 0 and prints nothing.
     Capture {
-        /// Provider whose hook payload arrives on stdin.
+        /// Provider whose hook payload arrives on stdin; without one nothing is recorded.
         #[arg(long)]
-        provider: String,
+        provider: Option<String>,
     },
 }
 

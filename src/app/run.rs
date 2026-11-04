@@ -49,10 +49,15 @@ use crate::infra::term;
 )]
 pub fn run(cli: Cli) -> ExitCode {
     if let Command::Memory(MemoryCommand::Capture { provider }) = &cli.command {
-        if let Ok(provider) = provider.parse::<Provider>() {
-            let mut stdin = String::new();
-            let _ = io::stdin().read_to_string(&mut stdin);
-            crate::action::memory::capture::capture(provider, &stdin, &CaptureEnv::from_process());
+        if let Some(provider) = provider
+            .as_deref()
+            .and_then(|id| id.parse::<Provider>().ok())
+        {
+            crate::action::memory::capture::capture(
+                provider,
+                &read_capture_payload(),
+                &CaptureEnv::from_process(),
+            );
         }
         return ExitCode::SUCCESS;
     }
@@ -391,6 +396,18 @@ fn compact_unsupported() -> crate::error::Failure {
     )
     .expected("`--compact` together with an `ivar graph` verb")
     .actual("`--compact` on a verb outside `ivar graph`")
+}
+
+/// A payload past the cap is cut mid-document, fails to parse and is skipped,
+/// so a huge tool input can never stall the agent's hook.
+const MAX_CAPTURE_PAYLOAD_BYTES: u64 = 8 * 1024 * 1024;
+
+fn read_capture_payload() -> String {
+    let mut bytes = Vec::new();
+    let _ = io::stdin()
+        .take(MAX_CAPTURE_PAYLOAD_BYTES)
+        .read_to_end(&mut bytes);
+    String::from_utf8_lossy(&bytes).into_owned()
 }
 
 /// Parse argv with the styled command. Pure: no stream, no exit.

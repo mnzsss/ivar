@@ -6,13 +6,18 @@
 
 mod patterns;
 
+/// Bounds the regex work on the agent's synchronous path: a body is cut to
+/// this many body limits before redaction, so a multi-megabyte tool input
+/// costs the same as a small one.
+const PRE_REDACTION_FACTOR: usize = 8;
+
 use crate::domain::observation::Observation;
 use camino::Utf8PathBuf;
 
 #[derive(Debug)]
 pub struct Sanitized<T>(T);
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct SanitizeContext {
     pub hall_root: Utf8PathBuf,
     pub env_values: Vec<String>,
@@ -29,6 +34,19 @@ impl SanitizeContext {
             env_values,
             body_limit: Self::DEFAULT_BODY_LIMIT,
         }
+    }
+}
+
+impl std::fmt::Debug for SanitizeContext {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SanitizeContext")
+            .field("hall_root", &self.hall_root)
+            .field(
+                "env_values",
+                &format_args!("[{} redacted]", self.env_values.len()),
+            )
+            .field("body_limit", &self.body_limit)
+            .finish()
     }
 }
 
@@ -65,7 +83,10 @@ fn sanitize_with(
     ctx: &SanitizeContext,
     redact: impl Fn(&str) -> String,
 ) -> Result<Sanitized<Observation>, SanitizeError> {
-    let redacted = redact(&observation.body);
+    let redacted = redact(patterns::cut_before_redaction(
+        &observation.body,
+        ctx.body_limit.saturating_mul(PRE_REDACTION_FACTOR),
+    ));
     let confined = patterns::confine_paths(&redacted, &ctx.hall_root);
     let enveloped = patterns::redact_env_values(&confined, &ctx.env_values);
     let bounded = patterns::truncate(&enveloped, ctx.body_limit);

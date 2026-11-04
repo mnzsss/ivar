@@ -98,3 +98,31 @@ fn garbage_and_unknown_events_are_skipped_not_errors() {
         .is_err()
     );
 }
+
+#[test]
+fn debug_of_capture_events_never_prints_prompts_inputs_or_results() {
+    let prompted = CaptureEvent {
+        kind: CaptureKind::Prompted {
+            text: "secret-prompt-text".to_owned(),
+        },
+        native_session_id: "n1".to_owned(),
+        cwd: None,
+    };
+    let tool = CaptureKind::Tool {
+        name: "Write".to_owned(),
+        input: serde_json::json!({ "content": "secret-input-text" }),
+        failed: false,
+        result: Some("secret-result-text".to_owned()),
+    };
+
+    let printed = format!("{prompted:?} {tool:?}");
+
+    for secret in [
+        "secret-prompt-text",
+        "secret-input-text",
+        "secret-result-text",
+    ] {
+        assert!(!printed.contains(secret), "{printed}");
+    }
+    assert!(printed.contains("Write"), "{printed}");
+}

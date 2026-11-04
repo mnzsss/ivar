@@ -6,7 +6,7 @@ use serde::Deserialize;
 use crate::domain::provider::Provider;
 use crate::providers::{ManagedArtifact, claude_code, omp, opencode};
 
-#[derive(Debug, PartialEq)]
+#[derive(PartialEq)]
 pub enum CaptureKind {
     Started,
     Prompted {
@@ -21,6 +21,34 @@ pub enum CaptureKind {
     Ended {
         reason: Option<String>,
     },
+}
+
+impl std::fmt::Debug for CaptureKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Started => f.write_str("Started"),
+            Self::Prompted { text } => f
+                .debug_struct("Prompted")
+                .field("text", &format_args!("[{} bytes]", text.len()))
+                .finish(),
+            Self::Tool {
+                name,
+                failed,
+                result,
+                ..
+            } => f
+                .debug_struct("Tool")
+                .field("name", name)
+                .field("input", &format_args!("[redacted]"))
+                .field("failed", failed)
+                .field(
+                    "result",
+                    &format_args!("[{} bytes]", result.as_ref().map_or(0, String::len)),
+                )
+                .finish(),
+            Self::Ended { reason } => f.debug_struct("Ended").field("reason", reason).finish(),
+        }
+    }
 }
 
 #[derive(Debug, PartialEq)]

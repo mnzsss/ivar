@@ -44,6 +44,15 @@ The hook redacts secret patterns before the line is written, so a secret never r
 in the spool. The patterns are ported from ai-memory v3.3.3 (MIT), credited in `NOTICE`.
 The drain sanitises again, which covers lines written by an older hook.
 
+A drain renames each `.jsonl` to `.draining` before it reads it. A hook that opened
+the `.jsonl` just before the rename can still append to the already-read file, and
+that event is lost. The window is microseconds and accepted.
+
+The installed Claude Code command is `ivar memory capture --provider claude-code`
+followed by the shell fallback `|| true`.
+Claude Code treats exit 2 from a `UserPromptSubmit` hook as a block that erases the
+prompt, and an `ivar` older than the synced settings exits 2 on the unknown subcommand.
+
 ### D5 — On by default, one switch
 
 `memory.capture` in `ivar.json` is on unless set to `false`. The key adds no

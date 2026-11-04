@@ -22,5 +22,5 @@ Record one session hook event into the capture spool. Always exits 0 and prints 
 
 | flag | value | default | description |
 | --- | --- | --- | --- |
-| `--provider` | `<PROVIDER>` |  | Provider whose hook payload arrives on stdin |
+| `--provider` | `<PROVIDER>` |  | Provider whose hook payload arrives on stdin; without one nothing is recorded |
 

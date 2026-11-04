@@ -44,3 +44,28 @@ fn event_id_is_stable_and_distinguishes_time_and_process() {
         "two hooks in the same nanosecond are two events"
     );
 }
+
+#[test]
+fn debug_of_an_observation_never_prints_the_body() {
+    let observation = Observation {
+        event_id: "e1".to_owned(),
+        source_event: "session.tool".to_owned(),
+        occurred_at: "2026-11-04T10:00:00.000000000Z".to_owned(),
+        session_id: String::new(),
+        native_session_id: "n1".to_owned(),
+        provider: "claude-code".to_owned(),
+        ivar_version: "0.19.0".to_owned(),
+        feature: String::new(),
+        parent_feature: String::new(),
+        repo: String::new(),
+        origin: String::new(),
+        importance: Importance::session_ended(),
+        attempt_id: String::new(),
+        body: "secret-body-text".to_owned(),
+    };
+
+    let printed = format!("{observation:?}");
+
+    assert!(!printed.contains("secret-body-text"), "{printed}");
+    assert!(printed.contains("e1"), "{printed}");
+}

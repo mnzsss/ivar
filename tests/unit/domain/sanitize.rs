@@ -92,3 +92,44 @@ fn a_redactor_that_leaves_a_secret_behind_fails_closed() {
     );
     assert_eq!(result.unwrap_err(), SanitizeError::ResidualSecret);
 }
+
+#[test]
+fn debug_of_the_context_never_prints_env_values() {
+    let printed = format!("{:?}", ctx());
+
+    assert!(!printed.contains("s3cr3t-env-value"), "{printed}");
+    assert!(printed.contains("1 redacted"), "{printed}");
+}
+
+#[test]
+fn a_huge_body_is_cut_before_redaction_and_still_never_leaks_a_secret() {
+    let secret = "ghp_0123456789abcdefghijklmnopqrstuvwxyzAB";
+    let filler = "a ".repeat(10 * 1024 * 1024);
+    let started = std::time::Instant::now();
+
+    let clean = Sanitized::sanitize(observation(&format!("{filler}{secret}")), &ctx()).unwrap();
+
+    assert!(started.elapsed() < std::time::Duration::from_secs(1));
+    assert!(clean.as_observation().body.len() <= SanitizeContext::DEFAULT_BODY_LIMIT + 3);
+    assert!(!clean.as_observation().body.contains("ghp_"));
+}
+
+#[test]
+fn a_secret_split_by_the_pre_cut_does_not_survive_when_redaction_shrinks_the_text() {
+    let mut context = ctx();
+    context.body_limit = 64;
+    let pem = format!(
+        "-----BEGIN PRIVATE KEY-----\n{}\n-----END PRIVATE KEY-----",
+        "A".repeat(449)
+    );
+    assert_eq!(pem.len(), context.body_limit * PRE_REDACTION_FACTOR - 9);
+    let body = format!("{pem} s3cr3t-env-value");
+
+    let clean = Sanitized::sanitize(observation(&body), &context).unwrap();
+
+    assert!(
+        !clean.as_observation().body.contains("s3cr3t"),
+        "{}",
+        clean.as_observation().body
+    );
+}
