@@ -9,8 +9,6 @@
 //! Only the built-in pattern table is ported; the upstream allowlist, JSON
 //! escape view and unicode shadow handling are not.
 
-#![allow(clippy::expect_used)]
-
 use camino::Utf8Path;
 use regex::{Captures, Regex, RegexSet};
 use std::sync::LazyLock;
@@ -100,6 +98,7 @@ struct Compiled {
     each: Vec<(Regex, &'static str)>,
 }
 
+#[allow(clippy::expect_used)]
 static COMPILED: LazyLock<Compiled> = LazyLock::new(|| Compiled {
     set: RegexSet::new(BUILTIN_PATTERNS.iter().map(|(pattern, _)| *pattern))
         .expect("built-in secret patterns are valid"),
@@ -114,9 +113,11 @@ static COMPILED: LazyLock<Compiled> = LazyLock::new(|| Compiled {
         .collect(),
 });
 
+#[allow(clippy::expect_used)]
 static REDACTION_MARK: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\[REDACTED:[a-z_]+\]").expect("valid regex"));
 
+#[allow(clippy::expect_used)]
 static ABSOLUTE_PATH: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"(?m)(^|[\s"'=(\[<])(/[^\s"'<>)\]]+)"#).expect("valid regex"));
 
@@ -124,6 +125,7 @@ fn redaction(label: &str) -> String {
     format!("[REDACTED:{label}]")
 }
 
+#[allow(clippy::expect_used)]
 pub(super) fn redact_secrets(text: &str) -> String {
     COMPILED
         .each
