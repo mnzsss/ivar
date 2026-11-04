@@ -4,7 +4,7 @@ use crate::action::Ctx;
 use crate::action::graph::index::HALL_REPO;
 use crate::action::graph::input::CleanInput;
 use crate::action::graph::outcome::CleanOutcome;
-use crate::action::graph::{lock_index, open_graph_db};
+use crate::action::graph::{graph_db_path, lock_index, open_graph_db_at};
 use crate::action::{discover_hall, read_manifest};
 use crate::error::{Failure, Outcome, Report};
 use crate::store::graph::db::{GraphDb, GraphDbError};
@@ -31,8 +31,9 @@ pub fn clean_cmd(ctx: &Ctx, args: CleanInput) -> Outcome<CleanOutcome> {
     }
 
     let layout = discover_hall(ctx)?;
-    let db = open_graph_db(ctx)?;
+    let db_path = graph_db_path(&layout)?;
     let _lock = lock_index(&layout)?;
+    let db = open_graph_db_at(ctx, &layout, &db_path)?;
 
     if args.all {
         let stats = db.clean_all().map_err(|err| clean_failed(&err))?;

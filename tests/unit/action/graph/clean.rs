@@ -390,3 +390,49 @@ fn the_index_lock_is_the_graph_lock_and_leaves_the_memory_lock_free() {
         "lock_index must not create memory.lock"
     );
 }
+
+#[test]
+fn clean_opens_the_graph_database_only_under_the_index_lock() {
+    let dir = tempdir().unwrap();
+    let root = dir.path().to_path_buf();
+    let layout =
+        crate::store::layout::Layout::at(Utf8PathBuf::from_path_buf(root.clone()).unwrap());
+    drop(populate_hall_with_graph(&root));
+    crate::store::memory::db::MemoryDb::open(layout.memory_db().as_std_path()).unwrap();
+    rusqlite::Connection::open(layout.graph_db())
+        .unwrap()
+        .pragma_update(None, "journal_mode", "DELETE")
+        .unwrap();
+    let write_version = || std::fs::read(layout.graph_db()).unwrap()[18];
+    assert_eq!(
+        write_version(),
+        1,
+        "fixture must start in rollback journal mode"
+    );
+
+    let held = std::fs::File::create(layout.graph_lock()).unwrap();
+    held.lock().unwrap();
+    let worker = std::thread::spawn(move || {
+        clean_cmd(
+            &make_ctx(&root),
+            CleanInput {
+                repo: None,
+                feature: Some("feat".into()),
+                all: false,
+                path: None,
+            },
+        )
+        .map(|_| ())
+        .map_err(|err| err.code)
+    });
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    assert_eq!(
+        write_version(),
+        1,
+        "graph clean must not open (and switch to WAL) the graph database before taking graph.lock"
+    );
+
+    held.unlock().unwrap();
+    worker.join().unwrap().unwrap();
+    assert_eq!(write_version(), 2);
+}

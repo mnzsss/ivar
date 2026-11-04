@@ -29,6 +29,8 @@ pub mod watch;
 use std::io;
 use std::path::Path;
 
+use camino::Utf8Path;
+
 use crate::action::Ctx;
 use crate::action::discover_hall;
 use crate::action::read_manifest;
@@ -66,14 +68,21 @@ pub use viz::{VizError, execute_viz};
 fn open_graph_db(ctx: &Ctx) -> Result<GraphDb, Failure> {
     let layout = discover_hall(ctx)?;
     let db_path = graph_db_path(&layout)?;
+    open_graph_db_at(ctx, &layout, &db_path)
+}
+
+/// Opens the graph at a path already resolved by [`graph_db_path`], so a
+/// writer can take [`lock_index`] between the two without the split taking
+/// `graph.lock` again in the same process.
+fn open_graph_db_at(ctx: &Ctx, layout: &Layout, db_path: &Utf8Path) -> Result<GraphDb, Failure> {
     let db = GraphDb::open(db_path.as_std_path()).map_err(|err| {
         Failure::failed(
             "graph.db_open_failed",
             format!("Failed to open graph database at {db_path}: {err}"),
         )
     })?;
-    let view = session::resolve_session_view(&layout, &ctx.cwd)?;
-    freshness::ensure_session_freshness(&db, &layout, &view)?;
+    let view = session::resolve_session_view(layout, &ctx.cwd)?;
+    freshness::ensure_session_freshness(&db, layout, &view)?;
     Ok(db)
 }
 
@@ -221,8 +230,9 @@ pub fn index_cmd(ctx: &Ctx, args: IndexInput) -> Outcome<IndexBatchOutcome> {
         ));
     }
     let layout = discover_hall(ctx)?;
-    let db = open_graph_db(ctx)?;
+    let db_path = graph_db_path(&layout)?;
     let _lock = lock_index(&layout)?;
+    let db = open_graph_db_at(ctx, &layout, &db_path)?;
     let manifest = persist_hall_paths(&layout, read_manifest(&layout)?, &args.paths)?;
 
     let hall = if let Some(target_repo) = args.repo {
