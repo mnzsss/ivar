@@ -41,7 +41,7 @@ pub const fn provider_support(provider: Provider) -> ProviderSupport {
         },
         Provider::T3 => ProviderSupport {
             session_ended: Support::NotSupported(
-                "SessionEnd on T3 is not confirmed; Task 14 flips this only after a recorded live run",
+                "SessionEnd on T3 is not confirmed; the matrix changes only after a recorded live run",
             ),
             ..FULL
         },

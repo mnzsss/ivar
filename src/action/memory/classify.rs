@@ -3,7 +3,7 @@
 
 use crate::domain::observation::{Origin, ToolEffect};
 
-const READ_TOOLS: [&str; 9] = [
+const READ_TOOLS: [&str; 11] = [
     "Read",
     "Glob",
     "Grep",
@@ -13,6 +13,8 @@ const READ_TOOLS: [&str; 9] = [
     "grep",
     "find",
     "ls",
+    "glob",
+    "list",
 ];
 const READ_COMMANDS: [&str; 14] = [
     "git status",

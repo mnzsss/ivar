@@ -32,6 +32,8 @@ fn tools_are_classified_failed_then_read_then_write_with_unknown_bash_as_write()
         tool_effect("mcp__acme-ivar__graph_explore", &none, false),
         ToolEffect::Reads
     );
+    assert_eq!(tool_effect("glob", &none, false), ToolEffect::Reads);
+    assert_eq!(tool_effect("list", &none, false), ToolEffect::Reads);
     assert_eq!(tool_effect("Edit", &none, false), ToolEffect::Writes);
     assert_eq!(tool_effect("Read", &none, true), ToolEffect::Failed);
     assert_eq!(
