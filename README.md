@@ -153,7 +153,9 @@ off, set `"memory": {"capture": false}` in `ivar.json` and run `ivar sync`.
 
 A provider records only the events its hooks expose. OpenCode has no session end,
 and T3 records its session end when a thread is closed (archived), not when a turn
-finishes. See the
+finishes. The binary also records delivery events (push, pull request, rebase, integrate,
+merge, cleanup, close, delete) into the same database. Session events are deleted 30 days
+after the session's last observation; delivery events are kept. See the
 [limitations of session capture](docs/reference/limitations-memory.md).
 
 ## MCP server
