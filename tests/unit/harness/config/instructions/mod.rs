@@ -60,6 +60,13 @@ fn managed_block_says_the_hall_root_outside_dot_ivar_is_writable() {
 }
 
 #[test]
+fn managed_block_tells_agents_to_pull_a_stale_default_branch_before_consulting_it() {
+    let block = build_block(&hall(), &[repo("api")]);
+    assert!(block.contains("`ivar repo pull <repo>`"));
+    assert!(block.contains("`stale`"));
+}
+
+#[test]
 fn a_hall_with_no_repos_says_how_to_add_one() {
     let block = build_block(&hall(), &[]);
 

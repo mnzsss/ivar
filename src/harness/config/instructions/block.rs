@@ -47,7 +47,12 @@ pub fn build_block(hall: &HallName, repos: &[RepoName]) -> String {
          on behalf of the user to manage features, repos, and sessions.\n\n\
          If you are unsure of the exact CLI syntax or how `ivar` works, DO NOT GUESS.\n\
          First, fetch and read the documentation from:\n\
-         https://ivar.run/llms.txt\n",
+         https://ivar.run/llms.txt\n\n\
+         Before you consult a repo's default branch (`.ivar/repos/<repo>/main`),\n\
+         make sure it is current: if `ivar status` reports the hall `stale`, or you\n\
+         have reason to think the branch is behind its remote, run\n\
+         `ivar repo pull <repo>` first. It only refreshes default branches; if it\n\
+         reports a divergence, tell the user instead of resolving it.\n",
     );
     let _ = write!(
         block,
