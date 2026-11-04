@@ -1,4 +1,4 @@
-//! The `Environment contract` table in ARCHITECTURE.md is the source of truth
+//! The `Environment contract` table in docs/architecture/environment-contract.md is the source of truth
 //! for the session environment; this test keeps the code honest to it.
 #![allow(
     clippy::unwrap_used,
@@ -17,7 +17,7 @@ use crate::domain::provider::Provider;
 use crate::store::layout::Layout;
 
 fn documented_session_hook_vars() -> BTreeSet<String> {
-    let text = include_str!("../../../../ARCHITECTURE.md");
+    let text = include_str!("../../../../docs/architecture/environment-contract.md");
     let table = text
         .split_once("## Environment contract")
         .expect("contract heading")
@@ -61,6 +61,6 @@ fn session_hook_column_matches_session_env_keys() {
     assert_eq!(
         documented_session_hook_vars(),
         produced,
-        "ARCHITECTURE.md's session-hook column and SessionEnv::keys() disagree"
+        "environment-contract.md's session-hook column and SessionEnv::keys() disagree"
     );
 }

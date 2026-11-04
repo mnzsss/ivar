@@ -49,7 +49,7 @@ pub struct ConnectInput {
 }
 
 /// The session binding `connect` emits — the env-var contract of
-/// ARCHITECTURE.md, as data.
+/// docs/architecture/environment-contract.md, as data.
 #[derive(Debug, Clone, Serialize)]
 pub struct ConnectOutcome {
     /// The bound session's id.

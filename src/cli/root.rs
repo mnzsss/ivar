@@ -1,10 +1,10 @@
 //! The root command surface.
 //!
-//! The settled v1 surface (ARCHITECTURE.md's module map):
+//! The settled v1 surface (docs/architecture/module-map.md):
 //! `ivar init · sync · status · doctor · cleanup · migrate · repo · feature ·
 //! session · provider · plan · skill · mcp · upgrade`. Every verb dispatches to an action file that
 //! returns `Failure::blocked("…not implemented yet")` — never a silent success
-//! and never `todo!()`. See ARCHITECTURE.md's build order: those verbs land in
+//! and never `todo!()`. See docs/architecture/build-order.md: those verbs land in
 //! later slices, not stubbed 40-deep now.
 
 use camino::Utf8PathBuf;
@@ -272,7 +272,7 @@ pub use skill::{
 ///
 /// `name` and `provider` stay plain strings here — validating them into
 /// `HallName` / `Provider` needs `domain`, which `cli` may not import (see
-/// the layering table in ARCHITECTURE.md). That validation is
+/// the table in docs/architecture/layering.md). That validation is
 /// `action::hall::init`'s job; this type only carries what clap parsed.
 #[derive(Debug, Args)]
 pub struct InitArgs {
@@ -330,7 +330,7 @@ pub struct SyncArgs {
 //
 // No validation happens here, and none may: turning a `String` into a
 // `FeatureName` needs `domain`, which `cli` must not import (see the layering
-// table in ARCHITECTURE.md). These are shape conversions only.
+// table in docs/architecture/layering.md). These are shape conversions only.
 
 impl From<InitArgs> for InitInput {
     fn from(args: InitArgs) -> Self {

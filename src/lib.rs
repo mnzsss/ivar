@@ -41,7 +41,7 @@
 //! driver by the host loop — that is what makes the widget a referentially
 //! transparent projection.
 //!
-//! See `ARCHITECTURE.md` for the full module map and the build order.
+//! See `ARCHITECTURE.md` for the index of the full module map and the build order.
 
 // `tests/unit/**` is compiled into this crate through the many `#[cfg(test)]
 // #[path = ...] mod tests;` declarations scattered across `src/**`, so a lint
@@ -69,7 +69,7 @@
 )]
 
 // Module tree, declared as each vertical slice lands. Order is deliberate:
-// see the build order in ARCHITECTURE.md.
+// see the build order in docs/architecture/build-order.md.
 //
 pub mod error;
 pub mod infra;

@@ -29,7 +29,7 @@ const DEFAULT_PROVIDER: Provider = Provider::ClaudeCode;
 ///
 /// `name` and `provider` are plain, unvalidated strings — not yet
 /// [`HallName`] / [`Provider`] — because `cli` cannot import `domain` (see
-/// ARCHITECTURE.md's layering table) and therefore cannot validate them
+/// docs/architecture/layering.md's table) and therefore cannot validate them
 /// itself. Validating them is this module's job; see [`init`].
 #[derive(Debug, Clone)]
 pub struct InitInput {
@@ -53,7 +53,7 @@ pub struct InitInput {
 ///
 /// `Serialize`d as-is for `--json`; the human surface ([`Self::write_human`])
 /// formats this same value — never a second, independently computed
-/// summary. See ARCHITECTURE.md, "1. `action` is the unit, and it has one
+/// summary. See docs/architecture/seams.md, "1. `action` is the unit, and it has one
 /// output shape".
 #[derive(Debug, Clone, Serialize)]
 pub struct InitOutcome {
@@ -97,7 +97,7 @@ impl WriteHuman for InitOutcome {
 /// [`Layout::gitignore_lines`]), and materialise the selected provider's
 /// shipped workflow commands into its native command directory. Nothing else —
 /// no git clone, no harness config materialisation, no skill home. Those are
-/// `ivar sync`'s job (see ARCHITECTURE.md's build order).
+/// `ivar sync`'s job (see docs/architecture/build-order.md).
 ///
 /// The commands are attempted only after the manifest and skeleton are
 /// durable, and their failure is a **warning**, not a rollback: a hall that

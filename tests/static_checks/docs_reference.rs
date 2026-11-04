@@ -347,12 +347,12 @@ fn sync_file(path: &Path, wanted: &str, update: bool, stale: &mut Vec<String>) {
 #[test]
 fn documented_provider_set_equals_selectable_providers() {
     let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-    let arch_path = manifest_dir.join("ARCHITECTURE.md");
+    let arch_path = manifest_dir.join("docs/architecture/environment-contract.md");
     let content = std::fs::read_to_string(&arch_path).unwrap();
 
     assert!(
         content.contains("`claude-code`, `opencode`, `omp`, or `t3`"),
-        "ARCHITECTURE.md must document every selectable provider in IVAR_PROVIDER description"
+        "environment-contract.md must document every selectable provider in IVAR_PROVIDER description"
     );
 
     let selectable = ivar::domain::provider::Provider::SELECTABLE;
@@ -364,7 +364,7 @@ fn documented_provider_set_equals_selectable_providers() {
     for provider in selectable {
         assert!(
             content.contains(&format!("`{}`", provider.id())),
-            "ARCHITECTURE.md must mention `{}`",
+            "environment-contract.md must mention `{}`",
             provider.id()
         );
     }

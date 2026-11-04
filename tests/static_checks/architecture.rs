@@ -1,4 +1,4 @@
-//! The architectural rules from `ARCHITECTURE.md`, enforced.
+//! The architectural rules from `docs/architecture/layering.md`, enforced.
 //!
 //! A convention nobody remembers is not a boundary. This walks `src/` and its
 //! mirrored unit-test tree, groups files by their top-level module, and fails
@@ -102,7 +102,7 @@ fn module_imports_respect_the_layering_rule() {
 
     assert!(
         violations.is_empty(),
-        "layering violations ({}):\n  {}\n\nSee the table in ARCHITECTURE.md. \
+        "layering violations ({}):\n  {}\n\nSee the table in docs/architecture/layering.md. \
          If the rule is wrong, change the rule in a commit that says so.",
         violations.len(),
         violations.join("\n  ")

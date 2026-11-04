@@ -121,7 +121,7 @@ pub fn integrate(ctx: &Ctx, input: IntegrateInput) -> Outcome<IntegrateOutcome> 
     let parent = relations::read_feature(&layout, &parent_name)?;
 
     // 2. The plan gate must be approved — integration is a planned act, and
-    // the artifact a human crossed is the gate (see ARCHITECTURE.md, seam 7).
+    // the artifact a human crossed is the gate (see docs/architecture/seams.md, seam 7).
     let plan_gate = crate::action::plan::effective_plan_gate(&layout, &name)?;
     if plan_gate != GateState::Approved {
         return Err(Failure::blocked(

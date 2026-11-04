@@ -50,7 +50,7 @@ impl WriteHuman for CleanupOutcome {
 /// Remove stale state, asking before anything is deleted.
 ///
 /// This is the one verb that can destroy work, so it is **interactive by
-/// design** (ARCHITECTURE.md: `cleanup` is where removal lives, and it will
+/// design** (`cleanup` is where removal lives, and it will
 /// ask) and deliberately has no `--force` / `--dry-run` automation flags.
 /// On a non-tty run it lists what *would* be removed and keeps everything —
 /// a script can never delete through `ivar cleanup`.

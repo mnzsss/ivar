@@ -39,7 +39,7 @@
 //! - `IVAR_SESSION_ID` — this session's id.
 //! - `IVAR_SESSION_PATH` — the view dir.
 //!
-//! `ARCHITECTURE.md` lists both in the environment contract. This is the file
+//! `docs/architecture/environment-contract.md` lists both in the environment contract. This is the file
 //! that makes that true for a script.
 
 use crate::action::worktree_env;

@@ -1,5 +1,5 @@
 //! Pure projection of a snapshot into a `Buffer` — the referentially
-//! transparent heart of the TUI (ARCHITECTURE.md, seam 6).
+//! transparent heart of the TUI (docs/architecture/seams.md, seam 6).
 //!
 //! This module never awaits, never opens anything, never reads the clock.
 //! It takes a [`Snapshot`] and a [`Rect`] and returns a `Buffer`; two

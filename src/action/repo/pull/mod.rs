@@ -222,7 +222,7 @@ fn write_divergence(
 /// A repo whose fetch fails becomes `Failed` and a [`Warning`], one whose
 /// default branch cannot fast-forward becomes `Skipped` and a [`Warning`],
 /// and the rest still refresh — the best-effort discipline from
-/// ARCHITECTURE.md, applied the way `sync` applies it.
+/// docs/architecture/seams.md, applied the way `sync` applies it.
 pub fn pull(ctx: &Ctx, input: &PullInput) -> Outcome<PullOutcome> {
     let layout = discover_hall(ctx)?;
     let manifest = read_manifest(&layout)?;

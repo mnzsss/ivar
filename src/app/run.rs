@@ -1,7 +1,7 @@
 //! CLI dispatch: turns a parsed [`Cli`] into an exit code by matching
 //! `cli.command`, converting each variant's args into its action's `Input`,
 //! and rendering the outcome. Dispatch lives here so the binary stays a
-//! thin `main` — see ARCHITECTURE.md's module map.
+//! thin `main` — see docs/architecture/module-map.md.
 
 use std::io::{self, Read as _, Write};
 use std::process::ExitCode;

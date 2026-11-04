@@ -130,7 +130,7 @@ pub(crate) fn blocked(feature: &FeatureName, blockers: &[String]) -> Failure {
 /// Delivering a feature whose plan gate is not approved, refused.
 ///
 /// `ivar` has no persisted lifecycle field; this *is* the lifecycle, read from
-/// the artifact a human crossed. See ARCHITECTURE.md, seam 7.
+/// the artifact a human crossed. See docs/architecture/seams.md, seam 7.
 pub(crate) fn plan_not_approved(
     feature: &FeatureName,
     state: GateState,

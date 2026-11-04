@@ -1,6 +1,6 @@
 //! One function per leaf command — the unit of behaviour.
 //!
-//! See ARCHITECTURE.md, "1. `action` is the unit, and it has one output
+//! See docs/architecture/seams.md, "1. `action` is the unit, and it has one output
 //! shape": every verb is shaped
 //!
 //! ```text
@@ -205,7 +205,7 @@ pub(crate) fn discover_hall(ctx: &Ctx) -> Result<Layout, Failure> {
 }
 
 /// The `IVAR_*` environment core every worktree-scoped command shares: the
-/// five variables ARCHITECTURE.md's "Environment contract" table checks in
+/// five variables docs/architecture/environment-contract.md's "Environment contract" table checks in
 /// both the setup-script and session-hook columns.
 ///
 /// `sync`, `feature promote`, and the session hook each add their own

@@ -95,7 +95,7 @@
 //! `ivar-*` prefix, so a user's own commands remain committable.
 //!
 //! `docs/reference/on-disk-format.md` marks *two* children of `.ivar/` committed —
-//! `skills/` and `setups/` — and `ARCHITECTURE.md`'s environment-contract section
+//! `skills/` and `setups/` — and `docs/architecture/environment-contract.md`
 //! independently calls `.ivar/setups/<repo>.sh` "committed" in its own words. The
 //! "two traps" callout earlier in that same document names only `skills/` in its
 //! `.gitignore` example, which undercounts by one line against its own later

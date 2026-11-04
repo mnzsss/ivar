@@ -39,7 +39,7 @@
 //! 3. Every remaining regular file contributes one line:
 //!    `"<path-relative-to-root>:<sha256-hex-of-the-files-bytes>"`. The relative
 //!    path uses `/` separators (this crate does not ship for Windows; see
-//!    `ARCHITECTURE.md`), matching Node's `path.relative` on POSIX.
+//!    `docs/architecture/build-order.md`), matching Node's `path.relative` on POSIX.
 //! 4. The lines are sorted lexicographically by their relative path (the
 //!    TypeScript side sorts the file list before mapping it to lines) and joined
 //!    with `"\n"` — no trailing newline before hashing.

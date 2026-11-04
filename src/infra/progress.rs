@@ -13,7 +13,7 @@
 //!
 //! # Why this is not a `println!`
 //!
-//! ARCHITECTURE.md's first rule is that an action returns data and never
+//! docs/architecture/seams.md's first rule is that an action returns data and never
 //! prints — one code path computes what to show, so `--json` and the human
 //! surface cannot drift. A progress line is not part of the outcome: it is
 //! *ephemeral*, it never appears in `--json`, and it is gone by the time the
