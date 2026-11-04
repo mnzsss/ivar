@@ -8,6 +8,7 @@ use serde::Serialize;
 
 use crate::action::Ctx;
 use crate::action::feature::delete;
+use crate::action::memory::delivery::Emitter;
 use crate::action::session::lookup as session_lookup;
 use crate::domain::delivery_event::{DeliveryEvent, DeliveryScope, ObservedBy};
 use crate::domain::feature::{
@@ -20,6 +21,7 @@ use crate::domain::name::{FeatureName, RepoName, SessionId};
 use crate::error::{Failure, FixAction, Outcome, Report, Warning, WriteHuman};
 use crate::git::{self, Git, TargetState, WorktreeEntry};
 use crate::infra::{fs, hash, json};
+use crate::store::layout::Layout;
 
 use super::super::{discover_hall, read_manifest};
 use super::pull_requests::{self, PullRequest};
@@ -114,23 +116,30 @@ impl WriteHuman for CleanupOutcome {
 }
 
 pub fn cleanup(ctx: &Ctx, input: CleanupInput) -> Outcome<CleanupOutcome> {
-    if !input.preview {
+    let apply_record = if input.preview {
+        None
+    } else {
         let Some(record_path) = &input.record else {
             return Err(Failure::blocked(
                 "feature.cleanup_record_required",
                 "cleanup apply requires `--record <path>`",
             ));
         };
+        Some(record_path)
+    };
 
+    let layout = discover_hall(ctx)?;
+    let emitter = ctx.emitter(&layout);
+    if let Some(record_path) = apply_record {
         return apply_cleanup(
-            ctx,
+            &layout,
+            &emitter,
             &input.feature,
             record_path,
             input.session_id.as_deref(),
         );
     }
 
-    let layout = discover_hall(ctx)?;
     let manifest = read_manifest(&layout)?;
     let name = FeatureName::new(input.feature)?;
     let feature = Feature::read(&layout, &name)?.ok_or_else(|| {
@@ -147,7 +156,7 @@ pub fn cleanup(ctx: &Ctx, input: CleanupInput) -> Outcome<CleanupOutcome> {
         &feature,
         input.session_id.as_deref(),
     )?;
-    emit_merged(ctx, &layout, &feature, &previewed.merged);
+    emit_merged(&emitter, &feature, &previewed.merged);
 
     Ok(Report::new(CleanupOutcome {
         root: layout.root().to_path_buf(),
@@ -156,13 +165,7 @@ pub fn cleanup(ctx: &Ctx, input: CleanupInput) -> Outcome<CleanupOutcome> {
     }))
 }
 
-fn emit_merged(
-    ctx: &Ctx,
-    layout: &crate::store::layout::Layout,
-    feature: &Feature,
-    merged: &[(RepoName, PullRequest)],
-) {
-    let emitter = ctx.emitter(layout);
+fn emit_merged(emitter: &Emitter<'_>, feature: &Feature, merged: &[(RepoName, PullRequest)]) {
     for (repo, pr) in merged {
         emitter.emit(
             DeliveryScope::for_repo(
@@ -176,15 +179,13 @@ fn emit_merged(
 }
 
 fn emit_cleaned(
-    ctx: &Ctx,
-    layout: &crate::store::layout::Layout,
+    emitter: &Emitter<'_>,
     feature: &Feature,
     record_path: &Utf8Path,
     docs: &str,
     outcome: &CleanupApplyOutcome,
     descendants: &[(Feature, WorktreeLookups)],
 ) {
-    let emitter = ctx.emitter(layout);
     let cleaned = || DeliveryEvent::Cleaned {
         record_path: record_path.to_string(),
         docs: docs.to_owned(),
@@ -202,17 +203,17 @@ fn emit_cleaned(
 }
 
 fn apply_cleanup(
-    ctx: &Ctx,
+    layout: &Layout,
+    emitter: &Emitter<'_>,
     feature_arg: &str,
     record_path: &Utf8Path,
     own_session: Option<&str>,
 ) -> Result<Report<CleanupOutcome>, Failure> {
-    let layout = discover_hall(ctx)?;
-    let record = load_and_validate_record(record_path, &layout)?;
+    let record = load_and_validate_record(record_path, layout)?;
 
-    let manifest = read_manifest(&layout)?;
+    let manifest = read_manifest(layout)?;
     let name = FeatureName::new(feature_arg.to_owned())?;
-    let feature = Feature::read(&layout, &name)?.ok_or_else(|| {
+    let feature = Feature::read(layout, &name)?.ok_or_else(|| {
         Failure::blocked(
             "feature.not_found",
             format!("feature `{name}` does not exist"),
@@ -225,14 +226,14 @@ fn apply_cleanup(
         worktrees,
         descendants,
         merged,
-    } = preview_cleanup(&git, &layout, &manifest, &feature, own_session)?;
-    emit_merged(ctx, &layout, &feature, &merged);
+    } = preview_cleanup(&git, layout, &manifest, &feature, own_session)?;
+    emit_merged(emitter, &feature, &merged);
 
     validate_record_against_preview(&record, &preview, forge_consulted)?;
-    preflight_deletable(&layout, &feature, &descendants)?;
+    preflight_deletable(layout, &feature, &descendants)?;
 
     let (descendant_outcomes, mut warnings, all_descendants_removed) =
-        teardown_descendants(&layout, &git, &descendants)?;
+        teardown_descendants(layout, &git, &descendants)?;
     if !all_descendants_removed {
         let apply_outcome = CleanupApplyOutcome {
             feature: feature.name.clone(),
@@ -254,9 +255,9 @@ fn apply_cleanup(
     }
 
     let (worktree_removals, root_warnings, all_worktrees_removed) =
-        teardown_worktrees(&layout, &git, &feature, &worktrees)?;
+        teardown_worktrees(layout, &git, &feature, &worktrees)?;
     let (branch_deletions, branch_warnings, all_branches_deleted) =
-        teardown_branches(&layout, &git, &feature, &worktree_removals);
+        teardown_branches(layout, &git, &feature, &worktree_removals);
     warnings.extend(root_warnings);
     warnings.extend(branch_warnings);
 
@@ -282,7 +283,7 @@ fn apply_cleanup(
     }
 
     // Complete success: remove feature directory, then update durable record outcome
-    if let Some(warning) = remove_node_dir(&layout, &feature.name)? {
+    if let Some(warning) = remove_node_dir(layout, &feature.name)? {
         warnings.push(warning);
     }
 
@@ -297,11 +298,10 @@ fn apply_cleanup(
     };
 
     let docs = record.approvals.documentation.decision.to_string();
-    write_record_outcome(&layout, record, record_path, &apply_outcome)?;
+    write_record_outcome(layout, record, record_path, &apply_outcome)?;
 
     emit_cleaned(
-        ctx,
-        &layout,
+        emitter,
         &feature,
         record_path,
         &docs,
