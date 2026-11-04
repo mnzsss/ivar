@@ -29,6 +29,26 @@ fn the_contract_page_points_at_its_split_sections() {
     assert!(DATABASES.contains("\n## Graph database"));
 }
 
+#[test]
+fn what_lives_where_names_both_hall_databases_and_their_locks() {
+    let layout = crate::store::layout::Layout::at(camino::Utf8PathBuf::from("/hall"));
+    for path in [
+        layout.graph_db(),
+        layout.graph_lock(),
+        layout.memory_db(),
+        layout.memory_lock(),
+    ] {
+        let relative = path.strip_prefix("/hall").unwrap();
+        assert!(
+            DOC.contains(&format!("\n  {relative} ")),
+            "on-disk-format.md `What lives where` does not list `{relative}`"
+        );
+    }
+    assert!(DATABASES.contains("\n## Graph database (`.ivar/graph.db`)\n"));
+    assert!(DATABASES.contains("\n## Memory database (`.ivar/memory.db`)\n"));
+    assert!(!DATABASES.contains("SQLite at `.ivar/memory.db`"));
+}
+
 /// The rows of the "Current versions" table, keyed by the file cell's text
 /// with its backticks removed.
 fn documented_versions() -> BTreeMap<String, u32> {

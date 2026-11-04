@@ -305,7 +305,7 @@ pub struct UsageEvent {
     pub query: Option<String>,
 }
 
-/// Longest query, pattern or reason text kept in `memory.db`, so a pasted
+/// Longest query, pattern or reason text kept in `graph.db`, so a pasted
 /// blob can never bloat it.
 pub const MAX_STORED_TEXT_LEN: usize = 500;
 

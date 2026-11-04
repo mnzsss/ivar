@@ -37,7 +37,10 @@ half-understood state file is worse than no state file.
   .ivar/agents/state/<agent>/<tool>/ local   a host agent's private copy of the tool's login, mode 700
   .ivar/secrets/agents.env      local        agent secrets, NAME=value, mode 600
   .ivar/secrets/                local        secret material (hand-maintained files, plus mcp.env)
-  .ivar/memory.db               local        codebase dependency graph and text FTS index
+  .ivar/graph.db                local        codebase dependency graph and text FTS index (derived)
+  .ivar/graph.lock              local        graph index writer lock
+  .ivar/memory.db               local        hall memory (primary data; only `ivar memory clean` deletes it)
+  .ivar/memory.lock             local        memory database writer lock
   .ivar/graph-watch.lock        local        graph watcher leader lease (pid)
   .ivar/repos/                  local        bare clones and worktrees
   .ivar/features/               local        promotion records, Run Receipts, working docs

@@ -163,7 +163,7 @@ the returned rows. `--json` prints a bare array of misses, newest first, not the
 Misses and usage rows are kept for 30 days, so `ivar graph stats` reports a 30-day window; `ivar graph misses`,
 `ivar graph stats`, and the MCP server at startup prune older rows.
 
-**`ivar doctor` reports graph findings by code.** Graph findings and their fixes:
+**`ivar doctor` reports graph and memory database findings by code.** Findings and their fixes:
 
 | Code | Meaning | Fix |
 | --- | --- | --- |
@@ -174,6 +174,13 @@ Misses and usage rows are kept for 30 days, so `ivar graph stats` reports a 30-d
 | `graph.repo_stale` | a repo indexed behind its worktree HEAD | `ivar graph index --repo <name>` |
 | `graph.hall_paths_unset` | the hall has `docs`, `brand` or `.ivar/skills` with files and `graph.paths` is empty | `ivar graph index --path <dir>` lists the directory in `graph.paths` and indexes it |
 | `graph.schema_mismatch` | database schema older or newer than the binary | `ivar graph index` or `ivar upgrade` |
+| `graph.db_missing` | the graph MCP server is registered but `.ivar/graph.db` is gone | `ivar graph index` |
+| `memory.db_missing` | `.ivar/graph.db` exists without `.ivar/memory.db` | `ivar memory status` creates it |
+| `memory.db_corrupt` | `.ivar/memory.db` fails to open, fails `quick_check`, or carries another `application_id` | `ivar memory clean`, then `ivar memory status` |
+| `memory.schema_newer` | memory schema newer than the binary | `ivar upgrade` |
+| `memory.db_polluted` | an older `ivar` created graph tables inside `.ivar/memory.db` | stop the older `ivar`, then `ivar memory status` repairs it |
+| `memory.split_busy` | a legacy graph at `.ivar/memory.db` is open in another process, so it was not moved | stop sessions and MCP servers of an older `ivar`, then `ivar doctor` |
+| `memory.split_failed` | moving the legacy graph failed for another reason | check `.ivar/` permissions and free space, then `ivar doctor` |
 
 **`ivar session start` is the one verb that takes over your terminal.** It opens
 a TUI. Everything else prints and exits.
