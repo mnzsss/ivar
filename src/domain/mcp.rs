@@ -413,7 +413,7 @@ impl McpOauth {
 /// A curated, known remote MCP server that can be added by name.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct McpPreset {
-    /// The server's canonical preset name (e.g. `figma`, `linear`).
+    /// The server's canonical preset name (e.g. `figma`, `linear`, `slack`).
     pub name: &'static str,
     /// The canonical remote HTTP endpoint URL.
     pub url: &'static str,
@@ -428,6 +428,10 @@ pub const MCP_PRESETS: &[McpPreset] = &[
     McpPreset {
         name: "linear",
         url: "https://mcp.linear.app/mcp",
+    },
+    McpPreset {
+        name: "slack",
+        url: "https://mcp.slack.com/mcp",
     },
 ];
 

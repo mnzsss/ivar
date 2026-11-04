@@ -213,6 +213,49 @@ fn claude_code_never_emits_the_oauth_block() {
 }
 
 #[test]
+fn claude_code_and_t3_authenticate_slack_through_claudes_partner_app() {
+    for provider in [Provider::ClaudeCode, Provider::T3] {
+        let (_guard, dir) = utf8_temp_dir();
+        let path = dir.join(".mcp.json");
+        let servers = vec![McpServerDef::new("slack", "http").url("https://mcp.slack.com/mcp")];
+
+        materialise_mcp(&path, provider, &servers, &hall()).unwrap();
+
+        let expected = json::to_canonical_string(&serde_json::json!({
+            "mcpServers": {
+                "acme-slack": {
+                    "type": "http",
+                    "url": "https://mcp.slack.com/mcp",
+                    "oauth": {
+                        "clientId": "1601185624273.8899143856786",
+                        "callbackPort": 3118,
+                    },
+                }
+            }
+        }))
+        .unwrap();
+        assert_eq!(
+            fs::read_text(&path).unwrap().unwrap(),
+            expected,
+            "{provider}"
+        );
+    }
+}
+
+#[test]
+fn claude_code_leaves_a_host_that_only_starts_like_slack_alone() {
+    let (_guard, dir) = utf8_temp_dir();
+    let path = dir.join(".mcp.json");
+    let servers =
+        vec![McpServerDef::new("fake", "http").url("https://mcp.slack.com.evil.example/mcp")];
+
+    materialise_mcp(&path, Provider::ClaudeCode, &servers, &hall()).unwrap();
+
+    let on_disk = fs::read_text(&path).unwrap().unwrap();
+    assert!(!on_disk.contains("oauth"), "{on_disk}");
+}
+
+#[test]
 fn opencode_spells_a_remote_definition_with_type_remote_and_a_url() {
     let (_guard, dir) = utf8_temp_dir();
     let path = dir.join("opencode.json");

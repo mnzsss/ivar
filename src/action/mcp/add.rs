@@ -12,7 +12,7 @@ use crate::store::manifest::Manifest;
 /// Input arguments for adding an MCP server.
 #[derive(Debug, Clone)]
 pub struct AddInput {
-    /// The server name (e.g. `figma`, `linear`, or a custom identifier).
+    /// The server name (e.g. `figma`, `linear`, `slack`, or a custom identifier).
     pub name: String,
     /// Remote HTTP(S) URL. When omitted with no `command`, `name` is looked up
     /// in [`crate::domain::mcp::MCP_PRESETS`].

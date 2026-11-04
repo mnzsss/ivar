@@ -8,11 +8,11 @@ Authenticate the hall's declared MCP servers
 
 ## `ivar mcp add`
 
-Declare an MCP server in `ivar.json` — HTTP (`--url`, or a known name: `figma`, `linear`) or stdio (`--command`, its arguments after `--`) — and write it into every provider's MCP config. Adding a server already declared the same way changes nothing; the same name with a different definition is refused rather than overwritten. Prints the command to run next
+Declare an MCP server in `ivar.json` — HTTP (`--url`, or a known name: `figma`, `linear`, `slack`) or stdio (`--command`, its arguments after `--`) — and write it into every provider's MCP config. Adding a server already declared the same way changes nothing; the same name with a different definition is refused rather than overwritten. Prints the command to run next
 
 | argument | required | description |
 | --- | --- | --- |
-| `name` | yes | The server's name in `ivar.json`'s `mcp` array. A known name (`figma`, `linear`) fills in the URL |
+| `name` | yes | The server's name in `ivar.json`'s `mcp` array. A known name (`figma`, `linear`, `slack`) fills in the URL |
 | `args` | no | Arguments for `--command`, after `--` |
 
 | flag | value | default | description |

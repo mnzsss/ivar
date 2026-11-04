@@ -11,7 +11,8 @@ use crate::action::mcp::status as mcp_status;
 #[derive(Debug, Subcommand)]
 pub enum McpCommand {
     /// Declare an MCP server in `ivar.json` — HTTP (`--url`, or a known name:
-    /// `figma`, `linear`) or stdio (`--command`, its arguments after `--`) — and
+    /// `figma`, `linear`,
+    /// `slack`) or stdio (`--command`, its arguments after `--`) — and
     /// write it into every provider's MCP config. Adding a server already
     /// declared the same way changes nothing; the same name with a different
     /// definition is refused rather than overwritten. Prints the command to run
@@ -51,7 +52,7 @@ pub enum McpCommand {
 #[derive(Debug, Args)]
 pub struct McpAddArgs {
     /// The server's name in `ivar.json`'s `mcp` array. A known name (`figma`,
-    /// `linear`) fills in the URL.
+    /// `linear`, `slack`) fills in the URL.
     pub name: String,
     /// The server's HTTP URL. Required for names ivar does not know, unless
     /// `--command` declares a stdio server instead.

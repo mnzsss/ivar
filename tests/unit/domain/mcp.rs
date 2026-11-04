@@ -336,11 +336,14 @@ fn mcp_preset_resolves_known_presets() {
     let linear = mcp_preset("linear").expect("linear preset must exist");
     assert_eq!(linear.name, "linear");
     assert_eq!(linear.url, "https://mcp.linear.app/mcp");
+
+    let slack = mcp_preset("slack").expect("slack preset must exist");
+    assert_eq!(slack.url, "https://mcp.slack.com/mcp");
 }
 
 #[test]
 fn mcp_preset_returns_none_for_unknown_preset() {
-    assert!(mcp_preset("slack").is_none());
+    assert!(mcp_preset("discord").is_none());
     assert!(mcp_preset("").is_none());
 }
 
