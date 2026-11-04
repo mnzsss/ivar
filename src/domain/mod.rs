@@ -19,6 +19,7 @@ pub mod guard;
 pub mod health;
 pub mod mcp;
 pub mod name;
+pub mod observation;
 pub mod plan;
 pub mod plan_commands;
 pub mod provider;
