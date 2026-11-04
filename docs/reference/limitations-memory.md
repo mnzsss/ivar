@@ -45,8 +45,11 @@ provider that changes its payload shape is caught by `ivar doctor`
 
 ## Retention
 
-Nothing deletes observations yet. The `observations` table only grows until
-the retention sweep ships; `ivar memory clean` deletes the whole database.
+The leader of `ivar graph mcp` deletes `session.*` observations of sessions whose last
+observation is older than 30 days, once at start and then every hour. A hall without a
+running leader never sweeps, `ivar doctor` reports `memory.retention_overdue` after
+37 days, and a broken graph database stops the loop. `delivery.*` observations are kept;
+`ivar memory clean` deletes the whole database.
 
 ## Older `ivar`
 

@@ -47,10 +47,11 @@
 //! and the next repo is tried. The report carries one status per repo:
 //! `rebased`, `skipped`, or `conflicted`.
 
+use crate::domain::delivery_event::{DeliveryEvent, DeliveryScope};
 use crate::domain::feature::Feature;
 use crate::domain::name::{BranchName, FeatureName, RepoName};
 use crate::error::{Failure, FixAction, Outcome, Report};
-use crate::git;
+use crate::git::{self, Git};
 
 use super::super::{discover_hall, read_manifest};
 use crate::action::Ctx;
@@ -70,6 +71,7 @@ pub fn rebase(ctx: &Ctx, input: RebaseInput) -> Outcome<RebaseOutcome> {
     let layout = discover_hall(ctx)?;
     let manifest = read_manifest(&layout)?;
     let git = git::System;
+    let emitter = ctx.emitter(&layout);
 
     let name = FeatureName::new(input.name)?;
     let feature = Feature::read(&layout, &name)?.ok_or_else(|| {
@@ -108,6 +110,8 @@ pub fn rebase(ctx: &Ctx, input: RebaseInput) -> Outcome<RebaseOutcome> {
         let Some(promotion) = feature.promotions.get(repo_name) else {
             continue;
         };
+        let worktree = layout.repo_worktree(repo_name, &feature.branch);
+        let sha_before = git.head_commit(&worktree).ok();
         let (result, repo_warnings, did_collapse) = rebase_one_repo(
             &git,
             &layout,
@@ -118,6 +122,29 @@ pub fn rebase(ctx: &Ctx, input: RebaseInput) -> Outcome<RebaseOutcome> {
             onto.as_ref(),
             input.offline,
         )?;
+        if matches!(
+            result.status,
+            RebaseStatus::Rebased | RebaseStatus::Conflicted
+        ) {
+            let sha_after = git.head_commit(&worktree).ok();
+            emitter.emit(
+                DeliveryScope::for_repo(
+                    &feature,
+                    repo_name.as_str(),
+                    sha_after.as_deref().unwrap_or_default(),
+                ),
+                DeliveryEvent::Rebased {
+                    conflicted: result.status == RebaseStatus::Conflicted,
+                    onto: result.onto.as_ref().map(ToString::to_string),
+                    base_source: result.base_source.map(|source| match source {
+                        BaseSource::Remote => "remote".to_owned(),
+                        BaseSource::Local => "local".to_owned(),
+                    }),
+                    sha_before,
+                    sha_after,
+                },
+            );
+        }
         repos.push(result);
         warnings.extend(repo_warnings);
         if did_collapse {
@@ -195,3 +222,7 @@ fn select_repos(feature: &Feature, requested: &[String]) -> Result<Vec<RepoName>
 #[cfg(test)]
 #[path = "../../../../tests/unit/action/feature/rebase.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "../../../../tests/unit/action/feature/rebase_events.rs"]
+mod events_tests;

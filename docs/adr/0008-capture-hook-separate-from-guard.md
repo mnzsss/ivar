@@ -67,4 +67,5 @@ manifest version. `ivar sync` installs or removes the hooks to match it.
 - An `ivar` older than the `memory` key rejects `ivar.json`.
 - A provider that does not expose an event records none for it; see
   [limitations of session capture](../reference/limitations-memory.md).
-- Observations are never deleted until the retention sweep ships.
+- Session observations are deleted 30 days after the session's last observation; see
+  [ADR 0009](0009-delivery-events-through-the-spool.md).

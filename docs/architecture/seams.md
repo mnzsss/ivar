@@ -23,7 +23,9 @@ before the outcome is rendered), it never appears under `--json`, and it
 defaults to `Silent` — which is what every test sees, so an action is still
 observed only through what it returns. A verb that costs a network round trip
 per repo (`repo pull` and the Smart Fetch inside `session start`) says which one
-it is on; nothing else does.
+it is on; nothing else does. Delivery events are the second non-outcome output: they go
+through a delivery event sink carried on `Ctx`, `Silent` by default, and never print into
+the outcome.
 
 `Report<T>` carries `Vec<Warning>` alongside the value. A verb crossing eight
 repos where one has uncommitted changes returns seven successes and one warning —

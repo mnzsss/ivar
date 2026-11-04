@@ -1,0 +1,87 @@
+//! Retention of `session.*` observations. A session is kept or deleted whole,
+//! judged by its newest observation; every other event name is never touched.
+
+use std::path::Path;
+
+use rusqlite::{Connection, OpenFlags};
+
+use super::db::MemoryDb;
+use crate::domain::session::rfc3339_from_epoch_secs;
+
+pub const SESSION_EVENTS: [&str; 4] = [
+    "session.started",
+    "session.prompted",
+    "session.tool",
+    "session.ended",
+];
+pub const SESSION_RETENTION_DAYS: u64 = 30;
+
+fn session_events_in_list() -> String {
+    SESSION_EVENTS
+        .iter()
+        .map(|name| format!("'{name}'"))
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+fn delete_batch_sql() -> String {
+    let events = session_events_in_list();
+    format!(
+        "DELETE FROM observations WHERE id IN (
+    SELECT id FROM observations
+    WHERE source_event IN ({events})
+      AND (session_id, native_session_id) IN (
+          SELECT session_id, native_session_id FROM observations
+          WHERE source_event IN ({events})
+          GROUP BY session_id, native_session_id
+          HAVING max(occurred_at) < ?1)
+    LIMIT ?2)"
+    )
+}
+
+fn oldest_session_sql() -> String {
+    let events = session_events_in_list();
+    format!(
+        "SELECT min(last) FROM (
+    SELECT max(occurred_at) AS last FROM observations
+    WHERE source_event IN ({events})
+    GROUP BY session_id, native_session_id)"
+    )
+}
+
+/// The `occurred_at` text that separates rows older than `days` from newer
+/// ones at `now_epoch_secs`.
+#[must_use]
+pub fn cutoff_before(now_epoch_secs: u64, days: u64) -> String {
+    rfc3339_from_epoch_secs(now_epoch_secs.saturating_sub(days * 86_400) as f64)
+}
+
+/// Deletes up to `batch` rows of sessions whose newest observation is older
+/// than `cutoff`. `occurred_at` is compared as text, which is only correct
+/// because every writer uses the fixed-width form of `rfc3339_from_epoch_secs`.
+///
+/// # Errors
+///
+/// When `SQLite` fails.
+pub fn delete_expired_sessions(
+    db: &mut MemoryDb,
+    cutoff: &str,
+    batch: usize,
+) -> rusqlite::Result<usize> {
+    db.conn()
+        .execute(&delete_batch_sql(), rusqlite::params![cutoff, batch])
+}
+
+#[must_use]
+pub fn oldest_session_last_observation(path: &Path) -> Option<String> {
+    let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY).ok()?;
+    conn.query_row(&oldest_session_sql(), [], |row| {
+        row.get::<_, Option<String>>(0)
+    })
+    .ok()
+    .flatten()
+}
+
+#[cfg(test)]
+#[path = "../../../tests/unit/store/memory/retention.rs"]
+mod tests;

@@ -4,17 +4,23 @@
 use std::time::{Duration, SystemTime};
 
 use crate::action::memory::drain::{DrainState, read_state};
+use crate::action::memory::sweep::read_state as read_sweep_state;
 use crate::domain::provider::Provider;
 use crate::infra::fs;
 use crate::providers;
 use crate::store::layout::Layout;
 use crate::store::manifest::Manifest;
+use crate::store::memory::retention::{
+    SESSION_RETENTION_DAYS, cutoff_before, oldest_session_last_observation,
+};
 use crate::store::memory::spool;
 
 use super::Diagnosis;
 
 const ORPHAN_AFTER: Duration = Duration::from_secs(3600);
 const DROP_REPORTED_FOR: Duration = Duration::from_secs(7 * 24 * 3600);
+const RETENTION_GRACE_DAYS: u64 = 7;
+const RETENTION_OVERDUE_AFTER_DAYS: u64 = SESSION_RETENTION_DAYS + RETENTION_GRACE_DAYS;
 
 pub(super) fn memory_capture_diagnoses(layout: &Layout, manifest: &Manifest) -> Vec<Diagnosis> {
     let mut findings = spool_diagnoses(layout);
@@ -70,7 +76,32 @@ fn spool_diagnoses(layout: &Layout) -> Vec<Diagnosis> {
             fix: "Run `ivar memory status`; if the error repeats, read the database findings of `ivar doctor`.".to_owned(),
         });
     }
+    if let Some(error) = read_sweep_state(layout).last_error {
+        findings.push(Diagnosis {
+            code: "memory.sweep_failed",
+            what: format!("the last retention sweep failed: {error}"),
+            fix: "Run `ivar memory status`; if the error repeats, read the database findings of `ivar doctor`.".to_owned(),
+        });
+    }
+    if oldest_session_is_overdue(layout) {
+        findings.push(Diagnosis {
+            code: "memory.retention_overdue",
+            what: format!("session observations older than {RETENTION_OVERDUE_AFTER_DAYS} days are still stored"),
+            fix: "Keep `ivar graph mcp` running; its leader deletes expired session observations hourly.".to_owned(),
+        });
+    }
     findings
+}
+
+fn oldest_session_is_overdue(layout: &Layout) -> bool {
+    let Some(oldest) = oldest_session_last_observation(layout.memory_db().as_std_path()) else {
+        return false;
+    };
+    let now = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    oldest < cutoff_before(now, RETENTION_OVERDUE_AFTER_DAYS)
 }
 
 fn acknowledged_drop_diagnosis(state: &DrainState) -> Option<Diagnosis> {

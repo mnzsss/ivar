@@ -126,3 +126,8 @@ fn another_session_whose_key_shares_a_prefix_does_not_count_toward_the_cap() {
 
     assert_eq!(append_line(&dir, &key, "fits").unwrap(), Appended::Written);
 }
+
+#[test]
+fn the_delivery_key_is_a_fixed_file_name() {
+    assert_eq!(SpoolKey::delivery().as_str(), "delivery");
+}

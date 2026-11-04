@@ -524,3 +524,40 @@ fn observation_line(event_id: &str) -> String {
         })
     )
 }
+
+#[test]
+fn the_leader_loop_sweeps_expired_sessions_once_it_starts() {
+    let (_guard, root) = crate::test_support::seeded_hall();
+    let layout = Layout::at(root);
+    {
+        let db =
+            crate::store::memory::db::MemoryDb::open(layout.memory_db().as_std_path()).unwrap();
+        db.conn()
+            .execute(
+                "INSERT INTO observations (event_id, source_event, occurred_at, session_id,
+                    native_session_id, provider, ivar_version, importance, body)
+                 VALUES ('old', 'session.tool', '2020-01-01T00:00:00.000000000Z', 's', 'n', 'omp', '0', 1, '{}')",
+                [],
+            )
+            .unwrap();
+    }
+    let _worker = Worker::spawn(
+        layout.clone(),
+        layout.graph_db(),
+        Box::new(|_, _| Vec::new()),
+    )
+    .unwrap();
+
+    wait_for("the leader to sweep the expired session", || {
+        crate::store::memory::db::MemoryDb::open(layout.memory_db().as_std_path())
+            .ok()
+            .and_then(|db| {
+                db.conn()
+                    .query_row("SELECT count(*) FROM observations", [], |r| {
+                        r.get::<_, i64>(0)
+                    })
+                    .ok()
+            })
+            .is_some_and(|rows| rows == 0)
+    });
+}

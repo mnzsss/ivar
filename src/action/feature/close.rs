@@ -26,6 +26,8 @@ use std::io;
 use camino::Utf8PathBuf;
 use serde::Serialize;
 
+use crate::action::memory::delivery::Emitter;
+use crate::domain::delivery_event::{DeliveryEvent, DeliveryScope};
 use crate::domain::feature::{Feature, PromotionOutcome, RunReceipt};
 use crate::domain::name::FeatureName;
 use crate::error::{Failure, FixAction, Outcome, Report, WriteHuman};
@@ -86,6 +88,16 @@ impl WriteHuman for CloseOutcome {
 /// way out before anything is touched. Already-closed features are a no-op
 /// report that never overwrites the recorded outcome.
 pub fn close(ctx: &Ctx, input: CloseInput) -> Outcome<CloseOutcome> {
+    close_in(ctx, input, None)
+}
+
+/// [`close`] recording its `closed` event through `emitter` when given, so a
+/// caller that already holds an attempt keeps a single `attempt_id`.
+pub(crate) fn close_in(
+    ctx: &Ctx,
+    input: CloseInput,
+    emitter: Option<&Emitter<'_>>,
+) -> Outcome<CloseOutcome> {
     let layout = discover_hall(ctx)?;
     let name = FeatureName::new(input.name)?;
     let outcome = PromotionOutcome::parse(&input.outcome)?;
@@ -180,6 +192,21 @@ pub fn close(ctx: &Ctx, input: CloseInput) -> Outcome<CloseOutcome> {
 
     // Record the outcome, keeping the plan body byte-for-byte.
     let record = write_close(&layout, &name, outcome)?;
+
+    let own;
+    let emitter = match emitter {
+        Some(given) => given,
+        None => {
+            own = ctx.emitter(&layout);
+            &own
+        }
+    };
+    emitter.emit(
+        DeliveryScope::for_feature(&feature),
+        DeliveryEvent::Closed {
+            outcome: outcome.to_string(),
+        },
+    );
 
     Ok(Report::new(CloseOutcome {
         root: layout.root().to_path_buf(),

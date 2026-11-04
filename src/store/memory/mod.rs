@@ -3,6 +3,7 @@
 
 pub mod db;
 pub mod observations;
+pub mod retention;
 pub mod schema;
 pub mod split;
 pub mod spool;

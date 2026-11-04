@@ -47,6 +47,7 @@ use crate::infra::proc;
 use crate::infra::progress::{self, Progress};
 
 use self::confirm::Confirm;
+use self::memory::delivery::{self, DeliverySink, Emitter};
 
 /// The interpreter a setup script or session hook runs under.
 ///
@@ -104,6 +105,7 @@ pub struct Ctx {
     /// The feature of the session this run belongs to, which a
     /// single-feature verb falls back to when its argument is omitted.
     session_feature: Option<String>,
+    delivery_events: Arc<dyn DeliverySink>,
 }
 
 impl Ctx {
@@ -117,6 +119,7 @@ impl Ctx {
             confirm: confirm::reporter(false),
             tarball_fetcher: crate::infra::github::fetch_tarball,
             session_feature: None,
+            delivery_events: Arc::new(delivery::Silent),
         }
     }
 
@@ -150,6 +153,17 @@ impl Ctx {
     pub fn with_confirm(mut self, confirm: Arc<dyn Confirm>) -> Self {
         self.confirm = confirm;
         self
+    }
+
+    /// The same context, recording delivery milestones through `sink`.
+    #[must_use]
+    pub fn with_delivery_events(mut self, sink: Arc<dyn DeliverySink>) -> Self {
+        self.delivery_events = sink;
+        self
+    }
+
+    pub(crate) fn emitter<'a>(&'a self, layout: &'a Layout) -> Emitter<'a> {
+        Emitter::new(self.delivery_events.as_ref(), layout)
     }
 
     /// The same context, downloading tarballs through `fetch`.

@@ -10,6 +10,7 @@ use super::*;
 mod apply;
 mod attribution;
 mod draft;
+mod events;
 pub(super) mod fixture;
 mod land;
 mod metadata;

@@ -3,8 +3,9 @@
 //! and rendering the outcome. Dispatch lives here so the binary stays a
 //! thin `main` — see docs/architecture/module-map.md.
 
-use std::io::{self, Read as _, Write};
+use std::io::{self, Write};
 use std::process::ExitCode;
+use std::sync::Arc;
 
 use clap::{CommandFactory as _, FromArgMatches as _};
 
@@ -17,7 +18,7 @@ use crate::action::mcp::auth as mcp_auth;
 use crate::action::mcp::edit as mcp_edit;
 use crate::action::mcp::remove as mcp_remove;
 use crate::action::mcp::status as mcp_status;
-use crate::action::memory::capture::CaptureEnv;
+use crate::action::memory::delivery::SpoolSink;
 use crate::action::provider::{
     add as provider_add, default as provider_default, list as provider_list,
     remove as provider_remove,
@@ -31,12 +32,12 @@ use crate::action::session::guard_cmd as session_guard_cmd;
 use crate::action::sync;
 use crate::action::upgrade::Notice;
 use crate::action::upgrade::command as upgrade_cmd;
+use crate::app::capture::{capture_event, is_capture_invocation, lenient_provider};
 use crate::app::respond::{current_dir, respond, respond_failure};
 use crate::cli::MemoryCommand;
 use crate::cli::root::{
     Cli, Command, CommentCommand, McpCommand, ProviderCommand, RepoCommand, ReviewCommand,
 };
-use crate::domain::provider::Provider;
 use crate::infra::progress;
 use crate::infra::term;
 
@@ -108,7 +109,8 @@ pub fn run(cli: Cli) -> ExitCode {
                 && std::env::var_os("CI").is_none()
                 && term::is_tty(term::Stream::Stderr)
                 && term::is_tty(term::Stream::Stdin),
-        ));
+        ))
+        .with_delivery_events(Arc::new(SpoolSink::from_process()));
 
     let session_id = std::env::var("IVAR_SESSION_ID").ok();
 
@@ -387,45 +389,6 @@ fn compact_unsupported() -> crate::error::Failure {
     )
     .expected("`--compact` together with an `ivar graph` verb")
     .actual("`--compact` on a verb outside `ivar graph`")
-}
-
-/// A payload past the cap is cut mid-document, fails to parse and is skipped,
-/// so a huge tool input can never stall the agent's hook.
-const MAX_CAPTURE_PAYLOAD_BYTES: u64 = 8 * 1024 * 1024;
-
-fn capture_event(provider: Option<&str>) {
-    if let Some(provider) = provider.and_then(|id| id.parse::<Provider>().ok()) {
-        crate::action::memory::capture::capture(
-            provider,
-            &read_capture_payload(),
-            &CaptureEnv::from_process(),
-        );
-    }
-}
-
-fn is_capture_invocation(args: &[std::ffi::OsString]) -> bool {
-    matches!(args, [_, memory, capture, ..] if memory == "memory" && capture == "capture")
-}
-
-fn lenient_provider(args: &[std::ffi::OsString]) -> Option<&str> {
-    let mut args = args.iter().filter_map(|arg| arg.to_str());
-    while let Some(arg) = args.next() {
-        if arg == "--provider" {
-            return args.next();
-        }
-        if let Some(value) = arg.strip_prefix("--provider=") {
-            return Some(value);
-        }
-    }
-    None
-}
-
-fn read_capture_payload() -> String {
-    let mut bytes = Vec::new();
-    let _ = io::stdin()
-        .take(MAX_CAPTURE_PAYLOAD_BYTES)
-        .read_to_end(&mut bytes);
-    String::from_utf8_lossy(&bytes).into_owned()
 }
 
 /// Parse argv with the styled command. Pure: no stream, no exit.

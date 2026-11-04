@@ -33,7 +33,7 @@ pub(crate) fn list_pull_requests(
                 "--state",
                 state,
                 "--json",
-                "url,number,state,mergeCommit,headRefOid,isDraft",
+                "url,number,state,mergeCommit,headRefOid,isDraft,mergedAt",
             ])
             .cwd(git_dir),
         "pr list",

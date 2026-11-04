@@ -65,6 +65,7 @@ pub(crate) fn create_pull_request(
         is_draft: draft,
         head_oid: None,
         merge_commit: None,
+        merged_at: None,
     })
 }
 

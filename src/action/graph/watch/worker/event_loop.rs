@@ -11,12 +11,14 @@ use crate::action::graph::watch::worker::registry::{add_control_dirs, register_a
 use crate::action::graph::watch::worker::reindex::reindex;
 use crate::action::graph::watch::worker::{Discover, TICK, Target};
 use crate::action::memory::drain::drain_one;
+use crate::action::memory::sweep::sweep_now;
 use crate::git::System as GitSystem;
 use crate::store::graph::db::GraphDb;
 use crate::store::layout::Layout;
 use crate::store::memory::spool;
 
 const DRAIN_EVERY: Duration = Duration::from_millis(250);
+const SWEEP_EVERY: Duration = Duration::from_secs(3600);
 
 pub(super) fn handle_fs_event(
     event: &notify::Event,
@@ -173,6 +175,7 @@ pub(super) fn run(
 
     let mut rediscover = false;
     let mut last_drain = Instant::now();
+    let mut last_sweep: Option<Instant> = None;
 
     while !stop.load(Ordering::Relaxed) {
         let now = Instant::now();
@@ -249,6 +252,11 @@ pub(super) fn run(
             if spool::has_pending(&layout.memory_spool_dir()) {
                 let _ = drain_one(&layout);
             }
+        }
+
+        if last_sweep.is_none_or(|at| at.elapsed() >= SWEEP_EVERY) {
+            last_sweep = Some(Instant::now());
+            let _ = sweep_now(&layout);
         }
     }
 }

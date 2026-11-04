@@ -4,7 +4,7 @@ use clap::Subcommand;
 
 #[derive(Debug, Subcommand)]
 pub enum MemoryCommand {
-    /// Show the hall memory database: path, schema version, application id, size, observation counts per event, the capture spool and the last drain.
+    /// Show the hall memory database: path, schema version, application id, size, observation counts per event, the capture spool, the last drain and the retention sweep.
     Status,
     /// Delete the hall memory database after confirmation. Nothing else deletes it.
     Clean,

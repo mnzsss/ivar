@@ -148,11 +148,19 @@ fn pull_request(state: &str, head_oid: Option<&str>) -> PullRequest {
         state: state.to_owned(),
         head_oid: head_oid.map(str::to_owned),
         merge_commit: None,
+        merged_at: None,
         is_draft: false,
     }
 }
 
 fn apply_with_approved_record(root: &Utf8PathBuf) -> crate::domain::feature::CleanupApplyOutcome {
+    apply_with_approved_record_in(&Ctx::new(root.clone()), root)
+}
+
+fn apply_with_approved_record_in(
+    ctx: &Ctx,
+    root: &Utf8PathBuf,
+) -> crate::domain::feature::CleanupApplyOutcome {
     let preview = run_preview(root);
     let layout = Layout::at(root.clone());
     fs::ensure_dir(&layout.docs_updates_dir()).unwrap();
@@ -177,7 +185,7 @@ fn apply_with_approved_record(root: &Utf8PathBuf) -> crate::domain::feature::Cle
     )
     .unwrap();
     cleanup(
-        &Ctx::new(root.clone()),
+        ctx,
         CleanupInput {
             feature: "checkout".to_owned(),
             preview: false,
@@ -338,6 +346,8 @@ fn delivered_parent_with_integrated_children() -> (tempfile::TempDir, Utf8PathBu
 
 #[path = "cleanup/branches.rs"]
 mod branches;
+#[path = "cleanup/events.rs"]
+mod events;
 #[path = "cleanup/forge.rs"]
 mod forge;
 #[path = "cleanup/parents.rs"]
