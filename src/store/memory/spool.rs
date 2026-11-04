@@ -68,7 +68,7 @@ pub fn append(
 fn append_line(dir: &Utf8Path, key: &SpoolKey, line: &str) -> io::Result<Appended> {
     std::fs::create_dir_all(dir)?;
     let spool = dir.join(format!("{}.jsonl", key.as_str()));
-    let current = std::fs::metadata(&spool).map_or(0, |m| m.len());
+    let current = session_bytes(dir, key);
     let added = u64::try_from(line.len())
         .unwrap_or(u64::MAX)
         .saturating_add(1);
@@ -85,6 +85,31 @@ fn append_line(dir: &Utf8Path, key: &SpoolKey, line: &str) -> io::Result<Appende
     let mut file = OpenOptions::new().create(true).append(true).open(&spool)?;
     file.write_all(format!("{line}\n").as_bytes())?;
     Ok(Appended::Written)
+}
+
+/// Bytes of the session's live file plus the `<key>.<nanos>.draining` files a
+/// rotation left behind, so the cap holds for a session that is not drained.
+fn session_bytes(dir: &Utf8Path, key: &SpoolKey) -> u64 {
+    let live = format!("{}.jsonl", key.as_str());
+    let rotated_prefix = format!("{}.", key.as_str());
+    let is_rotated = |name: &str| {
+        name.strip_prefix(&rotated_prefix)
+            .and_then(|rest| rest.strip_suffix(".draining"))
+            .is_some_and(|nanos| !nanos.is_empty() && nanos.bytes().all(|b| b.is_ascii_digit()))
+    };
+    std::fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|entry| {
+            entry
+                .file_name()
+                .to_str()
+                .is_some_and(|name| name == live || is_rotated(name))
+        })
+        .filter_map(|entry| entry.metadata().ok())
+        .map(|metadata| metadata.len())
+        .sum()
 }
 
 /// Lines dropped at the cap, one byte per drop across every session counter,

@@ -100,3 +100,29 @@ fn drops_being_acknowledged_still_count_until_the_acknowledgement_is_recorded() 
     assert_eq!(dropped_count(&dir), 3);
     assert!(!has_pending(&dir));
 }
+
+#[test]
+fn the_cap_covers_the_files_a_rotation_left_for_the_same_session() {
+    let (_tmp, dir) = dir();
+    let key = SpoolKey::new(Some("s"), "n");
+    let big = "x".repeat(usize::try_from(SPOOL_CAP_BYTES).unwrap() - 1);
+    assert_eq!(append_line(&dir, &key, &big).unwrap(), Appended::Written);
+    std::fs::rename(dir.join("s.jsonl"), dir.join("s.1700000000.draining")).unwrap();
+
+    assert_eq!(
+        append_line(&dir, &key, "overflow").unwrap(),
+        Appended::Dropped
+    );
+}
+
+#[test]
+fn another_session_whose_key_shares_a_prefix_does_not_count_toward_the_cap() {
+    let (_tmp, dir) = dir();
+    let key = SpoolKey::new(Some("s"), "n");
+    let other = SpoolKey::new(Some("s.b"), "n");
+    let big = "x".repeat(usize::try_from(SPOOL_CAP_BYTES).unwrap() - 1);
+    append_line(&dir, &other, &big).unwrap();
+    std::fs::rename(dir.join("s.b.jsonl"), dir.join("s.b.1700000000.draining")).unwrap();
+
+    assert_eq!(append_line(&dir, &key, "fits").unwrap(), Appended::Written);
+}
