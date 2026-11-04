@@ -75,7 +75,7 @@ fn test_gitignore_and_ignored_directories() {
 #[test]
 fn test_index_lock_contention_and_release() {
     let temp = tempdir().expect("tempdir");
-    let lock_path = temp.path().join("memory.lock");
+    let lock_path = temp.path().join("graph.lock");
 
     let guard1 = fs::File::create(&lock_path).expect("create lock1");
     guard1.lock().expect("lock1 acquire");

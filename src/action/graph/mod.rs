@@ -163,7 +163,7 @@ pub fn file_cmd(ctx: &Ctx, args: &FileInput) -> Outcome<FileOutcome> {
 }
 
 pub(crate) fn lock_index(layout: &Layout) -> Result<std::fs::File, Failure> {
-    let lock_path = layout.ivar_dir().join("memory.lock");
+    let lock_path = layout.graph_lock();
     let lock_file = std::fs::File::create(lock_path.as_std_path()).map_err(|err| {
         Failure::failed(
             "graph.lock_failed",

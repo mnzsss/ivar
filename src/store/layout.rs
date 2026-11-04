@@ -14,6 +14,10 @@
 //!                                      to be visible in a pull request review.
 //!   .ivar/
 //!     state.json                       local hall state (gitignored)
+//!     graph.db                         the code graph, derived and disposable
+//!     graph.lock                       graph index writer lock
+//!     memory.db                        the hall memory; only `ivar memory clean` deletes it
+//!     memory.lock                      hall memory writer lock (the graph lock before the split)
 //!     repos/<repo>/.bare/              the bare clone
 //!     repos/<repo>/<branch>/           a worktree off that bare
 //!     features/<feature>/              promotion records and local working documents:
@@ -63,7 +67,7 @@
 //!   `feature_session(&FeatureName, &SessionId)`, `discovery_session(&SessionId)`,
 //!   `hall_setups()`, `setup_script(&RepoName)`, `session_hook(&RepoName)`, `secrets_dir()`,
 //!   `hall_skills()`, `plan_dir(&FeatureName)`, `discovery_doc(&FeatureName)`,
-//!   `docs_updates_dir()`,
+//!   `docs_updates_dir()`, `graph_db()`, `graph_lock()`, `memory_db()`, `memory_lock()`,
 //!   `harness_dir(&Provider)`, `commands_dir(&Provider)`.
 //! - `gitignore_lines()` — the exact patterns the hall's `.gitignore` needs.
 //!

@@ -516,3 +516,14 @@ fn agent_paths_live_under_agents_and_the_ignored_dotdir() {
         Utf8PathBuf::from("/hall/.ivar/secrets/agents.env")
     );
 }
+
+#[test]
+fn the_hall_databases_and_their_locks_live_directly_under_the_dotdir() {
+    let (_guard, root) = hall_root();
+    let layout = Layout::at(root.clone());
+
+    assert_eq!(layout.graph_db(), root.join(".ivar/graph.db"));
+    assert_eq!(layout.graph_lock(), root.join(".ivar/graph.lock"));
+    assert_eq!(layout.memory_db(), root.join(".ivar/memory.db"));
+    assert_eq!(layout.memory_lock(), root.join(".ivar/memory.lock"));
+}

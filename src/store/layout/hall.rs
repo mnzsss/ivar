@@ -341,4 +341,31 @@ impl Layout {
     pub fn ivar_dir(&self) -> Utf8PathBuf {
         self.root.join(IVAR_DIR)
     }
+
+    /// `<hall>/.ivar/graph.db` — the code graph, derived and disposable.
+    #[must_use]
+    pub fn graph_db(&self) -> Utf8PathBuf {
+        self.ivar_dir().join("graph.db")
+    }
+
+    /// `<hall>/.ivar/graph.lock` — serialises writers of [`Self::graph_db`].
+    #[must_use]
+    pub fn graph_lock(&self) -> Utf8PathBuf {
+        self.ivar_dir().join("graph.lock")
+    }
+
+    /// `<hall>/.ivar/memory.db` — the hall memory. Only `ivar memory clean`
+    /// deletes it.
+    #[must_use]
+    pub fn memory_db(&self) -> Utf8PathBuf {
+        self.ivar_dir().join("memory.db")
+    }
+
+    /// `<hall>/.ivar/memory.lock` — serialises writers of [`Self::memory_db`].
+    /// Binaries older than the split take this file as their graph index
+    /// lock, which is why the legacy move holds it too.
+    #[must_use]
+    pub fn memory_lock(&self) -> Utf8PathBuf {
+        self.ivar_dir().join("memory.lock")
+    }
 }

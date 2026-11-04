@@ -355,7 +355,7 @@ fn clean_refuses_path_together_with_repo() {
 fn clean_feature_runs_under_the_index_lock_while_an_unlocked_lock_file_exists() {
     let dir = tempdir().unwrap();
     populate_hall_with_graph(dir.path());
-    let lock_path = dir.path().join(".ivar/memory.lock");
+    let lock_path = dir.path().join(".ivar/graph.lock");
     std::fs::write(&lock_path, b"").unwrap();
 
     let outcome = clean_cmd(
@@ -373,4 +373,20 @@ fn clean_feature_runs_under_the_index_lock_while_an_unlocked_lock_file_exists() 
     assert_eq!(outcome.feature.as_deref(), Some("feat"));
     assert_eq!(outcome.repos_removed, 0);
     assert!(lock_path.is_file());
+}
+
+#[test]
+fn the_index_lock_is_the_graph_lock_and_leaves_the_memory_lock_free() {
+    let (_guard, root) = crate::test_support::canonical_temp_dir();
+    let layout = crate::store::layout::Layout::at(root);
+    std::fs::create_dir_all(layout.ivar_dir()).unwrap();
+
+    let _held = crate::action::graph::lock_index(&layout).unwrap();
+
+    let probe = std::fs::File::create(layout.graph_lock()).unwrap();
+    assert!(probe.try_lock().is_err(), "lock_index must hold graph.lock");
+    assert!(
+        !layout.memory_lock().exists(),
+        "lock_index must not create memory.lock"
+    );
 }
