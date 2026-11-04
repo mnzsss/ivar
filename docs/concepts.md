@@ -60,7 +60,7 @@ Before promotion, a repo appears in your session on its default branch, and
 **it is guarded read-only**. On Linux, for an agent started with
 `ivar session start`, Landlock makes the kernel refuse the write: the agent gets
 `EACCES`, the same as you would. Elsewhere the guard is a guardrail rather than a
-boundary; [Limitations](reference/limitations.md) lists the cases.
+boundary; [Limitations](reference/limitations-sessions.md) lists the cases.
 
 Promoting cuts a worktree on the feature's branch off that repo's bare clone,
 first refreshing the default branch so the new branch starts from current `main`,

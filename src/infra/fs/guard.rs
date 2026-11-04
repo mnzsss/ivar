@@ -48,7 +48,7 @@ pub fn unix_mode(path: &Utf8Path) -> Result<Option<u32>, Error> {
 /// bun), and `chmod` acts on the inode rather than the link: recursing would
 /// change permissions inside that store and inside every other checkout
 /// sharing it. What the root-only guard buys, and what it does not, is
-/// `docs/reference/limitations.md`.
+/// `docs/reference/limitations-delivery.md`.
 #[cfg(unix)]
 /// # Errors
 ///

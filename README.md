@@ -10,7 +10,7 @@
 curl -fsSL https://ivar.run/install | sh
 ```
 
-Add an `avatarUrl` field to the user profile: the agent describes it in `shared-types`, returns it from `api` and renders it in `web`, with all three mounted as real git worktrees on the `avatar-url` branch. Repos you haven't promoted are guarded (kernel-enforced on Linux; see [Limitations](docs/reference/limitations.md)).
+Add an `avatarUrl` field to the user profile: the agent describes it in `shared-types`, returns it from `api` and renders it in `web`, with all three mounted as real git worktrees on the `avatar-url` branch. Repos you haven't promoted are guarded (kernel-enforced on Linux; see [Limitations](docs/reference/limitations-sessions.md)).
 
 <p align="center">
   <img src="docs/assets/ivar-terminal-avatar-url.gif" alt="Terminal recording against a demo hall. ivar feature create avatar-url, then ivar feature promote avatar-url for api, web and shared-types, then ivar session start avatar-url. The agent's planning and implementation are elided. ivar feature deliver avatar-url --preview then shows a new pull request for api, shared-types and web, the plan gate approved, and nothing for infra, which stays read-only." width="1093">
