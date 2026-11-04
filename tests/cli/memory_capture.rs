@@ -86,3 +86,36 @@ fn a_payload_past_the_stdin_cap_is_skipped_without_failing_the_hook() {
 
     assert!(!root.join(".ivar/spool/memory/native-huge.jsonl").exists());
 }
+
+#[test]
+fn capture_with_an_unknown_flag_still_exits_zero_with_empty_output() {
+    ivar()
+        .args(["memory", "capture", "--bogus"])
+        .write_stdin("{}")
+        .assert()
+        .success()
+        .stdout("");
+}
+
+#[test]
+fn capture_with_an_unknown_flag_still_records_for_the_provider_it_names() {
+    let (_guard, root) = crate::common::hall_root();
+    ivar().current_dir(&root).arg("init").assert().success();
+    let payload = serde_json::json!({
+        "hook_event_name": "UserPromptSubmit",
+        "session_id": "native-flag",
+        "prompt": "hello"
+    })
+    .to_string();
+
+    ivar()
+        .current_dir(&root)
+        .env("IVAR_HALL", &root)
+        .args(["memory", "capture", "--bogus", "--provider", "claude-code"])
+        .write_stdin(payload)
+        .assert()
+        .success()
+        .stdout("");
+
+    assert!(root.join(".ivar/spool/memory/native-flag.jsonl").exists());
+}

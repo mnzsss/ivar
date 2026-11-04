@@ -49,16 +49,7 @@ use crate::infra::term;
 )]
 pub fn run(cli: Cli) -> ExitCode {
     if let Command::Memory(MemoryCommand::Capture { provider }) = &cli.command {
-        if let Some(provider) = provider
-            .as_deref()
-            .and_then(|id| id.parse::<Provider>().ok())
-        {
-            crate::action::memory::capture::capture(
-                provider,
-                &read_capture_payload(),
-                &CaptureEnv::from_process(),
-            );
-        }
+        capture_event(provider.as_deref());
         return ExitCode::SUCCESS;
     }
     let json = cli.json;
@@ -402,6 +393,33 @@ fn compact_unsupported() -> crate::error::Failure {
 /// so a huge tool input can never stall the agent's hook.
 const MAX_CAPTURE_PAYLOAD_BYTES: u64 = 8 * 1024 * 1024;
 
+fn capture_event(provider: Option<&str>) {
+    if let Some(provider) = provider.and_then(|id| id.parse::<Provider>().ok()) {
+        crate::action::memory::capture::capture(
+            provider,
+            &read_capture_payload(),
+            &CaptureEnv::from_process(),
+        );
+    }
+}
+
+fn is_capture_invocation(args: &[std::ffi::OsString]) -> bool {
+    matches!(args, [_, memory, capture, ..] if memory == "memory" && capture == "capture")
+}
+
+fn lenient_provider(args: &[std::ffi::OsString]) -> Option<&str> {
+    let mut args = args.iter().filter_map(|arg| arg.to_str());
+    while let Some(arg) = args.next() {
+        if arg == "--provider" {
+            return args.next();
+        }
+        if let Some(value) = arg.strip_prefix("--provider=") {
+            return Some(value);
+        }
+    }
+    None
+}
+
 fn read_capture_payload() -> String {
     let mut bytes = Vec::new();
     let _ = io::stdin()
@@ -418,6 +436,9 @@ pub(crate) fn try_parse(args: &[std::ffi::OsString]) -> Result<Cli, clap::Error>
 
 /// Parse argv, or render clap's help/version/usage error and exit.
 ///
+/// `ivar memory capture` is a hook that must never fail the agent, so a usage
+/// error there exits 0 after capturing for whatever `--provider` was given.
+///
 /// Clap would decide colour itself (it ignores `FORCE_COLOR` and `--color`),
 /// so the error is rendered here instead: on the stream clap names
 /// (`use_stderr`: usage errors → stderr, `--help`/`--version` → stdout),
@@ -427,6 +448,10 @@ pub(crate) fn try_parse(args: &[std::ffi::OsString]) -> Result<Cli, clap::Error>
 pub fn parse(args: Vec<std::ffi::OsString>) -> Cli {
     match try_parse(&args) {
         Ok(cli) => cli,
+        Err(err) if err.use_stderr() && is_capture_invocation(&args) => {
+            capture_event(lenient_provider(&args));
+            std::process::exit(0);
+        }
         Err(err) => {
             let stream = if err.use_stderr() {
                 term::Stream::Stderr
