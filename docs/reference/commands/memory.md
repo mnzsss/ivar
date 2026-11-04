@@ -8,7 +8,7 @@ Inspect or delete the hall memory database (`.ivar/memory.db`)
 
 ## `ivar memory status`
 
-Show the hall memory database: path, schema version, application id and size
+Show the hall memory database: path, schema version, application id, size, observation counts per event, the capture spool and the last drain
 
 
 ## `ivar memory clean`
