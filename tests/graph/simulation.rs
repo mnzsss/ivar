@@ -44,7 +44,7 @@ fn phase_bootstrap_and_stats(hall: &GraphHall) {
     // Verify database file exists after bootstrap indexing
     assert!(
         hall.db_path.is_file(),
-        "memory.db should exist at {} after indexing",
+        "graph.db should exist at {} after indexing",
         hall.db_path
     );
 

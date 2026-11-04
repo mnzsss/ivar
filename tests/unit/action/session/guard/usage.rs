@@ -22,14 +22,14 @@ fn session_env_in_hall(
     }
 }
 
-fn session_env_with_memory_db() -> (
+fn session_env_with_graph_db() -> (
     tempfile::TempDir,
     crate::action::session::env::SessionEnv,
     Utf8PathBuf,
 ) {
     let (guard, root) = hall_with_promoted_feature();
     let env = session_env_in_hall(&root, "6f0c9d5f-0000-4000-8000-0000000006ee");
-    let db_path = Layout::at(root).ivar_dir().join("memory.db");
+    let db_path = Layout::at(root).graph_db();
     GraphDb::open(db_path.as_std_path()).unwrap();
     (guard, env, db_path)
 }
@@ -57,7 +57,7 @@ fn all_misses(db_path: &Utf8PathBuf) -> Vec<crate::domain::graph::MissRecord> {
 
 #[test]
 fn a_search_with_no_prior_graph_call_is_recorded_as_skipped() {
-    let (_guard, env, db_path) = session_env_with_memory_db();
+    let (_guard, env, db_path) = session_env_with_graph_db();
 
     record_search_miss(
         &Layout::discover(&env.view_dir).unwrap().unwrap(),
@@ -74,7 +74,7 @@ fn a_search_with_no_prior_graph_call_is_recorded_as_skipped() {
 
 #[test]
 fn a_search_within_the_window_after_a_graph_call_is_recorded_as_followup() {
-    let (_guard, env, db_path) = session_env_with_memory_db();
+    let (_guard, env, db_path) = session_env_with_graph_db();
     record_graph_call(&db_path, &env.session_id);
 
     record_search_miss(
@@ -92,7 +92,7 @@ fn a_search_within_the_window_after_a_graph_call_is_recorded_as_followup() {
 
 #[test]
 fn a_miss_recorded_in_the_same_second_before_a_graph_call_does_not_suppress_its_followup() {
-    let (_guard, env, db_path) = session_env_with_memory_db();
+    let (_guard, env, db_path) = session_env_with_graph_db();
     let layout = Layout::discover(&env.view_dir).unwrap().unwrap();
     record_search_miss(&layout, &env.session_id, "before the call");
     record_graph_call(&db_path, &env.session_id);
@@ -115,7 +115,7 @@ fn a_miss_recorded_in_the_same_second_before_a_graph_call_does_not_suppress_its_
 
 #[test]
 fn a_burst_of_greps_records_only_the_first_followup() {
-    let (_guard, env, db_path) = session_env_with_memory_db();
+    let (_guard, env, db_path) = session_env_with_graph_db();
     record_graph_call(&db_path, &env.session_id);
 
     record_search_miss(
@@ -147,7 +147,7 @@ fn a_burst_of_greps_records_only_the_first_followup() {
 fn guard_decision_is_unchanged_when_recording_fails() {
     let (_guard, root) = hall_with_promoted_feature();
     let env = session_env_in_hall(&root, "6f0c9d5f-0000-4000-8000-0000000006ff");
-    let db_path = Layout::at(root).ivar_dir().join("memory.db");
+    let db_path = Layout::at(root).graph_db();
 
     record_search_miss(
         &Layout::discover(&env.view_dir).unwrap().unwrap(),
@@ -175,7 +175,7 @@ fn guard_decision_is_unchanged_when_recording_fails() {
 #[test]
 fn a_search_outside_any_session_is_keyed_by_the_ambient_session_id() {
     let (_guard, root) = hall_with_promoted_feature();
-    let db_path = Layout::at(root.clone()).ivar_dir().join("memory.db");
+    let db_path = Layout::at(root.clone()).graph_db();
     GraphDb::open(db_path.as_std_path()).unwrap();
 
     record_search_miss_at(
@@ -194,7 +194,7 @@ fn a_search_outside_any_session_is_keyed_by_the_ambient_session_id() {
 fn a_search_inside_a_resolved_session_is_keyed_by_that_session() {
     let (_guard, root) = hall_with_promoted_feature();
     let env = session_env_in_hall(&root, "6f0c9d5f-0000-4000-8000-0000000007aa");
-    let db_path = Layout::at(root).ivar_dir().join("memory.db");
+    let db_path = Layout::at(root).graph_db();
     GraphDb::open(db_path.as_std_path()).unwrap();
 
     record_search_miss_at(
@@ -211,7 +211,7 @@ fn a_search_inside_a_resolved_session_is_keyed_by_that_session() {
 
 #[test]
 fn a_search_after_only_graph_feedback_is_recorded_as_skipped() {
-    let (_guard, env, db_path) = session_env_with_memory_db();
+    let (_guard, env, db_path) = session_env_with_graph_db();
     GraphDb::open_for_usage(db_path.as_std_path())
         .unwrap()
         .record_usage(&UsageEvent {
@@ -251,7 +251,7 @@ fn graph_explore_tool_names_are_recognised_across_providers() {
 
 #[test]
 fn a_search_after_a_hook_recorded_graph_call_is_a_followup() {
-    let (_guard, env, db_path) = session_env_with_memory_db();
+    let (_guard, env, db_path) = session_env_with_graph_db();
 
     record_graph_call_at(&env.view_dir, Some(&env), None);
     record_search_miss(
@@ -267,7 +267,7 @@ fn a_search_after_a_hook_recorded_graph_call_is_a_followup() {
 
 #[test]
 fn a_hook_recorded_graph_call_outside_a_session_view_uses_the_ambient_session() {
-    let (_guard, env, db_path) = session_env_with_memory_db();
+    let (_guard, env, db_path) = session_env_with_graph_db();
     let hall = Layout::at(env.hall.clone());
 
     record_graph_call_at(hall.root(), None, Some("ambient-session".to_owned()));
@@ -289,7 +289,7 @@ fn hook_usage_rows(db_path: &Utf8PathBuf) -> Vec<(String, Option<String>)> {
 }
 
 fn assert_hook_payload_records_graph_call(provider: Provider) {
-    let (_guard, env, db_path) = session_env_with_memory_db();
+    let (_guard, env, db_path) = session_env_with_graph_db();
     crate::domain::session::SessionState::new(provider, "2026-08-29T00:00:00Z")
         .write(&env.view_dir)
         .unwrap();
@@ -316,4 +316,26 @@ fn an_opencode_graph_explore_hook_payload_records_a_hook_usage_row() {
 #[test]
 fn an_omp_graph_explore_hook_payload_records_a_hook_usage_row() {
     assert_hook_payload_records_graph_call(Provider::Omp);
+}
+
+#[test]
+fn a_search_miss_never_moves_a_legacy_database() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root);
+    std::fs::remove_file(layout.memory_db()).unwrap();
+    drop(GraphDb::open(layout.memory_db().as_std_path()).unwrap());
+    assert!(
+        crate::store::memory::split::is_legacy_graph_db(layout.memory_db().as_std_path()).unwrap()
+    );
+
+    record_search_miss(
+        &layout,
+        "6f0c9d5f-0000-4000-8000-0000000006ee",
+        "fn record_miss",
+    );
+
+    assert!(!layout.graph_db().as_std_path().exists());
+    assert!(
+        crate::store::memory::split::is_legacy_graph_db(layout.memory_db().as_std_path()).unwrap()
+    );
 }

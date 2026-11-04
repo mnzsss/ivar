@@ -251,7 +251,7 @@ fn a_grep_after_an_mcp_explore_in_the_same_session_is_a_followup_carrying_the_qu
 
     let (_guard, root) = crate::test_support::seeded_hall();
     let layout = Layout::at(root.clone());
-    let db = GraphDb::open(layout.ivar_dir().join("memory.db").as_std_path()).unwrap();
+    let db = GraphDb::open(layout.graph_db().as_std_path()).unwrap();
     let session_id = SessionId::new("6f0c9d5f-0000-4000-8000-0000000009cc").unwrap();
     let view_dir = layout.discovery_session(&session_id);
     crate::infra::fs::ensure_dir(&view_dir).unwrap();

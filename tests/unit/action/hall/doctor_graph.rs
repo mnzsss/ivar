@@ -17,7 +17,7 @@ fn doctor_finds_nothing_in_a_graph_indexed_at_head() {
 fn doctor_names_a_repo_whose_graph_lags_its_worktree_head() {
     let (_guard, root) = hall_with_indexed_graph();
     let db =
-        crate::store::graph::db::GraphDb::open(root.join(".ivar/memory.db").as_std_path()).unwrap();
+        crate::store::graph::db::GraphDb::open(root.join(".ivar/graph.db").as_std_path()).unwrap();
     db.update_repo_commit("api", "0000000000000000000000000000000000000000")
         .unwrap();
     drop(db);
@@ -77,7 +77,7 @@ fn doctor_is_quiet_about_hall_directories_once_graph_paths_lists_one() {
 #[test]
 fn doctor_names_a_graph_schema_other_than_the_expected_one() {
     let (_guard, root) = hall_with_indexed_graph();
-    rusqlite::Connection::open(root.join(".ivar/memory.db").as_std_path())
+    rusqlite::Connection::open(root.join(".ivar/graph.db").as_std_path())
         .unwrap()
         .execute_batch("PRAGMA user_version = 4;")
         .unwrap();
@@ -92,7 +92,7 @@ fn doctor_names_a_graph_schema_other_than_the_expected_one() {
 fn doctor_names_a_scope_the_watcher_could_not_reindex() {
     let (_guard, root) = hall_with_indexed_graph();
     let db =
-        crate::store::graph::db::GraphDb::open(root.join(".ivar/memory.db").as_std_path()).unwrap();
+        crate::store::graph::db::GraphDb::open(root.join(".ivar/graph.db").as_std_path()).unwrap();
     db.watch_register("base:api").unwrap();
     db.watch_fail("base:api", "index_repo: permission denied")
         .unwrap();
@@ -112,7 +112,7 @@ fn doctor_names_a_scope_the_watcher_could_not_reindex() {
 fn doctor_names_an_indexed_repo_the_manifest_no_longer_declares() {
     let (_guard, root) = hall_with_indexed_graph();
     let db =
-        crate::store::graph::db::GraphDb::open(root.join(".ivar/memory.db").as_std_path()).unwrap();
+        crate::store::graph::db::GraphDb::open(root.join(".ivar/graph.db").as_std_path()).unwrap();
     db.insert_repo("orca", "/x/orca", "main", None).unwrap();
     let file_id = db.upsert_file("orca", "a.rs", "h", 1, 1).unwrap();
     db.insert_symbols(&[crate::domain::graph::Symbol {
@@ -150,7 +150,7 @@ fn doctor_names_an_indexed_repo_the_manifest_no_longer_declares() {
 fn doctor_says_counts_are_unavailable_when_an_orphan_repo_cannot_be_counted() {
     let (_guard, root) = hall_with_indexed_graph();
     let db =
-        crate::store::graph::db::GraphDb::open(root.join(".ivar/memory.db").as_std_path()).unwrap();
+        crate::store::graph::db::GraphDb::open(root.join(".ivar/graph.db").as_std_path()).unwrap();
     db.insert_repo("orca", "/x/orca", "main", None).unwrap();
     db.conn().execute_batch("DROP TABLE edges;").unwrap();
     drop(db);
@@ -170,7 +170,7 @@ fn doctor_says_counts_are_unavailable_when_an_orphan_repo_cannot_be_counted() {
 fn doctor_names_a_layer_whose_feature_is_gone_and_its_scope_once() {
     let (_guard, root) = hall_with_indexed_graph();
     let db =
-        crate::store::graph::db::GraphDb::open(root.join(".ivar/memory.db").as_std_path()).unwrap();
+        crate::store::graph::db::GraphDb::open(root.join(".ivar/graph.db").as_std_path()).unwrap();
     let id = db
         .ensure_layer_record("ghost", "api", "/g/api", "c1")
         .unwrap();
@@ -212,7 +212,7 @@ fn doctor_keeps_quiet_about_a_layer_scope_of_a_live_feature_without_a_session() 
     feature.promote(crate::domain::name::RepoName::new("api").unwrap());
     feature.write(&layout).unwrap();
     let db =
-        crate::store::graph::db::GraphDb::open(root.join(".ivar/memory.db").as_std_path()).unwrap();
+        crate::store::graph::db::GraphDb::open(root.join(".ivar/graph.db").as_std_path()).unwrap();
     db.watch_register("layer:quiet:api").unwrap();
     db.watch_finish("layer:quiet:api", 0, true).unwrap();
     drop(db);
@@ -234,7 +234,7 @@ fn doctor_keeps_quiet_about_a_layer_scope_of_a_live_feature_without_a_session() 
 fn doctor_tells_a_failed_live_scope_that_the_watcher_retries() {
     let (_guard, root) = hall_with_indexed_graph();
     let db =
-        crate::store::graph::db::GraphDb::open(root.join(".ivar/memory.db").as_std_path()).unwrap();
+        crate::store::graph::db::GraphDb::open(root.join(".ivar/graph.db").as_std_path()).unwrap();
     db.watch_register("base:api").unwrap();
     db.watch_fail("base:api", "disk full").unwrap();
     drop(db);
@@ -249,7 +249,7 @@ fn doctor_tells_a_failed_live_scope_that_the_watcher_retries() {
 fn doctor_names_unfinished_catchup_only_when_no_leader_is_alive() {
     let (_guard, root) = hall_with_indexed_graph();
     let db =
-        crate::store::graph::db::GraphDb::open(root.join(".ivar/memory.db").as_std_path()).unwrap();
+        crate::store::graph::db::GraphDb::open(root.join(".ivar/graph.db").as_std_path()).unwrap();
     db.watch_register("base:api").unwrap(); // needs_catchup = 1
     drop(db);
 

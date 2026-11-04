@@ -8,7 +8,7 @@ pub(super) fn graph_diagnoses(
     manifest: &Manifest,
     git: &impl Git,
 ) -> Vec<Diagnosis> {
-    let db_path = layout.ivar_dir().join("memory.db");
+    let db_path = layout.graph_db();
     if !db_path.as_std_path().exists() {
         return Vec::new();
     }

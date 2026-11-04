@@ -370,7 +370,7 @@ fn a_database_at_the_current_version_without_graph_misses_gains_the_table() {
 #[test]
 fn a_database_from_a_newer_development_build_still_opens() {
     let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("memory.db");
+    let path = dir.path().join("graph.db");
     crate::store::graph::db::GraphDb::open(&path).unwrap();
     Connection::open(&path)
         .unwrap()

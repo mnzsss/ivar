@@ -61,7 +61,7 @@ fn index_with_a_path_persists_it_and_indexes_it_under_repo_hall() {
     );
     let manifest = Manifest::read(&Layout::at(root.clone())).unwrap().unwrap();
     assert_eq!(manifest.graph_paths(), ["brand"]);
-    let db = GraphDb::open_read_only(root.join(".ivar/memory.db").as_std_path()).unwrap();
+    let db = GraphDb::open_read_only(root.join(".ivar/graph.db").as_std_path()).unwrap();
     assert!(db.get_file("hall", "brand/DESIGN.md").unwrap().is_some());
 }
 
@@ -71,7 +71,7 @@ fn a_bare_index_reindexes_every_configured_path_and_keeps_its_scope() {
     index(&root, &["brand"]);
     std::fs::write(root.join("brand/NEW.md"), "new\n").unwrap();
     {
-        let db = GraphDb::open(root.join(".ivar/memory.db").as_std_path()).unwrap();
+        let db = GraphDb::open(root.join(".ivar/graph.db").as_std_path()).unwrap();
         db.watch_register("hall:brand").unwrap();
     }
 
@@ -102,14 +102,14 @@ fn a_bare_index_reindexes_every_configured_path_and_keeps_its_scope() {
 fn index_with_a_path_reconciles_nothing() {
     let (_tmp, root) = hall_with_brand();
     {
-        let db = GraphDb::open(root.join(".ivar/memory.db").as_std_path()).unwrap();
+        let db = GraphDb::open(root.join(".ivar/graph.db").as_std_path()).unwrap();
         db.insert_repo("orca", "/x/orca", "main", None).unwrap();
     }
 
     let outcome = index(&root, &["brand"]);
 
     assert!(outcome.removed.is_empty(), "{:?}", outcome.removed);
-    let db = GraphDb::open_read_only(root.join(".ivar/memory.db").as_std_path()).unwrap();
+    let db = GraphDb::open_read_only(root.join(".ivar/graph.db").as_std_path()).unwrap();
     assert!(db.get_repo("orca").unwrap().is_some());
 }
 
@@ -179,7 +179,7 @@ fn hall_with_synced_api() -> (tempfile::TempDir, Utf8PathBuf) {
 fn index_of_one_repo_reconciles_nothing() {
     let (_tmp, root) = hall_with_synced_api();
     {
-        let db = GraphDb::open(root.join(".ivar/memory.db").as_std_path()).unwrap();
+        let db = GraphDb::open(root.join(".ivar/graph.db").as_std_path()).unwrap();
         db.insert_repo("orca", "/x/orca", "main", None).unwrap();
     }
 
@@ -195,6 +195,6 @@ fn index_of_one_repo_reconciles_nothing() {
 
     assert!(outcome.repos.iter().any(|r| r.repo == "api"), "{outcome:?}");
     assert!(outcome.removed.is_empty(), "{:?}", outcome.removed);
-    let db = GraphDb::open_read_only(root.join(".ivar/memory.db").as_std_path()).unwrap();
+    let db = GraphDb::open_read_only(root.join(".ivar/graph.db").as_std_path()).unwrap();
     assert!(db.get_repo("orca").unwrap().is_some());
 }

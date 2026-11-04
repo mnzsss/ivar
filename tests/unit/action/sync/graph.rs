@@ -10,7 +10,7 @@ fn sync_leaves_a_hall_without_a_graph_database_without_one() {
     let report = sync(&ctx, &SyncInput::default()).unwrap();
 
     assert!(report.is_clean());
-    assert!(!root.join(".ivar/memory.db").as_std_path().exists());
+    assert!(!root.join(".ivar/graph.db").as_std_path().exists());
 }
 
 #[test]
@@ -18,7 +18,7 @@ fn sync_reindexes_base_repos_when_the_hall_already_has_a_graph() {
     let (_guard, root) = hall_with(&[("api", "main")]);
     let ctx = Ctx::new(root.clone());
     sync(&ctx, &SyncInput::default()).unwrap();
-    let db_path = root.join(".ivar/memory.db");
+    let db_path = root.join(".ivar/graph.db");
     drop(crate::store::graph::db::GraphDb::open(db_path.as_std_path()).unwrap());
 
     let report = sync(&ctx, &SyncInput::default()).unwrap();
@@ -34,7 +34,7 @@ fn a_graph_that_cannot_be_opened_warns_without_failing_sync() {
     let ctx = Ctx::new(root.clone());
     sync(&ctx, &SyncInput::default()).unwrap();
     std::fs::write(
-        root.join(".ivar/memory.db"),
+        root.join(".ivar/graph.db"),
         b"not a sqlite database at all, just junk bytes",
     )
     .unwrap();

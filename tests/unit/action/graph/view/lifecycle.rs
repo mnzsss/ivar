@@ -18,7 +18,7 @@ use crate::store::graph::db::GraphDb;
 #[test]
 fn test_prepare_view_session_binds_and_creates_outcome() {
     let dir = tempdir().unwrap();
-    let db_path = dir.path().join("memory.db");
+    let db_path = dir.path().join("graph.db");
     let db = GraphDb::open(&db_path).unwrap();
 
     let input = GraphViewInput {

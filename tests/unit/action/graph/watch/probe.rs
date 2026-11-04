@@ -17,7 +17,7 @@ fn the_first_prober_leads_and_marks_every_known_scope_for_catchup() {
     let root = Utf8PathBuf::from_path_buf(tmp.path().to_path_buf()).unwrap();
     std::fs::create_dir_all(root.join(".ivar")).unwrap();
     let layout = Layout::at(root);
-    let db = GraphDb::open(layout.ivar_dir().join("memory.db").as_std_path()).unwrap();
+    let db = GraphDb::open(layout.graph_db().as_std_path()).unwrap();
     db.watch_register("base:api").unwrap();
     db.watch_finish("base:api", 0, true).unwrap();
 
@@ -40,7 +40,7 @@ fn a_prober_follows_while_another_holder_keeps_the_lease_and_takes_over_after() 
     let root = Utf8PathBuf::from_path_buf(tmp.path().to_path_buf()).unwrap();
     std::fs::create_dir_all(root.join(".ivar")).unwrap();
     let layout = Layout::at(root);
-    let db = GraphDb::open(layout.ivar_dir().join("memory.db").as_std_path()).unwrap();
+    let db = GraphDb::open(layout.graph_db().as_std_path()).unwrap();
 
     let other = Lease::try_acquire(&layout).unwrap().unwrap();
     let mut watch = Watch::with_discover(layout.clone(), no_targets);

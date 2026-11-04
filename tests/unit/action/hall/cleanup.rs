@@ -39,7 +39,7 @@ fn cleanup_forgets_a_removed_repo_in_the_graph() {
     init(&ctx, &fresh_input()).unwrap();
     fs::ensure_dir(&root.join(".ivar/repos/stale")).unwrap();
     {
-        let db = crate::store::graph::db::GraphDb::open(root.join(".ivar/memory.db").as_std_path())
+        let db = crate::store::graph::db::GraphDb::open(root.join(".ivar/graph.db").as_std_path())
             .unwrap();
         db.insert_repo("stale", "/x/stale", "main", None).unwrap();
         db.insert_repo("api", "/x/api", "main", None).unwrap();
@@ -48,10 +48,9 @@ fn cleanup_forgets_a_removed_repo_in_the_graph() {
     let report = cleanup(&ctx).unwrap();
 
     assert_eq!(report.value.graph_forgotten, vec!["stale"]);
-    let db = crate::store::graph::db::GraphDb::open_read_only(
-        root.join(".ivar/memory.db").as_std_path(),
-    )
-    .unwrap();
+    let db =
+        crate::store::graph::db::GraphDb::open_read_only(root.join(".ivar/graph.db").as_std_path())
+            .unwrap();
     assert!(db.get_repo("stale").unwrap().is_none());
     assert!(db.get_repo("api").unwrap().is_some());
 }
@@ -63,7 +62,7 @@ fn cleanup_warns_when_the_graph_cannot_forget_a_removed_repo() {
     ctx = ctx.with_confirm(crate::action::confirm::fixed(true));
     init(&ctx, &fresh_input()).unwrap();
     fs::ensure_dir(&root.join(".ivar/repos/stale")).unwrap();
-    std::fs::write(root.join(".ivar/memory.db"), b"not a sqlite database").unwrap();
+    std::fs::write(root.join(".ivar/graph.db"), b"not a sqlite database").unwrap();
 
     let report = cleanup(&ctx).unwrap();
 

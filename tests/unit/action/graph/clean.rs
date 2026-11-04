@@ -17,7 +17,7 @@ use crate::store::graph::db::GraphDb;
 fn populate_hall_with_graph(hall_root: &std::path::Path) -> GraphDb {
     let ivar_dir = hall_root.join(".ivar");
     std::fs::create_dir_all(&ivar_dir).unwrap();
-    let db_path = ivar_dir.join("memory.db");
+    let db_path = ivar_dir.join("graph.db");
     let db = GraphDb::open(&db_path).unwrap();
 
     // Insert repos
@@ -257,7 +257,7 @@ fn hall_with_two_paths() -> (tempfile::TempDir, Utf8PathBuf) {
         .with_graph_path_added("docs")
         .unwrap();
     crate::store::manifest::Manifest::write(&layout, &manifest).unwrap();
-    let db = GraphDb::open(root.join(".ivar/memory.db").as_std_path()).unwrap();
+    let db = GraphDb::open(root.join(".ivar/graph.db").as_std_path()).unwrap();
     db.insert_repo("hall", root.as_str(), "", None).unwrap();
     db.upsert_file("hall", "brand/DESIGN.md", "h1", 1, 1)
         .unwrap();
@@ -291,7 +291,7 @@ fn clean_path_removes_the_files_the_scope_and_the_manifest_entry() {
 
     assert_eq!(outcome.path.as_deref(), Some("brand"));
     assert_eq!(outcome.files_removed, 1);
-    let db = GraphDb::open_read_only(root.join(".ivar/memory.db").as_std_path()).unwrap();
+    let db = GraphDb::open_read_only(root.join(".ivar/graph.db").as_std_path()).unwrap();
     let paths: Vec<String> = db
         .get_files_for_repo("hall")
         .unwrap()
@@ -320,7 +320,7 @@ fn cleaning_the_last_path_drops_the_hall_repo() {
     let outcome = clean_path(&root, "docs").unwrap();
 
     assert_eq!(outcome.repos_removed, 1);
-    let db = GraphDb::open_read_only(root.join(".ivar/memory.db").as_std_path()).unwrap();
+    let db = GraphDb::open_read_only(root.join(".ivar/graph.db").as_std_path()).unwrap();
     assert!(db.get_repo("hall").unwrap().is_none());
 }
 

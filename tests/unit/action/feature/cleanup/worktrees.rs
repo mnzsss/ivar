@@ -107,7 +107,7 @@ fn apply_warns_when_the_graph_database_cannot_drop_the_layers() {
         ),
     )
     .unwrap();
-    std::fs::write(root.join(".ivar/memory.db"), b"not sqlite").unwrap();
+    std::fs::write(root.join(".ivar/graph.db"), b"not sqlite").unwrap();
 
     let report = cleanup(
         &Ctx::new(root.clone()),

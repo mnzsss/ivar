@@ -31,8 +31,8 @@ pub fn clean_cmd(ctx: &Ctx, args: CleanInput) -> Outcome<CleanOutcome> {
     }
 
     let layout = discover_hall(ctx)?;
-    let _lock = lock_index(&layout)?;
     let db = open_graph_db(ctx)?;
+    let _lock = lock_index(&layout)?;
 
     if args.all {
         let stats = db.clean_all().map_err(|err| clean_failed(&err))?;

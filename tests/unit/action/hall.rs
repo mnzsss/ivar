@@ -152,7 +152,7 @@ fn hall_with_indexed_graph() -> (tempfile::TempDir, Utf8PathBuf) {
     let ctx = Ctx::new(root.clone());
     crate::action::sync::sync(&ctx, &Default::default()).unwrap();
     drop(
-        crate::store::graph::db::GraphDb::open(root.join(".ivar/memory.db").as_std_path()).unwrap(),
+        crate::store::graph::db::GraphDb::open(root.join(".ivar/graph.db").as_std_path()).unwrap(),
     );
     crate::action::sync::sync(&ctx, &Default::default()).unwrap();
     (guard, root)

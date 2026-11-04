@@ -133,7 +133,7 @@ fn usage_summary_skips_rows_with_an_unknown_source() {
 #[test]
 fn opening_for_usage_never_creates_a_missing_database() {
     let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("memory.db");
+    let path = dir.path().join("graph.db");
     assert!(GraphDb::open_for_usage(&path).is_err());
     assert!(!path.exists());
 }
@@ -141,7 +141,7 @@ fn opening_for_usage_never_creates_a_missing_database() {
 #[test]
 fn opening_for_usage_rejects_an_unmigrated_database() {
     let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("memory.db");
+    let path = dir.path().join("graph.db");
     rusqlite::Connection::open(&path)
         .unwrap()
         .execute_batch("PRAGMA user_version = 6;")
@@ -152,7 +152,7 @@ fn opening_for_usage_rejects_an_unmigrated_database() {
 #[test]
 fn opening_for_usage_records_into_a_migrated_database() {
     let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("memory.db");
+    let path = dir.path().join("graph.db");
     drop(GraphDb::open(&path).unwrap());
     GraphDb::open_for_usage(&path)
         .unwrap()

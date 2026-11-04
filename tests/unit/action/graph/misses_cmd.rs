@@ -15,7 +15,7 @@ fn hall_with(kinds: &[MissKind]) -> (TempDir, Ctx) {
         r#"{"name":"acme","providers":{"available":["claude-code"],"default":"claude-code"},"repos":[],"version":1}"#,
     )
     .unwrap();
-    let db_path = dir.path().join(".ivar/memory.db");
+    let db_path = dir.path().join(".ivar/graph.db");
     std::fs::create_dir_all(db_path.parent().unwrap()).unwrap();
     let db = GraphDb::open(&db_path).unwrap();
     for &kind in kinds {
@@ -33,7 +33,7 @@ fn hall_with(kinds: &[MissKind]) -> (TempDir, Ctx) {
 }
 
 fn age_all_misses(ctx: &Ctx, days: i64) {
-    let db = GraphDb::open(ctx.cwd.join(".ivar/memory.db").as_std_path()).unwrap();
+    let db = GraphDb::open(ctx.cwd.join(".ivar/graph.db").as_std_path()).unwrap();
     db.conn()
         .execute("UPDATE graph_misses SET ts = ts - ?1", [days * 86_400])
         .unwrap();
@@ -109,7 +109,7 @@ fn stats_prunes_rows_older_than_thirty_days() {
     let (_dir, ctx) = hall_with(&[MissKind::Skipped]);
     age_all_misses(&ctx, 31);
     stats_cmd(&ctx).unwrap();
-    let db = GraphDb::open(ctx.cwd.join(".ivar/memory.db").as_std_path()).unwrap();
+    let db = GraphDb::open(ctx.cwd.join(".ivar/graph.db").as_std_path()).unwrap();
     let remaining: i64 = db
         .conn()
         .query_row("SELECT COUNT(*) FROM graph_misses", [], |row| row.get(0))

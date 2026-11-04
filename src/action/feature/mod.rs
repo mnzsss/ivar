@@ -54,10 +54,18 @@ use crate::store::layout::Layout;
 /// because the feature directory is already gone and `ivar graph index`
 /// reconciles leftovers.
 pub(super) fn drop_layers_or_warn(layout: &Layout, name: &FeatureName) -> Option<Warning> {
-    let db_path = layout.ivar_dir().join("memory.db");
-    if !db_path.is_file() {
-        return None;
-    }
+    let not_dropped = |reason: String| {
+        Warning::new(
+            "graph.layers_not_dropped",
+            name.to_string(),
+            format!("graph layers were not dropped: {reason}; run `ivar graph index`"),
+        )
+    };
+    let db_path = match crate::action::graph::graph_db_path(layout) {
+        Ok(path) if path.is_file() => path,
+        Ok(_) => return None,
+        Err(failure) => return Some(not_dropped(failure.what)),
+    };
     let dropped = crate::action::graph::lock_index(layout)
         .map_err(|failure| failure.what)
         .and_then(|_lock| {
@@ -68,13 +76,7 @@ pub(super) fn drop_layers_or_warn(layout: &Layout, name: &FeatureName) -> Option
                         .map_err(|e| e.to_string())
                 })
         });
-    dropped.err().map(|reason| {
-        Warning::new(
-            "graph.layers_not_dropped",
-            name.to_string(),
-            format!("graph layers were not dropped: {reason}; run `ivar graph index`"),
-        )
-    })
+    dropped.err().map(not_dropped)
 }
 
 #[cfg(test)]

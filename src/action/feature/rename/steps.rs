@@ -279,8 +279,8 @@ pub(super) fn perform_step(
             Ok(Step::UpdateFeatureLayers)
         }
         Step::UpdateFeatureLayers => {
-            let db_path = layout.ivar_dir().join("memory.db");
-            if db_path.is_file()
+            if let Ok(db_path) = crate::action::graph::graph_db_path(layout)
+                && db_path.is_file()
                 && let Ok(db) = crate::store::graph::db::GraphDb::open(db_path.as_std_path())
             {
                 let _ = db
@@ -355,8 +355,8 @@ pub(super) fn undo_step(
             Ok(Step::UpdateFeatureLayers)
         }
         Step::UpdateFeatureLayers => {
-            let db_path = layout.ivar_dir().join("memory.db");
-            if db_path.is_file()
+            if let Ok(db_path) = crate::action::graph::graph_db_path(layout)
+                && db_path.is_file()
                 && let Ok(db) = crate::store::graph::db::GraphDb::open(db_path.as_std_path())
             {
                 let _ = db

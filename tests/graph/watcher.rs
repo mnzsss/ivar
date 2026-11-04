@@ -129,7 +129,7 @@ fn a_second_server_takes_over_when_the_leader_exits() {
 
 fn layer_scopes(hall: &TestHall) -> Vec<String> {
     let conn =
-        rusqlite::Connection::open(hall.root().join(".ivar/memory.db").as_std_path()).unwrap();
+        rusqlite::Connection::open(hall.root().join(".ivar/graph.db").as_std_path()).unwrap();
     let mut stmt = conn
         .prepare("SELECT scope FROM watch_scopes WHERE scope LIKE 'layer:%' ORDER BY scope")
         .unwrap();

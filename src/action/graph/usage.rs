@@ -17,7 +17,7 @@ pub fn record_usage(ctx: &Ctx, event: &UsageEvent) {
     let Ok(layout) = discover_hall(ctx) else {
         return;
     };
-    record_usage_at(layout.ivar_dir().join("memory.db").as_std_path(), event);
+    record_usage_at(layout.graph_db().as_std_path(), event);
 }
 
 pub fn record_usage_at(db_path: &Path, event: &UsageEvent) {

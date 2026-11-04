@@ -115,7 +115,7 @@ impl GraphHall {
             "Expected synced worktree at {worktree_path}"
         );
 
-        let db_path = hall_dir.join(".ivar").join("memory.db");
+        let db_path = hall_dir.join(".ivar").join("graph.db");
 
         let mut instance = Self {
             _hall_guard: hall_guard,
