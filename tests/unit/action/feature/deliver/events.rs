@@ -219,3 +219,31 @@ fn a_land_result_maps_to_landed_and_a_failed_push_is_a_failure() {
         matches!(&records[1].event, DeliveryEvent::Landed { merged: true, pushed: false, detail: Some(d) } if d == "rejected")
     );
 }
+
+#[test]
+fn each_repo_records_checks_and_pushed_when_it_is_pushed_and_its_pr_once_opened() {
+    let (_guard, root, fake) = on_github(&["api", "web"]);
+    let _gh = fake_gh_on_this_thread(&fake);
+    let sink = Arc::new(RecordingSink::default());
+    let ctx = Ctx::new(root.clone()).with_delivery_events(sink.clone());
+    let fingerprint = fingerprint_of(&root);
+
+    deliver(&ctx, apply_input("checkout", &fingerprint)).unwrap();
+
+    let repos_and_sources: Vec<_> = sink
+        .records()
+        .iter()
+        .map(|r| (r.scope.repo.clone(), r.event.source_event().as_str()))
+        .collect();
+    assert_eq!(
+        repos_and_sources,
+        vec![
+            ("api".to_owned(), "delivery.checks"),
+            ("api".to_owned(), "delivery.pushed"),
+            ("web".to_owned(), "delivery.checks"),
+            ("web".to_owned(), "delivery.pushed"),
+            ("api".to_owned(), "delivery.pr"),
+            ("web".to_owned(), "delivery.pr"),
+        ]
+    );
+}

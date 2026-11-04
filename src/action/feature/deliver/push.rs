@@ -7,6 +7,7 @@ use crate::action::feature::pull_requests::{
     existing_pr, link_sibling_prs,
 };
 use crate::action::feature::verification;
+use crate::action::memory::delivery::Emitter;
 use crate::domain::feature::{DeliveryAction, DeliveryPreview, DraftAction, Feature};
 use crate::domain::name::{FeatureName, RepoName};
 use crate::error::{Failure, FixAction, Report, Warning};
@@ -14,17 +15,34 @@ use crate::git::Git;
 use crate::store::layout::Layout;
 use crate::store::manifest::Manifest;
 
+use super::events;
 use super::outcome::{DeliverOutcome, PullRequestRef, PushResult, RepoCheckResult};
 use super::repos::push_repo;
 
 /// Execute non-land delivery apply: run root repo verification checks, push feature branches best-effort, and handle PRs.
+#[cfg(test)]
 pub(crate) fn execute(
     git: &impl Git,
     layout: &Layout,
     manifest: &Manifest,
     feature_name: &FeatureName,
     feature: &Feature,
+    preview: DeliveryPreview,
+) -> Result<Report<DeliverOutcome>, Failure> {
+    execute_with(git, layout, manifest, feature_name, feature, preview, None)
+}
+
+/// [`execute`], recording each repo's `checks` and `pushed` events as that
+/// repo is pushed and its `pr` event once the PR exists, so a later repo's
+/// failure cannot lose what an earlier one already did.
+pub(super) fn execute_with(
+    git: &impl Git,
+    layout: &Layout,
+    manifest: &Manifest,
+    feature_name: &FeatureName,
+    feature: &Feature,
     mut preview: DeliveryPreview,
+    emitter: Option<&Emitter<'_>>,
 ) -> Result<Report<DeliverOutcome>, Failure> {
     let mut pushes = Vec::new();
     let mut checks = Vec::new();
@@ -36,6 +54,9 @@ pub(crate) fn execute(
     for repo in &preview.repos {
         let (push, check_result, repo_warnings) =
             check_and_push_one(git, layout, manifest, feature, repo)?;
+        if let Some(emitter) = emitter {
+            events::emit_repo_pushed(emitter, git, layout, feature, repo, &check_result, &push);
+        }
         pushes.push(push);
         checks.push(check_result);
         warnings.extend(repo_warnings);
@@ -62,11 +83,18 @@ pub(crate) fn execute(
         match result {
             Ok(pr) => {
                 if let Some(push) = pushes.iter_mut().find(|push| push.repo == repo_name) {
-                    push.pr = Some(PullRequestRef {
+                    let pr_ref = PullRequestRef {
                         number: pr.number,
                         url: pr.url.clone(),
                         draft: pr.is_draft,
-                    });
+                    };
+                    if let (Some(emitter), Some(delivery)) = (
+                        emitter,
+                        preview.repos.iter().find(|repo| repo.repo == repo_name),
+                    ) {
+                        events::emit_pr_opened(emitter, git, layout, feature, delivery, &pr_ref);
+                    }
+                    push.pr = Some(pr_ref);
                 }
                 pr_url_map.insert(repo_name, pr.url);
             }

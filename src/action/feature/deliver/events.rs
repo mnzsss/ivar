@@ -6,7 +6,7 @@ use crate::error::Failure;
 use crate::git::Git;
 use crate::store::layout::Layout;
 
-use super::outcome::{DeliverOutcome, LandResult, RepoCheckResult};
+use super::outcome::{LandResult, PullRequestRef, PushResult, RepoCheckResult};
 
 fn pr_action(repo: &DeliveryRepo) -> &'static str {
     match (repo.action, repo.draft) {
@@ -67,45 +67,44 @@ pub(super) fn emit_checks(emitter: &Emitter<'_>, scope: DeliveryScope, check: &R
     );
 }
 
-pub(super) fn emit_push_outcome(
+pub(super) fn emit_repo_pushed(
     emitter: &Emitter<'_>,
     git: &impl Git,
     layout: &Layout,
     feature: &Feature,
-    outcome: &DeliverOutcome,
+    repo: &DeliveryRepo,
+    check: &RepoCheckResult,
+    push: &PushResult,
 ) {
-    for push in &outcome.pushes {
-        let scope = repo_scope(git, layout, feature, &push.repo);
-        if let Some(check) = outcome.checks.iter().find(|check| check.repo == push.repo) {
-            emit_checks(emitter, scope.clone(), check);
-        }
-        let delivery = outcome
-            .preview
-            .repos
-            .iter()
-            .find(|repo| repo.repo == push.repo);
-        emitter.emit(
-            scope.clone(),
-            DeliveryEvent::Pushed {
-                ok: push.ok,
-                detail: push.detail.clone(),
-                base: delivery
-                    .map(|repo| repo.base_branch.to_string())
-                    .unwrap_or_default(),
-            },
-        );
-        if let (Some(pr), Some(delivery)) = (&push.pr, delivery) {
-            emitter.emit(
-                scope,
-                DeliveryEvent::Pr {
-                    action: pr_action(delivery).into(),
-                    number: pr.number,
-                    url: pr.url.clone(),
-                    draft: pr.draft,
-                },
-            );
-        }
-    }
+    let scope = repo_scope(git, layout, feature, &repo.repo);
+    emit_checks(emitter, scope.clone(), check);
+    emitter.emit(
+        scope,
+        DeliveryEvent::Pushed {
+            ok: push.ok,
+            detail: push.detail.clone(),
+            base: repo.base_branch.to_string(),
+        },
+    );
+}
+
+pub(super) fn emit_pr_opened(
+    emitter: &Emitter<'_>,
+    git: &impl Git,
+    layout: &Layout,
+    feature: &Feature,
+    repo: &DeliveryRepo,
+    pr: &PullRequestRef,
+) {
+    emitter.emit(
+        repo_scope(git, layout, feature, &repo.repo),
+        DeliveryEvent::Pr {
+            action: pr_action(repo).into(),
+            number: pr.number,
+            url: pr.url.clone(),
+            draft: pr.draft,
+        },
+    );
 }
 
 pub(super) fn emit_land_outcome(

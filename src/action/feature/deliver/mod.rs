@@ -279,9 +279,15 @@ fn run(
     }
 
     refuse_blockers(&feature_name, &preview)?;
-    let report = push::execute(&git, layout, &manifest, &feature_name, &feature, preview)?;
-    events::emit_push_outcome(emitter, &git, layout, &feature, &report.value);
-    Ok(report)
+    push::execute_with(
+        &git,
+        layout,
+        &manifest,
+        &feature_name,
+        &feature,
+        preview,
+        Some(emitter),
+    )
 }
 
 /// The catch-all after the specific refusals above: whatever the preview
