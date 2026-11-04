@@ -293,11 +293,20 @@ fn expand_unit_test_tree(manifest: &Path, entry_rel: &str, linked: &mut BTreeSet
     let Some(parent_dir) = full_path.parent() else {
         return;
     };
+    let mut pending_path: Option<&str> = None;
     for line in text.lines() {
         let trimmed = line.trim();
         if trimmed.starts_with("//") {
             continue;
         }
+        if let Some(literal) = trimmed
+            .strip_prefix("#[path = \"")
+            .and_then(|rest| rest.strip_suffix("\"]"))
+        {
+            pending_path = Some(literal);
+            continue;
+        }
+        let path_attr = pending_path.take();
         if let Some(rest) = trimmed.strip_suffix(';') {
             let parts: Vec<&str> = rest.split_whitespace().collect();
             if let Some(mod_name) = parts
@@ -305,6 +314,14 @@ fn expand_unit_test_tree(manifest: &Path, entry_rel: &str, linked: &mut BTreeSet
                 .position(|&p| p == "mod")
                 .and_then(|pos| parts.get(pos + 1))
             {
+                if let Some(literal) = path_attr {
+                    let target = parent_dir.join(literal);
+                    if target.is_file() {
+                        let rel = display_path(manifest, &target);
+                        expand_unit_test_tree(manifest, &rel, linked);
+                    }
+                    continue;
+                }
                 let file_candidate = parent_dir.join(format!("{mod_name}.rs"));
                 let dir_candidate = parent_dir.join(mod_name).join("mod.rs");
                 if file_candidate.is_file() {
