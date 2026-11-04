@@ -13,7 +13,7 @@
 //! unreachable becomes a [`Change::Failed`] entry and a
 //! [`Warning`](crate::error::Warning); the other seven still get set up, and
 //! the process exits `1` rather than `2`. That is the warning discipline from
-//! ARCHITECTURE.md, and this is the verb it was written for. A [`Failure`] here
+//! docs/architecture/seams.md, and this is the verb it was written for. A [`Failure`] here
 //! is reserved for the cases where there is nothing to salvage: no hall, or a
 //! hall whose `.ivar/` cannot be created.
 //!
@@ -224,7 +224,7 @@ impl Entry {
 /// What `ivar sync` did.
 ///
 /// `Serialize`d as-is for `--json`; [`Self::write_human`] formats this same
-/// value. See ARCHITECTURE.md, "1. `action` is the unit, and it has one output
+/// value. See docs/architecture/seams.md, "1. `action` is the unit, and it has one output
 /// shape".
 #[derive(Debug, Clone, Serialize)]
 pub struct SyncOutcome {

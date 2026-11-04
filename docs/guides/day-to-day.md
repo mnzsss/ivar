@@ -201,7 +201,7 @@ ivar plan approve checkout plan
 
 There is no lifecycle field to set — the gate *is* the state. See
 [Planning and execution](planning-and-execution.md) for the gate chain, and
-`ARCHITECTURE.md` seam 7 for why it is derived rather than stored.
+[seam 7 of the architecture](../architecture/seams.md) for why it is derived rather than stored.
 
 **Only a root delivers.** A child integrates into its parent instead — see
 [Nested subfeatures](../concepts.md#nested-subfeatures) for the leaves-first

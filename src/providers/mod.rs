@@ -1,5 +1,6 @@
 //! Closed facade dispatching provider-native behaviors by `Provider`.
 
+pub mod capture;
 pub mod claude_code;
 pub mod omp;
 pub mod opencode;
@@ -15,6 +16,9 @@ use crate::infra::oauth::Tokens;
 use crate::infra::proc::Command;
 use camino::Utf8PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
+
+pub use capture::capture_artifacts;
+
 /// A managed standalone file artifact owned by a provider.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ManagedArtifact {

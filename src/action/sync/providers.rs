@@ -192,7 +192,7 @@ pub(crate) fn sync_settings(
     let hall = manifest.name();
     let result = if manifest.providers().available().contains(&provider) {
         let allowlist = crate::domain::mcp::hall_mcp_allowlist(hall, manifest.mcp_servers());
-        config::materialise_settings(&path, hall, &allowlist)
+        config::materialise_settings_with(&path, hall, &allowlist, manifest.memory_capture())
     } else {
         config::remove_settings(&path, hall)
     };
@@ -224,6 +224,21 @@ pub(crate) fn sync_artifacts(
             config::artifact::remove_managed_artifact(&path)
         };
 
+        match result {
+            Ok(change) => entries.push(Entry::new(provider.id(), label, change.into())),
+            Err(error) => record_failure(entries, warnings, provider.id(), &label, error.into()),
+        }
+    }
+
+    let capture_wanted = is_listed && manifest.memory_capture();
+    for artifact in crate::providers::capture_artifacts(provider) {
+        let path = layout.root().join(&artifact.relative_path);
+        let label = format!("{} managed artifact", artifact.relative_path);
+        let result = if capture_wanted {
+            config::artifact::reconcile_managed_artifact(&path, artifact.contents)
+        } else {
+            config::artifact::remove_managed_artifact(&path)
+        };
         match result {
             Ok(change) => entries.push(Entry::new(provider.id(), label, change.into())),
             Err(error) => record_failure(entries, warnings, provider.id(), &label, error.into()),

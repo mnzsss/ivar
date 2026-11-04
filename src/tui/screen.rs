@@ -1,7 +1,7 @@
 //! The terminal-emulator seam — the swap point for how PTY output becomes
 //! screen text.
 //!
-//! ARCHITECTURE.md's module map: `screen.rs` is "the Screen seam over vt100 —
+//! docs/architecture/module-map-support.md: `screen.rs` is "the Screen seam over vt100 —
 //! the emulator swap point". The agent's PTY writes raw ANSI bytes; something
 //! has to turn those into the cells the widget can render. This module owns
 //! that something.
@@ -21,7 +21,7 @@ const SCROLLBACK_ROWS: usize = 1000;
 
 /// A viewport of a terminal screen, as text and as styled lines.
 ///
-/// ARCHITECTURE.md, seam 6: "in `ratatui` you own the cells, so a `vt100`
+/// docs/architecture/seams.md, seam 6: "in `ratatui` you own the cells, so a `vt100`
 /// cell maps straight to a `Style` and the entire layer disappears." That
 /// mapping lives here, because this is the module that knows `vt100` —
 /// [`Screen::styled_rows`] is the whole of it, and swapping the emulator
@@ -264,7 +264,7 @@ fn trim_trailing_blanks(spans: &mut Vec<Span<'static>>) {
 }
 
 /// A `vt100` cell's colours and attributes as a `ratatui` [`Style`] — the
-/// direct map ARCHITECTURE.md calls for.
+/// direct map docs/architecture/seams.md calls for.
 fn cell_style(cell: &vt100::Cell) -> Style {
     let mut style = Style::default()
         .fg(colour(cell.fgcolor()))

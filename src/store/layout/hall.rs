@@ -368,4 +368,11 @@ impl Layout {
     pub fn memory_lock(&self) -> Utf8PathBuf {
         self.ivar_dir().join("memory.lock")
     }
+
+    /// `<hall>/.ivar/spool/memory` — capture hooks append session JSONL files
+    /// here; ignored by git through `.ivar/*`.
+    #[must_use]
+    pub fn memory_spool_dir(&self) -> Utf8PathBuf {
+        self.ivar_dir().join("spool").join("memory")
+    }
 }

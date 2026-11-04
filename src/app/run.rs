@@ -1,9 +1,9 @@
 //! CLI dispatch: turns a parsed [`Cli`] into an exit code by matching
 //! `cli.command`, converting each variant's args into its action's `Input`,
 //! and rendering the outcome. Dispatch lives here so the binary stays a
-//! thin `main` — see ARCHITECTURE.md's module map.
+//! thin `main` — see docs/architecture/module-map.md.
 
-use std::io::{self, Write};
+use std::io::{self, Read as _, Write};
 use std::process::ExitCode;
 
 use clap::{CommandFactory as _, FromArgMatches as _};
@@ -17,6 +17,7 @@ use crate::action::mcp::auth as mcp_auth;
 use crate::action::mcp::edit as mcp_edit;
 use crate::action::mcp::remove as mcp_remove;
 use crate::action::mcp::status as mcp_status;
+use crate::action::memory::capture::CaptureEnv;
 use crate::action::provider::{
     add as provider_add, default as provider_default, list as provider_list,
     remove as provider_remove,
@@ -35,6 +36,7 @@ use crate::cli::MemoryCommand;
 use crate::cli::root::{
     Cli, Command, CommentCommand, McpCommand, ProviderCommand, RepoCommand, ReviewCommand,
 };
+use crate::domain::provider::Provider;
 use crate::infra::progress;
 use crate::infra::term;
 
@@ -46,6 +48,10 @@ use crate::infra::term;
               relocate, not reduce, the branching"
 )]
 pub fn run(cli: Cli) -> ExitCode {
+    if let Command::Memory(MemoryCommand::Capture { provider }) = &cli.command {
+        capture_event(provider.as_deref());
+        return ExitCode::SUCCESS;
+    }
     let json = cli.json;
     let compact = cli.compact;
     // Prime both per-stream colour decisions with the flag, before any output
@@ -327,6 +333,7 @@ pub fn run(cli: Cli) -> ExitCode {
             &mut stderr,
         ),
         Command::Memory(cmd) => match cmd {
+            MemoryCommand::Capture { .. } => ExitCode::SUCCESS,
             MemoryCommand::Status => respond(
                 crate::action::memory::status::status(&ctx),
                 json,
@@ -382,6 +389,45 @@ fn compact_unsupported() -> crate::error::Failure {
     .actual("`--compact` on a verb outside `ivar graph`")
 }
 
+/// A payload past the cap is cut mid-document, fails to parse and is skipped,
+/// so a huge tool input can never stall the agent's hook.
+const MAX_CAPTURE_PAYLOAD_BYTES: u64 = 8 * 1024 * 1024;
+
+fn capture_event(provider: Option<&str>) {
+    if let Some(provider) = provider.and_then(|id| id.parse::<Provider>().ok()) {
+        crate::action::memory::capture::capture(
+            provider,
+            &read_capture_payload(),
+            &CaptureEnv::from_process(),
+        );
+    }
+}
+
+fn is_capture_invocation(args: &[std::ffi::OsString]) -> bool {
+    matches!(args, [_, memory, capture, ..] if memory == "memory" && capture == "capture")
+}
+
+fn lenient_provider(args: &[std::ffi::OsString]) -> Option<&str> {
+    let mut args = args.iter().filter_map(|arg| arg.to_str());
+    while let Some(arg) = args.next() {
+        if arg == "--provider" {
+            return args.next();
+        }
+        if let Some(value) = arg.strip_prefix("--provider=") {
+            return Some(value);
+        }
+    }
+    None
+}
+
+fn read_capture_payload() -> String {
+    let mut bytes = Vec::new();
+    let _ = io::stdin()
+        .take(MAX_CAPTURE_PAYLOAD_BYTES)
+        .read_to_end(&mut bytes);
+    String::from_utf8_lossy(&bytes).into_owned()
+}
+
 /// Parse argv with the styled command. Pure: no stream, no exit.
 pub(crate) fn try_parse(args: &[std::ffi::OsString]) -> Result<Cli, clap::Error> {
     let matches = Cli::command().try_get_matches_from(args)?;
@@ -389,6 +435,9 @@ pub(crate) fn try_parse(args: &[std::ffi::OsString]) -> Result<Cli, clap::Error>
 }
 
 /// Parse argv, or render clap's help/version/usage error and exit.
+///
+/// `ivar memory capture` is a hook that must never fail the agent, so a usage
+/// error there exits 0 after capturing for whatever `--provider` was given.
 ///
 /// Clap would decide colour itself (it ignores `FORCE_COLOR` and `--color`),
 /// so the error is rendered here instead: on the stream clap names
@@ -399,6 +448,10 @@ pub(crate) fn try_parse(args: &[std::ffi::OsString]) -> Result<Cli, clap::Error>
 pub fn parse(args: Vec<std::ffi::OsString>) -> Cli {
     match try_parse(&args) {
         Ok(cli) => cli,
+        Err(err) if err.use_stderr() && is_capture_invocation(&args) => {
+            capture_event(lenient_provider(&args));
+            std::process::exit(0);
+        }
         Err(err) => {
             let stream = if err.use_stderr() {
                 term::Stream::Stderr

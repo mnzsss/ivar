@@ -8,10 +8,19 @@ Inspect or delete the hall memory database (`.ivar/memory.db`)
 
 ## `ivar memory status`
 
-Show the hall memory database: path, schema version, application id and size
+Show the hall memory database: path, schema version, application id, size, observation counts per event, the capture spool and the last drain
 
 
 ## `ivar memory clean`
 
 Delete the hall memory database after confirmation. Nothing else deletes it
+
+
+## `ivar memory capture`
+
+Record one session hook event into the capture spool. Always exits 0 and prints nothing
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--provider` | `<PROVIDER>` |  | Provider whose hook payload arrives on stdin; without one nothing is recorded |
 

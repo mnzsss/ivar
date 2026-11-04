@@ -1,6 +1,9 @@
 //! `ivar memory`: the hall memory database's verbs.
 
+pub mod capture;
+pub mod classify;
 pub mod clean;
+pub mod drain;
 pub mod status;
 
 #[cfg(test)]

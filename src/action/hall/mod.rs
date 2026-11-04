@@ -1,5 +1,5 @@
 //! `hall`: the verbs that act on the hall itself — `init · status · doctor ·
-//! cleanup · migrate`. See ARCHITECTURE.md's module map.
+//! cleanup · migrate`. See docs/architecture/module-map.md.
 //!
 //! Each verb lives in its own file (`init.rs`, `status.rs`, `doctor.rs`,
 //! `migrate.rs`, `cleanup.rs`); this facade owns what they share — the

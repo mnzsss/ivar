@@ -1,4 +1,5 @@
 pub mod auth;
+pub mod capture;
 pub mod guard;
 pub mod hook;
 pub mod launch;

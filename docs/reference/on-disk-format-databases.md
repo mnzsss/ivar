@@ -60,7 +60,34 @@ shared by every session, in WAL mode, with writers serialised on `.ivar/memory.l
 | --- | --- |
 | `PRAGMA application_id` | `0x69766d31` (`ivm1`) |
 | Schema version | the single row of `memory_schema(version)`, mirrored in `PRAGMA user_version` |
-| Current schema | 1 — `memory_schema` only, no domain tables yet |
+| Current schema | 2 — `memory_schema` and `observations` |
+
+### Observations (schema 2)
+
+`observations` holds the session events captured by the provider hooks, one row per
+`session.started`, `session.prompted`, `session.tool` or `session.ended` event.
+Rows are appended by draining the [capture spool](on-disk-format.md); nothing else writes them.
+
+| Column | Meaning |
+| --- | --- |
+| `id` | integer primary key |
+| `event_id` | unique; a replayed spool file inserts nothing twice |
+| `source_event` | one of the four `session.*` names |
+| `extension` | owner of the event, `'ivar'` by default |
+| `occurred_at` | RFC 3339 time of the event |
+| `session_id` | ivar session id, empty outside a view dir |
+| `native_session_id` | the provider's own session id |
+| `provider`, `ivar_version` | harness that fired the hook and the binary that recorded it |
+| `feature`, `parent_feature`, `repo`, `origin` | context resolved from the working directory, empty when unknown |
+| `importance` | integer rank of the event |
+| `attempt_id` | execution attempt, empty outside one |
+| `body` | sanitised event text |
+
+Indexes: `observations_session (session_id, native_session_id, occurred_at)`,
+`observations_source_event (source_event, occurred_at)` and `observations_time (occurred_at)`.
+The trigger `observations_no_update` aborts every `UPDATE`, so a row never changes after
+it is written. `DELETE` stays allowed: it is reserved for the retention sweep, which
+has not shipped yet.
 
 The version lives in a table because an older `ivar` that opens this file runs the
 graph migrations on it and overwrites `user_version`. A file whose `memory_schema`

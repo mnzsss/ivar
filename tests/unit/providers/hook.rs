@@ -138,3 +138,198 @@ fn opencode_plugin_appends_the_guard_stdout_to_the_tool_output() {
     );
     assert!(!js.contains("export default"), "{js}");
 }
+
+#[test]
+fn capture_artifacts_are_separate_from_the_guard_artifacts() {
+    assert!(providers::capture_artifacts(Provider::ClaudeCode).is_empty());
+    assert!(providers::capture_artifacts(Provider::T3).is_empty());
+
+    let omp = providers::capture_artifacts(Provider::Omp);
+    assert_eq!(omp.len(), 1);
+    assert_eq!(
+        omp[0].relative_path,
+        Utf8PathBuf::from(".omp/hooks/pre/ivar-memory.js")
+    );
+
+    let opencode = providers::capture_artifacts(Provider::OpenCode);
+    assert_eq!(opencode.len(), 1);
+    assert_eq!(
+        opencode[0].relative_path,
+        Utf8PathBuf::from(".opencode/plugins/ivar-memory.js")
+    );
+    assert_eq!(providers::managed_artifacts(Provider::OpenCode).len(), 1);
+}
+
+#[test]
+fn the_omp_capture_artifact_sits_in_the_directory_session_views_mirror() {
+    let mirrored = camino::Utf8Path::new(Provider::OMP_HOOKS_DIR).join("pre");
+    let artifact = providers::capture_artifacts(Provider::Omp).remove(0);
+    assert_eq!(artifact.relative_path.parent(), Some(mirrored.as_path()));
+}
+
+#[test]
+fn the_omp_capture_hook_is_pure_esm_registers_the_native_events_and_swallows_errors() {
+    let hook = providers::capture_artifacts(Provider::Omp)
+        .remove(0)
+        .contents;
+    assert!(hook.contains("export default"));
+    assert!(!hook.contains("require("));
+    assert!(hook.contains("node:child_process"));
+    for event in [
+        "session_start",
+        "before_agent_start",
+        "tool_result",
+        "session_shutdown",
+    ] {
+        assert!(hook.contains(&format!("pi.on(\"{event}\"")), "{event}");
+    }
+    assert!(
+        !hook.contains("tool_call"),
+        "capture must not touch the pre-tool event"
+    );
+    assert!(hook.contains("\"memory\", \"capture\", \"--provider\", \"omp\""));
+    assert!(
+        hook.matches("catch").count() >= 4,
+        "every handler swallows its errors"
+    );
+}
+
+#[test]
+fn the_opencode_capture_plugin_has_no_session_end_and_never_blocks() {
+    let plugin = providers::capture_artifacts(Provider::OpenCode)
+        .remove(0)
+        .contents;
+    assert!(plugin.contains("export const IvarMemoryPlugin"));
+    assert!(plugin.contains("\"chat.message\""));
+    assert!(plugin.contains("\"tool.execute.after\""));
+    assert!(plugin.contains("session.created"));
+    assert!(
+        !plugin.contains("session.idle"),
+        "idle is a turn boundary, not a session end"
+    );
+    assert!(plugin.contains("\"memory\", \"capture\", \"--provider\", \"opencode\""));
+    assert!(!plugin.contains("throw"));
+}
+
+fn node_available() -> bool {
+    std::process::Command::new("node")
+        .arg("--version")
+        .output()
+        .is_ok_and(|output| output.status.success())
+}
+
+const OVERSIZED_EVENT_LIMIT: usize = 100_000;
+
+/// Loads the artifact as an ES module in `node`, with a stand-in `ivar` that
+/// writes its stdin to a file, runs `driver` against it and returns what the
+/// spawned capture process received.
+fn captured_stdin(contents: &str, driver: &str) -> serde_json::Value {
+    let tmp = tempfile::tempdir().unwrap();
+    let bin = tmp.path().join("bin");
+    std::fs::create_dir(&bin).unwrap();
+    let fake = bin.join("ivar");
+    std::fs::write(&fake, "#!/bin/sh\ncat > \"$CAPTURED\"\n").unwrap();
+    std::fs::set_permissions(&fake, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+    std::fs::write(tmp.path().join("hook.mjs"), contents).unwrap();
+    std::fs::write(tmp.path().join("driver.mjs"), driver).unwrap();
+    let captured = tmp.path().join("captured.json");
+    let path = format!("{}:{}", bin.display(), std::env::var("PATH").unwrap());
+
+    let status = std::process::Command::new("node")
+        .arg(tmp.path().join("driver.mjs"))
+        .env("PATH", path)
+        .env("CAPTURED", &captured)
+        .status()
+        .unwrap();
+    assert!(status.success());
+
+    for _ in 0..100 {
+        if let Ok(text) = std::fs::read_to_string(&captured)
+            && let Ok(value) = serde_json::from_str(&text)
+        {
+            return value;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    panic!("the capture process never received a complete payload");
+}
+
+#[test]
+fn the_omp_capture_hook_bounds_an_oversized_tool_result_before_serialising_it() {
+    if !node_available() {
+        return;
+    }
+    let driver = r#"
+import ivarMemory from "./hook.mjs";
+const handlers = {};
+ivarMemory({ on: (name, handler) => { handlers[name] = handler; } });
+await handlers.tool_result({
+  toolName: "bash",
+  input: { command: "x".repeat(5_000_000) },
+  content: [{ type: "text", text: "y".repeat(5_000_000) }],
+}, { cwd: "/tmp" });
+"#;
+    let contents = providers::capture_artifacts(Provider::Omp)
+        .remove(0)
+        .contents;
+
+    let payload = captured_stdin(contents, driver);
+
+    assert_eq!(payload["event"], "tool");
+    assert!(payload.to_string().len() < OVERSIZED_EVENT_LIMIT);
+    assert!(payload["result"].as_str().unwrap().contains("yyyy"));
+}
+
+#[test]
+fn the_opencode_capture_plugin_bounds_an_oversized_tool_result_before_serialising_it() {
+    if !node_available() {
+        return;
+    }
+    let driver = r#"
+import { IvarMemoryPlugin } from "./hook.mjs";
+const hooks = await IvarMemoryPlugin();
+await hooks["tool.execute.after"](
+  { sessionID: "s", tool: "bash", args: { command: "x".repeat(5_000_000) } },
+  { output: "y".repeat(5_000_000) },
+);
+"#;
+    let contents = providers::capture_artifacts(Provider::OpenCode)
+        .remove(0)
+        .contents;
+
+    let payload = captured_stdin(contents, driver);
+
+    assert_eq!(payload["event"], "tool");
+    assert!(payload.to_string().len() < OVERSIZED_EVENT_LIMIT);
+    assert!(payload["result"].as_str().unwrap().contains("yyyy"));
+}
+
+#[test]
+fn both_capture_artifacts_are_valid_javascript_modules() {
+    if !node_available() {
+        return;
+    }
+    for (name, artifact) in [
+        ("omp.mjs", providers::capture_artifacts(Provider::Omp)),
+        (
+            "opencode.mjs",
+            providers::capture_artifacts(Provider::OpenCode),
+        ),
+    ] {
+        let tmp = tempfile::tempdir().unwrap();
+        let file = tmp.path().join(name);
+        std::fs::write(&file, artifact[0].contents).unwrap();
+
+        let output = std::process::Command::new("node")
+            .arg("--check")
+            .arg(&file)
+            .output()
+            .unwrap();
+
+        assert!(
+            output.status.success(),
+            "{name}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+}

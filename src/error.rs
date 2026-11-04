@@ -520,7 +520,7 @@ impl<T> Report<T> {
 /// Every action's outcome implements this, which is what lets the binary have
 /// **one** rendering path rather than one per verb: `--json` serializes the
 /// value and the human surface calls this on the same value, so the two cannot
-/// acquire separate formatting logic. See ARCHITECTURE.md, "1. `action` is the
+/// acquire separate formatting logic. See docs/architecture/seams.md, "1. `action` is the
 /// unit, and it has one output shape".
 ///
 /// Colour is not applied here — that belongs to the surface doing the writing,

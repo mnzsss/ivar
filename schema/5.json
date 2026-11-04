@@ -106,6 +106,20 @@
       ],
       "type": "object"
     },
+    "MemorySettings": {
+      "additionalProperties": false,
+      "description": "How `ivar` treats the hall's session memory.",
+      "properties": {
+        "capture": {
+          "description": "Whether session hooks record Observations. On unless set to `false`.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "capture"
+      ],
+      "type": "object"
+    },
     "Provider": {
       "description": "Which harnesses ivar can open a session in.",
       "enum": [
@@ -353,6 +367,17 @@
         ]
       },
       "type": "array"
+    },
+    "memory": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/MemorySettings"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Session memory settings; absent means capture is on."
     },
     "name": {
       "description": "The hall's name: a single, non-empty, non-whitespace, non-traversal\npath segment.",

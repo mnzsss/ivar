@@ -35,6 +35,12 @@ mod mcp_add;
 #[path = "cli/mcp_edit_remove.rs"]
 mod mcp_edit_remove;
 
+#[path = "cli/memory_capture.rs"]
+mod memory_capture;
+
+#[path = "cli/memory_capture_contract.rs"]
+mod memory_capture_contract;
+
 #[path = "cli/nested_subfeatures.rs"]
 mod nested_subfeatures;
 

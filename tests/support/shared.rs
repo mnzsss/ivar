@@ -65,7 +65,7 @@ pub(crate) fn hall_root() -> (TempDir, Utf8PathBuf) {
 ///
 /// Real, not faked: `tempfile::TempDir` plus a real `git init` is fast,
 /// hermetic, and exercises what ships. `ivar` never mocks git — see
-/// ARCHITECTURE.md, seam 4.
+/// docs/architecture/seams.md, seam 4.
 ///
 /// Identity and branch name are passed with `-c` / `--initial-branch` rather
 /// than left to the machine's own git config, so a developer whose

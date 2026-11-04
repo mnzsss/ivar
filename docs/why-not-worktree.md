@@ -20,7 +20,7 @@ edit it, commit it, and tell you it is done.
 `ivar` guards every worktree the feature has not promoted. On Linux, for an agent
 started with `ivar session start`, Landlock makes the kernel refuse the write
 (`EACCES`), shell included. Elsewhere the guard is a guardrail rather than a
-boundary, and [Limitations](reference/limitations.md) lists the cases. Either
+boundary, and [Limitations](reference/limitations-sessions.md) lists the cases. Either
 way, widening the blast radius (`ivar feature promote docs`) stays your decision.
 
 A hand-rolled script can do this too. It is just that nobody's does, and the

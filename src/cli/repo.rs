@@ -7,7 +7,7 @@ use crate::action::repo::{
 
 /// The `ivar repo` surface: what a repo is, who owns it, and how the hall's
 /// copy of it stays current. Each subcommand is one action file under
-/// `action/repo/` — see ARCHITECTURE.md's module map.
+/// `action/repo/` — see docs/architecture/module-map.md.
 #[derive(Debug, Subcommand)]
 pub enum RepoCommand {
     /// List the repos in ivar.json and their state.

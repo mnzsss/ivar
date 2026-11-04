@@ -42,6 +42,7 @@ half-understood state file is worse than no state file.
   .ivar/memory.db               local        hall memory (primary data; only `ivar memory clean` deletes it)
   .ivar/memory.lock             local        memory database writer lock
   .ivar/graph-watch.lock        local        graph watcher leader lease (pid)
+  .ivar/spool/memory/           local        capture spool: <key>.jsonl, <key>.<nanos>.draining, <key>.dropped, _drain.json
   .ivar/repos/                  local        bare clones and worktrees
   .ivar/features/               local        promotion records, Run Receipts, working docs
   .ivar/sessions/               local        discovery-session view dirs

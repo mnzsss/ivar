@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use camino::{Utf8Path, Utf8PathBuf};
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
@@ -10,9 +10,13 @@ use crate::action::graph::watch::scopes::{Debouncer, Scope, WatchSet};
 use crate::action::graph::watch::worker::registry::{add_control_dirs, register_and_watch_target};
 use crate::action::graph::watch::worker::reindex::reindex;
 use crate::action::graph::watch::worker::{Discover, TICK, Target};
+use crate::action::memory::drain::drain_one;
 use crate::git::System as GitSystem;
 use crate::store::graph::db::GraphDb;
 use crate::store::layout::Layout;
+use crate::store::memory::spool;
+
+const DRAIN_EVERY: Duration = Duration::from_millis(250);
 
 pub(super) fn handle_fs_event(
     event: &notify::Event,
@@ -168,6 +172,7 @@ pub(super) fn run(
     forget_rows_without_target(&layout, &db, &targets);
 
     let mut rediscover = false;
+    let mut last_drain = Instant::now();
 
     while !stop.load(Ordering::Relaxed) {
         let now = Instant::now();
@@ -238,5 +243,12 @@ pub(super) fn run(
 
         let now = Instant::now();
         process_due_scopes(&layout, &db, &mut deb, &targets, now);
+
+        if last_drain.elapsed() >= DRAIN_EVERY {
+            last_drain = Instant::now();
+            if spool::has_pending(&layout.memory_spool_dir()) {
+                let _ = drain_one(&layout);
+            }
+        }
     }
 }
