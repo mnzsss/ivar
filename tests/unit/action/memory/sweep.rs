@@ -157,3 +157,27 @@ fn plant_more(layout: &Layout) {
         )
         .unwrap();
 }
+
+#[test]
+fn a_lock_that_cannot_be_taken_is_recorded_as_the_last_error() {
+    let (_guard, root) = crate::test_support::seeded_hall();
+    let layout = Layout::at(root);
+    std::fs::create_dir_all(layout.memory_lock()).unwrap();
+
+    assert!(sweep(&layout, NOW).is_err());
+
+    let state = read_state(&layout);
+    assert!(state.last_error.is_some());
+    assert_eq!(state.last_sweep_at, None);
+}
+
+#[test]
+fn a_busy_lock_leaves_no_error_and_no_state() {
+    let (_guard, root) = crate::test_support::seeded_hall();
+    let layout = Layout::at(root);
+    let _held = crate::infra::fs::lock_exclusive(&layout.memory_lock()).unwrap();
+
+    assert!(sweep(&layout, NOW).unwrap().busy);
+
+    assert_eq!(read_state(&layout), SweepState::default());
+}
