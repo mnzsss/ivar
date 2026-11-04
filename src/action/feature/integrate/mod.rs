@@ -34,7 +34,6 @@
 //! `ivar feature promote <parent> <repo>`.
 
 use crate::action::memory::delivery::Emitter;
-use crate::domain::delivery_event::{DeliveryEvent, DeliveryScope};
 use crate::domain::feature::{Feature, FeatureIntegrationState, GateState};
 use crate::domain::name::FeatureName;
 use crate::error::{Failure, FixAction, Outcome, Report};
@@ -186,24 +185,6 @@ pub fn integrate(ctx: &Ctx, input: IntegrateInput) -> Outcome<IntegrateOutcome> 
         &layout, &manifest, &git, &child, &parent, policy, &title, &name, &emitter,
     )?;
     let child = relations::read_feature(&layout, &name)?;
-    for entry in &repos_out {
-        let ok = match entry.status {
-            RepoIntegrationStatus::Integrated => true,
-            RepoIntegrationStatus::Failed => false,
-            RepoIntegrationStatus::Reused
-            | RepoIntegrationStatus::Pending
-            | RepoIntegrationStatus::Stale => continue,
-        };
-        emitter.emit(
-            DeliveryScope::for_repo(&child, entry.repo.as_str(), &entry.source_sha),
-            DeliveryEvent::Integrated {
-                ok,
-                via: policy.via.to_string(),
-                source_sha: entry.source_sha.clone(),
-                merge_commit: entry.result_sha.clone(),
-            },
-        );
-    }
 
     // 13. Close as integrated only when every receipt is fresh and passing.
     let (state, closed_integrated) =

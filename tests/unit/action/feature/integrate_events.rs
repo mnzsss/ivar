@@ -23,6 +23,13 @@ use crate::test_support::{git, hall_root, seeded_repo};
 /// repo promoted into both, a commit on the child, and the child's plan gate
 /// approved. `checks` become the api repo's ordered verification checks.
 fn seeded_child_hall(checks: &[&str]) -> (tempfile::TempDir, Utf8PathBuf) {
+    seeded_child_hall_with_repos(&["api"], checks)
+}
+
+fn seeded_child_hall_with_repos(
+    repos: &[&str],
+    checks: &[&str],
+) -> (tempfile::TempDir, Utf8PathBuf) {
     let (guard, root) = hall_root();
     let ctx = Ctx::new(root.clone());
     hall::init(
@@ -37,19 +44,23 @@ fn seeded_child_hall(checks: &[&str]) -> (tempfile::TempDir, Utf8PathBuf) {
     )
     .unwrap();
 
-    let origin = seeded_repo(&root.parent().unwrap().join("origins/api"), "main");
     let layout = Layout::at(root.clone());
     let manifest = Manifest::new(
         HallName::new("acme").unwrap(),
         Providers::new(vec![Provider::ClaudeCode], Provider::ClaudeCode),
-        vec![
-            Repo::new(
-                RepoName::new("api").unwrap(),
-                origin.as_str(),
-                BranchName::new("main").unwrap(),
-            )
-            .with_checks(checks.iter().map(|c| c.to_string()).collect()),
-        ],
+        repos
+            .iter()
+            .map(|repo| {
+                let origin =
+                    seeded_repo(&root.parent().unwrap().join("origins").join(repo), "main");
+                Repo::new(
+                    RepoName::new(*repo).unwrap(),
+                    origin.as_str(),
+                    BranchName::new("main").unwrap(),
+                )
+                .with_checks(checks.iter().map(|c| c.to_string()).collect())
+            })
+            .collect(),
     )
     .unwrap();
     Manifest::write(&layout, &manifest).unwrap();
@@ -81,29 +92,36 @@ fn seeded_child_hall(checks: &[&str]) -> (tempfile::TempDir, Utf8PathBuf) {
     .unwrap();
 
     for feature in ["parent", "child"] {
-        promote::promote(
-            &ctx,
-            PromoteInput {
-                feature: feature.to_owned(),
-                repo: "api".to_owned(),
-                base: None,
-            },
-        )
-        .unwrap();
+        for repo in repos {
+            promote::promote(
+                &ctx,
+                PromoteInput {
+                    feature: feature.to_owned(),
+                    repo: (*repo).to_owned(),
+                    base: None,
+                },
+            )
+            .unwrap();
+        }
     }
 
-    // A commit on the child so there is something to integrate.
-    let child_wt = layout.repo_worktree(
-        &RepoName::new("api").unwrap(),
-        &BranchName::new("child").unwrap(),
-    );
-    std::fs::write(child_wt.join("work.md"), "work\n").unwrap();
-    git(&child_wt, &["add", "work.md"]);
-    git(&child_wt, &["commit", "-m", "child work"]);
+    for repo in repos {
+        commit_work(&layout, repo, "child", "work\n");
+    }
 
     approve_plan(&ctx, "child");
 
     (guard, root)
+}
+
+fn commit_work(layout: &Layout, repo: &str, branch: &str, content: &str) {
+    let worktree = layout.repo_worktree(
+        &RepoName::new(repo).unwrap(),
+        &BranchName::new(branch).unwrap(),
+    );
+    std::fs::write(worktree.join("work.md"), content).unwrap();
+    git(&worktree, &["add", "work.md"]);
+    git(&worktree, &["commit", "-m", "work"]);
 }
 
 /// Scaffold the child's SPDD artifacts and approve the plan gate.
@@ -216,4 +234,27 @@ fn a_failed_integration_check_emits_integrated_with_ok_false() {
         DeliveryEvent::Integrated { ok: false, .. }
     ));
     assert_eq!(integrated.event.importance().get(), 7);
+}
+
+#[test]
+fn an_integrated_repo_keeps_its_event_when_a_later_repo_errors() {
+    let (_guard, root) = seeded_child_hall_with_repos(&["api", "web"], &["true"]);
+    commit_work(&Layout::at(root.clone()), "web", "parent", "conflicting\n");
+    let sink = Arc::new(RecordingSink::default());
+    let ctx = Ctx::new(root).with_delivery_events(sink.clone());
+
+    let failure = integrate(&ctx, integrate_input("child")).unwrap_err();
+
+    assert_eq!(failure.code, "integration.repo_failed");
+    let records = sink.records();
+    let integrated: Vec<_> = records
+        .iter()
+        .filter(|r| r.event.source_event().as_str() == "delivery.integrated")
+        .collect();
+    assert_eq!(integrated.len(), 1);
+    assert_eq!(integrated[0].scope.repo, "api");
+    assert!(matches!(
+        &integrated[0].event,
+        DeliveryEvent::Integrated { ok: true, .. }
+    ));
 }

@@ -1,4 +1,5 @@
 use crate::action::memory::delivery::Emitter;
+use crate::domain::delivery_event::{DeliveryEvent, DeliveryScope};
 use crate::domain::feature::{Feature, IntegrationPolicy, IntegrationVia};
 use crate::domain::name::{FeatureName, RepoName};
 use crate::error::Failure;
@@ -38,7 +39,10 @@ pub(crate) fn run_integration_repos(
         match integrate_repo(
             layout, manifest, git, &child, parent, &repo, policy, title, emitter,
         ) {
-            Ok(entry) => repos_out.push(entry),
+            Ok(entry) => {
+                emit_integrated(emitter, &child, policy, &entry);
+                repos_out.push(entry);
+            }
             Err(failure) => broken.push(format!("{repo}: {}", failure.what)),
         }
         if let Ok(fresh) = relations::read_feature(layout, name) {
@@ -65,6 +69,30 @@ pub(crate) fn run_integration_repos(
         )
         .command(format!("ivar feature integrate {name}")),
     ))
+}
+
+fn emit_integrated(
+    emitter: &Emitter<'_>,
+    child: &Feature,
+    policy: IntegrationPolicy,
+    entry: &RepoIntegration,
+) {
+    let ok = match entry.status {
+        RepoIntegrationStatus::Integrated => true,
+        RepoIntegrationStatus::Failed => false,
+        RepoIntegrationStatus::Reused
+        | RepoIntegrationStatus::Pending
+        | RepoIntegrationStatus::Stale => return,
+    };
+    emitter.emit(
+        DeliveryScope::for_repo(child, entry.repo.as_str(), &entry.source_sha),
+        DeliveryEvent::Integrated {
+            ok,
+            via: policy.via.to_string(),
+            source_sha: entry.source_sha.clone(),
+            merge_commit: entry.result_sha.clone(),
+        },
+    );
 }
 
 /// One repo's integration: reuse a fresh receipt, re-verify an unchanged
