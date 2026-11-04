@@ -30,6 +30,7 @@ const IVAR_KEYS: [&str; 2] = [IVAR_HOOKS, IVAR_ATTRIBUTION];
 /// Claude Code's approval list for `.mcp.json` servers. Partly ivar's:
 /// entries named `<hall>-…` are this hall's, every other entry is the user's.
 const MCP_APPROVALS: &str = "enabledMcpjsonServers";
+const CAPTURE_COMMAND: &str = "ivar memory capture --provider claude-code";
 const ENV: &str = "env";
 const LEGACY_ENV_IVAR_HALL: &str = "IVAR_HALL";
 
@@ -50,7 +51,24 @@ pub fn materialise_settings(
     hall: &HallName,
     allowlist: &[String],
 ) -> Result<Change, Error> {
-    let ivar_doc = ivar_doc();
+    materialise_settings_with(path, hall, allowlist, true)
+}
+
+/// [`materialise_settings`] with session capture hooks installed only when
+/// `capture` is set. `hooks` is replaced wholesale, so `false` removes any
+/// capture entry a previous sync wrote.
+///
+/// # Errors
+///
+/// Returns [`Error`] if the existing file cannot be parsed as a JSON object
+/// or the merged document cannot be written.
+pub fn materialise_settings_with(
+    path: &Utf8Path,
+    hall: &HallName,
+    allowlist: &[String],
+    capture: bool,
+) -> Result<Change, Error> {
+    let ivar_doc = ivar_doc(capture);
     let (existing, raw) = doc::read_doc(path)?;
     let created = existing.is_none();
     let mut doc = existing.unwrap_or_else(|| serde_json::Value::Object(serde_json::Map::new()));
@@ -176,27 +194,37 @@ fn remove_legacy_ivar_hall(object: &mut serde_json::Map<String, serde_json::Valu
 /// and `attribution` blanked. Used when the file is absent or when merging
 /// into an existing document. `PreToolUse` runs the guard and five `--slice`
 /// commands in one entry, so each inlines up to ~10,000 chars of repository
-/// instructions for the same call (57,000 chars in all).
-fn ivar_doc() -> serde_json::Value {
+/// instructions for the same call (57,000 chars in all). With `capture`, the
+/// memory capture hooks sit in their own entries beside `PreToolUse`, never
+/// inside the guard entry.
+fn ivar_doc(capture: bool) -> serde_json::Value {
     let mut root = serde_json::Map::new();
 
     // hooks: the lifecycle hooks that wire session env and guard into the
     // harness.
     let mut hooks = serde_json::Map::new();
+    let mut session_start_hooks =
+        vec![serde_json::json!({ "type": "command", "command": "ivar session env" })];
+    if capture {
+        session_start_hooks.push(serde_json::json!({
+            "type": "command",
+            "command": CAPTURE_COMMAND
+        }));
+    }
     hooks.insert(
         "SessionStart".to_owned(),
-        serde_json::json!([
-            {
-                "matcher": "",
-                "hooks": [
-                    {
-                        "type": "command",
-                        "command": "ivar session env"
-                    }
-                ]
-            }
-        ]),
+        serde_json::json!([{ "matcher": "", "hooks": session_start_hooks }]),
     );
+    if capture {
+        for event in [
+            "UserPromptSubmit",
+            "PostToolUse",
+            "PostToolUseFailure",
+            "SessionEnd",
+        ] {
+            hooks.insert(event.to_owned(), capture_entry());
+        }
+    }
     hooks.insert(
         "PreToolUse".to_owned(),
         serde_json::json!([
@@ -237,6 +265,13 @@ fn ivar_doc() -> serde_json::Value {
         serde_json::json!({ "commit": "", "pr": "" }),
     );
     serde_json::Value::Object(root)
+}
+
+fn capture_entry() -> serde_json::Value {
+    serde_json::json!([{
+        "matcher": "",
+        "hooks": [{ "type": "command", "command": CAPTURE_COMMAND }]
+    }])
 }
 
 #[cfg(test)]

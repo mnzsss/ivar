@@ -355,3 +355,77 @@ fn remove_deletes_a_file_holding_only_ivar_keys_and_hall_approvals() {
     assert_eq!(remove_settings(&path, &acme()).unwrap(), Change::Removed);
     assert!(!path.exists());
 }
+
+const CAPTURE: &str = "ivar memory capture --provider claude-code";
+
+fn commands(doc: &serde_json::Value, event: &str) -> Vec<String> {
+    doc["hooks"][event]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .flat_map(|entry| entry["hooks"].as_array().cloned().unwrap_or_default())
+        .filter_map(|hook| hook["command"].as_str().map(str::to_owned))
+        .collect()
+}
+
+#[test]
+fn capture_adds_the_four_events_and_one_session_start_entry() {
+    let (_guard, dir) = utf8_temp_dir();
+    let path = dir.join("settings.json");
+    materialise_settings_with(&path, &acme(), &[], true).unwrap();
+    let doc = read_doc(&path);
+
+    for event in [
+        "UserPromptSubmit",
+        "PostToolUse",
+        "PostToolUseFailure",
+        "SessionEnd",
+    ] {
+        assert_eq!(commands(&doc, event), vec![CAPTURE.to_owned()], "{event}");
+    }
+    assert_eq!(
+        commands(&doc, "SessionStart"),
+        vec!["ivar session env".to_owned(), CAPTURE.to_owned()]
+    );
+}
+
+#[test]
+fn capture_never_enters_the_guard_entry() {
+    let (_guard, dir) = utf8_temp_dir();
+    let path = dir.join("settings.json");
+    materialise_settings_with(&path, &acme(), &[], true).unwrap();
+    let doc = read_doc(&path);
+
+    let pre = commands(&doc, "PreToolUse");
+    assert_eq!(pre.len(), 6);
+    assert!(
+        pre.iter()
+            .all(|c| c.starts_with("ivar guard --provider claude-code"))
+    );
+}
+
+#[test]
+fn turning_capture_off_removes_every_capture_entry_on_the_next_sync() {
+    let (_guard, dir) = utf8_temp_dir();
+    let path = dir.join("settings.json");
+    materialise_settings_with(&path, &acme(), &[], true).unwrap();
+
+    materialise_settings_with(&path, &acme(), &[], false).unwrap();
+
+    let doc = read_doc(&path);
+    for event in [
+        "UserPromptSubmit",
+        "PostToolUse",
+        "PostToolUseFailure",
+        "SessionEnd",
+    ] {
+        assert!(doc["hooks"].get(event).is_none(), "{event} should be gone");
+    }
+    assert_eq!(
+        commands(&doc, "SessionStart"),
+        vec!["ivar session env".to_owned()]
+    );
+
+    materialise_settings_with(&path, &acme(), &[], true).unwrap();
+    assert!(commands(&read_doc(&path), "SessionEnd").contains(&CAPTURE.to_owned()));
+}

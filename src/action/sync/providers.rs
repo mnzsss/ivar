@@ -192,7 +192,7 @@ pub(crate) fn sync_settings(
     let hall = manifest.name();
     let result = if manifest.providers().available().contains(&provider) {
         let allowlist = crate::domain::mcp::hall_mcp_allowlist(hall, manifest.mcp_servers());
-        config::materialise_settings(&path, hall, &allowlist)
+        config::materialise_settings_with(&path, hall, &allowlist, manifest.memory_capture())
     } else {
         config::remove_settings(&path, hall)
     };

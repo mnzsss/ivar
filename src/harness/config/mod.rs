@@ -60,7 +60,7 @@ pub mod instructions;
 
 pub use instructions::{Change, MANAGED_END, MANAGED_START, build_block, materialise, remove};
 pub use mcp::{materialise_mcp, remove_hall_servers, remove_mcp};
-pub use settings::{materialise_settings, remove_settings};
+pub use settings::{materialise_settings, materialise_settings_with, remove_settings};
 
 /// Everything that can go wrong maintaining an MCP config or managed artifact.
 #[derive(Debug, thiserror::Error)]

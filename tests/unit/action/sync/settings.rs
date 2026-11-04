@@ -90,3 +90,20 @@ fn sync_removes_artifacts_when_provider_is_not_listed() {
     // Claude Code's settings survive.
     assert!(root.join(".claude/settings.json").is_file());
 }
+
+#[test]
+fn sync_honours_memory_capture_false_in_the_manifest() {
+    let (_guard, root) = hall_with(&[]);
+    let layout = Layout::at(root.clone());
+    let off = Manifest::read(&layout)
+        .unwrap()
+        .unwrap()
+        .with_memory_capture(false)
+        .unwrap();
+    Manifest::write(&layout, &off).unwrap();
+
+    sync(&Ctx::new(root.clone()), &SyncInput::default()).unwrap();
+
+    let settings = std::fs::read_to_string(root.join(".claude/settings.json")).unwrap();
+    assert!(!settings.contains("ivar memory capture"), "{settings}");
+}
