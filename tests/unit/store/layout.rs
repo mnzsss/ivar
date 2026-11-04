@@ -526,4 +526,5 @@ fn the_hall_databases_and_their_locks_live_directly_under_the_dotdir() {
     assert_eq!(layout.graph_lock(), root.join(".ivar/graph.lock"));
     assert_eq!(layout.memory_db(), root.join(".ivar/memory.db"));
     assert_eq!(layout.memory_lock(), root.join(".ivar/memory.lock"));
+    assert_eq!(layout.memory_spool_dir(), root.join(".ivar/spool/memory"));
 }

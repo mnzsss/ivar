@@ -4,3 +4,4 @@
 pub mod db;
 pub mod schema;
 pub mod split;
+pub mod spool;
