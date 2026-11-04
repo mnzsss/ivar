@@ -8,6 +8,12 @@ pub enum MemoryCommand {
     Status,
     /// Delete the hall memory database after confirmation. Nothing else deletes it.
     Clean,
+    /// Record one session hook event into the capture spool. Always exits 0 and prints nothing.
+    Capture {
+        /// Provider whose hook payload arrives on stdin.
+        #[arg(long)]
+        provider: String,
+    },
 }
 
 #[cfg(test)]

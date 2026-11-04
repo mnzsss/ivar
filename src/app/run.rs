@@ -3,7 +3,7 @@
 //! and rendering the outcome. Dispatch lives here so the binary stays a
 //! thin `main` — see ARCHITECTURE.md's module map.
 
-use std::io::{self, Write};
+use std::io::{self, Read as _, Write};
 use std::process::ExitCode;
 
 use clap::{CommandFactory as _, FromArgMatches as _};
@@ -17,6 +17,7 @@ use crate::action::mcp::auth as mcp_auth;
 use crate::action::mcp::edit as mcp_edit;
 use crate::action::mcp::remove as mcp_remove;
 use crate::action::mcp::status as mcp_status;
+use crate::action::memory::capture::CaptureEnv;
 use crate::action::provider::{
     add as provider_add, default as provider_default, list as provider_list,
     remove as provider_remove,
@@ -35,6 +36,7 @@ use crate::cli::MemoryCommand;
 use crate::cli::root::{
     Cli, Command, CommentCommand, McpCommand, ProviderCommand, RepoCommand, ReviewCommand,
 };
+use crate::domain::provider::Provider;
 use crate::infra::progress;
 use crate::infra::term;
 
@@ -46,6 +48,14 @@ use crate::infra::term;
               relocate, not reduce, the branching"
 )]
 pub fn run(cli: Cli) -> ExitCode {
+    if let Command::Memory(MemoryCommand::Capture { provider }) = &cli.command {
+        if let Ok(provider) = provider.parse::<Provider>() {
+            let mut stdin = String::new();
+            let _ = io::stdin().read_to_string(&mut stdin);
+            crate::action::memory::capture::capture(provider, &stdin, &CaptureEnv::from_process());
+        }
+        return ExitCode::SUCCESS;
+    }
     let json = cli.json;
     let compact = cli.compact;
     // Prime both per-stream colour decisions with the flag, before any output
@@ -327,6 +337,7 @@ pub fn run(cli: Cli) -> ExitCode {
             &mut stderr,
         ),
         Command::Memory(cmd) => match cmd {
+            MemoryCommand::Capture { .. } => ExitCode::SUCCESS,
             MemoryCommand::Status => respond(
                 crate::action::memory::status::status(&ctx),
                 json,
