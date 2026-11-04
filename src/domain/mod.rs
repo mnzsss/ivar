@@ -23,6 +23,7 @@ pub mod observation;
 pub mod plan;
 pub mod plan_commands;
 pub mod provider;
+pub mod sanitize;
 pub mod session;
 pub mod skill;
 pub mod skill_sync;

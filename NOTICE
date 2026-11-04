@@ -23,3 +23,28 @@ copy-paste. See CONTRIBUTING.md.
   Upstream: https://github.com/tonsky/FiraCode / https://fontsource.org/fonts/fira-code
   Copyright (c) 2014-2020 Nikita Prokopov (fira@tonsky.me) with Reserved Font Name "Fira Code".
   Licensed under SIL Open Font License Version 1.1 (see `src/action/graph/view/assets/OFL.txt`).
+
+- `src/domain/sanitize/patterns.rs`: secret redaction patterns (`BUILTIN_PATTERNS`).
+  Upstream: https://github.com/akitaonrails/ai-memory, `crates/ai-memory-core/src/sanitize.rs`, release v3.3.3, commit 8c39e4e6778b17aa103b02eb0a7ae327d63ba689.
+  Copyright (c) 2026 Fabio Akita.
+  Licensed under the MIT License:
+
+    Copyright (c) 2026 Fabio Akita
+
+    Permission is hereby granted, free of charge, to any person obtaining a copy
+    of this software and associated documentation files (the "Software"), to deal
+    in the Software without restriction, including without limitation the rights
+    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+    copies of the Software, and to permit persons to whom the Software is
+    furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in all
+    copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+    SOFTWARE.
