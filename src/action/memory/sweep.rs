@@ -6,12 +6,14 @@ use std::time::SystemTime;
 
 use serde::{Deserialize, Serialize};
 
-use crate::domain::session::{rfc3339_from_epoch_secs, rfc3339_now};
+use crate::domain::session::rfc3339_now;
 use crate::error::Failure;
 use crate::infra::fs;
 use crate::store::layout::Layout;
 use crate::store::memory::db::MemoryDb;
-use crate::store::memory::retention::{SESSION_RETENTION_DAYS, delete_expired_sessions};
+use crate::store::memory::retention::{
+    SESSION_RETENTION_DAYS, cutoff_before, delete_expired_sessions,
+};
 
 const BATCH: usize = 1000;
 const STATE_FILE: &str = "_sweep.json";
@@ -44,9 +46,7 @@ pub fn sweep(layout: &Layout, now_epoch_secs: u64) -> Result<SweepReport, Failur
             busy: true,
         });
     };
-    let cutoff = rfc3339_from_epoch_secs(
-        now_epoch_secs.saturating_sub(SESSION_RETENTION_DAYS * 86_400) as f64,
-    );
+    let cutoff = cutoff_before(now_epoch_secs, SESSION_RETENTION_DAYS);
     let mut state = read_state(layout);
     let outcome = delete_all_expired(layout, &cutoff);
     match &outcome {

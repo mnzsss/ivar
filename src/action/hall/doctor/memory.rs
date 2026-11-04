@@ -6,19 +6,21 @@ use std::time::{Duration, SystemTime};
 use crate::action::memory::drain::{DrainState, read_state};
 use crate::action::memory::sweep::read_state as read_sweep_state;
 use crate::domain::provider::Provider;
-use crate::domain::session::rfc3339_from_epoch_secs;
 use crate::infra::fs;
 use crate::providers;
 use crate::store::layout::Layout;
 use crate::store::manifest::Manifest;
-use crate::store::memory::retention::oldest_session_last_observation;
+use crate::store::memory::retention::{
+    SESSION_RETENTION_DAYS, cutoff_before, oldest_session_last_observation,
+};
 use crate::store::memory::spool;
 
 use super::Diagnosis;
 
 const ORPHAN_AFTER: Duration = Duration::from_secs(3600);
 const DROP_REPORTED_FOR: Duration = Duration::from_secs(7 * 24 * 3600);
-const RETENTION_OVERDUE_AFTER_DAYS: u64 = 37;
+const RETENTION_GRACE_DAYS: u64 = 7;
+const RETENTION_OVERDUE_AFTER_DAYS: u64 = SESSION_RETENTION_DAYS + RETENTION_GRACE_DAYS;
 
 pub(super) fn memory_capture_diagnoses(layout: &Layout, manifest: &Manifest) -> Vec<Diagnosis> {
     let mut findings = spool_diagnoses(layout);
@@ -99,9 +101,7 @@ fn oldest_session_is_overdue(layout: &Layout) -> bool {
         .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs();
-    let cutoff =
-        rfc3339_from_epoch_secs(now.saturating_sub(RETENTION_OVERDUE_AFTER_DAYS * 86_400) as f64);
-    oldest < cutoff
+    oldest < cutoff_before(now, RETENTION_OVERDUE_AFTER_DAYS)
 }
 
 fn acknowledged_drop_diagnosis(state: &DrainState) -> Option<Diagnosis> {

@@ -24,7 +24,7 @@ pub enum SourceEvent {
 }
 
 impl SourceEvent {
-    const ALL: [Self; 15] = [
+    pub const ALL: [Self; 15] = [
         Self::SessionStarted,
         Self::SessionPrompted,
         Self::SessionTool,
