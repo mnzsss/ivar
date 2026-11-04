@@ -1,0 +1,4 @@
+These payloads are hand-written from the shapes pinned in tests/unit/providers/capture.rs
+(_recorded: false). They were not captured from a live provider run.
+T3 has no ended.json: its session_ended stays NotSupported until a live run shows SessionEnd.
+OpenCode has no ended.json: it has no session-end event.
