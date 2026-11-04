@@ -139,6 +139,35 @@ fn body_carries_branch_head_and_stays_valid_json_when_lists_overflow() {
     assert_eq!(value["blockers"].as_array().unwrap().len(), 10);
 }
 
+#[test]
+fn multibyte_text_is_shrunk_to_the_byte_bound_and_stays_valid_json() {
+    let wide = "\u{1D11E}".repeat(200);
+    let event = DeliveryEvent::Refused {
+        code: wide.clone(),
+        blockers: vec![wide.clone(); 10],
+        fingerprint: wide,
+    };
+
+    let body = event.body(&scope());
+
+    assert!(body.len() <= 4000, "body is {} bytes", body.len());
+    let value: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(value["branch"], "login");
+    assert_eq!(value["blockers"].as_array().unwrap().len(), 10);
+    assert!(value["code"].as_str().unwrap().starts_with('\u{1D11E}'));
+}
+
+#[test]
+fn a_body_within_the_byte_bound_is_left_alone() {
+    let event = DeliveryEvent::Closed {
+        outcome: "done".into(),
+    };
+
+    let value: serde_json::Value = serde_json::from_str(&event.body(&scope())).unwrap();
+
+    assert_eq!(value["outcome"], "done");
+}
+
 fn feature(parent: Option<&str>) -> Feature {
     let mut feature = Feature::new(
         FeatureName::new("login").unwrap(),

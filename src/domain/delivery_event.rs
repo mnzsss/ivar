@@ -8,6 +8,7 @@ use crate::domain::observation::{Importance, SourceEvent};
 
 const MAX_LISTED: usize = 10;
 const MAX_TEXT_CHARS: usize = 200;
+const MAX_BODY_BYTES: usize = 4000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ObservedBy {
@@ -122,20 +123,38 @@ fn by_success(ok: bool) -> Importance {
     }
 }
 
-fn bounded(value: Value) -> Value {
+fn bounded(value: Value, max_chars: usize, max_items: usize) -> Value {
     match value {
-        Value::String(text) => Value::String(text.chars().take(MAX_TEXT_CHARS).collect()),
-        Value::Array(items) => {
-            Value::Array(items.into_iter().take(MAX_LISTED).map(bounded).collect())
-        }
+        Value::String(text) => Value::String(text.chars().take(max_chars).collect()),
+        Value::Array(items) => Value::Array(
+            items
+                .into_iter()
+                .take(max_items)
+                .map(|item| bounded(item, max_chars, max_items))
+                .collect(),
+        ),
         Value::Object(fields) => Value::Object(
             fields
                 .into_iter()
-                .map(|(key, field)| (key, bounded(field)))
+                .map(|(key, field)| (key, bounded(field, max_chars, max_items)))
                 .collect(),
         ),
         other => other,
     }
+}
+
+fn within_byte_bound(body: &Value) -> String {
+    let mut text = body.to_string();
+    let (mut max_chars, mut max_items) = (MAX_TEXT_CHARS, MAX_LISTED);
+    while text.len() > MAX_BODY_BYTES && max_chars > 0 {
+        max_chars /= 2;
+        text = bounded(body.clone(), max_chars, max_items).to_string();
+    }
+    while text.len() > MAX_BODY_BYTES && max_items > 0 {
+        max_items /= 2;
+        text = bounded(body.clone(), max_chars, max_items).to_string();
+    }
+    text
 }
 
 impl DeliveryEvent {
@@ -174,11 +193,13 @@ impl DeliveryEvent {
     #[must_use]
     pub fn body(&self, scope: &DeliveryScope) -> String {
         let mut body = json!({ "branch": scope.branch, "head_sha": scope.head_sha });
-        if let (Value::Object(target), Value::Object(fields)) = (&mut body, bounded(self.fields()))
-        {
+        if let (Value::Object(target), Value::Object(fields)) = (
+            &mut body,
+            bounded(self.fields(), MAX_TEXT_CHARS, MAX_LISTED),
+        ) {
             target.extend(fields);
         }
-        body.to_string()
+        within_byte_bound(&body)
     }
 
     fn fields(&self) -> Value {
