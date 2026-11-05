@@ -17,6 +17,7 @@ directory and must not spend rounds discovering it.
 - Plan: <absolute path to plan.md>
 - Requirements: <absolute path to requirements.md>
 - Design ref: <the packet's **Design ref:** (Figma node URL or id), or none>
+- Memory refs: <the packet's **Memory refs:** paths, absolute, or none>
 
 ## Boundaries
 - Allowed files: <exactly the Files section of the task packet, absolute>
@@ -24,7 +25,8 @@ directory and must not spend rounds discovering it.
 - Do not edit other files, run other repos' commands, commit outside the task packet's Step 5, or change plan.md.
 
 ## Task
+Read the Memory refs pages before editing.
 Execute the task packet step by step (Red → Green → Refactor). Report the
 task packet's Step 2 failure output and Step 4 pass output, and every file you
-changed.
+changed. Add a "Learnings" line with anything a later task or reviewer should know. You never call `memory_write_page`; the coordinator decides what becomes a page.
 ```

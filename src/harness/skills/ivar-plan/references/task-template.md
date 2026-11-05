@@ -11,6 +11,7 @@ task in `plan.md`. Name files with a two-digit order prefix (e.g.
 - Modify: `exact/path.rs:123-145`
 - Test: `tests/exact/path.rs`
 **Design ref:** [Figma node URL or id the task implements, or `none`]
+**Memory refs:** [paths of the pages in the `analysis.md` "Conhecimento prévio" section that apply to this task, or `none`]
 **Readers:**
 - For each symbol this packet writes, paste the output of
   `git grep -n '<symbol>'`. Run it from the repo root with no pathspec:

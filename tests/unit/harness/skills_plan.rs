@@ -7,6 +7,7 @@ fn skill_test_files_fit_the_commit_hook_limit() {
     for rel in [
         "tests/unit/harness/skills.rs",
         "tests/unit/harness/skills_plan.rs",
+        "tests/unit/harness/skills_memory.rs",
     ] {
         let path = format!("{}/{rel}", env!("CARGO_MANIFEST_DIR"));
         let bytes = std::fs::metadata(&path).unwrap().len();
