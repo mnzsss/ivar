@@ -1,7 +1,6 @@
 #![allow(clippy::unwrap_used)]
 
 use super::*;
-use crate::test_support::seeded_hall;
 
 #[test]
 fn a_safe_native_id_names_the_file_and_an_unsafe_one_is_hashed() {
@@ -19,7 +18,7 @@ fn a_safe_native_id_names_the_file_and_an_unsafe_one_is_hashed() {
 #[cfg(target_os = "linux")]
 #[test]
 fn a_failed_temp_write_leaves_no_temp_file_behind() {
-    let (_guard, root) = seeded_hall();
+    let (_guard, root) = crate::test_support::seeded_hall();
     let dir = root.join("docs/memory/decision");
     std::fs::create_dir_all(&dir).unwrap();
     std::os::unix::fs::symlink("/dev/full", temp_path(&dir)).unwrap();
