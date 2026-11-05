@@ -29,6 +29,16 @@ mod fake_gh;
 
 pub(crate) use fake_gh::FakeGh;
 
+#[path = "fake_telegram.rs"]
+mod fake_telegram;
+
+pub(crate) use fake_telegram::FakeTelegram;
+
+#[path = "scripted_confirm.rs"]
+mod scripted_confirm;
+
+pub(crate) use scripted_confirm::Scripted;
+
 /// `fake`'s `gh` script with its state files in the environment — what a
 /// test extends with a one-off switch such as `GH_FAKE_READY_FAIL`.
 pub(crate) fn fake_gh_command(fake: &FakeGh) -> crate::infra::proc::Command {

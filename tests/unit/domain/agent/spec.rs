@@ -72,6 +72,11 @@ fn image_and_command_override_the_tool() {
 #[case::domain_with_path("a", AgentFrontmatter { network: vec!["github.com/org".into()], ..base() }, "network")]
 #[case::absolute_workdir("a", AgentFrontmatter { workdir: Some("/etc".into()), ..base() }, "workdir")]
 #[case::notify_not_http("a", AgentFrontmatter { notify: Some("ftp://x".into()), ..base() }, "notify")]
+#[case::telegram_empty("a", AgentFrontmatter { notify: Some("telegram:".into()), ..base() }, "notify")]
+#[case::telegram_word("a", AgentFrontmatter { notify: Some("telegram:abc".into()), ..base() }, "notify")]
+#[case::telegram_double_sign("a", AgentFrontmatter { notify: Some("telegram:--1".into()), ..base() }, "notify")]
+#[case::telegram_short_channel("a", AgentFrontmatter { notify: Some("telegram:@abc".into()), ..base() }, "notify")]
+#[case::telegram_channel_starting_with_a_digit("a", AgentFrontmatter { notify: Some("telegram:@12345".into()), ..base() }, "notify")]
 #[case::bad_timeout("a", AgentFrontmatter { timeout: Some("forever".into()), ..base() }, "timeout")]
 #[case::escaping_workdir("a", AgentFrontmatter { workdir: Some("../etc".into()), ..base() }, "workdir")]
 #[case::feature_without_workdir("a", AgentFrontmatter { access: Access::Feature, ..base() }, "workdir")]
@@ -79,6 +84,29 @@ fn names_the_failing_field(#[case] name: &str, #[case] fm: AgentFrontmatter, #[c
     let error = AgentSpec::from_parts(name, fm, "").expect_err("invalid");
     assert_eq!(error.field, field, "{}", error.reason);
     assert!(!error.reason.is_empty());
+}
+
+#[rstest]
+#[case::webhook("https://hooks.example.com/ivar", NotifyTarget::Webhook("https://hooks.example.com/ivar".to_owned()))]
+#[case::telegram_user("telegram:123456", NotifyTarget::Telegram { chat_id: "123456".to_owned() })]
+#[case::telegram_group("telegram:-1001234567890", NotifyTarget::Telegram { chat_id: "-1001234567890".to_owned() })]
+#[case::telegram_channel("telegram:@ivar_runs", NotifyTarget::Telegram { chat_id: "@ivar_runs".to_owned() })]
+fn notify_parses_into_its_target(#[case] value: &str, #[case] target: NotifyTarget) {
+    let fm = AgentFrontmatter {
+        notify: Some(value.to_owned()),
+        ..base()
+    };
+    assert_eq!(
+        AgentSpec::from_parts("nightly", fm, "").unwrap().notify,
+        Some(target)
+    );
+}
+
+#[rstest]
+#[case::webhook(NotifyTarget::Webhook("https://hooks.example.com/ivar".to_owned()))]
+#[case::telegram(NotifyTarget::Telegram { chat_id: "-1001234567890".to_owned() })]
+fn notify_display_is_the_frontmatter_value(#[case] target: NotifyTarget) {
+    assert_eq!(notify_target(&target.to_string()).unwrap(), target);
 }
 
 #[rstest]

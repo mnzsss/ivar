@@ -7,6 +7,8 @@ use serde::{Deserialize, Serialize};
 pub const RECEIPT_VERSION: u32 = 1;
 
 const NOTIFY_TAIL_CHARS: usize = 2000;
+/// Telegram counts a message's length in UTF-16 code units.
+const TELEGRAM_TEXT_LIMIT: usize = 4096;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -23,6 +25,18 @@ pub enum AgentRunOutcome {
 pub enum Trigger {
     Schedule,
     Manual,
+}
+
+impl AgentRunOutcome {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Succeeded => "succeeded",
+            Self::Failed => "failed",
+            Self::Blocked => "blocked",
+            Self::Skipped => "skipped",
+            Self::TimedOut => "timed_out",
+        }
+    }
 }
 
 impl Trigger {
@@ -111,6 +125,38 @@ pub struct NotifySummary<'a> {
     pub started_at: &'a str,
     pub ended_at: &'a str,
     pub tail: &'a str,
+}
+
+impl NotifySummary<'_> {
+    pub fn telegram_text(&self) -> String {
+        let exit = self
+            .exit_code
+            .map_or_else(String::new, |code| format!(" · exit {code}"));
+        let mut text = format!(
+            "ivar agent {}: {}\n{} · {}{exit}",
+            self.agent,
+            self.outcome.as_str(),
+            self.trigger.as_str(),
+            self.run_id
+        );
+        if !self.tail.is_empty() {
+            text.push_str("\n\n");
+            let room = TELEGRAM_TEXT_LIMIT.saturating_sub(text.encode_utf16().count());
+            text.push_str(utf16_suffix(self.tail, room));
+        }
+        text
+    }
+}
+
+fn utf16_suffix(text: &str, max_units: usize) -> &str {
+    let mut units = 0;
+    for (start, ch) in text.char_indices().rev() {
+        units += ch.len_utf16();
+        if units > max_units {
+            return &text[start + ch.len_utf8()..];
+        }
+    }
+    text
 }
 
 impl AgentRunReceipt {

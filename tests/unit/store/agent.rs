@@ -110,3 +110,94 @@ fn every_example_agent_validates() {
         parse(&file).unwrap_or_else(|f| panic!("{}", f.what));
     }
 }
+
+#[test]
+fn set_notify_replaces_the_line_and_keeps_the_body() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root);
+    write_agent(
+        &layout,
+        "nightly",
+        "---\nschedule: \"@daily\"\ntool: claude\nnotify: https://hooks.example.com/x\ntimeout: 5m\n---\nGo.\n\n---\nnot frontmatter\n",
+    );
+    let file = list_files(&layout).unwrap().remove(0);
+    set_notify(&file, "telegram:-100123").unwrap();
+    assert_eq!(
+        std::fs::read_to_string(layout.agent_file("nightly")).unwrap(),
+        "---\nschedule: \"@daily\"\ntool: claude\nnotify: telegram:-100123\ntimeout: 5m\n---\nGo.\n\n---\nnot frontmatter\n"
+    );
+}
+
+#[test]
+fn set_notify_inserts_the_line_when_absent() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root);
+    write_agent(
+        &layout,
+        "nightly",
+        "---\nschedule: \"@daily\"\ntool: claude\n---\nGo.\n",
+    );
+    let file = list_files(&layout).unwrap().remove(0);
+    set_notify(&file, "telegram:@ivar_runs").unwrap();
+    assert_eq!(
+        std::fs::read_to_string(layout.agent_file("nightly")).unwrap(),
+        "---\nschedule: \"@daily\"\ntool: claude\nnotify: telegram:@ivar_runs\n---\nGo.\n"
+    );
+    assert_eq!(
+        load(&layout, "nightly").unwrap().notify,
+        Some(crate::domain::agent::spec::NotifyTarget::Telegram {
+            chat_id: "@ivar_runs".into()
+        })
+    );
+}
+
+#[test]
+fn set_notify_leaves_the_file_alone_when_the_result_does_not_validate() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root);
+    let original = "---\nschedule: \"@daily\"\ntool: claude\n---\nGo.\n";
+    write_agent(&layout, "nightly", original);
+    let file = list_files(&layout).unwrap().remove(0);
+    let failure = set_notify(&file, "telegram:abc").unwrap_err();
+    assert_eq!(failure.code, "agent.invalid");
+    assert_eq!(
+        std::fs::read_to_string(layout.agent_file("nightly")).unwrap(),
+        original
+    );
+}
+
+#[test]
+fn set_notify_keeps_crlf_line_endings_and_the_body() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root);
+    write_agent(
+        &layout,
+        "nightly",
+        "---\r\nschedule: \"@daily\"\r\ntool: claude\r\n---\r\nGo.\r\nNow.\r\n",
+    );
+    let file = list_files(&layout).unwrap().remove(0);
+    set_notify(&file, "telegram:-100123").unwrap();
+    assert_eq!(
+        std::fs::read_to_string(layout.agent_file("nightly")).unwrap(),
+        "---\r\nschedule: \"@daily\"\r\ntool: claude\r\nnotify: telegram:-100123\r\n---\r\nGo.\r\nNow.\r\n"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn set_notify_keeps_the_file_mode() {
+    use std::os::unix::fs::PermissionsExt;
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root);
+    write_agent(
+        &layout,
+        "nightly",
+        "---\nschedule: \"@daily\"\ntool: claude\n---\nGo.\n",
+    );
+    let path = layout.agent_file("nightly");
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o640)).unwrap();
+    let file = list_files(&layout).unwrap().remove(0);
+    set_notify(&file, "telegram:-100123").unwrap();
+    let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode, 0o640);
+}

@@ -11,6 +11,9 @@ described in [the scheduled agents guide](../../docs/guides/scheduled-agents.md)
 | `lint-fix.md` | `access: feature`: changes land in a feature for you to deliver |
 | `custom-image.md` | Your own image and command instead of a `tool` |
 
+To get the summary in Telegram instead, run `ivar agent notify telegram setup`;
+it saves the bot token and sets `notify: telegram:<chat_id>` on the agents you pick.
+
 Secrets named in `secrets` are read from `.ivar/secrets/agents.env`, which
 must be mode `0600`:
 

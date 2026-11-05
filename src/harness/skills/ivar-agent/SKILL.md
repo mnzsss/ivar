@@ -64,8 +64,12 @@ you picked:
    are names matching `^[A-Z][A-Z0-9_]*$`; tell the user to put the values in
    `.ivar/secrets/agents.env` (mode 600) themselves. Never ask for a value in
    the conversation and never write one into the agent file.
-7. **Notify and timeout**: an `http(s)` URL for the run summary if they want
-   one; a `timeout` when the default 30m is wrong.
+7. **Notify and timeout**: an `http(s)` URL for the run summary, or
+   `telegram:<chat_id>` to message a Telegram chat. For Telegram, tell the
+   user to put the bot token in `.ivar/secrets/agents.env` as
+   `TELEGRAM_BOT_TOKEN` (never ask for it here) and set
+   `notify: telegram:<chat_id>`, or to run `ivar agent notify telegram setup`
+   in a terminal. A `timeout` when the default 30m is wrong.
 
 Write the prompt for a reader with no context: it names the repo, says what to
 look at, what to produce and where, and what "nothing to report" looks like. It

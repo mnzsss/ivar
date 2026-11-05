@@ -4,6 +4,7 @@ pub mod feature_access;
 pub mod feedback;
 pub mod logs;
 pub mod notify;
+pub mod notify_setup;
 pub mod requirements;
 pub mod run;
 pub mod sandbox;

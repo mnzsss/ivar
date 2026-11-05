@@ -70,3 +70,14 @@ fn the_hidden_sandbox_launcher_takes_write_roots_and_a_command() {
     assert_eq!(args.write, ["/a", "/b"]);
     assert_eq!(args.command, ["claude", "-p", "Go."]);
 }
+
+#[test]
+fn notify_telegram_setup_parses() {
+    let cli = Cli::try_parse_from(["ivar", "agent", "notify", "telegram", "setup"]).unwrap();
+    assert!(matches!(
+        cli.command,
+        Command::Agent(AgentCommand::Notify(
+            crate::cli::agent::NotifyCommand::Telegram(crate::cli::agent::TelegramCommand::Setup)
+        ))
+    ));
+}

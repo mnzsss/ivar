@@ -106,3 +106,58 @@ fn env_file_refuses_a_multiline_value() {
         "K=v\n"
     );
 }
+
+#[test]
+fn set_and_write_keeps_the_other_keys_and_owner_only_mode() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root);
+    AgentSecrets::ensure_file(&layout).unwrap();
+    AgentSecrets::set_and_write(&layout, "OTHER", "keep").unwrap();
+    assert_eq!(
+        AgentSecrets::set_and_write(&layout, "TELEGRAM_BOT_TOKEN", "123:abc").unwrap(),
+        Change::Created
+    );
+    assert_eq!(
+        AgentSecrets::set_and_write(&layout, "TELEGRAM_BOT_TOKEN", "123:abc").unwrap(),
+        Change::Unchanged
+    );
+    assert_eq!(
+        AgentSecrets::set_and_write(&layout, "TELEGRAM_BOT_TOKEN", "456:def").unwrap(),
+        Change::Updated
+    );
+    let secrets = AgentSecrets::read(&layout).unwrap();
+    assert_eq!(secrets.get("TELEGRAM_BOT_TOKEN"), Some("456:def"));
+    assert_eq!(secrets.get("OTHER"), Some("keep"));
+    owner_only(&layout.agent_secrets_env());
+}
+
+#[test]
+fn set_and_write_keeps_comments_blank_lines_and_key_order() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root);
+    AgentSecrets::ensure_file(&layout).unwrap();
+    std::fs::write(
+        layout.agent_secrets_env(),
+        "# shared tokens\nZED=1\n\nALPHA=old",
+    )
+    .unwrap();
+    owner_only(&layout.agent_secrets_env());
+
+    assert_eq!(
+        AgentSecrets::set_and_write(&layout, "ALPHA", "new value").unwrap(),
+        Change::Updated
+    );
+    assert_eq!(
+        AgentSecrets::set_and_write(&layout, "MIDDLE", "3").unwrap(),
+        Change::Created
+    );
+
+    assert_eq!(
+        std::fs::read_to_string(layout.agent_secrets_env()).unwrap(),
+        "# shared tokens\nZED=1\n\nALPHA=\"new value\"\nMIDDLE=\"3\"\n"
+    );
+    assert_eq!(
+        AgentSecrets::read(&layout).unwrap().get("ALPHA"),
+        Some("new value")
+    );
+}

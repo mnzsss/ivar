@@ -6,7 +6,7 @@
 use crate::error::Failure;
 use crate::infra::fs;
 use crate::store::layout::Layout;
-use crate::store::mcp_secrets::McpSecrets;
+use crate::store::mcp_secrets::{Change, McpSecrets, render_value};
 
 #[derive(Clone, Default)]
 pub struct AgentSecrets(McpSecrets);
@@ -55,6 +55,42 @@ impl AgentSecrets {
             fs::write_sensitive_atomic(&path, b"")?;
         }
         Ok(())
+    }
+
+    pub fn get(&self, name: &str) -> Option<&str> {
+        self.0.get(name)
+    }
+
+    /// Insert or replace `name` in `.ivar/secrets/agents.env`, owner-only,
+    /// keeping every other line (comments, blank lines, key order) as it was.
+    ///
+    /// # Errors
+    ///
+    /// `agent.secrets_mode` when the file is not owner-only, a parse failure
+    /// when the edited file would not read back (nothing is written), or a
+    /// read or write failure.
+    pub fn set_and_write(layout: &Layout, name: &str, value: &str) -> Result<Change, Failure> {
+        let change = match Self::read(layout)?.get(name) {
+            Some(existing) if existing == value => return Ok(Change::Unchanged),
+            Some(_) => Change::Updated,
+            None => Change::Created,
+        };
+        let path = layout.agent_secrets_env();
+        let text = fs::read_text(&path)?.unwrap_or_default();
+        let line = format!("{name}={}", render_value(value));
+        let mut lines: Vec<&str> = text.lines().collect();
+        let existing = lines
+            .iter_mut()
+            .find(|l| l.split_once('=').is_some_and(|(key, _)| key.trim() == name));
+        match existing {
+            Some(existing) => *existing = &line,
+            None => lines.push(&line),
+        }
+        let mut updated = lines.join("\n");
+        updated.push('\n');
+        McpSecrets::parse(&updated, &path)?;
+        fs::write_sensitive_atomic(&path, updated.as_bytes())?;
+        Ok(change)
     }
 
     /// The named secrets, in the order asked.

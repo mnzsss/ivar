@@ -136,7 +136,8 @@ The binary makes network requests in these cases, none of them to an ivar server
 - OAuth with the MCP servers your hall declares (`ivar mcp auth`);
 - the GitHub API, to fetch external skills;
 - scheduled agents: it pulls the ivar agent images from GHCR, lets an agent
-  reach the domains it lists, and POSTs to an agent's `notify` URL; a
+  reach the domains it lists, and POSTs to an agent's `notify` URL, or to
+  `api.telegram.org` for `notify: telegram:<chat_id>`; a
   `runtime: host` agent uses the network its tool uses, unfiltered, and can
   read anything your user can, SSH keys included.
 

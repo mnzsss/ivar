@@ -15,6 +15,9 @@ pub enum AgentCommand {
     Logs(AgentLogsArgs),
     /// Record your verdict on a run.
     Feedback(AgentFeedbackArgs),
+    /// Set up where agents send their run notifications.
+    #[command(subcommand)]
+    Notify(NotifyCommand),
     /// Apply a Landlock write sandbox, then become the given command.
     #[command(hide = true)]
     Sandbox(AgentSandboxArgs),
@@ -79,6 +82,19 @@ impl From<AgentFeedbackArgs> for FeedbackInput {
             comment,
         }
     }
+}
+
+#[derive(Debug, Subcommand)]
+pub enum NotifyCommand {
+    /// Notifications through a Telegram bot.
+    #[command(subcommand)]
+    Telegram(TelegramCommand),
+}
+
+#[derive(Debug, Subcommand)]
+pub enum TelegramCommand {
+    /// Save the bot token, find the chat, send a test message and set `notify` on agents.
+    Setup,
 }
 
 #[cfg(test)]

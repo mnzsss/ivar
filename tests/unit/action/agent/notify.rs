@@ -11,6 +11,24 @@ use std::net::TcpListener;
 use super::*;
 use crate::domain::agent::receipt::{AgentRunOutcome, AgentRunReceipt, Trigger};
 use crate::domain::agent::spec::{AgentFrontmatter, AgentSpec};
+use crate::store::layout::Layout;
+use crate::test_support::{FakeTelegram, seeded_hall};
+
+fn no_token() -> Result<String, String> {
+    Err("no token in this test".into())
+}
+
+fn skipped() -> AgentRunReceipt {
+    AgentRunReceipt::skipped("r1".into(), "nightly".into(), Trigger::Schedule, "t".into())
+}
+
+fn hall_with_agent_secrets(text: &str) -> (tempfile::TempDir, Layout) {
+    let (guard, root) = seeded_hall();
+    let layout = Layout::at(root);
+    AgentSecrets::ensure_file(&layout).unwrap();
+    std::fs::write(layout.agent_secrets_env(), text).unwrap();
+    (guard, layout)
+}
 
 fn spec(notify: Option<String>) -> AgentSpec {
     AgentSpec::from_parts(
@@ -71,7 +89,7 @@ fn posts_the_summary_as_json() {
     let (url, server) = one_shot_server("200 OK");
     let mut receipt =
         AgentRunReceipt::skipped("r1".into(), "nightly".into(), Trigger::Schedule, "t".into());
-    deliver(&spec(Some(url)), &mut receipt);
+    deliver_to(&spec(Some(url)), &mut receipt, no_token, "");
     let request = server.join().unwrap();
     assert!(request.starts_with("POST /hook "));
     assert!(
@@ -88,7 +106,7 @@ fn a_failed_post_is_recorded_and_leaves_the_outcome() {
     let (url, server) = one_shot_server("500 Internal Server Error");
     let mut receipt =
         AgentRunReceipt::skipped("r1".into(), "nightly".into(), Trigger::Schedule, "t".into());
-    deliver(&spec(Some(url)), &mut receipt);
+    deliver_to(&spec(Some(url)), &mut receipt, no_token, "");
     server.join().unwrap();
     assert!(receipt.notify_error.as_deref().unwrap().contains("500"));
     assert_eq!(receipt.outcome, AgentRunOutcome::Skipped);
@@ -98,6 +116,94 @@ fn a_failed_post_is_recorded_and_leaves_the_outcome() {
 fn no_notify_url_sends_nothing() {
     let mut receipt =
         AgentRunReceipt::skipped("r1".into(), "nightly".into(), Trigger::Schedule, "t".into());
-    deliver(&spec(None), &mut receipt);
+    deliver_to(&spec(None), &mut receipt, no_token, "");
     assert_eq!(receipt.notify_error, None);
+}
+
+#[test]
+fn telegram_sends_the_run_text_to_the_chat() {
+    let fake = FakeTelegram::start(vec![(200, r#"{"ok":true,"result":{}}"#)]);
+    let mut receipt = skipped();
+    deliver_to(
+        &spec(Some("telegram:-100123".into())),
+        &mut receipt,
+        || Ok("123:secret".into()),
+        &fake.api,
+    );
+    let request = &fake.requests()[0];
+    assert!(
+        request.starts_with("POST /bot123:secret/sendMessage "),
+        "{request}"
+    );
+    assert!(request.contains(r#""chat_id":"-100123""#), "{request}");
+    assert!(request.contains("ivar agent nightly: skipped"), "{request}");
+    assert_eq!(receipt.notify_error, None);
+}
+
+#[test]
+fn telegram_sends_a_timed_out_run_with_its_exit_code_and_tail() {
+    let fake = FakeTelegram::start(vec![(200, r#"{"ok":true,"result":{}}"#)]);
+    let mut receipt = skipped();
+    receipt.outcome = AgentRunOutcome::TimedOut;
+    receipt.exit_code = Some(124);
+    receipt.output = "step 3 of 9\nstill waiting".into();
+    deliver_to(
+        &spec(Some("telegram:-100123".into())),
+        &mut receipt,
+        || Ok("123:secret".into()),
+        &fake.api,
+    );
+    let request = &fake.requests()[0];
+    assert!(
+        request.contains("ivar agent nightly: timed_out"),
+        "{request}"
+    );
+    assert!(request.contains("exit 124"), "{request}");
+    assert!(request.contains(r"step 3 of 9\nstill waiting"), "{request}");
+    assert_eq!(receipt.notify_error, None);
+}
+
+#[test]
+fn a_failed_telegram_send_never_records_the_token() {
+    let fake = FakeTelegram::start(vec![(
+        401,
+        r#"{"ok":false,"error_code":401,"description":"Unauthorized"}"#,
+    )]);
+    let mut receipt = skipped();
+    deliver_to(
+        &spec(Some("telegram:@ivar_runs".into())),
+        &mut receipt,
+        || Ok("123:secret".into()),
+        &fake.api,
+    );
+    fake.requests();
+    let error = receipt.notify_error.unwrap();
+    assert!(error.contains("Unauthorized"), "{error}");
+    assert!(!error.contains("123:secret"), "{error}");
+    assert_eq!(receipt.outcome, AgentRunOutcome::Skipped);
+}
+
+#[test]
+fn a_missing_telegram_token_is_recorded_without_a_request() {
+    let mut receipt = skipped();
+    deliver_to(
+        &spec(Some("telegram:123".into())),
+        &mut receipt,
+        || Err(format!("secret `{TELEGRAM_TOKEN_KEY}` is not set")),
+        "http://127.0.0.1:9",
+    );
+    assert!(receipt.notify_error.unwrap().contains("TELEGRAM_BOT_TOKEN"));
+}
+
+#[test]
+fn the_telegram_token_comes_from_agents_env() {
+    let (_guard, layout) = hall_with_agent_secrets("TELEGRAM_BOT_TOKEN=123:secret\n");
+    assert_eq!(telegram_token(&layout).unwrap(), "123:secret");
+}
+
+#[test]
+fn a_missing_telegram_token_names_the_key() {
+    let (_guard, layout) = hall_with_agent_secrets("OTHER=x\n");
+    let error = telegram_token(&layout).unwrap_err();
+    assert!(error.contains("TELEGRAM_BOT_TOKEN"), "{error}");
 }

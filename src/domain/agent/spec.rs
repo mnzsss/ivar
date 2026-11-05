@@ -57,6 +57,57 @@ pub enum Launch {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NotifyTarget {
+    Webhook(String),
+    Telegram { chat_id: String },
+}
+
+impl std::fmt::Display for NotifyTarget {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Webhook(url) => f.write_str(url),
+            Self::Telegram { chat_id } => write!(f, "telegram:{chat_id}"),
+        }
+    }
+}
+
+pub(crate) fn is_telegram_chat_id(id: &str) -> bool {
+    if let Some(channel) = id.strip_prefix('@') {
+        return (5..=32).contains(&channel.len())
+            && channel.starts_with(|c: char| c.is_ascii_alphabetic())
+            && channel
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '_');
+    }
+    let digits = id.strip_prefix('-').unwrap_or(id);
+    !digits.is_empty() && digits.chars().all(|c| c.is_ascii_digit())
+}
+
+fn notify_target(value: &str) -> Result<NotifyTarget, SpecError> {
+    if let Some(chat_id) = value.strip_prefix("telegram:") {
+        return if is_telegram_chat_id(chat_id) {
+            Ok(NotifyTarget::Telegram {
+                chat_id: chat_id.to_owned(),
+            })
+        } else {
+            Err(err(
+                "notify",
+                format!(
+                    "`{chat_id}` is not a Telegram chat id; use a number like -100123 or @channel_name"
+                ),
+            ))
+        };
+    }
+    if value.starts_with("https://") || value.starts_with("http://") {
+        return Ok(NotifyTarget::Webhook(value.to_owned()));
+    }
+    Err(err(
+        "notify",
+        format!("`{value}` must be an http:// or https:// URL, or telegram:<chat_id>"),
+    ))
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AgentSpec {
     pub name: String,
     pub schedule: CronExpr,
@@ -65,7 +116,7 @@ pub struct AgentSpec {
     pub network: Vec<String>,
     pub secrets: Vec<String>,
     pub launch: Launch,
-    pub notify: Option<String>,
+    pub notify: Option<NotifyTarget>,
     pub timeout: Duration,
     pub workdir: Option<String>,
     pub catchup: bool,
@@ -167,14 +218,7 @@ impl AgentSpec {
                 format!("`{bad}` must match ^[A-Z][A-Z0-9_]*$"),
             ));
         }
-        if let Some(url) = fm.notify.as_deref()
-            && !(url.starts_with("https://") || url.starts_with("http://"))
-        {
-            return Err(err(
-                "notify",
-                format!("`{url}` must be an http:// or https:// URL"),
-            ));
-        }
+        let notify = fm.notify.as_deref().map(notify_target).transpose()?;
         if let Some(dir) = fm.workdir.as_deref()
             && (dir.is_empty() || dir.starts_with('/') || dir.split('/').any(|part| part == ".."))
         {
@@ -204,7 +248,7 @@ impl AgentSpec {
             network: fm.network,
             secrets: fm.secrets,
             launch,
-            notify: fm.notify,
+            notify,
             timeout,
             workdir: fm.workdir,
             catchup: fm.catchup,

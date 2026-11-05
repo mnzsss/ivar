@@ -198,14 +198,18 @@ impl McpSecrets {
     pub fn render(&self) -> String {
         let mut rendered = String::new();
         for (key, val) in &self.entries {
-            let escaped = serde_json::to_string(val).unwrap_or_else(|_| format!("\"{val}\""));
             rendered.push_str(key);
             rendered.push('=');
-            rendered.push_str(&escaped);
+            rendered.push_str(&render_value(val));
             rendered.push('\n');
         }
         rendered
     }
+}
+
+/// `value` as [`McpSecrets::parse`] reads it back: a JSON-escaped, double-quoted string.
+pub(crate) fn render_value(value: &str) -> String {
+    serde_json::to_string(value).unwrap_or_else(|_| format!("\"{value}\""))
 }
 
 fn is_valid_key(name: &str) -> bool {

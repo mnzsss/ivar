@@ -69,10 +69,11 @@ src/
                    lookup (shared id-prefix resolution)
     plan/          create · list · show · approve · status
     provider/      add · list
-    agent/         sync · status · run · logs · feedback for scheduled agents,
-                   plus requirements.rs (the systemd and Docker checks doctor
-                   reports), notify.rs (the run-summary POST) and
-                   feature_access.rs (the `access: feature` worktree, host
+    agent/         sync · status · run · logs · feedback · notify telegram
+                   setup for scheduled agents, plus requirements.rs (the
+                   systemd and Docker checks doctor reports), notify.rs (the
+                   run summary to a webhook or Telegram), notify_setup.rs (the
+                   interactive Telegram setup) and feature_access.rs (the `access: feature` worktree, host
                    commit and deliver preview fingerprint).
     skill/         create · add · update · remove · detach · sync · status ·
                    list · doctor
