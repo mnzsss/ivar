@@ -289,12 +289,18 @@ fn write_roots_names_a_missing_path_with_its_code() {
 #[case::agent_files("agents")]
 #[case::tool_login_dir("~/.claude")]
 #[case::inside_tool_login_dir("~/.claude/hooks")]
+#[case::hall_env(".env")]
+#[case::hall_mcp_config(".mcp.json")]
+#[case::provider_hook_config_dir(".claude")]
 fn write_roots_refuse_what_would_expose_the_hall_home_or_login(#[case] raw: &str) {
     let (_guard, root) = hall_with_agent("runtime: host\ntool: claude\n");
     let fake = HostFake::new(&root);
     for dir in [".ivar/secrets", ".git", "agents"] {
         std::fs::create_dir_all(root.join(dir)).unwrap();
     }
+    std::fs::create_dir_all(root.join(".claude")).unwrap();
+    std::fs::write(root.join(".env"), "").unwrap();
+    std::fs::write(root.join(".mcp.json"), "{}").unwrap();
     std::fs::create_dir_all(fake.home.join(".claude/hooks")).unwrap();
     let credentials = Tool::Claude.credentials(&fake.home, &|_| None);
 
@@ -306,6 +312,51 @@ fn write_roots_refuse_what_would_expose_the_hall_home_or_login(#[case] raw: &str
     )
     .expect_err(raw);
     assert_eq!(failure.code, "agent.write_refused", "{}", failure.what);
+}
+
+#[test]
+fn write_roots_allow_a_sibling_sharing_the_hall_name_prefix() {
+    let (_guard, root) = hall_with_agent("runtime: host\ntool: claude\n");
+    let fake = HostFake::new(&root);
+    let sibling = Utf8PathBuf::from(format!("{root}-out"));
+    std::fs::create_dir_all(&sibling).unwrap();
+
+    let roots = write_roots(
+        &[WritePath::Absolute(sibling.clone())],
+        &fake.home,
+        &root,
+        &[],
+    )
+    .unwrap();
+    assert_eq!(roots, vec![sibling]);
+}
+
+#[test]
+fn write_roots_grant_hall_and_home_paths_when_the_hall_lives_in_the_home() {
+    let (_guard, tmp) = crate::test_support::canonical_temp_dir();
+    let home = tmp.join("home");
+    let hall = home.join("personal/hall");
+    std::fs::create_dir_all(hall.join("brand/metricas")).unwrap();
+    std::fs::create_dir_all(home.join(".cache/ivar-metrics")).unwrap();
+    let credentials = Tool::Claude.credentials(&home, &|_| None);
+
+    let roots = write_roots(
+        &[
+            WritePath::Hall("brand/metricas".into()),
+            WritePath::Home(".cache/ivar-metrics".into()),
+        ],
+        &home,
+        &hall,
+        &credentials,
+    )
+    .unwrap();
+    assert_eq!(
+        roots,
+        vec![
+            hall.join("brand/metricas"),
+            home.join(".cache/ivar-metrics")
+        ]
+    );
 }
 
 #[cfg(unix)]

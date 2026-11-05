@@ -248,8 +248,7 @@ impl AgentSpec {
                     "`runtime: host` cannot enforce a `network` allowlist; remove `network` or use `runtime: docker`",
                 ));
             }
-        }
-        if fm.runtime != Runtime::Host && !fm.write.is_empty() {
+        } else if !fm.write.is_empty() {
             return Err(err(
                 "write",
                 "`write` adds Landlock roots to a `runtime: host` run; remove it or set `runtime: host`",

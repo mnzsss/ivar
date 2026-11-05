@@ -103,9 +103,12 @@ is stopped.
 `write` adds paths to that set. Each is resolved and canonicalized when the
 run starts. A path that does not exist fails the run with
 `agent.write_missing`. Landlock grants a whole subtree, so a path is refused
-with `agent.write_refused` when it would contain the home, the hall or the
-tool's login, or when it sits inside the hall's `.ivar/`, `.git/` or
-`agents/`, or inside the tool's login directory. Anything else you list
+with `agent.write_refused` when it is, contains or sits inside a hall file
+the session write guard protects (`.env`, `.mcp.json`, provider hook configs
+such as `.claude/settings.json`), the hall's `.ivar/`, `.git/` or `agents/`,
+or the tool's login directory, and when it contains the home or the hall.
+An empty path, `..` or `~user` is refused when the agent file loads.
+Anything else you list
 becomes writable by the agent, including config other programs read: keep
 the list to the directories the run must produce.
 

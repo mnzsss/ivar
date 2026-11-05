@@ -7,6 +7,7 @@ use uuid::Uuid;
 
 use super::feature_access::{self, Delivered};
 use super::notify;
+use crate::action::session::guard::canonicalize_lenient;
 use crate::action::{Ctx, discover_hall, read_manifest};
 use crate::domain::agent::container::{
     ContainerPlan, Mount, agent_run_args, proxy_run_args, tinyproxy_conf, tinyproxy_filter,
@@ -363,26 +364,37 @@ pub(crate) fn write_back_credentials(state: &Utf8Path, seeded: &[Seeded]) -> Res
 }
 
 /// Canonical Landlock roots for `write`. Landlock grants a whole subtree, so a
-/// root that is an ancestor of the home, the hall or the tool's login is refused.
+/// root may not contain the home, the hall, the tool's login or a path the
+/// session write guard protects, nor sit inside one of those protected paths,
+/// the hall's state, git or agent files, or the tool's login directory.
 pub(crate) fn write_roots(
     writes: &[WritePath],
     home: &Utf8Path,
     hall: &Utf8Path,
     credentials: &[Credential],
 ) -> Result<Vec<Utf8PathBuf>, Failure> {
-    let canon = |p: &Utf8Path| fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
-    let (home, hall) = (canon(home), canon(hall));
-    let protected: Vec<Utf8PathBuf> = [".ivar", ".git", "agents"]
+    let (home, hall) = (canonicalize_lenient(home), canonicalize_lenient(hall));
+    let guarded: Vec<Utf8PathBuf> = Layout::at(hall.clone())
+        .guard_protected_paths()
+        .iter()
+        .map(|p| canonicalize_lenient(p))
+        .collect();
+    let enclosing: Vec<Utf8PathBuf> = [".ivar", ".git", "agents"]
         .iter()
         .map(|dir| hall.join(dir))
         .chain(
             credentials
                 .iter()
                 .filter(|c| c.write_back)
-                .filter_map(|c| c.real.parent().map(canon)),
+                .filter_map(|c| c.real.parent().map(canonicalize_lenient)),
         )
+        .chain(guarded.iter().cloned())
         .collect();
-    let logins: Vec<Utf8PathBuf> = credentials.iter().map(|c| canon(&c.real)).collect();
+    let contained: Vec<Utf8PathBuf> = [home.clone(), hall.clone()]
+        .into_iter()
+        .chain(credentials.iter().map(|c| canonicalize_lenient(&c.real)))
+        .chain(guarded)
+        .collect();
     writes
         .iter()
         .map(|write| {
@@ -393,16 +405,15 @@ pub(crate) fn write_roots(
                     format!("`write` path `{path}` does not exist; create it before the run"),
                 )
             })?;
-            let exposes = [&home, &hall]
-                .into_iter()
-                .chain(&logins)
-                .any(|p| p.starts_with(&root))
-                || protected.iter().any(|p| root.starts_with(p));
-            if exposes {
+            let collision = contained
+                .iter()
+                .find(|p| p.starts_with(&root))
+                .or_else(|| enclosing.iter().find(|p| root.starts_with(p)));
+            if let Some(protected) = collision {
                 return Err(Failure::failed(
                     "agent.write_refused",
                     format!(
-                        "`write` path `{path}` resolves to `{root}`, which would make the hall, the home or the tool's login writable"
+                        "`write` path `{path}` resolves to `{root}`, which would make `{protected}` writable"
                     ),
                 ));
             }
