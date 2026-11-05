@@ -7,7 +7,7 @@ use rusqlite::{OptionalExtension, Transaction, params};
 
 use super::db::MemoryDb;
 use crate::domain::memory_page::links::{Link, LinkKind, LinkTarget};
-use crate::domain::memory_page::{Page, PageKind, Tier};
+use crate::domain::memory_page::{DURABLE_ROOT, EPHEMERAL_ROOT, Page, PageKind, Tier};
 
 const BM25: &str = "bm25(pages_fts, 10.0, 5.0, 1.0)";
 const SNIPPET: &str = "snippet(pages_fts, 2, '', '', '...', 24)";
@@ -195,7 +195,13 @@ fn resolve_target(paths: &[String], target_text: &str) -> Option<String> {
         Some((kind, slug)) => (Some(kind), slug),
         None => (None, target_text),
     };
-    let directory = kind.map(|kind| format!("docs/memory/{kind}/"));
+    let directory = kind.map(|kind| {
+        let root = match PageKind::parse(kind) {
+            Some(kind) if !kind.is_durable() => EPHEMERAL_ROOT,
+            _ => DURABLE_ROOT,
+        };
+        format!("{root}{kind}/")
+    });
     paths
         .iter()
         .find(|path| {

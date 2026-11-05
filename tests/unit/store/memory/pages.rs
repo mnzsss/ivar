@@ -131,6 +131,32 @@ fn links_resolve_by_slug_and_by_kind_and_slug_in_both_directions() {
 }
 
 #[test]
+fn links_and_relations_resolve_to_session_pages_under_the_ephemeral_root() {
+    let (_dir, mut db) = open();
+    put(
+        &mut db,
+        "docs/memory/decision/d.md",
+        "---\nrelations:\n  - type: derived_from\n    target: session/abc\n---\n# D\nsee [[session/abc]] and [[abc]]\n",
+    );
+    put(&mut db, ".ivar/memory/session/abc.md", "# Abc\n");
+    resolve_links(&mut db).unwrap();
+    let resolved: Vec<Option<String>> = db
+        .conn()
+        .prepare("SELECT to_path FROM page_links ORDER BY rowid")
+        .unwrap()
+        .query_map([], |r| r.get(0))
+        .unwrap()
+        .collect::<rusqlite::Result<_>>()
+        .unwrap();
+    assert_eq!(resolved.len(), 3);
+    assert!(
+        resolved
+            .iter()
+            .all(|to| to.as_deref() == Some(".ivar/memory/session/abc.md"))
+    );
+}
+
+#[test]
 fn a_relation_is_stored_with_its_type_and_resolves_to_the_target_page() {
     let (_dir, mut db) = open();
     put(
