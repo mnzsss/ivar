@@ -29,10 +29,10 @@ impl NotifySummary<'_> {
     }
 
     pub fn investigation_prompt(&self) -> String {
-        let (agent, run) = (self.agent, self.run_id);
+        let (hall, agent, run) = (self.hall, self.agent, self.run_id);
         format!(
-            "Investigate ivar agent run {run} ({}): `ivar agent logs {agent} --run {run}`. \
-             Compare with agents/{agent}.md using the hall skills; report only what needs action.",
+            "In hall {hall}, investigate agent run {run} ({}): `ivar agent logs {agent} --run {run}`. \
+             Check it against agents/{agent}.md with the hall skills; report only what needs action.",
             self.outcome.as_str()
         )
         .chars()
@@ -41,10 +41,13 @@ impl NotifySummary<'_> {
     }
 
     fn meta_line(&self) -> String {
-        let exit = self
-            .exit_code
-            .map_or_else(String::new, |code| format!(" · exit {code}"));
-        format!("{} · {}{exit}", self.trigger.as_str(), self.run_id)
+        let exit = self.exit_suffix();
+        format!(
+            "{} · {} · {}{exit}",
+            self.hall,
+            self.trigger.as_str(),
+            self.run_id
+        )
     }
 
     fn readable_tail(&self) -> String {

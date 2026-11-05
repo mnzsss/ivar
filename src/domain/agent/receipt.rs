@@ -117,6 +117,7 @@ pub struct AgentRunReceipt {
 
 #[derive(Debug, Serialize)]
 pub struct NotifySummary<'a> {
+    pub hall: &'a str,
     pub run_id: &'a str,
     pub agent: &'a str,
     pub trigger: Trigger,
@@ -130,14 +131,21 @@ pub struct NotifySummary<'a> {
 }
 
 impl NotifySummary<'_> {
+    /// Exit 0 repeats what `succeeded` already says.
+    pub(super) fn exit_suffix(&self) -> String {
+        match self.exit_code {
+            Some(code) if code != 0 => format!(" · exit {code}"),
+            _ => String::new(),
+        }
+    }
+
     pub fn telegram_text(&self) -> String {
-        let exit = self
-            .exit_code
-            .map_or_else(String::new, |code| format!(" · exit {code}"));
+        let exit = self.exit_suffix();
         let mut text = format!(
-            "ivar agent {}: {}\n{} · {}{exit}",
+            "ivar agent {}: {}\n{} · {} · {}{exit}",
             self.agent,
             self.outcome.as_str(),
+            self.hall,
             self.trigger.as_str(),
             self.run_id
         );
@@ -221,13 +229,14 @@ impl AgentRunReceipt {
         )
     }
 
-    pub fn notify_summary(&self) -> NotifySummary<'_> {
+    pub fn notify_summary<'a>(&'a self, hall: &'a str) -> NotifySummary<'a> {
         let tail = match self.output.char_indices().rev().nth(NOTIFY_TAIL_CHARS - 1) {
             Some((start, _)) => &self.output[start..],
             None => &self.output,
         };
         let tail_is_cut = tail.len() < self.output.len();
         NotifySummary {
+            hall,
             run_id: &self.run_id,
             agent: &self.agent,
             trigger: self.trigger,
