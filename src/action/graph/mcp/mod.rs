@@ -4,6 +4,7 @@
 //! default, or every graph tool on request. Operates synchronously over standard I/O streams.
 
 pub mod dispatch;
+mod dispatch_support;
 mod explore_output;
 pub mod tools;
 pub mod workspace;

@@ -8,6 +8,7 @@
 use serde_json::json;
 
 use super::*;
+use crate::domain::graph::{ExploreConfidence, ExploreResult};
 
 #[test]
 fn bounded_arg_clamps_above_the_limit() {
@@ -202,4 +203,14 @@ fn confident_and_empty_explores_record_no_weak_miss() {
     );
 
     assert!(db.list_misses(&Default::default()).unwrap().is_empty());
+}
+
+#[test]
+fn dispatch_source_stays_under_the_commit_hook_limit() {
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/src/action/graph/mcp/dispatch.rs"
+    );
+    let bytes = std::fs::read(path).unwrap();
+    assert!(bytes.len() < 20_000, "dispatch.rs is {} bytes", bytes.len());
 }
