@@ -14,8 +14,11 @@ pub(crate) fn rename_legacy_graph_server(manifest: &Manifest) -> Result<Option<M
     let Some(legacy) = servers.iter().find(|s| s.name == LEGACY_SERVER_NAME) else {
         return Ok(None);
     };
+    if !runs_graph_mcp(legacy) {
+        return Ok(None);
+    }
     let taken = servers.iter().any(|s| s.name == SERVER_NAME);
-    if !runs_graph_mcp(legacy) || !is_default(legacy) || taken {
+    if !is_default(legacy) || taken {
         return Err(Warning::new(
             "graph.mcp_name_clash",
             "ivar.json",

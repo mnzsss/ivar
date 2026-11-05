@@ -55,3 +55,13 @@ fn a_foreign_ivar_server_blocks_the_rename() {
         rename_legacy_graph_server(&manifest_with(vec![graph_entry(), foreign])).unwrap_err();
     assert_eq!(warning.code, "graph.mcp_name_clash");
 }
+
+#[test]
+fn a_user_owned_graph_server_is_left_alone_without_a_warning() {
+    let own = McpServerDef::new("graph", "local").command("my-graph-server");
+    assert!(
+        rename_legacy_graph_server(&manifest_with(vec![own]))
+            .unwrap()
+            .is_none()
+    );
+}
