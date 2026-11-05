@@ -62,3 +62,26 @@ fn a_failing_reindex_does_not_stop_the_drain_in_the_same_tick() {
     assert!(reindex::read_state(&layout).last_error.is_some());
     assert_eq!(drained, 1);
 }
+
+#[test]
+fn a_tick_consolidates_an_idle_conversation() {
+    let (_guard, root) = crate::test_support::seeded_hall();
+    let layout = Layout::at(root);
+    let db = MemoryDb::open(layout.memory_db().as_std_path()).unwrap();
+    let old = crate::domain::session::rfc3339_from_epoch_secs(
+        (crate::action::memory::drain::epoch_secs_now() - 3600) as f64,
+    );
+    db.conn()
+        .execute(
+            "INSERT INTO observations (event_id, source_event, occurred_at, session_id,
+                native_session_id, provider, ivar_version, origin, importance, body)
+             VALUES ('e2', 'session.prompted', ?1, '', 'tick', 'omp', '0', 'user', 5, 'oi')",
+            [old],
+        )
+        .unwrap();
+    drop(db);
+
+    MemoryClock::new(Instant::now()).tick(&layout, Instant::now());
+
+    assert!(layout.root().join(".ivar/memory/session/tick.md").exists());
+}
