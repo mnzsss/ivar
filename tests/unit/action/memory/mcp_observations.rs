@@ -167,3 +167,22 @@ fn memory_status_answers_one_json_text_with_the_status_fields() {
         assert!(out.get(field).is_some(), "missing `{field}` in {out}");
     }
 }
+
+#[test]
+fn a_failed_drain_is_reported_next_to_the_results() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root);
+    spool(&layout, "stuck");
+    let stuck = layout.memory_spool_dir().join("stuck.draining");
+    std::fs::create_dir_all(&stuck).unwrap();
+
+    let out = call_json(&layout, "memory_recent", json!({}));
+
+    assert!(out["drain_error"].as_str().is_some(), "{out}");
+    assert!(out["observations"].is_array());
+    let healthy = {
+        std::fs::remove_dir_all(&stuck).unwrap();
+        call_json(&layout, "memory_recent", json!({}))
+    };
+    assert!(healthy.get("drain_error").is_none(), "{healthy}");
+}

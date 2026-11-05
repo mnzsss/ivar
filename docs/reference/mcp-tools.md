@@ -45,16 +45,16 @@ is the scope. The read tools carry `readOnlyHint`. `memory_delete_page` carries
 | Tool | Arguments | Result |
 | --- | --- | --- |
 | `memory_query` | `query` (required), `kind[]`, `tier`, `tag`, `limit` (default 10, maximum 20), `include_expired` | Pages with title, kind, tier, path, excerpt and `pinned`. Observations appear only as a fallback, in a separate section. |
-| `memory_read_page` | `path` | Frontmatter fields and body. Also reads `.ivar/memory/` pages. |
+| `memory_read_page` | `path` | Frontmatter fields and body. Also reads `.ivar/memory/` pages. Refuses a file that is not a regular file or is larger than 256 KiB. |
 | `memory_write_page` | `kind` and `title` (required), `body`, `slug`, `tags`, `pinned`, `relations[{type,target}]`, `expires_at`, `replace` | `path`, `hash`, `indexed`, `similar`. |
 | `memory_patch_page` | `path` (required), `old`, `new`, `tags`, `pinned`, `relations`, `expires_at` | `path`, `hash`, `indexed`. |
 | `memory_delete_page` | `path` | `path`, `indexed`. |
 | `memory_lint` | none | `issues`: a list of `{path, code, severity, message}`. |
 | `memory_status` | none | The same block as `ivar memory status`. |
-| `memory_recent` | `limit` (default 20, maximum 100), `source_event` (prefix), `feature` | Observations, newest first, each with a one-line summary. |
-| `memory_read_session_observations` | `session` (required), `limit` (default 50, maximum 100), `cursor` | Observations of one session, oldest first, and `next_cursor` while more remain. |
+| `memory_recent` | `limit` (default 20, maximum 100), `source_event` (prefix), `feature` | Observations, newest first, each with a one-line summary, and `drain_error` when the spool drain failed. |
+| `memory_read_session_observations` | `session` (required), `limit` (default 50, maximum 100), `cursor` | Observations of one session, oldest first, `next_cursor` while more remain, and `drain_error` when the spool drain failed. |
 
-Both observation tools drain the capture spool before they read.
+Both observation tools drain the capture spool before they read. A failed drain does not fail the call: the answer carries the stored observations and a `drain_error` string, so a reader can tell the data may be stale.
 
 ### Writing
 
@@ -70,10 +70,13 @@ Both observation tools drain the capture spool before they read.
   tool uses `rename`. A filesystem without hard links fails the write with that cause.
 - A title whose words overlap an existing title of the same kind at 0.8 or more (shared
   words over all words) still writes. The result lists them in `similar` as `{path, title}`.
-- `memory_patch_page` replaces one exact piece of the body. `old` must appear once. It
-  also changes `tags`, `pinned`, `relations` and `expires_at`. It never changes `kind` or
-  `title`.
-- `memory_delete_page` refuses `update` pages, which belong to the delivery record.
+- `memory_patch_page` replaces one exact piece of the body. `old` must appear once, and
+  `new` without `old` is an error. It also changes `tags`, `pinned`, `relations` and
+  `expires_at`; pass `expires_at: null` to remove the expiry. It never changes `kind` or
+  `title`, and a metadata change keeps every other frontmatter field of the page as it is.
+- `update` pages belong to the delivery record. `memory_delete_page` and
+  `memory_patch_page` refuse them, and `memory_write_page` refuses `replace: true` for
+  the kind `update`.
 - Every write parses the result as a page before it publishes, then refreshes the index
   and reports it in `indexed`. The `hash` is the SHA-256 of the file content.
 - The tools never commit. A written page stays uncommitted until you commit it, and

@@ -446,3 +446,202 @@ fn delete_removes_the_file_and_the_index_row_but_refuses_updates() {
     assert!(error.contains("update"), "{error}");
     assert!(root.join(update["path"].as_str().unwrap()).exists());
 }
+
+#[test]
+fn a_metadata_patch_keeps_the_declared_kind_and_unknown_fields() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root);
+    page(
+        &layout,
+        "docs/memory/decision/keep.md",
+        "---\ntitle: Keep\nkind: decision\nowner: gabriel\nreview:\n  every: monthly\n---\nBody.\n",
+    );
+
+    call_json(
+        &layout,
+        "memory_patch_page",
+        json!({"path": "docs/memory/decision/keep.md", "tags": ["new"], "old": "Body", "new": "Text"}),
+    );
+
+    let source =
+        std::fs::read_to_string(layout.root().join("docs/memory/decision/keep.md")).unwrap();
+    for kept in [
+        "kind: decision",
+        "owner: gabriel",
+        "every: monthly",
+        "title: Keep",
+    ] {
+        assert!(source.contains(kept), "{kept} in {source}");
+    }
+    assert!(source.ends_with("---\nText.\n"), "{source}");
+}
+
+#[test]
+fn patch_with_new_but_no_old_names_both_arguments() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root);
+    seed_decision(&layout);
+
+    let error = call(
+        &layout,
+        "memory_patch_page",
+        &json!({"path": "docs/memory/decision/pick-one.md", "new": "B"}),
+    )
+    .unwrap_err();
+
+    assert!(
+        error.contains("`new`") && error.contains("`old`"),
+        "{error}"
+    );
+}
+
+#[test]
+fn patch_clears_expires_at_with_null() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root);
+    call_json(
+        &layout,
+        "memory_write_page",
+        json!({"kind": "decision", "title": "Temp", "expires_at": "2099-01-01T00:00:00Z"}),
+    );
+
+    call_json(
+        &layout,
+        "memory_patch_page",
+        json!({"path": "docs/memory/decision/temp.md", "expires_at": null}),
+    );
+
+    let read = call_json(
+        &layout,
+        "memory_read_page",
+        json!({"path": "docs/memory/decision/temp.md"}),
+    );
+    assert!(read["expires_at"].is_null(), "{read}");
+    let tool = tool_definitions()
+        .into_iter()
+        .find(|t| t["name"] == "memory_patch_page")
+        .unwrap();
+    assert_eq!(
+        tool["inputSchema"]["properties"]["expires_at"]["type"],
+        json!(["string", "null"])
+    );
+}
+
+#[test]
+fn update_pages_cannot_be_patched_or_replaced() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root);
+    let update = call_json(
+        &layout,
+        "memory_write_page",
+        json!({"kind": "update", "title": "Shipped", "body": "Done.\n"}),
+    );
+
+    let patch = call(
+        &layout,
+        "memory_patch_page",
+        &json!({"path": update["path"], "old": "Done", "new": "Undone"}),
+    )
+    .unwrap_err();
+    let replace = call(
+        &layout,
+        "memory_write_page",
+        &json!({"kind": "update", "title": "Shipped", "replace": true}),
+    )
+    .unwrap_err();
+
+    assert!(
+        patch.contains("update") && patch.contains("delivery record"),
+        "{patch}"
+    );
+    assert!(
+        replace.contains("update") && replace.contains("delivery record"),
+        "{replace}"
+    );
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn a_failed_temp_write_leaves_no_temp_file_behind() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root.clone());
+    let dir = root.join("docs/memory/decision");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::os::unix::fs::symlink("/dev/full", pages::temp_path(&dir)).unwrap();
+
+    let result = pages::publish(
+        &dir.join("full.md"),
+        "docs/memory/decision/full.md",
+        "x\n",
+        false,
+    );
+
+    assert!(result.is_err());
+    let stray: Vec<_> = std::fs::read_dir(&dir).unwrap().flatten().collect();
+    assert!(stray.is_empty(), "{stray:?}");
+    drop(layout);
+}
+
+#[test]
+fn replacing_a_page_does_not_report_it_as_similar_to_itself() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root);
+    call_json(
+        &layout,
+        "memory_write_page",
+        json!({"kind": "gotcha", "title": "Shadow tables", "body": "v1\n"}),
+    );
+
+    let out = call_json(
+        &layout,
+        "memory_write_page",
+        json!({"kind": "gotcha", "title": "Shadow tables", "body": "v2\n", "replace": true}),
+    );
+
+    assert!(out["similar"].as_array().unwrap().is_empty(), "{out}");
+}
+
+#[test]
+fn read_page_refuses_a_file_over_256_kib() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root);
+    page(
+        &layout,
+        "docs/memory/decision/huge.md",
+        &format!("# Huge\n{}", "x".repeat(256 * 1024)),
+    );
+
+    let error = call(
+        &layout,
+        "memory_read_page",
+        &json!({"path": "docs/memory/decision/huge.md"}),
+    )
+    .unwrap_err();
+
+    assert!(error.contains("256 KiB"), "{error}");
+}
+
+#[cfg(unix)]
+#[test]
+fn read_page_refuses_a_fifo_without_blocking() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root.clone());
+    std::fs::create_dir_all(root.join("docs/memory/decision")).unwrap();
+    let fifo = root.join("docs/memory/decision/pipe.md");
+    assert!(
+        std::process::Command::new("mkfifo")
+            .arg(fifo.as_std_path())
+            .status()
+            .unwrap()
+            .success()
+    );
+
+    let error = call(
+        &layout,
+        "memory_read_page",
+        &json!({"path": "docs/memory/decision/pipe.md"}),
+    )
+    .unwrap_err();
+
+    assert!(error.contains("regular file"), "{error}");
+}

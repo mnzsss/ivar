@@ -16,6 +16,7 @@ pub use instructions::{KIND_DEFINITIONS, MEMORY_INSTRUCTIONS};
 
 const MAX_LIMIT: usize = 20;
 const DEFAULT_LIMIT: usize = 10;
+const MAX_PAGE_BYTES: u64 = 256 * 1024;
 const SIMILAR_TITLE_THRESHOLD: f64 = 0.8;
 
 pub const TOOL_NAMES: &[&str] = &[
@@ -107,6 +108,14 @@ fn query(layout: &Layout, args: &Value) -> Result<String, String> {
 fn read_page(layout: &Layout, args: &Value) -> Result<String, String> {
     let rel = string_arg(args, "path").ok_or("`memory_read_page` needs `path`")?;
     let path = confine::resolve_readable(layout, &rel)?;
+    let metadata =
+        std::fs::metadata(&path).map_err(|error| format!("could not read `{rel}`: {error}"))?;
+    if !metadata.is_file() {
+        return Err(format!("`{rel}` is not a regular file"));
+    }
+    if metadata.len() > MAX_PAGE_BYTES {
+        return Err(format!("`{rel}` is larger than 256 KiB and was not read"));
+    }
     let source = std::fs::read_to_string(&path)
         .map_err(|error| format!("could not read `{rel}`: {error}"))?;
     let page = parse_page(&rel, &source).map_err(|issues| {

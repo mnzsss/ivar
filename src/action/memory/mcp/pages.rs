@@ -1,15 +1,15 @@
 use std::collections::BTreeSet;
 use std::fmt::Write as _;
 
-use camino::Utf8Path;
-use serde_json::{Value, json};
+use camino::{Utf8Path, Utf8PathBuf};
+use serde_json::{Map, Value, json};
 
 use super::{SIMILAR_TITLE_THRESHOLD, confine, to_text};
 use crate::action::memory::reindex;
 use crate::domain::memory_page::{
     PageIssue, PageKind, PageMeta, Relation, has_number_prefix, is_kebab,
 };
-use crate::infra::{fs, hash};
+use crate::infra::{frontmatter, fs, hash};
 use crate::store::layout::Layout;
 use crate::store::memory::page_source::parse_page;
 
@@ -32,6 +32,9 @@ pub(super) fn write(layout: &Layout, args: &Value) -> Result<String, String> {
         .get("replace")
         .and_then(Value::as_bool)
         .unwrap_or(false);
+    if replace && kind == PageKind::Update {
+        return Err(refuse_update("replaced"));
+    }
     let dir = layout.page_dir(kind);
     confine::refuse_symlinks(layout.root(), &dir)?;
 
@@ -43,7 +46,7 @@ pub(super) fn write(layout: &Layout, args: &Value) -> Result<String, String> {
     };
     let rel = format!("docs/memory/{}/{file}", kind.as_str());
     let target = confine::resolve_durable(layout, &rel)?;
-    let similar = similar_titles(&dir, target.kind, title);
+    let similar = similar_titles(&dir, target.kind, title, replace.then_some(rel.as_str()));
     let content = render(title, args, &body_arg(args));
     parse_page(&rel, &content).map_err(|issues| {
         let messages: Vec<&str> = issues.iter().map(|issue| issue.message.as_str()).collect();
@@ -64,13 +67,20 @@ pub(super) fn write(layout: &Layout, args: &Value) -> Result<String, String> {
 pub(super) fn patch(layout: &Layout, args: &Value) -> Result<String, String> {
     let rel = str_arg(args, "path")?;
     let target = confine::resolve_durable(layout, rel)?;
+    if target.kind == PageKind::Update {
+        return Err(refuse_update("patched"));
+    }
+    let old = args.get("old").and_then(Value::as_str);
+    if old.is_none() && args.get("new").is_some() {
+        return Err("`new` needs `old`: pass both to replace a piece of the body".to_owned());
+    }
     let lock = fs::lock_exclusive(&layout.memory_lock()).map_err(|error| error.to_string())?;
     let source = std::fs::read_to_string(&target.path)
         .map_err(|error| format!("could not read `{rel}`: {error}"))?;
     let page = parse_page(rel, &source).map_err(|issues| invalid(rel, &issues))?;
 
     let mut body = page.body.clone();
-    if let Some(old) = args.get("old").and_then(Value::as_str) {
+    if let Some(old) = old {
         let found = body.matches(old).count();
         if found != 1 {
             return Err(format!(
@@ -83,18 +93,24 @@ pub(super) fn patch(layout: &Layout, args: &Value) -> Result<String, String> {
     let metadata_changed = ["tags", "pinned", "relations", "expires_at"]
         .iter()
         .any(|key| args.get(key).is_some());
-    let content = if metadata_changed {
+    let head = if metadata_changed {
         let mut meta = page.meta.clone();
         apply_metadata(&mut meta, args);
-        render_meta(page.meta.title.as_deref(), &meta, &body)
+        let rewritten = frontmatter::replace(&source, &patched_fields(&source, &meta)?)
+            .map_err(|error| format!("could not rewrite the frontmatter of `{rel}`: {error}"))?;
+        rewritten
+            .strip_suffix(&page.body)
+            .map(str::to_owned)
+            .ok_or_else(|| format!("`{rel}` could not be split into frontmatter and body"))?
     } else {
-        let head = source
+        source
             .len()
             .checked_sub(page.body.len())
             .and_then(|end| source.get(..end))
-            .ok_or_else(|| format!("`{rel}` could not be split into frontmatter and body"))?;
-        format!("{head}{body}")
+            .map(str::to_owned)
+            .ok_or_else(|| format!("`{rel}` could not be split into frontmatter and body"))?
     };
+    let content = format!("{head}{body}");
     parse_page(rel, &content).map_err(|issues| invalid(rel, &issues))?;
     publish(&target.path, rel, &content, true)?;
     drop(lock);
@@ -107,9 +123,7 @@ pub(super) fn delete(layout: &Layout, args: &Value) -> Result<String, String> {
     let rel = str_arg(args, "path")?;
     let target = confine::resolve_durable(layout, rel)?;
     if target.kind == PageKind::Update {
-        return Err(
-            "`update` pages belong to the delivery record and cannot be deleted".to_owned(),
-        );
+        return Err(refuse_update("deleted"));
     }
     let lock = fs::lock_exclusive(&layout.memory_lock()).map_err(|error| error.to_string())?;
     std::fs::remove_file(&target.path)
@@ -119,9 +133,43 @@ pub(super) fn delete(layout: &Layout, args: &Value) -> Result<String, String> {
     to_text(&json!({ "path": rel, "indexed": indexed }))
 }
 
+fn refuse_update(action: &str) -> String {
+    format!("`update` pages belong to the delivery record and cannot be {action}")
+}
+
+fn patched_fields(source: &str, meta: &PageMeta) -> Result<Map<String, Value>, String> {
+    let mut fields: Map<String, Value> =
+        frontmatter::parse(source).map_err(|error| error.to_string())?;
+    let mut set = |key: &str, value: Option<Value>| match value {
+        Some(value) => fields.insert(key.to_owned(), value),
+        None => fields.remove(key),
+    };
+    set("tags", (!meta.tags.is_empty()).then(|| json!(meta.tags)));
+    set("pinned", meta.pinned.then_some(Value::Bool(true)));
+    set(
+        "relations",
+        (!meta.relations.is_empty()).then(|| {
+            meta.relations
+                .iter()
+                .map(|relation| json!({"type": relation.kind, "target": relation.target}))
+                .collect()
+        }),
+    );
+    set("expires_at", meta.expires_at.as_ref().map(|at| json!(at)));
+    Ok(fields)
+}
+
 fn invalid(rel: &str, issues: &[PageIssue]) -> String {
     let messages: Vec<&str> = issues.iter().map(|issue| issue.message.as_str()).collect();
     format!("`{rel}` is not a valid page: {}", messages.join("; "))
+}
+
+pub(super) fn temp_path(dir: &Utf8Path) -> Utf8PathBuf {
+    dir.join(format!(
+        ".{}-{:?}.tmp",
+        std::process::id(),
+        std::thread::current().id()
+    ))
 }
 
 pub(super) fn publish(
@@ -132,12 +180,11 @@ pub(super) fn publish(
 ) -> Result<(), String> {
     let dir = path.parent().ok_or("page path has no directory")?;
     std::fs::create_dir_all(dir).map_err(|error| error.to_string())?;
-    let temp = dir.join(format!(
-        ".{}-{:?}.tmp",
-        std::process::id(),
-        std::thread::current().id()
-    ));
-    std::fs::write(&temp, content).map_err(|error| error.to_string())?;
+    let temp = temp_path(dir);
+    if let Err(error) = std::fs::write(&temp, content) {
+        let _ = std::fs::remove_file(&temp);
+        return Err(error.to_string());
+    }
     // hard_link fails with AlreadyExists instead of replacing, so a page another writer created first is never clobbered; rename would overwrite it.
     let placed = if replace {
         std::fs::rename(&temp, path)
@@ -235,8 +282,10 @@ pub(super) fn apply_metadata(meta: &mut PageMeta, args: &Value) {
             })
             .collect();
     }
-    if let Some(expires_at) = args.get("expires_at").and_then(Value::as_str) {
-        meta.expires_at = Some(expires_at.to_owned());
+    match args.get("expires_at") {
+        Some(Value::String(expires_at)) => meta.expires_at = Some(expires_at.clone()),
+        Some(Value::Null) => meta.expires_at = None,
+        _ => {}
     }
 }
 
@@ -299,7 +348,7 @@ fn overlap(a: &BTreeSet<String>, b: &BTreeSet<String>) -> f64 {
     ratio
 }
 
-fn similar_titles(dir: &Utf8Path, kind: PageKind, title: &str) -> Vec<Value> {
+fn similar_titles(dir: &Utf8Path, kind: PageKind, title: &str, skip: Option<&str>) -> Vec<Value> {
     let wanted = words(title);
     let Ok(entries) = std::fs::read_dir(dir) else {
         return Vec::new();
@@ -313,6 +362,9 @@ fn similar_titles(dir: &Utf8Path, kind: PageKind, title: &str) -> Vec<Value> {
                 return None;
             }
             let rel = format!("docs/memory/{}/{name}", kind.as_str());
+            if skip == Some(rel.as_str()) {
+                return None;
+            }
             let page = parse_page(&rel, &std::fs::read_to_string(entry.path()).ok()?).ok()?;
             (overlap(&wanted, &words(&page.title)) >= SIMILAR_TITLE_THRESHOLD)
                 .then(|| json!({ "path": rel, "title": page.title }))

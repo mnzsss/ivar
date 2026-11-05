@@ -13,7 +13,7 @@ const SESSION_DEFAULT: usize = 50;
 const MAX_LIMIT: usize = 100;
 
 pub(super) fn recent(layout: &Layout, args: &Value) -> Result<String, String> {
-    let _ = drain(layout);
+    let drain_error = drain_error(layout);
     let limit = bounded_limit(args, RECENT_DEFAULT);
     let db = open(layout)?;
     let rows = recent_observations(
@@ -23,7 +23,10 @@ pub(super) fn recent(layout: &Layout, args: &Value) -> Result<String, String> {
         args.get("feature").and_then(Value::as_str),
     )
     .map_err(|error| error.to_string())?;
-    to_text(&json!({ "observations": rows_json(&rows) }))
+    to_text(&with_drain_error(
+        json!({ "observations": rows_json(&rows) }),
+        drain_error,
+    ))
 }
 
 pub(super) fn session(layout: &Layout, args: &Value) -> Result<String, String> {
@@ -31,7 +34,7 @@ pub(super) fn session(layout: &Layout, args: &Value) -> Result<String, String> {
         .get("session")
         .and_then(Value::as_str)
         .ok_or("`memory_read_session_observations` needs `session`")?;
-    let _ = drain(layout);
+    let drain_error = drain_error(layout);
     let limit = bounded_limit(args, SESSION_DEFAULT);
     let after = args.get("cursor").and_then(Value::as_i64);
     let db = open(layout)?;
@@ -40,7 +43,21 @@ pub(super) fn session(layout: &Layout, args: &Value) -> Result<String, String> {
     let more = rows.len() > limit;
     rows.truncate(limit);
     let next_cursor = rows.last().filter(|_| more).map(|row| row.id);
-    to_text(&json!({ "observations": rows_json(&rows), "next_cursor": next_cursor }))
+    to_text(&with_drain_error(
+        json!({ "observations": rows_json(&rows), "next_cursor": next_cursor }),
+        drain_error,
+    ))
+}
+
+fn drain_error(layout: &Layout) -> Option<String> {
+    drain(layout).err().map(|failure| failure.what)
+}
+
+fn with_drain_error(mut answer: Value, drain_error: Option<String>) -> Value {
+    if let (Some(error), Some(fields)) = (drain_error, answer.as_object_mut()) {
+        fields.insert("drain_error".to_owned(), Value::String(error));
+    }
+    answer
 }
 
 fn bounded_limit(args: &Value, default: usize) -> usize {

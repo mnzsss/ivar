@@ -109,7 +109,7 @@ fn write_page() -> Value {
 fn patch_page() -> Value {
     json!({
         "name": "memory_patch_page",
-        "description": "Edit one durable page in place. Replace one exact piece of the body with old/new, and/or change tags, pinned, relations or expires_at. Kind and title cannot change. Never commits.",
+        "description": "Edit one durable page in place. Replace one exact piece of the body with old/new, and/or change tags, pinned, relations or expires_at. Kind and title cannot change. `new` needs `old`. Refuses `update` pages. Never commits.",
         "annotations": { "readOnlyHint": false },
         "inputSchema": {
             "type": "object",
@@ -127,7 +127,7 @@ fn patch_page() -> Value {
                         "required": ["type", "target"]
                     }
                 },
-                "expires_at": { "type": "string", "description": "RFC 3339 expiry" }
+                "expires_at": { "type": ["string", "null"], "description": "RFC 3339 expiry; null removes it" }
             },
             "required": ["path"]
         }
