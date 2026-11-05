@@ -148,6 +148,13 @@ fn forget_rows_without_target(layout: &Layout, db: &GraphDb, targets: &[Target])
     }
 }
 
+fn flag_all_for_catchup(db: &GraphDb, targets: &[Target], deb: &mut Debouncer, now: Instant) {
+    for t in targets {
+        let _ = db.watch_flag_catchup(&t.scope.key());
+        let _ = deb.record(t.scope.clone(), now);
+    }
+}
+
 pub(super) fn run(
     layout: Layout,
     db_path: Utf8PathBuf,
@@ -210,13 +217,7 @@ pub(super) fn run(
                     &mut rediscover,
                 );
             }
-            Ok(Err(error)) => {
-                for t in &targets {
-                    let _ = db.watch_flag_catchup(&t.scope.key());
-                    let _ = deb.record(t.scope.clone(), now);
-                }
-                let _ = error;
-            }
+            Ok(Err(_)) => flag_all_for_catchup(&db, &targets, &mut deb, now),
             Err(mpsc::RecvTimeoutError::Timeout) => {}
             Err(mpsc::RecvTimeoutError::Disconnected) => break,
         }

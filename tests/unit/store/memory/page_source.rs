@@ -1,4 +1,4 @@
-#![allow(clippy::unwrap_used)]
+#![allow(clippy::unwrap_used, clippy::indexing_slicing)]
 
 use super::*;
 use crate::domain::memory_page::{PageIssueCode, PageKind};

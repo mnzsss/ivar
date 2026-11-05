@@ -15,6 +15,9 @@ fn unknown_keys(source: &str) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// # Errors
+///
+/// Returns the issues that make the page unreadable.
 pub fn parse_page(rel_path: &str, source: &str) -> Result<Page, Vec<PageIssue>> {
     let split_res = frontmatter::split(source);
     let (body, front_res) = match split_res {

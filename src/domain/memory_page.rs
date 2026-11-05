@@ -267,36 +267,22 @@ fn kind_mismatch(meta: &PageMeta, kind: PageKind) -> Option<PageIssue> {
 }
 
 fn is_valid_rfc3339_utc(s: &str) -> bool {
-    let b = s.as_bytes();
-    if b.len() != 20 {
-        return false;
-    }
-    if b[4] != b'-'
-        || b[7] != b'-'
-        || b[10] != b'T'
-        || b[13] != b':'
-        || b[16] != b':'
-        || b[19] != b'Z'
-    {
-        return false;
-    }
-    let is_num = |idx: usize| b[idx].is_ascii_digit();
-    if !is_num(0) || !is_num(1) || !is_num(2) || !is_num(3) {
-        return false;
-    }
-    if !is_num(5) || !is_num(6) || !is_num(8) || !is_num(9) {
-        return false;
-    }
-    if !is_num(11) || !is_num(12) || !is_num(14) || !is_num(15) || !is_num(17) || !is_num(18) {
-        return false;
-    }
-    let parse_u8 = |start: usize| -> u8 { (b[start] - b'0') * 10 + (b[start + 1] - b'0') };
-    let month = parse_u8(5);
-    let day = parse_u8(8);
-    let hour = parse_u8(11);
-    let min = parse_u8(14);
-    let sec = parse_u8(17);
-    (1..=12).contains(&month) && (1..=31).contains(&day) && hour <= 23 && min <= 59 && sec <= 60
+    const SHAPE: &[u8] = b"dddd-dd-ddTdd:dd:ddZ";
+    let shaped = s.len() == SHAPE.len()
+        && s.bytes().zip(SHAPE).all(|(byte, &shape)| {
+            if shape == b'd' {
+                byte.is_ascii_digit()
+            } else {
+                byte == shape
+            }
+        });
+    let field = |range: std::ops::Range<usize>| s.get(range)?.parse::<u8>().ok();
+    shaped
+        && matches!(field(5..7), Some(1..=12))
+        && matches!(field(8..10), Some(1..=31))
+        && matches!(field(11..13), Some(0..=23))
+        && matches!(field(14..16), Some(0..=59))
+        && matches!(field(17..19), Some(0..=60))
 }
 
 fn validate_expires_at(meta: &PageMeta) -> Option<PageIssue> {
@@ -310,20 +296,16 @@ fn validate_expires_at(meta: &PageMeta) -> Option<PageIssue> {
 }
 
 fn extract_h1(body: &str) -> Option<String> {
-    for line in body.lines() {
-        let trimmed = line.trim();
-        if let Some(rest) = trimmed.strip_prefix('#') {
-            if !rest.starts_with('#') {
-                let heading = rest.trim();
-                if !heading.is_empty() {
-                    return Some(heading.to_owned());
-                }
-            }
-        }
-    }
-    None
+    body.lines().find_map(|line| {
+        let rest = line.trim().strip_prefix('#')?;
+        let heading = rest.trim();
+        (!rest.starts_with('#') && !heading.is_empty()).then(|| heading.to_owned())
+    })
 }
 
+/// # Errors
+///
+/// Returns every issue found in the path, the frontmatter and its `expires_at`.
 pub fn build_page(
     rel_path: &str,
     front: Result<ParsedFrontmatter, String>,
@@ -347,27 +329,31 @@ pub fn build_page(
         }
     };
 
-    if let (Some((kind, _)), Some(pf)) = (&located, &parsed_front) {
-        if let Some(mismatch) = kind_mismatch(&pf.meta, *kind) {
-            issues.push(mismatch);
-        }
+    if let (Some((kind, _)), Some(pf)) = (&located, &parsed_front)
+        && let Some(mismatch) = kind_mismatch(&pf.meta, *kind)
+    {
+        issues.push(mismatch);
     }
 
-    if let Some(pf) = &parsed_front {
-        if let Some(err) = validate_expires_at(&pf.meta) {
-            issues.push(err);
-        }
+    if let Some(pf) = &parsed_front
+        && let Some(err) = validate_expires_at(&pf.meta)
+    {
+        issues.push(err);
     }
 
+    let (
+        Some((kind, slug)),
+        Some(ParsedFrontmatter {
+            meta,
+            unknown_fields,
+        }),
+    ) = (located, parsed_front)
+    else {
+        return Err(issues);
+    };
     if !issues.is_empty() {
         return Err(issues);
     }
-
-    let (kind, slug) = located.unwrap();
-    let ParsedFrontmatter {
-        meta,
-        unknown_fields,
-    } = parsed_front.unwrap();
 
     let title = meta
         .title
