@@ -29,3 +29,4 @@ pub mod session;
 pub mod skill;
 pub mod skill_sync;
 pub mod upgrade;
+pub mod memory_page;
