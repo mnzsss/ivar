@@ -74,8 +74,15 @@ fn token_step(
             None,
         )?
     {
-        let bot = telegram::get_me(api, &token).map_err(|reason| token_rejected(&reason))?;
-        return Ok((token, bot, TokenChange::Kept));
+        match telegram::get_me(api, &token) {
+            Ok(bot) => return Ok((token, bot, TokenChange::Kept)),
+            Err(reason) => {
+                let caveat = format!("Telegram did not accept the saved token: {reason}");
+                if !ctx.confirm.confirm("Enter a new token?", Some(&caveat))? {
+                    return Err(token_rejected(&reason));
+                }
+            }
+        }
     }
     loop {
         let token = ctx
@@ -105,12 +112,16 @@ fn token_step(
 }
 
 fn chat_step(ctx: &Ctx, api: &str, token: &str, bot: &str) -> Result<String, Failure> {
-    let mut note = format!(
+    let instructions = format!(
         "Send any message to @{bot}, or add it to the group or channel (as admin for a channel), then pick \"{LOOK_AGAIN}\"."
     );
+    let mut note = instructions.clone();
     loop {
         let chats = match telegram::get_updates(api, token) {
-            Ok(chats) => chats,
+            Ok(chats) => {
+                note.clone_from(&instructions);
+                chats
+            }
             Err(reason) => {
                 note = format!("Could not list the chats @{bot} can see: {reason}");
                 Vec::new()

@@ -153,3 +153,82 @@ fn a_non_interactive_run_refuses_and_explains_the_manual_setup() {
         None
     );
 }
+
+#[test]
+fn a_chat_list_that_recovers_drops_the_earlier_error() {
+    let (_guard, root) = seeded_hall();
+    let fake = FakeTelegram::start(vec![
+        ME,
+        (
+            409,
+            r#"{"ok":false,"error_code":409,"description":"Conflict: can't use getUpdates method while webhook is active"}"#,
+        ),
+        (
+            200,
+            r#"{"ok":true,"result":[{"update_id":1,"message":{"chat":{"id":-100123,"type":"group","title":"Ops"}}}]}"#,
+        ),
+        SENT,
+    ]);
+    let script = Scripted::new(
+        vec![Some("123:secret")],
+        vec![],
+        vec![Some(0), Some(0)],
+        vec![],
+    );
+    let ctx = Ctx::new(root).with_confirm(script.clone());
+
+    let setup = setup_with(&ctx, &fake.api).unwrap().value;
+
+    fake.requests();
+    assert_eq!(setup.chat_id, "-100123");
+    let shown = script.shown();
+    let last_chat_prompt = shown
+        .iter()
+        .rfind(|line| line.contains("Which chat gets the notifications?"))
+        .unwrap();
+    assert!(
+        last_chat_prompt.contains("Send any message to @ivar_bot"),
+        "{last_chat_prompt}"
+    );
+    assert!(!last_chat_prompt.contains("Conflict"), "{last_chat_prompt}");
+}
+
+#[test]
+fn a_kept_token_that_telegram_rejects_can_be_replaced() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root.clone());
+    AgentSecrets::set_and_write(&layout, TELEGRAM_TOKEN_KEY, "1:revoked").unwrap();
+    let fake = FakeTelegram::start(vec![
+        (
+            401,
+            r#"{"ok":false,"error_code":401,"description":"Unauthorized"}"#,
+        ),
+        ME,
+        (200, r#"{"ok":true,"result":[]}"#),
+        SENT,
+    ]);
+    let script = Scripted::new(
+        vec![Some("2:fresh"), Some("-100123")],
+        vec![true, true],
+        vec![Some(1)],
+        vec![],
+    );
+    let ctx = Ctx::new(root).with_confirm(script.clone());
+
+    let setup = setup_with(&ctx, &fake.api).unwrap().value;
+
+    fake.requests();
+    assert_eq!(setup.token, TokenChange::Updated);
+    assert_eq!(
+        AgentSecrets::read(&layout).unwrap().get(TELEGRAM_TOKEN_KEY),
+        Some("2:fresh")
+    );
+    assert!(
+        script
+            .shown()
+            .iter()
+            .any(|line| line.contains("Unauthorized")),
+        "{:?}",
+        script.shown()
+    );
+}

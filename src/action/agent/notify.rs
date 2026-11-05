@@ -42,12 +42,12 @@ fn post_summary(url: &str, receipt: &AgentRunReceipt) -> Result<(), String> {
 
 fn telegram_token(layout: &Layout) -> Result<String, String> {
     AgentSecrets::read(layout)
-        .and_then(|secrets| secrets.select(&[TELEGRAM_TOKEN_KEY.to_owned()]))
         .map_err(|failure| failure.what)?
-        .into_iter()
-        .next()
-        .map(|(_, value)| value)
-        .ok_or_else(|| format!("secret `{TELEGRAM_TOKEN_KEY}` is not set"))
+        .get(TELEGRAM_TOKEN_KEY)
+        .map(str::to_owned)
+        .ok_or_else(|| {
+            format!("secret `{TELEGRAM_TOKEN_KEY}` is not set in .ivar/secrets/agents.env")
+        })
 }
 
 #[cfg(test)]

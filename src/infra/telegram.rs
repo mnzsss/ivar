@@ -2,7 +2,6 @@
 
 use std::time::Duration;
 
-use serde::Serialize;
 use serde_json::{Value, json};
 
 pub const API: &str = "https://api.telegram.org";
@@ -14,7 +13,7 @@ const CHAT_KEYS: [&str; 4] = [
     "my_chat_member",
 ];
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Chat {
     pub id: String,
     pub name: String,
