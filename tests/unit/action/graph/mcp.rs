@@ -338,6 +338,8 @@ fn explore_content(db: &GraphDb, root: &std::path::Path, cwd: &camino::Utf8Path)
 mod compat;
 #[path = "mcp/root/fanout.rs"]
 mod fanout;
+#[path = "mcp/root/memory_tools.rs"]
+mod memory_tools;
 #[path = "mcp/root/surface.rs"]
 mod surface;
 #[path = "mcp/root/tool_calls.rs"]
