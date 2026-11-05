@@ -80,6 +80,10 @@ fn image_and_command_override_the_tool() {
 #[case::bad_timeout("a", AgentFrontmatter { timeout: Some("forever".into()), ..base() }, "timeout")]
 #[case::escaping_workdir("a", AgentFrontmatter { workdir: Some("../etc".into()), ..base() }, "workdir")]
 #[case::feature_without_workdir("a", AgentFrontmatter { access: Access::Feature, ..base() }, "workdir")]
+#[case::write_on_docker("a", AgentFrontmatter { write: vec!["brand".into()], ..base() }, "write")]
+#[case::write_escaping("a", AgentFrontmatter { runtime: Runtime::Host, write: vec!["brand/../..".into()], ..base() }, "write")]
+#[case::write_empty("a", AgentFrontmatter { runtime: Runtime::Host, write: vec![String::new()], ..base() }, "write")]
+#[case::write_other_users_home("a", AgentFrontmatter { runtime: Runtime::Host, write: vec!["~root/x".into()], ..base() }, "write")]
 fn names_the_failing_field(#[case] name: &str, #[case] fm: AgentFrontmatter, #[case] field: &str) {
     let error = AgentSpec::from_parts(name, fm, "").expect_err("invalid");
     assert_eq!(error.field, field, "{}", error.reason);
@@ -179,5 +183,49 @@ fn a_host_runtime_without_a_tool_names_the_tool_field() {
     assert_eq!(
         AgentSpec::from_parts("a", fm, "").unwrap_err().field,
         "tool"
+    );
+}
+
+#[rstest]
+#[case::absolute("/srv/out", WritePath::Absolute("/srv/out".into()))]
+#[case::home_relative("~/.cache/m", WritePath::Home(".cache/m".into()))]
+#[case::home_itself("~", WritePath::Home(Utf8PathBuf::new()))]
+#[case::hall_relative("brand/metricas", WritePath::Hall("brand/metricas".into()))]
+fn write_parses_each_form(#[case] raw: &str, #[case] expected: WritePath) {
+    let fm = AgentFrontmatter {
+        runtime: Runtime::Host,
+        write: vec![raw.to_owned()],
+        ..base()
+    };
+    assert_eq!(
+        AgentSpec::from_parts("nightly", fm, "").unwrap().write,
+        vec![expected]
+    );
+}
+
+#[test]
+fn write_resolves_against_home_and_hall() {
+    let (home, hall) = (Utf8Path::new("/h"), Utf8Path::new("/hall"));
+    assert_eq!(
+        WritePath::Home(".cache".into()).resolve(home, hall),
+        Utf8PathBuf::from("/h/.cache")
+    );
+    assert_eq!(
+        WritePath::Hall("brand".into()).resolve(home, hall),
+        Utf8PathBuf::from("/hall/brand")
+    );
+    assert_eq!(
+        WritePath::Absolute("/srv".into()).resolve(home, hall),
+        Utf8PathBuf::from("/srv")
+    );
+}
+
+#[test]
+fn an_agent_without_write_lists_none() {
+    assert!(
+        AgentSpec::from_parts("nightly", base(), "")
+            .unwrap()
+            .write
+            .is_empty()
     );
 }

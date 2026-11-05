@@ -11,19 +11,23 @@ use crate::action::{Ctx, discover_hall, read_manifest};
 use crate::domain::agent::container::{
     ContainerPlan, Mount, agent_run_args, proxy_run_args, tinyproxy_conf, tinyproxy_filter,
 };
-use crate::domain::agent::host_env::host_env;
 use crate::domain::agent::images::{BASE_IMAGE, PROXY_IMAGE};
 use crate::domain::agent::receipt::{self, AgentRunReceipt, Trigger, classify, scrub};
 use crate::domain::agent::spec::{Access, AgentSpec, Launch, Runtime};
-use crate::domain::agent::tool::Credential;
 use crate::domain::session::rfc3339_now;
 use crate::error::{Failure, Outcome, Report, WriteHuman};
-use crate::infra::proc::{self, Command, Finished};
+use crate::infra::proc::{self, Finished};
 use crate::infra::{docker, fs};
 use crate::store;
 use crate::store::agent_secrets::{AgentSecrets, render_env_file};
 use crate::store::layout::Layout;
 use crate::store::manifest::Manifest;
+
+mod host;
+
+use host::{HostDeps, execute_host};
+#[cfg(test)]
+use host::{host_workspace, seed_credentials, write_back_credentials, write_roots};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RunInput {
@@ -49,41 +53,9 @@ pub(crate) struct Workspace {
     pub workdir: String,
 }
 
-#[derive(Debug, Clone)]
-pub(crate) struct HostDeps {
-    pub launcher: Utf8PathBuf,
-    pub home: Utf8PathBuf,
-    pub parent_env: Vec<(String, String)>,
-    pub landlock: bool,
-}
-
-impl HostDeps {
-    pub(crate) fn system() -> Result<Self, Failure> {
-        let parent_env: Vec<(String, String)> = std::env::vars_os()
-            .filter_map(|(k, v)| Some((k.into_string().ok()?, v.into_string().ok()?)))
-            .collect();
-        let home = parent_env
-            .iter()
-            .find(|(k, _)| k == "HOME")
-            .map(|(_, v)| Utf8PathBuf::from(v))
-            .ok_or_else(|| {
-                Failure::failed(
-                    "agent.home_unknown",
-                    "HOME is not set; a `runtime: host` run uses the tool's login under it",
-                )
-            })?;
-        Ok(Self {
-            launcher: super::sync::current_ivar_bin()?,
-            home,
-            parent_env,
-            landlock: crate::action::session::sandbox::landlock_available(),
-        })
-    }
-}
-
-struct Ran {
-    finished: Finished,
-    output: String,
+pub(super) struct Ran {
+    pub(super) finished: Finished,
+    pub(super) output: String,
 }
 
 struct Attempt {
@@ -137,7 +109,15 @@ pub(crate) fn run_with(
             Runtime::Docker => execute(&spec, &run_id, &scratch, &secrets, ws)?,
             Runtime::Host => {
                 let state = layout.agent_tool_state(&spec.name, tool_name(&spec));
-                execute_host(&spec, &scratch, &state, &secrets, &ws, &host()?)?
+                execute_host(
+                    &spec,
+                    layout.root(),
+                    &scratch,
+                    &state,
+                    &secrets,
+                    &ws,
+                    &host()?,
+                )?
             }
         };
         let delivered = worktree
@@ -247,172 +227,6 @@ pub(crate) fn read_workspace(layout: &Layout, manifest: &Manifest, spec: &AgentS
         .as_deref()
         .map_or_else(|| "/workspace".to_owned(), |w| format!("/workspace/{w}"));
     Workspace { mounts, workdir }
-}
-
-/// The Docker `Workspace` on the host: `scratch/workspace/<repo>` links to each
-/// mounted worktree; only `read_only: false` mounts become writable roots.
-pub(crate) fn host_workspace(
-    scratch: &Utf8Path,
-    ws: &Workspace,
-) -> Result<(Utf8PathBuf, Vec<Utf8PathBuf>), Failure> {
-    let names = ws
-        .mounts
-        .iter()
-        .map(|mount| {
-            mount
-                .target
-                .strip_prefix("/workspace/")
-                .filter(|n| !n.is_empty() && !n.contains('/') && *n != ".." && *n != ".")
-                .ok_or_else(|| {
-                    Failure::failed(
-                        "agent.invalid_mount",
-                        format!(
-                            "mount target `{}` is not a `/workspace/<name>` path",
-                            mount.target
-                        ),
-                    )
-                })
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    let root = scratch.join("workspace");
-    fs::ensure_dir(&root)?;
-    for (mount, name) in ws.mounts.iter().zip(names) {
-        fs::create_symlink(Utf8Path::new(&mount.source), &root.join(name))?;
-    }
-    let cwd = root.join(
-        ws.workdir
-            .trim_start_matches("/workspace")
-            .trim_start_matches('/'),
-    );
-    let writable = ws
-        .mounts
-        .iter()
-        .filter(|m| !m.read_only)
-        .map(|m| Utf8PathBuf::from(&m.source))
-        .collect();
-    Ok((cwd, writable))
-}
-
-/// A login file as it was copied into the state dir.
-pub(crate) struct Seeded {
-    credential: Credential,
-    copied: Option<Vec<u8>>,
-}
-
-/// Copies each login file into `state` (0700), replacing a stale copy and
-/// dropping one whose source is gone.
-pub(crate) fn seed_credentials(
-    state: &Utf8Path,
-    credentials: Vec<Credential>,
-) -> Result<Vec<Seeded>, Failure> {
-    fs::ensure_dir(state)?;
-    #[cfg(unix)]
-    fs::chmod(state, 0o700)?;
-    credentials
-        .into_iter()
-        .map(|credential| {
-            let private = state.join(credential.private);
-            let copied = fs::read_bytes(&credential.real)?;
-            match &copied {
-                Some(bytes) => {
-                    if let Some(parent) = private.parent() {
-                        fs::ensure_dir(parent)?;
-                    }
-                    fs::write_sensitive_atomic(&private, bytes)?;
-                }
-                None => fs::remove_path(&private)?,
-            }
-            Ok(Seeded { credential, copied })
-        })
-        .collect()
-}
-
-fn is_login(bytes: &[u8]) -> bool {
-    serde_json::from_slice::<serde_json::Value>(bytes)
-        .ok()
-        .and_then(|v| v.as_object().map(|o| !o.is_empty()))
-        .unwrap_or(false)
-}
-
-/// Writes a token the tool refreshed during the run back to the user's own
-/// login, so a rotated refresh token does not log them out. Only a valid
-/// login is written, and never over one the user changed meanwhile.
-pub(crate) fn write_back_credentials(state: &Utf8Path, seeded: &[Seeded]) -> Result<(), Failure> {
-    for Seeded { credential, copied } in seeded.iter().filter(|s| s.credential.write_back) {
-        let Some(copied) = copied else { continue };
-        let Some(now) = fs::read_bytes(&state.join(credential.private))? else {
-            continue;
-        };
-        if &now == copied || !is_login(&now) {
-            continue;
-        }
-        if fs::read_bytes(&credential.real)?.as_ref() != Some(copied) {
-            continue;
-        }
-        fs::write_sensitive_atomic(&credential.real, &now)?;
-    }
-    Ok(())
-}
-
-fn execute_host(
-    spec: &AgentSpec,
-    scratch: &Utf8Path,
-    state: &Utf8Path,
-    secrets: &[(String, String)],
-    ws: &Workspace,
-    host: &HostDeps,
-) -> Result<Ran, Failure> {
-    if !host.landlock {
-        return Err(Failure::blocked(
-            "agent.landlock_unavailable",
-            "Landlock is unavailable on this kernel, so a `runtime: host` run cannot be confined; use `runtime: docker` or Linux 5.13+",
-        ));
-    }
-    let Launch::Tool { tool, model } = &spec.launch else {
-        return Err(Failure::failed(
-            "agent.invalid",
-            "`runtime: host` needs `tool`",
-        ));
-    };
-    let (cwd, writable) = host_workspace(scratch, ws)?;
-    let tmp = scratch.join("tmp");
-    fs::ensure_dir(&tmp)?;
-    let var = |key: &str| {
-        host.parent_env
-            .iter()
-            .find(|(k, _)| k == key)
-            .map(|(_, v)| v.clone())
-    };
-    let seeded = seed_credentials(state, tool.credentials(&host.home, &var))?;
-    let mut roots = vec![
-        scratch.to_path_buf(),
-        state.to_path_buf(),
-        Utf8PathBuf::from("/dev/null"),
-    ];
-    roots.extend(writable);
-    let mut command = Command::new(host.launcher.as_str()).args(["agent", "sandbox"]);
-    for root in &roots {
-        command = command.arg("--write").arg(root.as_str());
-    }
-    command = command
-        .arg("--")
-        .args(tool.argv(model.as_deref(), &spec.prompt))
-        .cwd(cwd)
-        .env_clear()
-        .process_group();
-    for (key, value) in host_env(&host.parent_env, tmp.as_str(), secrets, *tool, state) {
-        command = command.env(key, value);
-    }
-    let log = scratch.join("output.log");
-    let finished =
-        proc::to_log_with_deadline(&command, &log, spec.timeout, &|seen| tool.is_blocked(seen));
-    let written_back = write_back_credentials(state, &seeded);
-    let finished = finished?;
-    written_back?;
-    Ok(Ran {
-        finished,
-        output: fs::read_text(&log)?.unwrap_or_default(),
-    })
 }
 
 fn execute(
