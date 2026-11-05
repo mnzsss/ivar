@@ -11,6 +11,7 @@ use crate::action::graph::watch::worker::registry::{add_control_dirs, register_a
 use crate::action::graph::watch::worker::reindex::reindex;
 use crate::action::graph::watch::worker::{Discover, TICK, Target};
 use crate::action::memory::drain::drain_one;
+use crate::action::memory::reindex;
 use crate::action::memory::sweep::sweep_now;
 use crate::git::System as GitSystem;
 use crate::store::graph::db::GraphDb;
@@ -19,6 +20,15 @@ use crate::store::memory::spool;
 
 const DRAIN_EVERY: Duration = Duration::from_millis(250);
 const SWEEP_EVERY: Duration = Duration::from_secs(3600);
+const REINDEX_EVERY: Duration = Duration::from_secs(5);
+
+fn reindex_due(last: &mut Option<Instant>, now: Instant) -> bool {
+    let due = last.is_none_or(|at| now.duration_since(at) >= REINDEX_EVERY);
+    if due {
+        *last = Some(now);
+    }
+    due
+}
 
 pub(super) fn handle_fs_event(
     event: &notify::Event,
@@ -176,6 +186,7 @@ pub(super) fn run(
     let mut rediscover = false;
     let mut last_drain = Instant::now();
     let mut last_sweep: Option<Instant> = None;
+    let mut last_reindex: Option<Instant> = None;
 
     while !stop.load(Ordering::Relaxed) {
         let now = Instant::now();
@@ -247,6 +258,10 @@ pub(super) fn run(
         let now = Instant::now();
         process_due_scopes(&layout, &db, &mut deb, &targets, now);
 
+        if reindex_due(&mut last_reindex, Instant::now()) {
+            let _ = reindex::refresh_if_free(&layout);
+        }
+
         if last_drain.elapsed() >= DRAIN_EVERY {
             last_drain = Instant::now();
             if spool::has_pending(&layout.memory_spool_dir()) {
@@ -260,3 +275,7 @@ pub(super) fn run(
         }
     }
 }
+
+#[cfg(test)]
+#[path = "../../../../../tests/unit/action/graph/watch/event_loop.rs"]
+mod tests;
