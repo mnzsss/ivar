@@ -21,7 +21,7 @@ fn a_completed_cleanup_emits_one_cleaned_event_with_the_record_and_the_docs_deci
     assert_eq!(cleaned[0].scope.feature, "checkout");
     match &cleaned[0].event {
         DeliveryEvent::Cleaned { record_path, docs } => {
-            assert_eq!(record_path, "docs/updates/001-checkout.cleanup.json");
+            assert_eq!(record_path, "docs/memory/update/001-checkout.cleanup.json");
             assert_eq!(docs, "written");
         }
         other => panic!("expected cleaned, got {other:?}"),

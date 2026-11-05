@@ -115,7 +115,7 @@ fn importance_follows_the_event_and_its_outcome() {
 #[test]
 fn each_event_names_its_source_event() {
     let cleaned = DeliveryEvent::Cleaned {
-        record_path: "docs/updates/x.md".into(),
+        record_path: "docs/memory/update/x.md".into(),
         docs: "written".into(),
     };
     assert_eq!(cleaned.source_event(), SourceEvent::DeliveryCleaned);

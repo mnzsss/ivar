@@ -1,26 +1,19 @@
 use super::*;
 
 #[test]
-fn record_pointing_outside_docs_updates_refused() {
+fn record_pointing_outside_update_pages_refused() {
     let (_guard, root) = hall_with_feature(&["api"], None);
     let ctx = Ctx::new(root.clone());
     let layout = Layout::at(root.clone());
-
-    // Ensure docs/updates/ and docs/product/ exist in test hall
-    fs::ensure_dir(&layout.docs_updates_dir()).unwrap();
+    fs::ensure_dir(&layout.update_pages_dir()).unwrap();
     let record_file = layout
-        .root()
-        .join("docs")
-        .join("product")
+        .page_dir(PageKind::Product)
         .join("001-checkout.cleanup.json");
     fs::ensure_dir(record_file.parent().unwrap()).unwrap();
     fs::write_text(
         &record_file,
         r#"{
-            "schema_version": 1,
-            "feature": "checkout",
-            "branch": "checkout",
-            "fingerprint": "1234",
+            "schema_version": 1, "feature": "checkout", "branch": "checkout", "fingerprint": "1234",
             "approvals": {
                 "delivery": { "approved": true, "at": "2026-08-28T12:00:00Z" },
                 "documentation": { "decision": "not_required", "paths": [], "reason": "Refactoring", "at": "2026-08-28T12:05:00Z" },
@@ -36,7 +29,9 @@ fn record_pointing_outside_docs_updates_refused() {
         CleanupInput {
             feature: "checkout".to_owned(),
             preview: false,
-            record: Some(Utf8PathBuf::from("docs/product/001-checkout.cleanup.json")),
+            record: Some(Utf8PathBuf::from(
+                "docs/memory/product/001-checkout.cleanup.json",
+            )),
             session_id: None,
         },
     )
@@ -70,9 +65,9 @@ fn fully_valid_record_executes_teardown_removes_local_branches_and_writes_outcom
     let preview = run_preview(&root);
     assert!(preview.blockers.is_empty());
 
-    // 2. Write valid record under docs/updates/
-    fs::ensure_dir(&layout.docs_updates_dir()).unwrap();
-    let record_rel_path = Utf8PathBuf::from("docs/updates/001-checkout.cleanup.json");
+    // 2. Write valid record under docs/memory/update/
+    fs::ensure_dir(&layout.update_pages_dir()).unwrap();
+    let record_rel_path = Utf8PathBuf::from("docs/memory/update/001-checkout.cleanup.json");
     let record_file = root.join(&record_rel_path);
     fs::write_text(
         &record_file,
@@ -84,7 +79,7 @@ fn fully_valid_record_executes_teardown_removes_local_branches_and_writes_outcom
                 "fingerprint": "{}",
                 "approvals": {{
                     "delivery": {{ "approved": true, "at": "2026-08-28T12:00:00Z" }},
-                    "documentation": {{ "decision": "written", "paths": ["docs/product/001-checkout.md"], "reason": null, "at": "2026-08-28T12:05:00Z" }},
+                    "documentation": {{ "decision": "written", "paths": ["docs/memory/product/001-checkout.md"], "reason": null, "at": "2026-08-28T12:05:00Z" }},
                     "teardown": {{ "approved": true, "at": "2026-08-28T12:10:00Z" }}
                 }},
                 "outcome": null
@@ -150,11 +145,8 @@ fn record_fingerprint_mismatch_refused() {
     let ctx = Ctx::new(root.clone());
     let layout = Layout::at(root.clone());
 
-    fs::ensure_dir(&layout.docs_updates_dir()).unwrap();
-    let record_file = root
-        .join("docs")
-        .join("updates")
-        .join("001-checkout.cleanup.json");
+    fs::ensure_dir(&layout.update_pages_dir()).unwrap();
+    let record_file = layout.update_pages_dir().join("001-checkout.cleanup.json");
     fs::write_text(
         &record_file,
         r#"{
@@ -177,7 +169,9 @@ fn record_fingerprint_mismatch_refused() {
         CleanupInput {
             feature: "checkout".to_owned(),
             preview: false,
-            record: Some(Utf8PathBuf::from("docs/updates/001-checkout.cleanup.json")),
+            record: Some(Utf8PathBuf::from(
+                "docs/memory/update/001-checkout.cleanup.json",
+            )),
             session_id: None,
         },
     )
@@ -200,11 +194,8 @@ fn record_unapproved_delivery_or_teardown_refused() {
 
     let preview = run_preview(&root);
 
-    fs::ensure_dir(&layout.docs_updates_dir()).unwrap();
-    let record_file = root
-        .join("docs")
-        .join("updates")
-        .join("001-checkout.cleanup.json");
+    fs::ensure_dir(&layout.update_pages_dir()).unwrap();
+    let record_file = layout.update_pages_dir().join("001-checkout.cleanup.json");
     fs::write_text(
         &record_file,
         &format!(
@@ -230,7 +221,9 @@ fn record_unapproved_delivery_or_teardown_refused() {
         CleanupInput {
             feature: "checkout".to_owned(),
             preview: false,
-            record: Some(Utf8PathBuf::from("docs/updates/001-checkout.cleanup.json")),
+            record: Some(Utf8PathBuf::from(
+                "docs/memory/update/001-checkout.cleanup.json",
+            )),
             session_id: None,
         },
     )
@@ -264,7 +257,9 @@ fn record_unapproved_delivery_or_teardown_refused() {
         CleanupInput {
             feature: "checkout".to_owned(),
             preview: false,
-            record: Some(Utf8PathBuf::from("docs/updates/001-checkout.cleanup.json")),
+            record: Some(Utf8PathBuf::from(
+                "docs/memory/update/001-checkout.cleanup.json",
+            )),
             session_id: None,
         },
     )
@@ -281,11 +276,8 @@ fn record_feature_mismatch_refused() {
 
     let preview = run_preview(&root);
 
-    fs::ensure_dir(&layout.docs_updates_dir()).unwrap();
-    let record_file = root
-        .join("docs")
-        .join("updates")
-        .join("001-checkout.cleanup.json");
+    fs::ensure_dir(&layout.update_pages_dir()).unwrap();
+    let record_file = layout.update_pages_dir().join("001-checkout.cleanup.json");
     fs::write_text(
         &record_file,
         &format!(
@@ -311,7 +303,9 @@ fn record_feature_mismatch_refused() {
         CleanupInput {
             feature: "checkout".to_owned(),
             preview: false,
-            record: Some(Utf8PathBuf::from("docs/updates/001-checkout.cleanup.json")),
+            record: Some(Utf8PathBuf::from(
+                "docs/memory/update/001-checkout.cleanup.json",
+            )),
             session_id: None,
         },
     )

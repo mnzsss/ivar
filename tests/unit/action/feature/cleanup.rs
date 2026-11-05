@@ -14,6 +14,7 @@ use crate::action::feature::promote::{PromoteInput, promote};
 use crate::action::hall::{self, InitInput};
 use crate::action::sync::{SyncInput, sync};
 use crate::domain::feature::{CleanupPreview, CleanupRecord};
+use crate::domain::memory_page::PageKind;
 use crate::domain::name::{BranchName, FeatureName, HallName, RepoName, SessionId};
 use crate::domain::provider::Provider;
 use crate::git::{self, Git};
@@ -163,8 +164,8 @@ fn apply_with_approved_record_in(
 ) -> crate::domain::feature::CleanupApplyOutcome {
     let preview = run_preview(root);
     let layout = Layout::at(root.clone());
-    fs::ensure_dir(&layout.docs_updates_dir()).unwrap();
-    let record_rel_path = Utf8PathBuf::from("docs/updates/001-checkout.cleanup.json");
+    fs::ensure_dir(&layout.update_pages_dir()).unwrap();
+    let record_rel_path = Utf8PathBuf::from("docs/memory/update/001-checkout.cleanup.json");
     fs::write_text(
         &root.join(&record_rel_path),
         &format!(
@@ -175,7 +176,7 @@ fn apply_with_approved_record_in(
                 "fingerprint": "{}",
                 "approvals": {{
                     "delivery": {{ "approved": true, "at": "2026-08-28T12:00:00Z" }},
-                    "documentation": {{ "decision": "written", "paths": ["docs/product/001-checkout.md"], "reason": null, "at": "2026-08-28T12:05:00Z" }},
+                    "documentation": {{ "decision": "written", "paths": ["docs/memory/product/001-checkout.md"], "reason": null, "at": "2026-08-28T12:05:00Z" }},
                     "teardown": {{ "approved": true, "at": "2026-08-28T12:10:00Z" }}
                 }},
                 "outcome": null

@@ -116,7 +116,7 @@ fn a_parent_and_its_abandoned_subfeature_are_cleaned_up_with_one_record() {
     assert_eq!(preview["descendants"][0]["feature"], "child");
 
     let fingerprint = preview["fingerprint"].as_str().unwrap();
-    let record_dir = root.join("docs/updates");
+    let record_dir = root.join("docs/memory/update");
     std::fs::create_dir_all(&record_dir).unwrap();
     let record_path = record_dir.join("001-checkout.cleanup.json");
     let record_json = serde_json::json!({
@@ -144,7 +144,7 @@ fn a_parent_and_its_abandoned_subfeature_are_cleaned_up_with_one_record() {
             "cleanup",
             "checkout",
             "--record",
-            "docs/updates/001-checkout.cleanup.json",
+            "docs/memory/update/001-checkout.cleanup.json",
             "--json",
         ])
         .assert()

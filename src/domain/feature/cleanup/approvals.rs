@@ -171,11 +171,11 @@ impl CleanupRecord {
 
         for path in &doc.paths {
             if path.is_absolute()
-                || !path.starts_with("docs")
+                || !(path.starts_with("docs/memory") || path.starts_with("docs/repo-relations"))
                 || path.components().any(|c| c.as_str() == "..")
             {
                 return Err(format!(
-                    "documentation path `{path}` is not hall-relative or does not resolve inside `docs/`"
+                    "documentation path `{path}` is not hall-relative or does not resolve inside `docs/memory/` or `docs/repo-relations/`"
                 ));
             }
         }
@@ -183,3 +183,7 @@ impl CleanupRecord {
         Ok(())
     }
 }
+
+#[cfg(test)]
+#[path = "../../../../tests/unit/domain/feature/cleanup_approvals.rs"]
+mod tests;

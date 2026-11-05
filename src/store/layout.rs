@@ -67,7 +67,7 @@
 //!   `feature_session(&FeatureName, &SessionId)`, `discovery_session(&SessionId)`,
 //!   `hall_setups()`, `setup_script(&RepoName)`, `session_hook(&RepoName)`, `secrets_dir()`,
 //!   `hall_skills()`, `plan_dir(&FeatureName)`, `discovery_doc(&FeatureName)`,
-//!   `docs_updates_dir()`, `graph_db()`, `graph_lock()`, `memory_db()`, `memory_lock()`,
+//!   `docs_memory_dir()`, `page_dir(&PageKind)`, `update_pages_dir()`, `graph_db()`, `graph_lock()`, `memory_db()`, `memory_lock()`,
 //!   `harness_dir(&Provider)`, `commands_dir(&Provider)`.
 //! - `gitignore_lines()` — the exact patterns the hall's `.gitignore` needs.
 //!
