@@ -109,7 +109,12 @@ fn a_name_clash_warns_and_leaves_ivar_json_untouched() {
     assert_eq!(outcome["mcp_registration"], "name_clash", "{outcome}");
     assert_eq!(outcome["warnings"][0]["code"], "graph.mcp_name_clash");
     let message = outcome["warnings"][0]["what"].as_str().unwrap();
-    assert!(message.contains(r#""name":"ivar""#), "{message}");
+    assert!(
+        message.contains("rename or remove the existing `ivar` entry")
+            && message.contains("edit it to run `ivar graph mcp`")
+            && message.contains("`ivar graph index` again"),
+        "{message}"
+    );
     assert_eq!(read_manifest_text(&hall), before);
 }
 

@@ -39,8 +39,8 @@ pub fn register_graph_mcp(
             "graph.mcp_name_clash",
             "ivar.json",
             "an MCP server named `ivar` already exists with a different command, so the graph \
-             MCP server was not registered; add `{\"name\":\"ivar\",\"type\":\"local\",\
-             \"command\":\"ivar\",\"args\":[\"graph\",\"mcp\"]}` to `mcp` by hand, then run `ivar sync`",
+             MCP server was not registered; rename or remove the existing `ivar` entry in `mcp`, \
+             or edit it to run `ivar graph mcp`, then run `ivar graph index` again",
         );
         return (McpRegistration::NameClash, Some(warning));
     }
