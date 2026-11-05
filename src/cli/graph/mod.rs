@@ -152,7 +152,7 @@ pub struct GraphImpactArgs {
 
 #[derive(Debug, Args)]
 pub struct GraphMcpArgs {
-    /// Tools to advertise: `explore` lists `graph_explore` and `graph_feedback`, `all` lists every graph tool.
+    /// Tools to advertise: `explore` lists `graph_explore`, `graph_feedback`, the nine memory tools including `memory_lint` (11 tools in total), `all` lists every graph tool as well.
     #[arg(long, value_enum, default_value_t = crate::action::graph::mcp::ToolSurface::Explore)]
     pub tools: crate::action::graph::mcp::ToolSurface,
 }
