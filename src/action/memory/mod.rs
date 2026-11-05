@@ -3,10 +3,12 @@
 pub mod capture;
 pub mod classify;
 pub mod clean;
+pub mod consolidate;
 pub mod delivery;
 pub mod drain;
 pub mod lint;
 pub mod mcp;
+pub mod page_file;
 pub mod query;
 pub mod reindex;
 pub mod status;

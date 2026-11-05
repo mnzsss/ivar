@@ -1,7 +1,8 @@
 use serde_json::{Value, json};
 
 use super::to_text;
-use crate::action::memory::drain::drain;
+use crate::action::memory::consolidate::consolidate_if_free;
+use crate::action::memory::drain::{drain, epoch_secs_now};
 use crate::store::layout::Layout;
 use crate::store::memory::db::MemoryDb;
 use crate::store::memory::observations::{
@@ -50,7 +51,9 @@ pub(super) fn session(layout: &Layout, args: &Value) -> Result<String, String> {
 }
 
 fn drain_error(layout: &Layout) -> Option<String> {
-    drain(layout).err().map(|failure| failure.what)
+    let error = drain(layout).err().map(|failure| failure.what);
+    let _ = consolidate_if_free(layout, epoch_secs_now());
+    error
 }
 
 fn with_drain_error(mut answer: Value, drain_error: Option<String>) -> Value {

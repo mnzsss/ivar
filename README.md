@@ -163,6 +163,9 @@ after the session's last observation; delivery events are kept. See the
 `update`, `decision`, `gotcha`, `procedure`, `concept`), with `--kind`, `--tier` and
 `--tag` filters. The index follows the files on disk, committed or not, and
 `ivar memory reindex` rebuilds it. See the [page format](docs/reference/on-disk-format-pages.md).
+Each provider conversation also gets an uncommitted `session` page under
+`.ivar/memory/session/`, written from its observations once it ends or goes idle, and
+deleted 30 days later.
 `ivar memory lint` checks the pages on disk against the page rules and exits non-zero on an
 error.
 

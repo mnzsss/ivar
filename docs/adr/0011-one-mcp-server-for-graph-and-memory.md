@@ -53,6 +53,13 @@ created first is never replaced. They never commit.
 Rejected: teaching the guard about MCP calls. It would have to parse tool arguments to
 learn which file a call touches, and it would not cover another host.
 
+#### Amendment (2026-11-05): session pages
+
+`memory_patch_page` also accepts `.ivar/memory/session/<id>.md`, with the same symlink
+refusal, and changes only `pinned` and `expires_at` there. The consolidation owns the
+body of a `session` page; the two fields are how a person keeps one past its 30 days or
+expires it early. `memory_write_page` and `memory_delete_page` are unchanged.
+
 ## Consequences
 
 - A user rule `mcp__<hall>-graph__*` must change to `mcp__<hall>-ivar__*`; see

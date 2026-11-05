@@ -392,3 +392,97 @@ fn stopping_a_claude_code_session_never_runs_t3_even_when_the_hall_lists_it() {
 
     assert_eq!(fake.log(), "");
 }
+
+fn plant_open_conversation(root: &Utf8PathBuf, session: &str) {
+    let layout = Layout::at(root.clone());
+    crate::store::memory::db::MemoryDb::open(layout.memory_db().as_std_path())
+        .unwrap()
+        .conn()
+        .execute(
+            "INSERT INTO observations (event_id, source_event, occurred_at, session_id,
+                native_session_id, provider, ivar_version, origin, importance, body)
+             VALUES ('e1', 'session.prompted', ?1, ?2, 'live', 'claude-code', '0', 'user', 5,
+                'parar')",
+            rusqlite::params![crate::domain::session::rfc3339_now(), session],
+        )
+        .unwrap();
+}
+
+#[test]
+fn stopping_a_session_writes_the_page_of_its_open_conversation_first() {
+    let (_guard, root) = hall_with_detached_session();
+    let id = session_id_of(&root);
+    plant_open_conversation(&root, &id);
+
+    let report = stop(
+        &Ctx::new(root.clone()),
+        &StopInput {
+            session: Some(id),
+            all: false,
+        },
+    )
+    .unwrap();
+
+    assert_eq!(report.value.stopped, 1);
+    assert!(
+        report
+            .warnings
+            .iter()
+            .all(|w| w.code != "memory.consolidate_failed")
+    );
+    assert!(root.join(".ivar/memory/session/live.md").exists());
+    unguard_worktrees(&root);
+}
+
+#[test]
+fn a_failed_consolidation_is_a_warning_and_the_session_still_stops() {
+    let (_guard, root) = hall_with_detached_session();
+    let id = session_id_of(&root);
+    std::fs::write(Layout::at(root.clone()).memory_db(), b"not a database").unwrap();
+
+    let report = stop(
+        &Ctx::new(root.clone()),
+        &StopInput {
+            session: Some(id),
+            all: false,
+        },
+    )
+    .unwrap();
+
+    assert_eq!(report.value.stopped, 1);
+    assert!(
+        report
+            .warnings
+            .iter()
+            .any(|w| w.code == "memory.consolidate_failed")
+    );
+    unguard_worktrees(&root);
+}
+
+#[test]
+fn a_failed_drain_is_a_warning_and_consolidation_still_runs() {
+    let (_guard, root) = hall_with_detached_session();
+    let id = session_id_of(&root);
+    plant_open_conversation(&root, &id);
+    let spool = Layout::at(root.clone()).memory_spool_dir();
+    std::fs::create_dir_all(spool.join("_drain.json")).unwrap();
+
+    let report = stop(
+        &Ctx::new(root.clone()),
+        &StopInput {
+            session: Some(id.clone()),
+            all: false,
+        },
+    )
+    .unwrap();
+
+    assert_eq!(report.value.stopped, 1);
+    let warning = report
+        .warnings
+        .iter()
+        .find(|w| w.code == "memory.drain_failed")
+        .expect("the drain failure is reported");
+    assert_eq!(warning.subject, id);
+    assert!(root.join(".ivar/memory/session/live.md").exists());
+    unguard_worktrees(&root);
+}

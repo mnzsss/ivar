@@ -109,12 +109,12 @@ fn write_page() -> Value {
 fn patch_page() -> Value {
     json!({
         "name": "memory_patch_page",
-        "description": "Edit one durable page in place. Replace one exact piece of the body with old/new, and/or change tags, pinned, relations or expires_at. Kind and title cannot change. `new` needs `old`. Refuses `update` pages. Never commits.",
+        "description": "Edit one durable or session page in place. Replace one exact piece of the body with old/new, and/or change tags, pinned, relations or expires_at. Kind and title cannot change. `new` needs `old`. Refuses `update` pages. On a .ivar/memory/session/<id>.md page only pinned and expires_at may change. Never commits.",
         "annotations": { "readOnlyHint": false },
         "inputSchema": {
             "type": "object",
             "properties": {
-                "path": { "type": "string", "description": "Page path (docs/memory/<kind>/<slug>.md)" },
+                "path": { "type": "string", "description": "Page path (docs/memory/<kind>/<slug>.md or .ivar/memory/session/<id>.md)" },
                 "old": { "type": "string", "description": "Body text to replace; must appear exactly once" },
                 "new": { "type": "string", "description": "Replacement text (default empty)" },
                 "tags": { "type": "array", "items": { "type": "string" } },

@@ -3,6 +3,7 @@
 
 use std::time::{Duration, SystemTime};
 
+use crate::action::memory::consolidate::state::read_state as read_consolidate_state;
 use crate::action::memory::drain::{DrainState, read_state};
 use crate::action::memory::sweep::read_state as read_sweep_state;
 use crate::domain::provider::Provider;
@@ -80,6 +81,13 @@ fn spool_diagnoses(layout: &Layout) -> Vec<Diagnosis> {
         findings.push(Diagnosis {
             code: "memory.sweep_failed",
             what: format!("the last retention sweep failed: {error}"),
+            fix: "Run `ivar memory status`; if the error repeats, read the database findings of `ivar doctor`.".to_owned(),
+        });
+    }
+    if let Some(error) = read_consolidate_state(layout).last_error {
+        findings.push(Diagnosis {
+            code: "memory.consolidate_failed",
+            what: format!("the last consolidation of session pages failed: {error}"),
             fix: "Run `ivar memory status`; if the error repeats, read the database findings of `ivar doctor`.".to_owned(),
         });
     }

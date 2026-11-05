@@ -1,10 +1,10 @@
 use std::collections::BTreeSet;
-use std::fmt::Write as _;
 
-use camino::{Utf8Path, Utf8PathBuf};
+use camino::Utf8Path;
 use serde_json::{Map, Value, json};
 
 use super::{SIMILAR_TITLE_THRESHOLD, confine, to_text};
+use crate::action::memory::page_file::{SESSION_PAGES_DIR, publish, render_meta};
 use crate::action::memory::reindex;
 use crate::domain::memory_page::{
     PageIssue, PageKind, PageMeta, Relation, has_number_prefix, is_kebab,
@@ -66,6 +66,9 @@ pub(super) fn write(layout: &Layout, args: &Value) -> Result<String, String> {
 
 pub(super) fn patch(layout: &Layout, args: &Value) -> Result<String, String> {
     let rel = str_arg(args, "path")?;
+    if rel.starts_with(SESSION_PAGES_DIR) {
+        return patch_session(layout, rel, args);
+    }
     let target = confine::resolve_durable(layout, rel)?;
     if target.kind == PageKind::Update {
         return Err(refuse_update("patched"));
@@ -119,6 +122,45 @@ pub(super) fn patch(layout: &Layout, args: &Value) -> Result<String, String> {
     to_text(&json!({ "path": rel, "hash": hash::text(&content), "indexed": indexed }))
 }
 
+fn patch_session(layout: &Layout, rel: &str, args: &Value) -> Result<String, String> {
+    let path = confine::resolve_session(layout, rel)?;
+    if ["old", "new", "tags", "relations"]
+        .iter()
+        .any(|key| args.get(key).is_some())
+    {
+        return Err(
+            "a `session` page takes only `pinned` and `expires_at`; the consolidation owns its body"
+                .to_owned(),
+        );
+    }
+    let lock = fs::lock_exclusive(&layout.memory_lock()).map_err(|error| error.to_string())?;
+    let source = std::fs::read_to_string(&path)
+        .map_err(|error| format!("could not read `{rel}`: {error}"))?;
+    let page = parse_page(rel, &source).map_err(|issues| invalid(rel, &issues))?;
+    let mut meta = PageMeta {
+        pinned: page.meta.pinned,
+        expires_at: page.meta.expires_at.clone(),
+        ..PageMeta::default()
+    };
+    apply_metadata(&mut meta, args);
+    let content = render_meta(Some(&page.title), &meta, &page.body);
+    parse_page(rel, &content).map_err(|issues| invalid(rel, &issues))?;
+    let aged_since = std::fs::metadata(&path)
+        .and_then(|metadata| metadata.modified())
+        .map_err(|error| format!("could not read `{rel}`: {error}"))?;
+    publish(&path, rel, &content, true)?;
+    // The sweep ages a page without a marker by its mtime; a patch must not restart it.
+    std::fs::File::options()
+        .write(true)
+        .open(&path)
+        .and_then(|file| file.set_modified(aged_since))
+        .map_err(|error| format!("could not keep the mtime of `{rel}`: {error}"))?;
+    drop(lock);
+
+    let indexed = reindex::refresh(layout).is_ok();
+    to_text(&json!({ "path": rel, "hash": hash::text(&content), "indexed": indexed }))
+}
+
 pub(super) fn delete(layout: &Layout, args: &Value) -> Result<String, String> {
     let rel = str_arg(args, "path")?;
     let target = confine::resolve_durable(layout, rel)?;
@@ -162,45 +204,6 @@ fn patched_fields(source: &str, meta: &PageMeta) -> Result<Map<String, Value>, S
 fn invalid(rel: &str, issues: &[PageIssue]) -> String {
     let messages: Vec<&str> = issues.iter().map(|issue| issue.message.as_str()).collect();
     format!("`{rel}` is not a valid page: {}", messages.join("; "))
-}
-
-pub(super) fn temp_path(dir: &Utf8Path) -> Utf8PathBuf {
-    dir.join(format!(
-        ".{}-{:?}.tmp",
-        std::process::id(),
-        std::thread::current().id()
-    ))
-}
-
-pub(super) fn publish(
-    path: &Utf8Path,
-    rel: &str,
-    content: &str,
-    replace: bool,
-) -> Result<(), String> {
-    let dir = path.parent().ok_or("page path has no directory")?;
-    std::fs::create_dir_all(dir).map_err(|error| error.to_string())?;
-    let temp = temp_path(dir);
-    if let Err(error) = std::fs::write(&temp, content) {
-        let _ = std::fs::remove_file(&temp);
-        return Err(error.to_string());
-    }
-    // hard_link fails with AlreadyExists instead of replacing, so a page another writer created first is never clobbered; rename would overwrite it.
-    let placed = if replace {
-        std::fs::rename(&temp, path)
-    } else {
-        std::fs::hard_link(&temp, path)
-    };
-    let _ = std::fs::remove_file(&temp);
-    placed.map_err(|error| {
-        if error.kind() == std::io::ErrorKind::AlreadyExists {
-            format!("`{rel}` already exists; pass `replace: true` to overwrite it")
-        } else if replace {
-            error.to_string()
-        } else {
-            format!("could not write `{rel}` without overwriting; the filesystem may not support hard links: {error}")
-        }
-    })
 }
 
 fn next_page_number(dir: &Utf8Path) -> u32 {
@@ -256,10 +259,6 @@ fn validate_slug(slug: &str, kind: PageKind) -> Result<(), String> {
     Ok(())
 }
 
-fn json_scalar(text: &str) -> String {
-    serde_json::to_string(text).unwrap_or_default()
-}
-
 pub(super) fn apply_metadata(meta: &mut PageMeta, args: &Value) {
     if let Some(tags) = args.get("tags").and_then(Value::as_array) {
         meta.tags = tags
@@ -293,40 +292,6 @@ fn render(title: &str, args: &Value, body: &str) -> String {
     let mut meta = PageMeta::default();
     apply_metadata(&mut meta, args);
     render_meta(Some(title), &meta, body)
-}
-
-pub(super) fn render_meta(title: Option<&str>, meta: &PageMeta, body: &str) -> String {
-    let mut out = String::from("---\n");
-    if let Some(title) = title {
-        let _ = writeln!(out, "title: {}", json_scalar(title));
-    }
-    if !meta.tags.is_empty() {
-        let tags: Vec<String> = meta.tags.iter().map(|tag| json_scalar(tag)).collect();
-        let _ = writeln!(out, "tags: [{}]", tags.join(", "));
-    }
-    if meta.pinned {
-        out.push_str("pinned: true\n");
-    }
-    if !meta.relations.is_empty() {
-        out.push_str("relations:\n");
-        for relation in &meta.relations {
-            let _ = writeln!(
-                out,
-                "  - type: {}\n    target: {}",
-                json_scalar(&relation.kind),
-                json_scalar(&relation.target)
-            );
-        }
-    }
-    if let Some(expires_at) = &meta.expires_at {
-        let _ = writeln!(out, "expires_at: {}", json_scalar(expires_at));
-    }
-    if out == "---\n" {
-        return body.to_owned();
-    }
-    out.push_str("---\n");
-    out.push_str(body);
-    out
 }
 
 fn words(title: &str) -> BTreeSet<String> {
@@ -371,3 +336,7 @@ fn similar_titles(dir: &Utf8Path, kind: PageKind, title: &str, skip: Option<&str
         })
         .collect()
 }
+
+#[cfg(test)]
+#[path = "../../../../tests/unit/action/memory/mcp_session_pages.rs"]
+mod session_tests;

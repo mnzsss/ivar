@@ -10,6 +10,8 @@ use serde::Serialize;
 
 use crate::action::Ctx;
 use crate::action::discovery;
+use crate::action::memory::consolidate::consolidate_session;
+use crate::action::memory::drain::epoch_secs_now;
 use crate::domain::provider::Provider;
 use crate::domain::session::SessionRef;
 use crate::error::{Failure, FixAction, Outcome, Report, Warning, WriteHuman};
@@ -127,11 +129,27 @@ pub(crate) fn end(
     hall_lists_t3: bool,
 ) -> Result<(bool, Vec<Warning>), Failure> {
     discovery::rescue_session_doc(layout, session)?;
+    let mut warnings = Vec::new();
+    match consolidate_session(layout, session.id.as_str(), epoch_secs_now()) {
+        Ok(report) => {
+            if let Some(error) = report.drain_error {
+                warnings.push(Warning::new(
+                    "memory.drain_failed",
+                    session.id.as_str(),
+                    error,
+                ));
+            }
+        }
+        Err(failure) => warnings.push(Warning::new(
+            "memory.consolidate_failed",
+            session.id.as_str(),
+            failure.what,
+        )),
+    }
     let view_dir = &session.view_dir;
     if !fs::exists(view_dir).unwrap_or(false) {
-        return Ok((false, Vec::new()));
+        return Ok((false, warnings));
     }
-    let mut warnings = Vec::new();
     let hosted = match session.state.as_ref() {
         Some(state) => state.provider() == Provider::T3,
         None => hall_lists_t3,

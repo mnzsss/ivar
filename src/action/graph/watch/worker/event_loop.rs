@@ -10,7 +10,8 @@ use crate::action::graph::watch::scopes::{Debouncer, Scope, WatchSet};
 use crate::action::graph::watch::worker::registry::{add_control_dirs, register_and_watch_target};
 use crate::action::graph::watch::worker::reindex::reindex;
 use crate::action::graph::watch::worker::{Discover, TICK, Target};
-use crate::action::memory::drain::drain_one;
+use crate::action::memory::consolidate::consolidate_if_free;
+use crate::action::memory::drain::{drain_one, epoch_secs_now};
 use crate::action::memory::reindex;
 use crate::action::memory::sweep::sweep_now;
 use crate::git::System as GitSystem;
@@ -48,6 +49,7 @@ impl MemoryClock {
     fn tick(&mut self, layout: &Layout, now: Instant) {
         if reindex_due(&mut self.last_reindex, now) {
             let _ = reindex::refresh_if_free(layout);
+            let _ = consolidate_if_free(layout, epoch_secs_now());
         }
 
         if now.duration_since(self.last_drain) >= DRAIN_EVERY {
@@ -61,8 +63,10 @@ impl MemoryClock {
             .last_sweep
             .is_none_or(|at| now.duration_since(at) >= SWEEP_EVERY)
         {
-            self.last_sweep = Some(now);
-            let _ = sweep_now(layout);
+            let busy = sweep_now(layout).is_ok_and(|report| report.busy);
+            if !busy {
+                self.last_sweep = Some(now);
+            }
         }
     }
 }

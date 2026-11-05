@@ -226,9 +226,22 @@ fn status_in_reports_from_a_layout_without_a_ctx() {
     let mut via_ctx = status(&Ctx::new(root)).unwrap().value;
     via_layout.last_drain_at = None;
     via_ctx.last_drain_at = None;
+    via_layout.consolidation.last_run_at = None;
+    via_ctx.consolidation.last_run_at = None;
 
     assert_eq!(
         serde_json::to_value(&via_layout).unwrap(),
         serde_json::to_value(&via_ctx).unwrap()
     );
+}
+
+#[test]
+fn status_reports_the_last_consolidation() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root);
+
+    let outcome = status_in(&layout).unwrap().value;
+
+    assert!(outcome.consolidation.last_run_at.is_some());
+    assert_eq!(outcome.consolidation.written_total, 0);
 }
