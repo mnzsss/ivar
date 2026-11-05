@@ -51,6 +51,28 @@ running leader never sweeps, `ivar doctor` reports `memory.retention_overdue` af
 37 days, and a broken graph database stops the loop. `delivery.*` observations are kept;
 `ivar memory clean` deletes the whole database.
 
+## Session pages
+
+`ivar` writes one `session` page per provider conversation in
+`.ivar/memory/session/<id>.md`, by template, with no model call. A conversation is
+consolidated once it ends (`session.ended`) or after 30 minutes without observations,
+and `ivar session stop` consolidates the conversations of that session right away.
+The MCP leader consolidates every 5 seconds. `memory_query`, `ivar memory query`,
+`memory_recent` and `memory_read_session_observations` consolidate before they read,
+and skip the pass when another process holds `memory.lock`. `ivar memory status` and
+`ivar session stop` wait for the lock.
+
+- A conversation with no observation of importance 4 or more gets no page.
+- OpenCode has no session end, so its pages appear after 30 idle minutes or on stop.
+- A page expires 30 days after the conversation's last observation. The hourly sweep
+  deletes it, so an expired page can still be returned for up to an hour.
+- `pinned: true` keeps a page past 30 days; an explicit `expires_at` always applies.
+  Only `memory_patch_page` sets them, and regeneration keeps both.
+- The page is regenerated only when the conversation has new observations; hand edits
+  to its body are lost on the next regeneration.
+- A failed pass is recorded in `.ivar/spool/memory/_consolidate.json`. `ivar doctor`
+  reports it as `memory.consolidate_failed` and `ivar memory status` prints it.
+
 ## The page index
 
 `ivar memory query` searches the pages under `docs/memory/` through an index in
@@ -89,7 +111,8 @@ The tools are in [MCP tools](mcp-tools.md).
 - The tools never commit. A page they write stays uncommitted until you commit it, and
   `ivar doctor` reports `memory.page_uncommitted`.
 - The MCP server runs outside the session write guard. The write tools confine themselves
-  to `docs/memory/<durable kind>/`, and no hook checks the files a call touches.
+  to `docs/memory/<durable kind>/`, plus `.ivar/memory/session/` for `memory_patch_page`,
+  and no hook checks the files a call touches.
 - Claude Code approves the server, not single tools. Approving `<hall>-ivar` approves
   `memory_write_page`, `memory_patch_page` and `memory_delete_page` with the read tools.
 - Title similarity is a word overlap of 0.8 or more within one kind. A reworded title can

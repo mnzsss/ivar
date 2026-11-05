@@ -9,7 +9,7 @@ them is described in [databases](on-disk-format-databases.md#pages-and-search-sc
 | Root | Holds | Committed |
 | --- | --- | --- |
 | `docs/memory/<kind>/` | durable kinds: `product`, `update`, `decision`, `gotcha`, `procedure`, `concept` | yes |
-| `.ivar/memory/<kind>/` | the ephemeral kind: `session` | no, `.ivar/*` is ignored |
+| `.ivar/memory/<kind>/` | the ephemeral kind: `session`, as `.ivar/memory/session/<id>.md` | no, `.ivar/*` is ignored |
 
 A page's identity is its path relative to the hall. `ivar` does not create these
 directories; the first page written does. A kind directory of the wrong root (for
@@ -70,7 +70,23 @@ expires_at: 2027-01-31T00:00:00Z
 
 Any other key is kept and reported as `memory.page_field_unknown`, a warning. A page
 past `expires_at` stays on disk and in the index, and `memory query` omits it unless
-`--include-expired` is passed. Nothing deletes it in this version.
+`--include-expired` is passed. Nothing deletes a durable page.
+
+## Session pages
+
+The consolidation writes one `session` page per provider conversation, named after the
+conversation's native id (or a 16-character hash of it when the id is not a safe file
+name). It writes the page once the conversation ends or has been idle 30 minutes, and
+rewrites it only when the conversation has new observations. A conversation with no
+observation of importance 4 or more has no page, and an existing one is removed. The
+front matter carries `title` and, when set through `memory_patch_page`, `pinned` and
+`expires_at`; regeneration keeps both and replaces the body.
+
+The hourly sweep of the `ivar graph mcp` leader deletes a `session` page 30 days after
+the conversation's last observation, read from the marker in
+`.ivar/spool/memory/_consolidate.json` or, without one, from the file's mtime.
+`pinned: true` exempts the page from the 30 days, and an explicit `expires_at` always
+applies. See [limitations](limitations-memory.md#session-pages).
 
 ## Links
 

@@ -47,7 +47,7 @@ is the scope. The read tools carry `readOnlyHint`. `memory_delete_page` carries
 | `memory_query` | `query` (required), `kind[]`, `tier`, `tag`, `limit` (default 10, maximum 20), `include_expired` | Pages with title, kind, tier, path, excerpt and `pinned`. Observations appear only as a fallback, in a separate section. |
 | `memory_read_page` | `path` | Frontmatter fields and body. Also reads `.ivar/memory/` pages. Refuses a file that is not a regular file or is larger than 256 KiB. |
 | `memory_write_page` | `kind` and `title` (required), `body`, `slug`, `tags`, `pinned`, `relations[{type,target}]`, `expires_at`, `replace` | `path`, `hash`, `indexed`, `similar`. |
-| `memory_patch_page` | `path` (required), `old`, `new`, `tags`, `pinned`, `relations`, `expires_at` | `path`, `hash`, `indexed`. |
+| `memory_patch_page` | `path` (required), `old`, `new`, `tags`, `pinned`, `relations`, `expires_at`; only `pinned` and `expires_at` on a `session` page | `path`, `hash`, `indexed`. |
 | `memory_delete_page` | `path` | `path`, `indexed`. |
 | `memory_lint` | none | `issues`: a list of `{path, code, severity, message}`. |
 | `memory_status` | none | The same block as `ivar memory status`. |
@@ -59,7 +59,8 @@ Both observation tools drain the capture spool before they read. A failed drain 
 ### Writing
 
 - `kind` is one of `product`, `update`, `decision`, `gotcha`, `procedure` or `concept`.
-  `session` is refused: only the consolidation writes it. The tool description and the
+  `session` is refused: only the consolidation writes it, one page per provider
+  conversation in `.ivar/memory/session/<id>.md`. The tool description and the
   server instructions carry the definition of each kind.
 - `slug` defaults to the kebab-case form of the title. For `product` and `update` the
   tool adds the `NNN-` prefix: the highest number in the directory plus one, counting
@@ -74,6 +75,9 @@ Both observation tools drain the capture spool before they read. A failed drain 
   `new` without `old` is an error. It also changes `tags`, `pinned`, `relations` and
   `expires_at`; pass `expires_at: null` to remove the expiry. It never changes `kind` or
   `title`, and a metadata change keeps every other frontmatter field of the page as it is.
+  On a `.ivar/memory/session/<id>.md` page it changes only `pinned` and `expires_at`, and
+  refuses `old`, `new`, `tags` and `relations`: the consolidation owns the body, and keeps
+  both fields when it regenerates the page.
 - `update` pages belong to the delivery record. `memory_delete_page` and
   `memory_patch_page` refuse them, and `memory_write_page` refuses `replace: true` for
   the kind `update`.
@@ -88,7 +92,8 @@ The server runs outside the session write guard, so the tools confine themselves
 `memory_write_page`, `memory_patch_page` and `memory_delete_page`:
 
 - accept only `docs/memory/<durable kind>/<slug>.md`, and refuse `session`, `.ivar/memory/`
-  and any other path;
+  and any other path, except that `memory_patch_page` also accepts
+  `.ivar/memory/session/<id>.md`;
 - refuse an absolute path, `..`, a backslash, a hidden file name and any component that is a
   symlink;
 - write at the hall root, never inside a session view, because the index reads the root;
