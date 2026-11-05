@@ -103,6 +103,13 @@ fn notify_parses_into_its_target(#[case] value: &str, #[case] target: NotifyTarg
 }
 
 #[rstest]
+#[case::webhook(NotifyTarget::Webhook("https://hooks.example.com/ivar".to_owned()))]
+#[case::telegram(NotifyTarget::Telegram { chat_id: "-1001234567890".to_owned() })]
+fn notify_display_is_the_frontmatter_value(#[case] target: NotifyTarget) {
+    assert_eq!(notify_target(&target.to_string()).unwrap(), target);
+}
+
+#[rstest]
 #[case("90s", 90)]
 #[case("45m", 2700)]
 #[case("2h", 7200)]

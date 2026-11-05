@@ -62,6 +62,15 @@ pub enum NotifyTarget {
     Telegram { chat_id: String },
 }
 
+impl std::fmt::Display for NotifyTarget {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Webhook(url) => f.write_str(url),
+            Self::Telegram { chat_id } => write!(f, "telegram:{chat_id}"),
+        }
+    }
+}
+
 pub(crate) fn is_telegram_chat_id(id: &str) -> bool {
     if let Some(channel) = id.strip_prefix('@') {
         return (5..=32).contains(&channel.len())
