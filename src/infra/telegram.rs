@@ -4,6 +4,8 @@ use std::time::Duration;
 
 use serde_json::{Value, json};
 
+use super::webhook;
+
 pub const API: &str = "https://api.telegram.org";
 const TIMEOUT: Duration = Duration::from_secs(10);
 const CHAT_KEYS: [&str; 4] = [
@@ -85,14 +87,12 @@ fn call(api: &str, token: &str, method: &str, body: &Value) -> Result<Value, Str
 }
 
 fn call_unscrubbed(api: &str, token: &str, method: &str, body: &Value) -> Result<Value, String> {
-    let mut response = ureq::post(&format!("{api}/bot{token}/{method}"))
-        .config()
-        .timeout_global(Some(TIMEOUT))
-        .http_status_as_error(false)
-        .build()
-        .header("Content-Type", "application/json")
-        .send(body.to_string())
-        .map_err(|e| format!("Telegram {method} failed: {e}"))?;
+    let mut response = webhook::send_json(
+        &format!("{api}/bot{token}/{method}"),
+        &body.to_string(),
+        TIMEOUT,
+    )
+    .map_err(|e| format!("Telegram {method} failed: {e}"))?;
     let status = response.status().as_u16();
     let text = response
         .body_mut()
