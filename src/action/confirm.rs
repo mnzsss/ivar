@@ -52,6 +52,12 @@ pub trait Confirm: fmt::Debug + Send + Sync {
     /// Returns the chosen 0-based index, or `None` if non-interactive, cancelled, or empty.
     fn select_one(&self, prompt: &str, options: &[SelectOption]) -> Result<Option<usize>, Failure>;
 
+    /// Ask for a line of text; `secret` hides what is typed. `None` when
+    /// nobody can answer or the human cancelled.
+    fn ask_text(&self, _prompt: &str, _secret: bool) -> Result<Option<String>, Failure> {
+        Ok(None)
+    }
+
     /// Whether this confirmation seam allows interactive user input.
     fn is_interactive(&self) -> bool {
         false
@@ -277,6 +283,24 @@ impl Confirm for Interactive {
             .raw_prompt()
         {
             Ok(chosen) => Ok(Some(chosen.index)),
+            Err(error) => match picker_failure(&error) {
+                failure if failure.code == "confirm.no_answer" => Ok(None),
+                failure => Err(failure),
+            },
+        }
+    }
+
+    fn ask_text(&self, prompt: &str, secret: bool) -> Result<Option<String>, Failure> {
+        let answer = if secret {
+            inquire::Password::new(prompt)
+                .without_confirmation()
+                .with_display_mode(inquire::PasswordDisplayMode::Hidden)
+                .prompt()
+        } else {
+            inquire::Text::new(prompt).prompt()
+        };
+        match answer {
+            Ok(text) => Ok(Some(text)),
             Err(error) => match picker_failure(&error) {
                 failure if failure.code == "confirm.no_answer" => Ok(None),
                 failure => Err(failure),

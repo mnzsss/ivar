@@ -106,3 +106,27 @@ fn env_file_refuses_a_multiline_value() {
         "K=v\n"
     );
 }
+
+#[test]
+fn set_and_write_keeps_the_other_keys_and_owner_only_mode() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root);
+    AgentSecrets::ensure_file(&layout).unwrap();
+    AgentSecrets::set_and_write(&layout, "OTHER", "keep").unwrap();
+    assert_eq!(
+        AgentSecrets::set_and_write(&layout, "TELEGRAM_BOT_TOKEN", "123:abc").unwrap(),
+        Change::Created
+    );
+    assert_eq!(
+        AgentSecrets::set_and_write(&layout, "TELEGRAM_BOT_TOKEN", "123:abc").unwrap(),
+        Change::Unchanged
+    );
+    assert_eq!(
+        AgentSecrets::set_and_write(&layout, "TELEGRAM_BOT_TOKEN", "456:def").unwrap(),
+        Change::Updated
+    );
+    let secrets = AgentSecrets::read(&layout).unwrap();
+    assert_eq!(secrets.get("TELEGRAM_BOT_TOKEN"), Some("456:def"));
+    assert_eq!(secrets.get("OTHER"), Some("keep"));
+    owner_only(&layout.agent_secrets_env());
+}

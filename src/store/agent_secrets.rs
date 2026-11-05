@@ -6,7 +6,7 @@
 use crate::error::Failure;
 use crate::infra::fs;
 use crate::store::layout::Layout;
-use crate::store::mcp_secrets::McpSecrets;
+use crate::store::mcp_secrets::{Change, McpSecrets};
 
 #[derive(Clone, Default)]
 pub struct AgentSecrets(McpSecrets);
@@ -55,6 +55,24 @@ impl AgentSecrets {
             fs::write_sensitive_atomic(&path, b"")?;
         }
         Ok(())
+    }
+
+    pub fn get(&self, name: &str) -> Option<&str> {
+        self.0.get(name)
+    }
+
+    /// Insert or replace `name` and rewrite `.ivar/secrets/agents.env` owner-only.
+    ///
+    /// # Errors
+    ///
+    /// `agent.secrets_mode` when the file is not owner-only, or a read, parse or write failure.
+    pub fn set_and_write(layout: &Layout, name: &str, value: &str) -> Result<Change, Failure> {
+        let mut secrets = Self::read(layout)?;
+        let change = secrets.0.upsert(name, value);
+        if change != Change::Unchanged {
+            fs::write_sensitive_atomic(&layout.agent_secrets_env(), secrets.0.render().as_bytes())?;
+        }
+        Ok(change)
     }
 
     /// The named secrets, in the order asked.

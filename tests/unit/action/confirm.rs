@@ -194,3 +194,8 @@ fn picker_page_leaves_room_for_the_prompt_and_stays_usable_in_a_tiny_terminal() 
     assert_eq!(picker_page_rows(24), 22);
     assert_eq!(picker_page_rows(2), 3);
 }
+
+#[test]
+fn a_non_interactive_run_never_answers_a_text_question() {
+    assert_eq!(reporter(false).ask_text("Bot token:", true).unwrap(), None);
+}

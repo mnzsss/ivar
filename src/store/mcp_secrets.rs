@@ -81,20 +81,19 @@ impl McpSecrets {
         }
 
         let mut secrets = Self::read(layout)?;
-        let change = match secrets.entries.get(name) {
-            Some(existing) if existing == value => Change::Unchanged,
+        let change = secrets.upsert(name, value);
+        if change != Change::Unchanged {
+            fs::write_sensitive_atomic(&layout.mcp_secrets_env(), secrets.render().as_bytes())?;
+        }
+        Ok(change)
+    }
+
+    pub(crate) fn upsert(&mut self, name: &str, value: &str) -> Change {
+        match self.entries.insert(name.to_owned(), value.to_owned()) {
+            Some(previous) if previous == value => Change::Unchanged,
             Some(_) => Change::Updated,
             None => Change::Created,
-        };
-
-        if change != Change::Unchanged {
-            secrets.entries.insert(name.to_owned(), value.to_owned());
-            let rendered = secrets.render();
-            let path = layout.mcp_secrets_env();
-            fs::write_sensitive_atomic(&path, rendered.as_bytes())?;
         }
-
-        Ok(change)
     }
 
     /// Delete a secret from this store and atomically rewrite `.ivar/secrets/mcp.env`,
