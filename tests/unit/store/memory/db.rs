@@ -79,21 +79,22 @@ fn a_newer_schema_is_refused_and_left_untouched() {
     MemoryDb::open(&path).unwrap();
     Connection::open(&path)
         .unwrap()
-        .execute_batch("UPDATE memory_schema SET version = 3; PRAGMA user_version = 3;")
+        .execute_batch(&format!(
+            "UPDATE memory_schema SET version = {0}; PRAGMA user_version = {0};",
+            MEMORY_SCHEMA_VERSION + 1
+        ))
         .unwrap();
 
     let error = MemoryDb::open(&path).expect_err("newer schema must be refused");
 
     assert!(matches!(
         error,
-        MemoryDbError::NewerSchema {
-            found: 3,
-            supported: MEMORY_SCHEMA_VERSION
-        }
+        MemoryDbError::NewerSchema { found, supported }
+            if found == MEMORY_SCHEMA_VERSION + 1 && supported == MEMORY_SCHEMA_VERSION
     ));
-    assert_eq!(pragma_i64(&path, "user_version"), 3);
+    assert_eq!(pragma_i64(&path, "user_version"), MEMORY_SCHEMA_VERSION + 1);
     let inspection = MemoryDb::inspect(&path).unwrap();
-    assert_eq!(inspection.schema_version, 3);
+    assert_eq!(inspection.schema_version, MEMORY_SCHEMA_VERSION + 1);
 }
 
 #[test]
@@ -198,7 +199,7 @@ fn a_v1_database_migrates_to_v2_and_keeps_its_schema_row() {
 
     let db = MemoryDb::open(&path).unwrap();
 
-    assert_eq!(db.schema_version().unwrap(), 2);
+    assert_eq!(db.schema_version().unwrap(), MEMORY_SCHEMA_VERSION);
     assert_eq!(insert_observation(&db, "e1").unwrap(), 1);
     let extension: String = db
         .conn()
@@ -218,4 +219,95 @@ fn observations_are_append_only_and_unique_by_event_id() {
 
     assert!(update.is_err(), "UPDATE must be rejected");
     assert!(duplicate.is_err(), "event_id is unique");
+}
+
+#[test]
+fn schema_two_migrates_to_three_and_indexes_existing_observations() {
+    let (_dir, path) = temp_db();
+    {
+        let mut conn = Connection::open(&path).unwrap();
+        conn.execute_batch(&format!("PRAGMA application_id = {APPLICATION_ID};"))
+            .unwrap();
+        let tx = conn.transaction().unwrap();
+        crate::store::memory::schema::migrate_up_to(&tx, 0, 2).unwrap();
+        tx.execute(
+            "INSERT INTO observations (event_id, source_event, occurred_at, native_session_id, provider, ivar_version, importance, body)
+             VALUES ('e1', 'delivery.pr', '2026-11-01T00:00:00Z', '', 'claude-code', '0', 4, 'opened the pull request for teardown')",
+            [],
+        )
+        .unwrap();
+        tx.commit().unwrap();
+    }
+
+    let db = MemoryDb::open(&path).unwrap();
+
+    assert_eq!(db.schema_version().unwrap(), 3);
+    let hits: i64 = db
+        .conn()
+        .query_row(
+            "SELECT count(*) FROM observations_fts WHERE observations_fts MATCH 'teardown'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(hits, 1);
+    let rows: i64 = db
+        .conn()
+        .query_row("SELECT count(*) FROM observations", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(rows, 1);
+}
+
+#[test]
+fn reopening_keeps_both_indexes() {
+    let (_dir, path) = temp_db();
+    let db = MemoryDb::open(&path).unwrap();
+    db.conn()
+        .execute(
+            "INSERT INTO observations (event_id, source_event, occurred_at, native_session_id, provider, ivar_version, importance, body)
+             VALUES ('e1', 'delivery.pr', '2026-11-01T00:00:00Z', '', 'p', '0', 4, 'findable text')",
+            [],
+        )
+        .unwrap();
+    db.conn()
+        .execute("INSERT INTO pages_fts (rowid, title, tags, body) VALUES (1, 'T', '', 'findable page body')", [])
+        .unwrap();
+    drop(db);
+
+    let db = MemoryDb::open(&path).unwrap();
+
+    for (table, expected) in [("observations_fts", 1), ("pages_fts", 1)] {
+        let hits: i64 = db
+            .conn()
+            .query_row(
+                &format!("SELECT count(*) FROM {table} WHERE {table} MATCH 'findable'"),
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(hits, expected, "{table}");
+    }
+}
+
+#[test]
+fn deleting_an_observation_removes_it_from_the_search_index() {
+    let (_dir, path) = temp_db();
+    let db = MemoryDb::open(&path).unwrap();
+    db.conn()
+        .execute(
+            "INSERT INTO observations (event_id, source_event, occurred_at, native_session_id, provider, ivar_version, importance, body)
+             VALUES ('e1', 'session.tool', '2020-01-01T00:00:00Z', 's', 'p', '0', 2, 'swept words')",
+            [],
+        )
+        .unwrap();
+    db.conn().execute("DELETE FROM observations", []).unwrap();
+    let hits: i64 = db
+        .conn()
+        .query_row(
+            "SELECT count(*) FROM observations_fts WHERE observations_fts MATCH 'swept'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(hits, 0);
 }

@@ -123,7 +123,7 @@ a hall that sets it needs every teammate on a release that knows it. Turning
 capture back on removes the key.
 
 The hall memory database has its own schema version, `memory_schema.version`, which is
-2 today; see [Memory database](on-disk-format-databases.md#memory-database-ivarmemorydb).
+3 today; see [Memory database](on-disk-format-databases.md#memory-database-ivarmemorydb).
 
 ### `feature.json` v3
 

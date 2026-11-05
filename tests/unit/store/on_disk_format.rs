@@ -119,3 +119,17 @@ fn layout_lists_no_hall_level_state_file() {
         "no hall-level `.ivar/state.json` exists; session state lives in each View Dir"
     );
 }
+
+#[test]
+fn memory_schema_version_in_the_docs_matches_the_code() {
+    use crate::store::memory::schema::MEMORY_SCHEMA_VERSION;
+    const DATABASES: &str = include_str!("../../../docs/reference/on-disk-format-databases.md");
+    assert!(
+        DATABASES.contains(&format!("| Current schema | {MEMORY_SCHEMA_VERSION} ")),
+        "on-disk-format-databases.md `Current schema` drifted from MEMORY_SCHEMA_VERSION"
+    );
+    assert!(
+        VERSIONS.contains(&format!("{MEMORY_SCHEMA_VERSION} today")),
+        "on-disk-format-versions.md memory schema sentence drifted from MEMORY_SCHEMA_VERSION"
+    );
+}

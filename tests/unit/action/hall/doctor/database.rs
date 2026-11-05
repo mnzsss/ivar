@@ -14,7 +14,7 @@ use crate::store::graph::db::GraphDb;
 use crate::store::layout::Layout;
 use crate::store::manifest::Manifest;
 use crate::store::memory::db::MemoryDb;
-use crate::store::memory::schema::APPLICATION_ID;
+use crate::store::memory::schema::{APPLICATION_ID, MEMORY_SCHEMA_VERSION};
 
 fn initialised_hall() -> (tempfile::TempDir, Utf8PathBuf, Layout) {
     let (guard, root) = crate::test_support::hall_root();
@@ -165,7 +165,10 @@ fn doctor_names_a_memory_schema_newer_than_this_build() {
     let memory = MemoryDb::open(layout.memory_db().as_std_path()).unwrap();
     memory
         .conn()
-        .execute_batch("UPDATE memory_schema SET version = 3;")
+        .execute_batch(&format!(
+            "UPDATE memory_schema SET version = {};",
+            MEMORY_SCHEMA_VERSION + 1
+        ))
         .unwrap();
     drop(memory);
 
@@ -204,7 +207,10 @@ fn doctor_names_a_newer_memory_schema_with_extra_tables_as_newer_not_polluted() 
     let memory = MemoryDb::open(layout.memory_db().as_std_path()).unwrap();
     memory
         .conn()
-        .execute_batch("UPDATE memory_schema SET version = 3; CREATE TABLE v2_pages (id TEXT);")
+        .execute_batch(&format!(
+            "UPDATE memory_schema SET version = {}; CREATE TABLE v2_pages (id TEXT);",
+            MEMORY_SCHEMA_VERSION + 1
+        ))
         .unwrap();
     drop(memory);
 
