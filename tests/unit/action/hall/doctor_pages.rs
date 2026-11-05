@@ -45,6 +45,27 @@ fn legacy_doc_folders_are_named_with_the_git_mv_commands() {
 }
 
 #[test]
+fn an_existing_destination_folder_gets_a_merging_move_not_a_nesting_one() {
+    let (_guard, root) = seeded_hall();
+    put(&root, "docs/updates/001-x.md", "# X\n");
+    put(&root, "docs/memory/update/002-y.md", "# Y\n");
+    let report = doctor(&Ctx::new(root.clone())).unwrap().value;
+    let found = finding(&report, "memory.legacy_docs");
+    assert!(
+        found
+            .fix
+            .contains("git mv docs/updates/* docs/memory/update/"),
+        "{}",
+        found.fix
+    );
+    assert!(
+        !found.fix.contains("git mv docs/updates docs/memory/update"),
+        "{}",
+        found.fix
+    );
+}
+
+#[test]
 fn each_page_problem_has_its_own_code() {
     let (_guard, root) = seeded_hall();
     put(&root, "docs/memory/rule/x.md", "# x\n");

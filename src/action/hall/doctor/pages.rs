@@ -68,7 +68,13 @@ fn legacy_docs(layout: &Layout) -> Option<Diagnosis> {
     let moves: Vec<String> = LEGACY_FOLDERS
         .into_iter()
         .filter(|(old, _)| layout.root().join(old).is_dir())
-        .map(|(old, new)| format!("git mv {old} {new}"))
+        .map(|(old, new)| {
+            if layout.root().join(new).is_dir() {
+                format!("git mv {old}/* {new}/")
+            } else {
+                format!("git mv {old} {new}")
+            }
+        })
         .collect();
     (!moves.is_empty()).then(|| Diagnosis {
         code: "memory.legacy_docs",

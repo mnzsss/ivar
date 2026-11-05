@@ -198,10 +198,10 @@ Page findings of `ivar doctor`:
 
 | Code | Meaning | Fix |
 | --- | --- | --- |
-| `memory.legacy_docs` | pages still live in `docs/product` or `docs/updates` | the `git mv` commands it prints |
+| `memory.legacy_docs` | pages still live in `docs/product` or `docs/updates` | the `git mv` commands it prints: the folder itself, or its contents (`git mv docs/updates/* docs/memory/update/`, which skips hidden entries) when the destination already exists |
 | `memory.page_invalid` | front matter does not parse, `kind` differs from the directory, or `expires_at` is not `YYYY-MM-DDTHH:MM:SSZ` | edit the page |
 | `memory.page_kind_unknown` | a directory under `docs/memory/` or `.ivar/memory/` is not a kind of that root | rename or move it |
-| `memory.page_misplaced` | a page is outside `<kind>/`, nested, or has a non-kebab slug (or no `NNN-` for `product` and `update`) | move or rename it |
+| `memory.page_misplaced` | a page is outside `<kind>/`, nested, has a non-kebab slug, or does not end in lowercase `.md` (or no `NNN-` for `product` and `update`) | move or rename it |
 | `memory.page_field_unknown` | front matter has a key the format does not know (warning) | remove it or ignore it |
 | `memory.page_uncommitted` | page files under `docs/memory` have uncommitted changes | commit them |
 | `memory.index_failed` | the last page reindex failed | `ivar memory reindex` |
