@@ -102,6 +102,32 @@ pending legacy move first, and never creates a `memory.db` only to delete it. `i
 (any flag), the graph's reconcile and prune, `ivar repo remove`, `ivar cleanup`
 and `ivar feature rename` never touch it.
 
+### Pages and search (schema 3)
+
+Schema 3 adds the index of the [memory pages](on-disk-format-pages.md) and a full-text
+index over `observations`. Pages are files and the index is a cache: every row below
+can be dropped and rebuilt from disk with `ivar memory reindex`.
+
+| Table | Meaning |
+| --- | --- |
+| `pages` | one row per indexed page: `path` (unique, relative to the hall), `kind`, `tier`, `title`, `tags` (JSON array), `pinned`, `expires_at`, `size`, `mtime_ns`, `content_hash` (SHA-256) and `indexed_at`. Index `pages_kind (kind)` |
+| `pages_fts` | FTS5 over `title`, `tags` and `body` (`unicode61 remove_diacritics 2`), joined to `pages` by `rowid = pages.id`. It stores the body; no other table does |
+| `page_links` | one row per link: `from_path`, `to_path` (null when the target does not resolve), `source` (`wikilink`, `markdown` or `relation`), `relation_type` (the declared `type` of a `relations` entry, empty otherwise) and `target_text`. Indexes `page_links_from` and `page_links_to` |
+| `observations_fts` | external-content FTS5 over `observations(source_event, body)` with `content_rowid = 'id'`, so the text is not stored twice |
+
+Two triggers keep `observations_fts` in step: `observations_fts_insert` after `INSERT`
+and `observations_fts_delete` after `DELETE`, which uses the FTS5 `'delete'` command.
+`UPDATE` stays blocked by `observations_no_update`. The migration runs the FTS5
+`'rebuild'` command once, so observations that exist when a schema 2 file migrates are
+searchable. The page reindex never touches `observations` or its index: observations
+cannot be rebuilt from anything.
+
+The incremental reindex compares `size` and `mtime_ns` with the row and, when they
+differ, confirms by `content_hash` before rewriting. Its state (`last_reindex_at`,
+`last_error`, `pages`) is in `.ivar/spool/memory/_reindex.json`, beside `_sweep.json`.
+The `ivar` that builds the index owns it; `ivar doctor` reports a failed reindex as
+`memory.index_failed`.
+
 ### Moving a legacy graph
 
 Before the split the graph lived at `.ivar/memory.db`. The first command that opens

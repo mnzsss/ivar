@@ -133,3 +133,28 @@ fn memory_schema_version_in_the_docs_matches_the_code() {
         "on-disk-format-versions.md memory schema sentence drifted from MEMORY_SCHEMA_VERSION"
     );
 }
+
+#[test]
+fn the_page_format_doc_exists_is_linked_and_names_the_roots() {
+    const PAGES: &str = include_str!("../../../docs/reference/on-disk-format-pages.md");
+    assert!(DOC.contains("](on-disk-format-pages.md)"));
+    for needle in [
+        "docs/memory/<kind>/",
+        ".ivar/memory/<kind>/",
+        "relations",
+        "YYYY-MM-DDTHH:MM:SSZ",
+    ] {
+        assert!(
+            PAGES.contains(needle),
+            "on-disk-format-pages.md must mention `{needle}`"
+        );
+    }
+}
+
+#[test]
+fn the_pages_adr_and_readme_describe_the_new_layout() {
+    const ADR: &str = include_str!("../../../docs/adr/0010-pages-in-hall-docs.md");
+    const README: &str = include_str!("../../../README.md");
+    assert!(ADR.contains("docs/memory"));
+    assert!(README.contains("ivar memory query"));
+}

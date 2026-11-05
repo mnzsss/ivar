@@ -37,7 +37,7 @@ The comment previously in `src/action/feature/delete.rs:242-247` stating:
 > owns, and deleting the feature is precisely when that information
 > stops being re-derivable.
 
-no longer holds, so the comment goes with it. To keep a learning, distil it into `docs/product/` or `docs/updates/` through `/ivar-feature-cleanup` before deleting.
+no longer holds, so the comment goes with it. To keep a learning, distil it into `docs/memory/product/` or `docs/memory/update/` through `/ivar-feature-cleanup` before deleting.
 
 ### D4 — Writable set widening and accepted gate exposure
 

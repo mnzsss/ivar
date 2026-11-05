@@ -76,6 +76,10 @@ src/
                    commit and deliver preview fingerprint).
     skill/         create · add · update · remove · detach · sync · status ·
                    list · doctor
+    memory/        status · clean · query · reindex, plus capture, drain and
+                   sweep for observations. reindex.rs walks `docs/memory/` and
+                   `.ivar/memory/` into `pages` (size and mtime, confirmed by
+                   hash); query.rs fuses page FTS and link neighbours.
     mcp/           auth — big enough to own a directory: the public verb,
                    input/outcome types, and resolution live in auth/mod.rs,
                    Figma pre-registration and the secret handoff in

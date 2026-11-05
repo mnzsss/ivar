@@ -191,6 +191,11 @@ migrates without telling you because there is nothing useful to say.
 The version each file carries today, and what changed at each version, are in
 [Current versions](on-disk-format-versions.md).
 
+## Memory pages
+
+The markdown pages the hall memory indexes are described in
+[Memory pages](on-disk-format-pages.md).
+
 ## Databases
 
 The SQLite files under `.ivar/` are described in

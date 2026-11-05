@@ -187,6 +187,25 @@ Misses and usage rows are kept for 30 days, so `ivar graph stats` reports a 30-d
 | `memory.drain_failed` | the last drain of the capture spool failed | `ivar memory status`; if the error repeats, read the database findings of `ivar doctor` |
 | `provider.capture_hook_missing` | `memory.capture` is on and a provider has no capture hook | `ivar sync`, or set `memory.capture` to false in `ivar.json` |
 
+**`ivar memory query` searches the pages under `docs/memory/`.** `ivar memory query <TEXT>`
+takes `--kind` (repeatable), `--tier`, `--tag`, `--limit` (default 10, at most 20),
+`--include-expired` and `--explain`, and `--json`. Results carry kind, tier, path, snippet
+and `pinned`. With no page hit and no filter it returns retained observations instead.
+`ivar memory reindex` rebuilds the index from disk and never touches observations. The
+page format is in [on-disk format: pages](on-disk-format-pages.md).
+
+Page findings of `ivar doctor`:
+
+| Code | Meaning | Fix |
+| --- | --- | --- |
+| `memory.legacy_docs` | pages still live in `docs/product` or `docs/updates` | the `git mv` commands it prints |
+| `memory.page_invalid` | front matter does not parse, `kind` differs from the directory, or `expires_at` is not `YYYY-MM-DDTHH:MM:SSZ` | edit the page |
+| `memory.page_kind_unknown` | a directory under `docs/memory/` or `.ivar/memory/` is not a kind of that root | rename or move it |
+| `memory.page_misplaced` | a page is outside `<kind>/`, nested, or has a non-kebab slug (or no `NNN-` for `product` and `update`) | move or rename it |
+| `memory.page_field_unknown` | front matter has a key the format does not know (warning) | remove it or ignore it |
+| `memory.page_uncommitted` | page files under `docs/memory` have uncommitted changes | commit them |
+| `memory.index_failed` | the last page reindex failed | `ivar memory reindex` |
+
 **`ivar session start` is the one verb that takes over your terminal.** It opens
 a TUI. Everything else prints and exits.
 
