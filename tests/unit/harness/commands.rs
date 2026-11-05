@@ -504,6 +504,7 @@ fn feature_cleanup_writes_pages_under_docs_memory_and_leaves_the_hall_index_alon
         .content;
     assert!(text.contains("docs/memory/update/<NNN>-<feature>.cleanup.json"));
     assert!(text.contains("docs/memory/product/"));
+    assert!(text.contains("must resolve inside `docs/memory/` or `docs/repo-relations/`"));
     assert!(
         text.contains(".cleanup.json") && text.contains("plus one"),
         "numbering rule missing: {text}"

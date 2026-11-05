@@ -155,7 +155,7 @@ The durable cleanup record is stored at `docs/memory/update/<NNN>-<feature>.clea
 - `approvals.documentation.decision` is `"written"` or `"not_required"`.
   - `"written"` requires a non-empty `paths` array and a null `reason`.
   - `"not_required"` requires a non-empty `reason` string and an empty `paths` array.
-- Every `paths` entry is hall-relative and must resolve inside `docs/`.
+- Every `paths` entry is hall-relative and must resolve inside `docs/memory/` or `docs/repo-relations/`.
 - `at` is an ISO-8601 UTC timestamp.
 - `approvals.delivery.approved` and `approvals.teardown.approved` must both be `true`. `false` is a valid record and a refusal to apply, never a bypass.
 - `outcome` is `null` until apply completes; apply writes the final per-repository and teardown results into it. A record whose `outcome` is already populated describes a finished run and is refused as an authorization for a new one.
