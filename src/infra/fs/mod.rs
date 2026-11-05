@@ -3,14 +3,17 @@
 //! callers use the reexports here.
 //!
 //! One rule: **only files under `infra/fs/` touch `std::fs`** for managed
-//! filesystem operations. The three concerns live in three files — generic
-//! I/O in `io`, symlink behaviour in `symlink`, and the read-only guard in
+//! filesystem operations. Each concern lives in its own file — generic
+//! I/O in `io`, advisory locks in `lock`, whole-tree copies and temp dirs in
+//! `tree`, symlink behaviour in `symlink`, and the read-only guard in
 //! `guard` — and this facade owns the shared `Error` and its `Failure`
 //! conversion.
 
 mod guard;
 mod io;
+mod lock;
 mod symlink;
+mod tree;
 
 use camino::{Utf8Path, Utf8PathBuf};
 
@@ -18,14 +21,15 @@ use crate::error::{Failure, FixAction};
 
 pub use guard::{LiftedGuard, chmod, clear_write_bits, restore_write_bits, unix_mode};
 pub use io::{
-    TempDir, canonicalize, copy_dir, create_new_text, ensure_dir, exists, is_dir, is_file,
-    is_real_dir, lock_exclusive, prune_empty_parents, read_bytes, read_dir, read_text,
-    remove_empty_dir, remove_file, remove_path, rename, stat, try_lock_exclusive, write_atomic,
-    write_bytes, write_sensitive_atomic, write_text,
+    canonicalize, create_new_text, ensure_dir, exists, is_dir, is_file, is_real_dir,
+    prune_empty_parents, read_bytes, read_dir, read_text, remove_empty_dir, remove_file,
+    remove_path, rename, stat, write_atomic, write_bytes, write_sensitive_atomic, write_text,
 };
+pub use lock::{lock_exclusive, try_lock_exclusive};
 pub use symlink::{
     SymlinkTarget, create_symlink, read_symlink, replace_symlink, replace_symlink_if_changed,
 };
+pub use tree::{TempDir, copy_dir};
 
 /// Everything that can go wrong touching the filesystem.
 ///
