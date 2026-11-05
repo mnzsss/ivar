@@ -221,3 +221,14 @@ fn plan_uses_graph_evidence_with_fallback_and_no_approval_bypass() {
         "was: {content}"
     );
 }
+
+#[test]
+fn plan_consults_memory_at_the_start_of_analysis_and_never_blocks_on_it() {
+    let content = plan_text();
+    let analysis = &content[content.find("## Phase 2: Analysis").unwrap()..];
+    assert!(analysis.contains("ivar memory query"), "was: {analysis}");
+    assert!(analysis.contains("`memory_query`"), "was: {analysis}");
+    assert!(analysis.contains("Conhecimento prévio"), "was: {analysis}");
+    assert!(analysis.contains("memória indisponível"), "was: {analysis}");
+    assert!(!analysis.contains("docs/product") && !analysis.contains("docs/updates"));
+}
