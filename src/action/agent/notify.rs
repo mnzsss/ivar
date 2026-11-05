@@ -3,14 +3,14 @@
 use std::time::Duration;
 
 use crate::domain::agent::receipt::AgentRunReceipt;
-use crate::domain::agent::spec::AgentSpec;
+use crate::domain::agent::spec::{AgentSpec, NotifyTarget};
 use crate::infra::{json, webhook};
 
 const NOTIFY_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Records a failed delivery in `notify_error`; never changes the outcome.
 pub fn deliver(spec: &AgentSpec, receipt: &mut AgentRunReceipt) {
-    let Some(url) = spec.notify.as_deref() else {
+    let Some(NotifyTarget::Webhook(url)) = spec.notify.as_ref() else {
         return;
     };
     let body = match json::to_canonical_string(&receipt.notify_summary()) {
