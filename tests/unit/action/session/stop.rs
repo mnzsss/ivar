@@ -458,3 +458,31 @@ fn a_failed_consolidation_is_a_warning_and_the_session_still_stops() {
     );
     unguard_worktrees(&root);
 }
+
+#[test]
+fn a_failed_drain_is_a_warning_and_consolidation_still_runs() {
+    let (_guard, root) = hall_with_detached_session();
+    let id = session_id_of(&root);
+    plant_open_conversation(&root, &id);
+    let spool = Layout::at(root.clone()).memory_spool_dir();
+    std::fs::create_dir_all(spool.join("_drain.json")).unwrap();
+
+    let report = stop(
+        &Ctx::new(root.clone()),
+        &StopInput {
+            session: Some(id.clone()),
+            all: false,
+        },
+    )
+    .unwrap();
+
+    assert_eq!(report.value.stopped, 1);
+    let warning = report
+        .warnings
+        .iter()
+        .find(|w| w.code == "memory.drain_failed")
+        .expect("the drain failure is reported");
+    assert_eq!(warning.subject, id);
+    assert!(root.join(".ivar/memory/session/live.md").exists());
+    unguard_worktrees(&root);
+}

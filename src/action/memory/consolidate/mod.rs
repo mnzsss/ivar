@@ -40,6 +40,7 @@ pub struct ConsolidateReport {
     pub written: usize,
     pub removed: usize,
     pub busy: bool,
+    pub drain_error: Option<String>,
 }
 
 /// Consolidates closed conversations, or reports `busy` instead of waiting
@@ -80,9 +81,15 @@ pub fn consolidate_session(
         return Ok(ConsolidateReport::default());
     }
     let _lock = fs::lock_exclusive(&layout.memory_lock())?;
-    let _ = drain_locked(layout, usize::MAX);
+    let drain_error = drain_locked(layout, usize::MAX)
+        .err()
+        .map(|failure| failure.what);
     let mut db = open(layout)?;
-    consolidate_locked(layout, &mut db, now_epoch_secs, Scope::Session(session_id))
+    let report = consolidate_locked(layout, &mut db, now_epoch_secs, Scope::Session(session_id))?;
+    Ok(ConsolidateReport {
+        drain_error,
+        ..report
+    })
 }
 
 #[must_use]

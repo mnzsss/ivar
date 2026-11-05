@@ -130,12 +130,21 @@ pub(crate) fn end(
 ) -> Result<(bool, Vec<Warning>), Failure> {
     discovery::rescue_session_doc(layout, session)?;
     let mut warnings = Vec::new();
-    if let Err(failure) = consolidate_session(layout, session.id.as_str(), epoch_secs_now()) {
-        warnings.push(Warning::new(
+    match consolidate_session(layout, session.id.as_str(), epoch_secs_now()) {
+        Ok(report) => {
+            if let Some(error) = report.drain_error {
+                warnings.push(Warning::new(
+                    "memory.drain_failed",
+                    session.id.as_str(),
+                    error,
+                ));
+            }
+        }
+        Err(failure) => warnings.push(Warning::new(
             "memory.consolidate_failed",
             session.id.as_str(),
             failure.what,
-        ));
+        )),
     }
     let view_dir = &session.view_dir;
     if !fs::exists(view_dir).unwrap_or(false) {
