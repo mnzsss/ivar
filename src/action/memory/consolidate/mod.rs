@@ -243,3 +243,7 @@ fn attach(
 #[cfg(test)]
 #[path = "../../../../tests/unit/action/memory/consolidate.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "../../../../tests/unit/action/memory/consolidate_reads.rs"]
+mod reads_tests;

@@ -4,6 +4,7 @@ use std::collections::BTreeMap;
 
 use serde::Serialize;
 
+use crate::action::memory::consolidate::consolidate_if_free;
 use crate::action::memory::drain::epoch_secs_now;
 use crate::action::memory::reindex;
 use crate::action::{Ctx, discover_hall};
@@ -216,6 +217,7 @@ pub fn query_in(layout: &Layout, input: &QueryInput) -> Outcome<QueryOutcome> {
         include_expired: input.include_expired,
         now: rfc3339_now(),
     };
+    let _ = consolidate_if_free(layout, epoch_secs_now());
     let _ = reindex::refresh(layout);
     let Some(expression) = fts_expression(&input.text) else {
         return Ok(Report::new(QueryOutcome {

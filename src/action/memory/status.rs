@@ -5,7 +5,8 @@ use std::io;
 use camino::{Utf8Path, Utf8PathBuf};
 use serde::Serialize;
 
-use crate::action::memory::drain::{drain_locked, read_state};
+use crate::action::memory::consolidate::{Scope, consolidate_locked};
+use crate::action::memory::drain::{drain_locked, epoch_secs_now, read_state};
 use crate::action::memory::reindex;
 use crate::action::memory::sweep;
 use crate::action::{Ctx, discover_hall};
@@ -136,6 +137,7 @@ pub fn status_in(layout: &Layout) -> Outcome<MemoryStatusOutcome> {
             format!("could not open `{path}`: {error}"),
         )
     })?;
+    let _ = consolidate_locked(layout, &mut db, epoch_secs_now(), Scope::Idle);
     let (invalid, refresh_error) = match reindex::refresh_locked(layout, &mut db, false) {
         Ok(report) => (report.invalid.len(), None),
         Err(failure) => (0, Some(failure.what)),
