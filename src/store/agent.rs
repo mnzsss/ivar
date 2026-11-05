@@ -99,13 +99,22 @@ fn with_notify(source: &str, value: &str) -> Result<String, Failure> {
             "the agent file has no frontmatter to hold `notify`",
         ));
     };
+    let newline = if source.starts_with("---\r\n") {
+        "\r\n"
+    } else {
+        "\n"
+    };
     let line = format!("notify: {value}");
     let mut lines: Vec<&str> = block.lines().collect();
     match lines.iter_mut().find(|l| l.starts_with("notify:")) {
         Some(existing) => *existing = &line,
         None => lines.push(&line),
     }
-    Ok(format!("---\n{}\n---\n{}", lines.join("\n"), split.body))
+    let block = lines.join(newline);
+    Ok(format!(
+        "---{newline}{block}{newline}---{newline}{}",
+        split.body
+    ))
 }
 
 /// Set `notify: <value>` in the agent's frontmatter, leaving the rest of the file as it was.
@@ -120,7 +129,13 @@ pub fn set_notify(file: &AgentFile, value: &str) -> Result<(), Failure> {
         source: source.clone(),
         ..file.clone()
     })?;
+    #[cfg(unix)]
+    let mode = fs::unix_mode(&file.path)?;
     fs::write_atomic(&file.path, source.as_bytes())?;
+    #[cfg(unix)]
+    if let Some(mode) = mode {
+        fs::chmod(&file.path, mode & 0o7777)?;
+    }
     Ok(())
 }
 
