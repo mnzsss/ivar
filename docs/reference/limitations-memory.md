@@ -58,8 +58,9 @@ running leader never sweeps, `ivar doctor` reports `memory.retention_overdue` af
 
 - The index follows the disk, not a watcher. It is refreshed by `ivar memory query`,
   `ivar memory status` and `ivar sync`, and every 5 s by the `ivar graph mcp` leader. A
-  hall without a leader reindexes only on those reads. An uncommitted page is indexed
-  too.
+  hall without a leader reindexes only on those reads. `ivar sync` never waits for
+  `memory.lock`: when another process holds it, sync leaves the pass to that process.
+  An uncommitted page is indexed too.
 - A page that fails validation is not indexed and `ivar doctor` names it
   (`memory.page_invalid`, `memory.page_kind_unknown`, `memory.page_misplaced`). A
   failed reindex, including one that could not take `memory.lock`, shows as

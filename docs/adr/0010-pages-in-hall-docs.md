@@ -46,8 +46,8 @@ markdown crate for links, because three patterns do not justify a dependency.
 ### D4 — The index follows the disk without a new watcher
 
 The incremental reindex compares size and mtime, confirms by SHA-256, and runs before
-`memory query` and `memory status`, in `ivar sync`, and every 5 s in the MCP leader
-under `try_lock`. An uncommitted page is searchable at once. `ivar memory reindex`
+`memory query` and `memory status`, in `ivar sync` under `try_lock`, and every 5 s in
+the MCP leader under `try_lock`. An uncommitted page is searchable at once. `ivar memory reindex`
 rebuilds everything, and a page deleted from disk leaves the index.
 
 Rejected: a file watcher for pages, because the on-read refresh already gives

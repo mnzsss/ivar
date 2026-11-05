@@ -326,7 +326,7 @@ pub fn sync(ctx: &Ctx, input: &SyncInput) -> Outcome<SyncOutcome> {
     // same bytes, and `Provider::ALL` will only grow.
     sync_providers(&layout, &manifest, &mut entries, &mut warnings);
     refresh_graph(ctx, &layout, &manifest, &mut warnings);
-    let _ = crate::action::memory::reindex::refresh(&layout);
+    let _ = crate::action::memory::reindex::refresh_if_free(&layout);
 
     Ok(Report::with_warnings(
         SyncOutcome {
