@@ -232,3 +232,98 @@ fn a_kept_token_that_telegram_rejects_can_be_replaced() {
         script.shown()
     );
 }
+
+const ONE_CHAT: (u16, &str) = (
+    200,
+    r#"{"ok":true,"result":[{"update_id":1,"message":{"chat":{"id":-100123,"type":"group","title":"Ops"}}}]}"#,
+);
+
+#[test]
+fn an_agent_that_cannot_take_notify_is_skipped_and_the_others_are_set() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root.clone());
+    std::fs::create_dir_all(layout.agents_dir()).unwrap();
+    std::fs::write(
+        layout.agent_file("broken"),
+        "---\nschedule: \"0 0 1 * 1\"\ntool: claude\n---\nGo.\n",
+    )
+    .unwrap();
+    write_agent(&layout, "nightly", "");
+    let fake = FakeTelegram::start(vec![ME, ONE_CHAT, SENT]);
+    let script = Scripted::new(
+        vec![Some("123:secret")],
+        vec![],
+        vec![Some(0)],
+        vec![vec![0, 1]],
+    );
+    let ctx = Ctx::new(root).with_confirm(script);
+
+    let setup = setup_with(&ctx, &fake.api).unwrap().value;
+
+    fake.requests();
+    assert_eq!(setup.agents, vec!["nightly".to_owned()]);
+    assert_eq!(setup.skipped.len(), 1);
+    assert_eq!(setup.skipped[0].agent, "broken");
+    assert!(
+        setup.skipped[0].reason.contains("schedule"),
+        "{}",
+        setup.skipped[0].reason
+    );
+    assert_eq!(
+        store::agent::load(&layout, "nightly").unwrap().notify,
+        Some(NotifyTarget::Telegram {
+            chat_id: "-100123".into()
+        })
+    );
+    let mut human = Vec::new();
+    setup.write_human(&mut human).unwrap();
+    let human = String::from_utf8(human).unwrap();
+    assert!(human.contains("broken"), "{human}");
+}
+
+#[derive(Debug)]
+struct DismissesAgentPicker(std::sync::Arc<Scripted>);
+
+impl crate::action::confirm::Confirm for DismissesAgentPicker {
+    fn confirm(&self, question: &str, caveat: Option<&str>) -> Result<bool, Failure> {
+        self.0.confirm(question, caveat)
+    }
+
+    fn select_many(&self, _prompt: &str, _options: &[SelectOption]) -> Result<Vec<usize>, Failure> {
+        Err(Failure::blocked("confirm.no_answer", "dismissed"))
+    }
+
+    fn select_one(&self, prompt: &str, options: &[SelectOption]) -> Result<Option<usize>, Failure> {
+        self.0.select_one(prompt, options)
+    }
+
+    fn ask_text(&self, prompt: &str, secret: bool) -> Result<Option<String>, Failure> {
+        self.0.ask_text(prompt, secret)
+    }
+
+    fn is_interactive(&self) -> bool {
+        true
+    }
+}
+
+#[test]
+fn dismissing_the_agent_picker_sets_no_agent_and_keeps_the_earlier_steps() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root.clone());
+    write_agent(&layout, "nightly", "");
+    let fake = FakeTelegram::start(vec![ME, ONE_CHAT, SENT]);
+    let script = Scripted::new(vec![Some("123:secret")], vec![], vec![Some(0)], vec![]);
+    let ctx = Ctx::new(root).with_confirm(std::sync::Arc::new(DismissesAgentPicker(script)));
+
+    let setup = setup_with(&ctx, &fake.api).unwrap().value;
+
+    fake.requests();
+    assert!(setup.agents.is_empty());
+    assert!(setup.skipped.is_empty());
+    assert_eq!(setup.chat_id, "-100123");
+    assert_eq!(store::agent::load(&layout, "nightly").unwrap().notify, None);
+    assert_eq!(
+        AgentSecrets::read(&layout).unwrap().get(TELEGRAM_TOKEN_KEY),
+        Some("123:secret")
+    );
+}

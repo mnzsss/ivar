@@ -26,6 +26,13 @@ pub struct TelegramSetup {
     pub chat_id: String,
     pub token: TokenChange,
     pub agents: Vec<String>,
+    pub skipped: Vec<SkippedAgent>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SkippedAgent {
+    pub agent: String,
+    pub reason: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -51,12 +58,13 @@ pub(crate) fn setup_with(ctx: &Ctx, api: &str) -> Outcome<TelegramSetup> {
     let layout = discover_hall(ctx)?;
     let (token, bot, change) = token_step(ctx, &layout, api)?;
     let chat_id = chat_step(ctx, api, &token, &bot)?;
-    let agents = agents_step(ctx, &layout, &chat_id)?;
+    let (agents, skipped) = agents_step(ctx, &layout, &chat_id)?;
     Ok(Report::new(TelegramSetup {
         bot,
         chat_id,
         token: change,
         agents,
+        skipped,
     }))
 }
 
@@ -168,12 +176,19 @@ fn chat_step(ctx: &Ctx, api: &str, token: &str, bot: &str) -> Result<String, Fai
     }
 }
 
-fn agents_step(ctx: &Ctx, layout: &Layout, chat_id: &str) -> Result<Vec<String>, Failure> {
+fn agents_step(
+    ctx: &Ctx,
+    layout: &Layout,
+    chat_id: &str,
+) -> Result<(Vec<String>, Vec<SkippedAgent>), Failure> {
     let files = store::agent::list_files(layout)?;
     if files.is_empty() {
-        return Ok(Vec::new());
+        return Ok((Vec::new(), Vec::new()));
     }
-    let value = format!("telegram:{chat_id}");
+    let value = NotifyTarget::Telegram {
+        chat_id: chat_id.to_owned(),
+    }
+    .to_string();
     let options: Vec<SelectOption> = files
         .iter()
         .map(|file| {
@@ -183,6 +198,7 @@ fn agents_step(ctx: &Ctx, layout: &Layout, chat_id: &str) -> Result<Vec<String>,
             )
         })
         .collect();
+    // Dismissing the picker means "no agents": the token and chat are already saved.
     let chosen = match ctx
         .confirm
         .select_many(&format!("Set `notify: {value}` on which agents?"), &options)
@@ -191,24 +207,25 @@ fn agents_step(ctx: &Ctx, layout: &Layout, chat_id: &str) -> Result<Vec<String>,
         Err(failure) if failure.code == "confirm.no_answer" => Vec::new(),
         Err(failure) => return Err(failure),
     };
-    chosen
-        .into_iter()
-        .filter_map(|index| files.get(index))
-        .map(|file| {
-            store::agent::set_notify(file, &value)?;
-            Ok(file.name.clone())
-        })
-        .collect()
+    let mut agents = Vec::new();
+    let mut skipped = Vec::new();
+    for file in chosen.into_iter().filter_map(|index| files.get(index)) {
+        match store::agent::set_notify(file, &value) {
+            Ok(()) => agents.push(file.name.clone()),
+            Err(failure) => skipped.push(SkippedAgent {
+                agent: file.name.clone(),
+                reason: failure.what,
+            }),
+        }
+    }
+    Ok((agents, skipped))
 }
 
 fn current_notify(file: &AgentFile) -> Option<String> {
     store::agent::parse(file)
         .ok()?
         .notify
-        .map(|target| match target {
-            NotifyTarget::Webhook(url) => url,
-            NotifyTarget::Telegram { chat_id } => format!("telegram:{chat_id}"),
-        })
+        .map(|target| target.to_string())
 }
 
 fn not_interactive() -> Failure {
@@ -259,6 +276,9 @@ impl WriteHuman for TelegramSetup {
             )?;
         } else {
             writeln!(w, "notify set on: {}", self.agents.join(", "))?;
+        }
+        for skipped in &self.skipped {
+            writeln!(w, "{} left unchanged: {}", skipped.agent, skipped.reason)?;
         }
         writeln!(
             w,
