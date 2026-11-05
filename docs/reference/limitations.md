@@ -14,8 +14,8 @@ The rest of the limitations are grouped by topic:
 - **[Delivery and the default branch](limitations-delivery.md)** — pushing across
   several remotes and what protects the default branch.
 - **[Codebase graph](limitations-graph.md)** — indexing and plain-text bounds.
-- **[Session capture](limitations-memory.md)** — what capture does not record and
-  what it costs.
+- **[Session capture and memory](limitations-memory.md)** — what capture does not record,
+  what it costs, and the limits of the page index and the memory MCP tools.
 
 ## Shared daemon state — the big one
 

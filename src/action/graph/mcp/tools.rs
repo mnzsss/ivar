@@ -9,7 +9,7 @@ use serde_json::{Value, json};
 /// in callers, greps and reads; CodeGraph ships the same default.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, clap::ValueEnum)]
 pub enum ToolSurface {
-    /// `graph_explore` plus `graph_feedback`.
+    /// `graph_explore` plus `graph_feedback`, then the memory tools.
     #[default]
     Explore,
     /// Every graph tool.
@@ -18,7 +18,7 @@ pub enum ToolSurface {
 
 pub fn list_tools(surface: ToolSurface) -> Value {
     let tools = all_tools();
-    match surface {
+    let graph_tools = match surface {
         ToolSurface::All => tools,
         ToolSurface::Explore => Value::Array(
             tools
@@ -29,7 +29,10 @@ pub fn list_tools(surface: ToolSurface) -> Value {
                 .cloned()
                 .collect(),
         ),
-    }
+    };
+    let mut listed = graph_tools.as_array().cloned().unwrap_or_default();
+    listed.extend(crate::action::memory::mcp::tool_definitions());
+    Value::Array(listed)
 }
 
 fn tool_graph_explore() -> Value {

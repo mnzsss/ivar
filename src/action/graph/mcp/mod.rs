@@ -4,6 +4,7 @@
 //! default, or every graph tool on request. Operates synchronously over standard I/O streams.
 
 pub mod dispatch;
+mod dispatch_support;
 mod explore_output;
 pub mod tools;
 pub mod workspace;
@@ -216,10 +217,10 @@ where
                     "tools": {}
                 },
                 "serverInfo": {
-                    "name": "ivar-codebase-graph",
+                    "name": "ivar",
                     "version": env!("CARGO_PKG_VERSION")
                 },
-                "instructions": INSTRUCTIONS
+                "instructions": format!("{INSTRUCTIONS}\n\n{}", crate::action::memory::mcp::MEMORY_INSTRUCTIONS)
             }
         })),
 
@@ -261,6 +262,15 @@ where
                 }
             };
 
+            if crate::action::memory::mcp::is_memory_tool(name) {
+                return Some(memory_tool_response(
+                    id.as_ref(),
+                    hall_root,
+                    name,
+                    &tool_args,
+                ));
+            }
+
             let started = std::time::Instant::now();
             let query = dispatch::explore_query(&tool_args).map(|q| truncate_for_storage(&q));
             let (session, notice, outcome) =
@@ -297,6 +307,31 @@ where
                 "message": format!("Method not found: {method}")
             }
         })),
+    }
+}
+
+fn memory_tool_response(
+    id: Option<&Value>,
+    hall_root: Option<&Path>,
+    name: &str,
+    args: &Value,
+) -> Value {
+    let Some(root) = hall_root else {
+        return tool_error(id, "memory tools need a hall");
+    };
+    let Ok(utf8_root) = camino::Utf8PathBuf::from_path_buf(root.to_path_buf()) else {
+        return tool_error(
+            id,
+            "the hall path is not valid UTF-8, so memory tools cannot address it",
+        );
+    };
+    match crate::action::memory::mcp::call(&Layout::at(utf8_root), name, args) {
+        Ok(text) => json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "result": { "content": [{"type": "text", "text": text}] }
+        }),
+        Err(message) => tool_error(id, &message),
     }
 }
 

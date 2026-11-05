@@ -168,6 +168,8 @@ mod doctor_graph;
 mod doctor_hall;
 #[path = "hall/doctor_instructions.rs"]
 mod doctor_instructions;
+#[path = "hall/doctor_mcp.rs"]
+mod doctor_mcp;
 #[path = "hall/doctor_pages.rs"]
 mod doctor_pages;
 #[path = "hall/doctor_worktrees.rs"]

@@ -95,11 +95,11 @@ receive structural symbols and call edges; other plain-text files are indexed fo
 full-text content search without synthetic AST symbols. Binary files (containing NUL bytes or invalid
 UTF-8), untracked files, Git-ignored files, and ignored build/dependency directories are excluded.
 When no `mcp` entry in `ivar.json` already runs `ivar graph mcp`, it adds
-`{"name":"graph","type":"local","command":"ivar","args":["graph","mcp"]}` and
+`{"name":"ivar","type":"local","command":"ivar","args":["graph","mcp"]}` and
 reports `mcp_registration` (`registered`, `already_declared`, `name_clash`,
 `needs_migration`, `failed` or `skipped`), with `next_command: "ivar sync"`
 after a registration. It never runs `ivar sync`: run it yourself so providers
-pick the server up. A different server already named `graph` is left alone
+pick the server up. A different server already named `ivar` is left alone
 with a warning; an `ivar.json` that still needs `ivar migrate` is left alone
 without one, so indexing still exits cleanly; `--no-mcp` skips registration
 entirely.

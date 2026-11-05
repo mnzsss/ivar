@@ -35,7 +35,7 @@ fn declared_mcp(hall: &TestHall) -> Value {
 }
 
 fn graph_server() -> Value {
-    json!({"name": "graph", "type": "local", "command": "ivar", "args": ["graph", "mcp"]})
+    json!({"name": "ivar", "type": "local", "command": "ivar", "args": ["graph", "mcp"]})
 }
 
 #[test]
@@ -95,7 +95,7 @@ fn a_name_clash_warns_and_leaves_ivar_json_untouched() {
     let hall = indexed_hall();
     declare_mcp(
         &hall,
-        json!([{"name": "graph", "type": "local", "command": "graphd"}]),
+        json!([{"name": "ivar", "type": "local", "command": "graphd"}]),
     );
     let before = read_manifest_text(&hall);
 
@@ -108,6 +108,13 @@ fn a_name_clash_warns_and_leaves_ivar_json_untouched() {
 
     assert_eq!(outcome["mcp_registration"], "name_clash", "{outcome}");
     assert_eq!(outcome["warnings"][0]["code"], "graph.mcp_name_clash");
+    let message = outcome["warnings"][0]["what"].as_str().unwrap();
+    assert!(
+        message.contains("rename or remove the existing `ivar` entry")
+            && message.contains("edit it to run `ivar graph mcp`")
+            && message.contains("`ivar graph index` again"),
+        "{message}"
+    );
     assert_eq!(read_manifest_text(&hall), before);
 }
 

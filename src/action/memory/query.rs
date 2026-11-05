@@ -13,6 +13,7 @@ use crate::domain::memory_rank::{
 };
 use crate::domain::session::rfc3339_now;
 use crate::error::{Failure, Outcome, Report, WriteHuman};
+use crate::store::layout::Layout;
 use crate::store::memory::db::MemoryDb;
 use crate::store::memory::observation_search;
 use crate::store::memory::pages::{self, PageFilter, PageHit};
@@ -197,6 +198,13 @@ fn into_query_hit(ranked: Ranked, explain: bool) -> QueryHit {
 /// When no hall is found, a kind or tier is unknown, or the index cannot be read.
 pub fn query(ctx: &Ctx, input: &QueryInput) -> Outcome<QueryOutcome> {
     let layout = discover_hall(ctx)?;
+    query_in(&layout, input)
+}
+
+/// # Errors
+///
+/// When a kind or tier is unknown, or the index cannot be read.
+pub fn query_in(layout: &Layout, input: &QueryInput) -> Outcome<QueryOutcome> {
     let kinds = parse_kinds(&input.kinds)?;
     let tier = parse_tier(input.tier.as_deref())?;
     let limit = input.limit.clamp(1, MAX_LIMIT);
@@ -208,7 +216,7 @@ pub fn query(ctx: &Ctx, input: &QueryInput) -> Outcome<QueryOutcome> {
         include_expired: input.include_expired,
         now: rfc3339_now(),
     };
-    let _ = reindex::refresh(&layout);
+    let _ = reindex::refresh(layout);
     let Some(expression) = fts_expression(&input.text) else {
         return Ok(Report::new(QueryOutcome {
             pages: Vec::new(),

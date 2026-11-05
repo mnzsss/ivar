@@ -60,6 +60,95 @@ pub fn count_by_source_event(db: &MemoryDb) -> rusqlite::Result<Vec<(String, i64
         .collect()
 }
 
+/// One stored observation as the read tools show it; `summary` is the first
+/// line of `body`, cut to 160 characters.
+#[derive(Debug, Clone)]
+pub struct ObservationRow {
+    pub id: i64,
+    pub source_event: String,
+    pub occurred_at: String,
+    pub session_id: String,
+    pub feature: String,
+    pub summary: String,
+    pub body: String,
+}
+
+/// Newest observations first, optionally limited to a `source_event` prefix
+/// and one feature.
+///
+/// # Errors
+///
+/// Returns the `SQLite` error when the query fails.
+pub fn recent_observations(
+    db: &MemoryDb,
+    limit: usize,
+    source_prefix: Option<&str>,
+    feature: Option<&str>,
+) -> rusqlite::Result<Vec<ObservationRow>> {
+    let mut stmt = db.conn().prepare(
+        "SELECT id, source_event, occurred_at, session_id, feature, body FROM observations
+         WHERE (?1 IS NULL OR substr(source_event, 1, length(?1)) = ?1)
+           AND (?2 IS NULL OR feature = ?2)
+         ORDER BY occurred_at DESC, id DESC LIMIT ?3",
+    )?;
+    stmt.query_map(
+        rusqlite::params![
+            source_prefix,
+            feature,
+            i64::try_from(limit).unwrap_or(i64::MAX)
+        ],
+        observation_row,
+    )?
+    .collect()
+}
+
+/// Observations of one session (matched on `session_id` or
+/// `native_session_id`), oldest first, with `id` above `after_id`.
+///
+/// # Errors
+///
+/// Returns the `SQLite` error when the query fails.
+pub fn session_observations(
+    db: &MemoryDb,
+    session: &str,
+    limit: usize,
+    after_id: Option<i64>,
+) -> rusqlite::Result<Vec<ObservationRow>> {
+    let mut stmt = db.conn().prepare(
+        "SELECT id, source_event, occurred_at, session_id, feature, body FROM observations
+         WHERE (session_id = ?1 OR native_session_id = ?1) AND id > ?2
+         ORDER BY id ASC LIMIT ?3",
+    )?;
+    stmt.query_map(
+        rusqlite::params![
+            session,
+            after_id.unwrap_or(0),
+            i64::try_from(limit).unwrap_or(i64::MAX)
+        ],
+        observation_row,
+    )?
+    .collect()
+}
+
+fn observation_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ObservationRow> {
+    let body: String = row.get(5)?;
+    Ok(ObservationRow {
+        id: row.get(0)?,
+        source_event: row.get(1)?,
+        occurred_at: row.get(2)?,
+        session_id: row.get(3)?,
+        feature: row.get(4)?,
+        summary: body
+            .lines()
+            .next()
+            .unwrap_or("")
+            .chars()
+            .take(160)
+            .collect(),
+        body,
+    })
+}
+
 #[cfg(test)]
 #[path = "../../../tests/unit/store/memory/observations.rs"]
 mod tests;

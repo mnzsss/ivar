@@ -63,6 +63,7 @@ use super::Ctx;
 use super::discover_hall;
 use super::read_manifest;
 
+mod mcp_rename;
 mod providers;
 mod repo;
 mod setup;
@@ -301,6 +302,32 @@ pub fn sync(ctx: &Ctx, input: &SyncInput) -> Outcome<SyncOutcome> {
 
     let mut entries = Vec::new();
     let mut warnings = Vec::new();
+
+    let manifest = match mcp_rename::rename_legacy_graph_server(&manifest) {
+        Ok(Some(renamed)) => match Manifest::write(&layout, &renamed) {
+            Ok(()) => {
+                entries.push(Entry::new(
+                    "hall",
+                    "ivar.json MCP server graph → ivar",
+                    Change::Updated,
+                ));
+                renamed
+            }
+            Err(error) => {
+                warnings.push(Warning::new(
+                    "graph.mcp_registration_failed",
+                    "ivar.json",
+                    format!("the `graph` MCP server was not renamed to `ivar`: {error}"),
+                ));
+                manifest
+            }
+        },
+        Ok(None) => manifest,
+        Err(warning) => {
+            warnings.push(warning);
+            manifest
+        }
+    };
 
     // The skeleton is the one part that fails the whole verb: every step below
     // writes underneath it.

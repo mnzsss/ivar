@@ -11,6 +11,7 @@ use crate::action::memory::sweep;
 use crate::action::{Ctx, discover_hall};
 use crate::error::{Failure, Outcome, Report, WriteHuman};
 use crate::infra::fs;
+use crate::store::layout::Layout;
 use crate::store::memory::db::MemoryDb;
 use crate::store::memory::observations::count_by_source_event;
 use crate::store::memory::pages::count_by_kind;
@@ -105,7 +106,14 @@ impl SpoolStatus {
 /// Outside a hall, while the split is busy, or when the file cannot be read.
 pub fn status(ctx: &Ctx) -> Outcome<MemoryStatusOutcome> {
     let layout = discover_hall(ctx)?;
-    crate::action::graph::graph_db_path(&layout)?;
+    status_in(&layout)
+}
+
+/// # Errors
+///
+/// While the split is busy, or when the file cannot be read.
+pub fn status_in(layout: &Layout) -> Outcome<MemoryStatusOutcome> {
+    crate::action::graph::graph_db_path(layout)?;
     let _lock = fs::lock_exclusive(&layout.memory_lock())?;
     let path = layout.memory_db();
     drop(MemoryDb::open(path.as_std_path()).map_err(|error| {
@@ -114,7 +122,7 @@ pub fn status(ctx: &Ctx) -> Outcome<MemoryStatusOutcome> {
             format!("could not open `{path}`: {error}"),
         )
     })?);
-    let _ = drain_locked(&layout, usize::MAX);
+    let _ = drain_locked(layout, usize::MAX);
     let size_bytes = fs::stat(&path)?.map(|metadata| metadata.len());
     let inspection = MemoryDb::inspect(path.as_std_path()).map_err(|error| {
         Failure::failed(
@@ -128,7 +136,7 @@ pub fn status(ctx: &Ctx) -> Outcome<MemoryStatusOutcome> {
             format!("could not open `{path}`: {error}"),
         )
     })?;
-    let (invalid, refresh_error) = match reindex::refresh_locked(&layout, &mut db, false) {
+    let (invalid, refresh_error) = match reindex::refresh_locked(layout, &mut db, false) {
         Ok(report) => (report.invalid.len(), None),
         Err(failure) => (0, Some(failure.what)),
     };
@@ -137,7 +145,7 @@ pub fn status(ctx: &Ctx) -> Outcome<MemoryStatusOutcome> {
         .into_iter()
         .map(|(kind, count)| KindCount { kind, count })
         .collect();
-    let reindex_state = reindex::read_state(&layout);
+    let reindex_state = reindex::read_state(layout);
     let pages = PagesStatus {
         by_kind,
         last_reindex_at: reindex_state.last_reindex_at,
@@ -153,10 +161,10 @@ pub fn status(ctx: &Ctx) -> Outcome<MemoryStatusOutcome> {
             count,
         })
         .collect();
-    let state = read_state(&layout);
+    let state = read_state(layout);
     let mut spool = SpoolStatus::read(&layout.memory_spool_dir());
     spool.dropped_total = state.dropped_total;
-    let sweep_state = sweep::read_state(&layout);
+    let sweep_state = sweep::read_state(layout);
     let retention = RetentionStatus {
         window_days: SESSION_RETENTION_DAYS,
         last_sweep_at: sweep_state.last_sweep_at,

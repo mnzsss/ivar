@@ -21,6 +21,8 @@ pub struct ProviderSupport {
     pub session_ended: Support,
     pub cleanup_command: Support,
     pub plan_memory_step: Support,
+    pub memory_mcp: Support,
+    pub planning_memory: Support,
 }
 
 const FULL: ProviderSupport = ProviderSupport {
@@ -30,6 +32,8 @@ const FULL: ProviderSupport = ProviderSupport {
     session_ended: Support::Supported,
     cleanup_command: Support::Supported,
     plan_memory_step: Support::Supported,
+    memory_mcp: Support::Supported,
+    planning_memory: Support::Supported,
 };
 
 /// No wildcard arm: a new `Provider` variant fails to compile here.

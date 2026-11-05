@@ -41,6 +41,7 @@ directly and open no session for it.
    - Ask one question at a time. Never ask multiple questions in a single turn.
    - Use `ivar graph explore <query>` (or `ivar graph explore <query> --repo <repo>`) to inspect likely symbols, entry points, and relation evidence before broad file reading.
    - Graph evidence is advisory: if a graph query is missing, stale, empty, unsupported, or fails, fall back directly to source search and file reading.
+   - Once the theme is clear and before wide code reading, query memory once: `memory_query`, or `ivar memory query "<theme>" --kind decision --kind gotcha --kind procedure --kind product --json` when the tool does not exist. When a `decision` or `gotcha` contradicts the idea or already settles it, say so to the user before going on. Record the pages that apply in a "Conhecimento prévio" section of `discovery.md` with `ivar discovery amend <name> --file <path>`: title, kind, path and what applies. When the lookup fails, write "memória indisponível" there and continue; a failed lookup never blocks a gate. The rule of one question per turn does not change.
    - Read files, search the codebase (each repo is mounted at the session
      path's own root, as `<name>/` — there is no `repos/` level), run
      read-only commands.

@@ -29,17 +29,14 @@ fn test_mcp_initialize_and_tools_list() {
 
     let init_resp: Value = serde_json::from_str(&lines[0]).expect("parse init");
     assert_eq!(init_resp["id"], 1);
-    assert_eq!(
-        init_resp["result"]["serverInfo"]["name"],
-        "ivar-codebase-graph"
-    );
+    assert_eq!(init_resp["result"]["serverInfo"]["name"], "ivar");
 
     let list_resp: Value = serde_json::from_str(&lines[1]).expect("parse list");
     assert_eq!(list_resp["id"], 2);
     let tools = list_resp["result"]["tools"]
         .as_array()
         .expect("tools array");
-    assert_eq!(tools.len(), 12);
+    assert_eq!(tools.len(), 21);
     let tool_names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
     assert!(tool_names.contains(&"graph_feedback"));
     assert!(tool_names.contains(&"graph_explore"));
@@ -53,6 +50,13 @@ fn test_mcp_initialize_and_tools_list() {
     assert!(tool_names.contains(&"get_dead_code"));
     assert!(tool_names.contains(&"get_complexity"));
     assert!(tool_names.contains(&"get_hierarchy"));
+    assert!(tool_names.contains(&"memory_query"));
+    assert!(tool_names.contains(&"memory_recent"));
+    assert!(tool_names.contains(&"memory_read_session_observations"));
+    assert!(tool_names.contains(&"memory_write_page"));
+    assert!(tool_names.contains(&"memory_patch_page"));
+    assert!(tool_names.contains(&"memory_delete_page"));
+    assert!(tool_names.contains(&"memory_lint"));
     assert!(
         !tool_names.contains(&"get_graph_stats"),
         "get_graph_stats stays out of the tool list"
@@ -75,7 +79,7 @@ fn the_default_tool_surface_lists_graph_explore_and_graph_feedback() {
         .iter()
         .filter_map(|tool| tool["name"].as_str())
         .collect();
-    assert_eq!(names, vec!["graph_explore", "graph_feedback"]);
+    assert_eq!(names[..2], ["graph_explore", "graph_feedback"]);
 }
 
 #[test]

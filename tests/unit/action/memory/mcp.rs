@@ -1,0 +1,166 @@
+#![allow(clippy::unwrap_used, clippy::indexing_slicing)]
+
+use serde_json::{Value, json};
+
+use super::*;
+use crate::store::layout::Layout;
+use crate::test_support::seeded_hall;
+
+fn page(layout: &Layout, rel: &str, text: &str) {
+    let path = layout.root().join(rel);
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(path, text).unwrap();
+}
+
+fn call_json(layout: &Layout, name: &str, args: Value) -> Value {
+    serde_json::from_str(&call(layout, name, &args).unwrap()).unwrap()
+}
+
+#[test]
+fn memory_query_finds_an_uncommitted_page_from_a_layout() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root);
+    page(
+        &layout,
+        "docs/memory/gotcha/shadow.md",
+        "# Shadow tables\n\nlist them in MEMORY_OBJECTS\n",
+    );
+
+    let out = call_json(&layout, "memory_query", json!({"query": "shadow tables"}));
+
+    assert_eq!(out["pages"][0]["path"], "docs/memory/gotcha/shadow.md");
+    assert!(out["observations"].as_array().unwrap().is_empty());
+}
+
+#[test]
+fn memory_query_caps_the_limit_at_twenty() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root);
+    for n in 0..25 {
+        page(
+            &layout,
+            &format!("docs/memory/gotcha/g{n:02}.md"),
+            "# G\nsharedword\n",
+        );
+    }
+    let out = call_json(
+        &layout,
+        "memory_query",
+        json!({"query": "sharedword", "limit": 500}),
+    );
+    assert_eq!(out["pages"].as_array().unwrap().len(), 20);
+}
+
+#[test]
+fn memory_query_rejects_an_unknown_kind() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root);
+    let error = call(
+        &layout,
+        "memory_query",
+        &json!({"query": "x", "kind": ["nope"]}),
+    )
+    .unwrap_err();
+    assert!(error.contains("nope"), "{error}");
+}
+
+#[test]
+fn memory_read_page_returns_the_frontmatter_and_body() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root);
+    page(
+        &layout,
+        "docs/memory/decision/pick.md",
+        "---\ntitle: Pick one\ntags: [a]\npinned: true\n---\nWhy.\n",
+    );
+
+    let out = call_json(
+        &layout,
+        "memory_read_page",
+        json!({"path": "docs/memory/decision/pick.md"}),
+    );
+
+    assert_eq!(out["title"], "Pick one");
+    assert_eq!(out["tags"], json!(["a"]));
+    assert_eq!(out["pinned"], true);
+    assert_eq!(out["body"], "Why.\n");
+}
+
+#[test]
+fn memory_read_page_refuses_paths_outside_the_page_roots() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root);
+    for path in [
+        "../etc/passwd",
+        "/etc/passwd",
+        "ivar.json",
+        "docs/memory/../../ivar.json",
+    ] {
+        assert!(
+            call(&layout, "memory_read_page", &json!({"path": path})).is_err(),
+            "{path}"
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn memory_read_page_refuses_a_symlink_that_leaves_the_hall() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root.clone());
+    let outside = tempfile::tempdir().unwrap();
+    std::fs::write(outside.path().join("secret.md"), "# Secret\n").unwrap();
+    std::fs::create_dir_all(root.join("docs/memory/gotcha")).unwrap();
+    std::os::unix::fs::symlink(
+        outside.path().join("secret.md"),
+        root.join("docs/memory/gotcha/link.md"),
+    )
+    .unwrap();
+
+    let error = call(
+        &layout,
+        "memory_read_page",
+        &json!({"path": "docs/memory/gotcha/link.md"}),
+    )
+    .unwrap_err();
+
+    assert!(error.contains("symlink"), "{error}");
+}
+
+#[cfg(unix)]
+#[test]
+fn memory_read_page_refuses_symlinks_that_stay_inside_the_hall() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root.clone());
+    std::fs::write(root.join(".env"), "SECRET=1\n").unwrap();
+    std::fs::create_dir_all(root.join("docs/memory/gotcha")).unwrap();
+    std::os::unix::fs::symlink("../../../.env", root.join("docs/memory/gotcha/env.md")).unwrap();
+    std::fs::create_dir_all(root.join("docs/other")).unwrap();
+    std::fs::write(root.join("docs/other/x.md"), "# X\n").unwrap();
+    std::os::unix::fs::symlink("../other", root.join("docs/memory/concept")).unwrap();
+
+    for path in ["docs/memory/gotcha/env.md", "docs/memory/concept/x.md"] {
+        let error = call(&layout, "memory_read_page", &json!({"path": path})).unwrap_err();
+        assert!(error.contains("symlink"), "{path}: {error}");
+    }
+}
+
+#[test]
+fn memory_schemas_expose_no_scope_arguments_and_only_query_is_always_loaded() {
+    for tool in tool_definitions() {
+        let props = tool["inputSchema"]["properties"].as_object().unwrap();
+        for banned in [
+            "workspace",
+            "project",
+            "cwd",
+            "scopes",
+            "global",
+            "answer",
+            "reasoning",
+        ] {
+            assert!(!props.contains_key(banned), "{} has {banned}", tool["name"]);
+        }
+        let always = tool["_meta"]["anthropic/alwaysLoad"] == true;
+        assert_eq!(always, tool["name"] == "memory_query", "{}", tool["name"]);
+    }
+}

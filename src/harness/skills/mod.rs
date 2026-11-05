@@ -322,3 +322,7 @@ mod tests;
 #[cfg(test)]
 #[path = "../../../tests/unit/harness/skills_plan.rs"]
 mod plan_tests;
+
+#[cfg(test)]
+#[path = "../../../tests/unit/harness/skills_memory.rs"]
+mod memory_tests;

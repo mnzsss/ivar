@@ -1,4 +1,4 @@
-# Limitations of session capture
+# Limitations of session capture and memory
 
 What session capture does not record, and what it costs. See
 [Limitations and failure modes](limitations.md) for the rest of `ivar`.
@@ -75,11 +75,29 @@ running leader never sweeps, `ivar doctor` reports `memory.retention_overdue` af
   to the binary and are not configurable.
 - Link expansion adds the neighbours of the ten best matches, ranked behind them. It is
   skipped when `--kind`, `--tier` or `--tag` is set.
-- Anchors are absent: a page is found as a whole, never at a heading.
+- Anchors are absent: a page is found as a whole, never at a heading, and the lint has no
+  anchor check.
 - `docs/memory/` is indexed twice until the retrieval slice: `ivar graph index` still
   reads `docs/` as text, so the same page can also answer `graph_explore`.
 - Observations answer only when no page matches and no filter is set, and only the ones
   the retention sweep has not deleted.
+
+## The memory MCP tools
+
+The tools are in [MCP tools](mcp-tools.md).
+
+- The tools never commit. A page they write stays uncommitted until you commit it, and
+  `ivar doctor` reports `memory.page_uncommitted`.
+- The MCP server runs outside the session write guard. The write tools confine themselves
+  to `docs/memory/<durable kind>/`, and no hook checks the files a call touches.
+- Claude Code approves the server, not single tools. Approving `<hall>-ivar` approves
+  `memory_write_page`, `memory_patch_page` and `memory_delete_page` with the read tools.
+- Title similarity is a word overlap of 0.8 or more within one kind. A reworded title can
+  slip past it, and a short title can match too easily. A match never blocks a write.
+- `memory_lint` and `ivar memory lint` check markdown links only. A wikilink or a
+  `relations` target without a page is not an error, so a planned stub stays valid.
+- Two writers numbering `product` or `update` pages at once are serialised by
+  `memory.lock`. A filesystem without hard links cannot publish a page without `replace`.
 
 ## Older `ivar`
 
