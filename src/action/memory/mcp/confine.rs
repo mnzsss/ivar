@@ -53,6 +53,18 @@ pub(super) fn resolve_durable(layout: &Layout, rel: &str) -> Result<Target, Stri
     Ok(Target { kind, path })
 }
 
+pub(super) fn resolve_session(layout: &Layout, rel: &str) -> Result<Utf8PathBuf, String> {
+    let parts: Vec<&str> = rel.split('/').collect();
+    let shaped = matches!(parts.as_slice(), [".ivar", "memory", "session", file]
+        if file.len() > ".md".len() && file.ends_with(".md") && !file.starts_with('.') && !rel.contains('\\'));
+    if !shaped {
+        return Err(format!("`{rel}` is not .ivar/memory/session/<id>.md"));
+    }
+    let path = layout.root().join(rel);
+    refuse_symlinks(layout.root(), &path)?;
+    Ok(path)
+}
+
 pub(super) fn refuse_symlinks(root: &Utf8Path, path: &Utf8Path) -> Result<(), String> {
     let mut current = root.to_path_buf();
     for component in path

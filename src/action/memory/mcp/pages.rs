@@ -5,6 +5,7 @@ use camino::{Utf8Path, Utf8PathBuf};
 use serde_json::{Map, Value, json};
 
 use super::{SIMILAR_TITLE_THRESHOLD, confine, to_text};
+use crate::action::memory::consolidate::attribute::SESSION_PAGES_DIR;
 use crate::action::memory::reindex;
 use crate::domain::memory_page::{
     PageIssue, PageKind, PageMeta, Relation, has_number_prefix, is_kebab,
@@ -66,6 +67,9 @@ pub(super) fn write(layout: &Layout, args: &Value) -> Result<String, String> {
 
 pub(super) fn patch(layout: &Layout, args: &Value) -> Result<String, String> {
     let rel = str_arg(args, "path")?;
+    if rel.starts_with(SESSION_PAGES_DIR) {
+        return patch_session(layout, rel, args);
+    }
     let target = confine::resolve_durable(layout, rel)?;
     if target.kind == PageKind::Update {
         return Err(refuse_update("patched"));
@@ -113,6 +117,36 @@ pub(super) fn patch(layout: &Layout, args: &Value) -> Result<String, String> {
     let content = format!("{head}{body}");
     parse_page(rel, &content).map_err(|issues| invalid(rel, &issues))?;
     publish(&target.path, rel, &content, true)?;
+    drop(lock);
+
+    let indexed = reindex::refresh(layout).is_ok();
+    to_text(&json!({ "path": rel, "hash": hash::text(&content), "indexed": indexed }))
+}
+
+fn patch_session(layout: &Layout, rel: &str, args: &Value) -> Result<String, String> {
+    let path = confine::resolve_session(layout, rel)?;
+    if ["old", "new", "tags", "relations"]
+        .iter()
+        .any(|key| args.get(key).is_some())
+    {
+        return Err(
+            "a `session` page takes only `pinned` and `expires_at`; the consolidation owns its body"
+                .to_owned(),
+        );
+    }
+    let lock = fs::lock_exclusive(&layout.memory_lock()).map_err(|error| error.to_string())?;
+    let source = std::fs::read_to_string(&path)
+        .map_err(|error| format!("could not read `{rel}`: {error}"))?;
+    let page = parse_page(rel, &source).map_err(|issues| invalid(rel, &issues))?;
+    let mut meta = PageMeta {
+        pinned: page.meta.pinned,
+        expires_at: page.meta.expires_at.clone(),
+        ..PageMeta::default()
+    };
+    apply_metadata(&mut meta, args);
+    let content = render_meta(Some(&page.title), &meta, &page.body);
+    parse_page(rel, &content).map_err(|issues| invalid(rel, &issues))?;
+    publish(&path, rel, &content, true)?;
     drop(lock);
 
     let indexed = reindex::refresh(layout).is_ok();
@@ -371,3 +405,7 @@ fn similar_titles(dir: &Utf8Path, kind: PageKind, title: &str, skip: Option<&str
         })
         .collect()
 }
+
+#[cfg(test)]
+#[path = "../../../../tests/unit/action/memory/mcp_session_pages.rs"]
+mod session_tests;
