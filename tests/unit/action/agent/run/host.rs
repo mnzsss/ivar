@@ -371,3 +371,63 @@ fn write_roots_refuse_a_symlink_into_the_hall_state() {
         .expect_err("the link resolves into .ivar");
     assert_eq!(failure.code, "agent.write_refused");
 }
+
+#[test]
+fn a_login_dir_that_holds_the_home_refuses_write_with_its_variable() {
+    let (_guard, root) = hall_with_agent("runtime: host\ntool: claude\n");
+    let fake = HostFake::new(&root);
+    std::fs::create_dir_all(fake.home.join(".cache/m")).unwrap();
+    let home = fake.home.to_string();
+    let credentials = Tool::Claude.credentials(&fake.home, &|key| {
+        (key == "CLAUDE_CONFIG_DIR").then(|| home.clone())
+    });
+
+    let failure = write_roots(
+        &[WritePath::Home(".cache/m".into())],
+        &fake.home,
+        &root,
+        &credentials,
+    )
+    .expect_err("tool config would sit directly in the home");
+    assert_eq!(failure.code, "agent.write_refused");
+    assert!(
+        failure.what.contains("CLAUDE_CONFIG_DIR"),
+        "{}",
+        failure.what
+    );
+}
+
+#[test]
+fn an_agent_without_write_never_checks_protected_paths() {
+    let (_guard, root) = hall_with_agent("runtime: host\ntool: claude\n");
+    let fake = HostFake::new(&root);
+    let home = fake.home.to_string();
+    let credentials = Tool::Claude.credentials(&fake.home, &|key| {
+        (key == "CLAUDE_CONFIG_DIR").then(|| home.clone())
+    });
+    assert!(
+        write_roots(&[], &fake.home, &root, &credentials)
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn an_unresolvable_protected_path_is_named_in_the_refusal() {
+    let (_guard, root) = hall_with_agent("runtime: host\ntool: claude\n");
+    let fake = HostFake::new(&root);
+    std::fs::create_dir_all(root.join("brand")).unwrap();
+    let _ = std::fs::remove_file(root.join(".mcp.json"));
+    std::os::unix::fs::symlink("missing/../elsewhere", root.join(".mcp.json")).unwrap();
+
+    let failure = write_roots(&[WritePath::Hall("brand".into())], &fake.home, &root, &[])
+        .expect_err("an unresolvable protected path fails closed");
+    assert_eq!(failure.code, "agent.write_refused");
+    assert!(failure.what.contains(".mcp.json"), "{}", failure.what);
+    assert!(
+        failure.what.contains("does not resolve"),
+        "{}",
+        failure.what
+    );
+}

@@ -106,11 +106,15 @@ run starts. A path that does not exist fails the run with
 with `agent.write_refused` when it is, contains or sits inside a hall file
 the session write guard protects (`.env`, `.mcp.json`, provider hook configs
 such as `.claude/settings.json`), the hall's `.ivar/`, `.git/` or `agents/`,
-or the tool's login directory, and when it contains the home or the hall.
-An empty path, `..` or `~user` is refused when the agent file loads.
-Anything else you list
-becomes writable by the agent, including config other programs read: keep
-the list to the directories the run must produce.
+or the tool's login directory, and when it contains the home, the hall or
+the tool's login file. Every `write` is refused when the tool's login
+directory holds the home or the hall (`CLAUDE_CONFIG_DIR=$HOME`): point it at
+a dedicated directory. A protected path that does not resolve (a symlink
+loop, or a dangling link through `..`) also refuses every `write` and is
+named in the error. An empty path, `..` or `~user` is refused when the agent
+file loads. Anything else you list becomes writable by the agent, including
+config other programs read: keep the list to the directories the run must
+produce.
 
 What it does not isolate: **reads are ambient** and **the network is
 open**. Anything your user can read is exposed, including SSH keys and

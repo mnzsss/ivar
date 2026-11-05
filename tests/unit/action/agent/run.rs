@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::domain::agent::receipt::AgentRunOutcome;
+use crate::domain::agent::tool::Credential;
 use crate::infra::proc::Command;
 use crate::infra::proc::redirect_on_this_thread;
 use crate::store::layout::Layout;
