@@ -318,3 +318,7 @@ fn ivar_id(name: &str) -> Option<&str> {
 #[cfg(test)]
 #[path = "../../../tests/unit/harness/skills.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "../../../tests/unit/harness/skills_plan.rs"]
+mod plan_tests;
