@@ -124,3 +124,39 @@ fn telegram_text_fits_the_message_limit_and_keeps_the_end_of_the_output() {
     assert!(text.ends_with('😀'));
     assert!(text.starts_with(&format!("ivar agent {agent}: skipped\n")));
 }
+
+fn timed(started_at: &str, ended_at: &str, exit_code: Option<i32>) -> String {
+    let mut receipt = AgentRunReceipt::skipped(
+        "r1".into(),
+        "nightly".into(),
+        Trigger::Manual,
+        started_at.into(),
+    );
+    receipt.ended_at = ended_at.into();
+    receipt.exit_code = exit_code;
+    receipt.notify_summary("h").telegram_text()
+}
+
+#[test]
+fn telegram_text_shows_how_long_the_run_took() {
+    let text = timed(
+        "2026-11-05T21:07:12.900Z",
+        "2026-11-05T21:07:54.100Z",
+        Some(0),
+    );
+    assert!(text.ends_with("\nh · manual · r1 · 42s"), "{text}");
+    let text = timed("2026-11-05T21:07:12Z", "2026-11-05T21:09:26Z", Some(2));
+    assert!(
+        text.ends_with("\nh · manual · r1 · 2m14s · exit 2"),
+        "{text}"
+    );
+    let text = timed("2026-11-05T23:50:00Z", "2026-11-06T01:05:30Z", None);
+    assert!(text.ends_with("\nh · manual · r1 · 1h15m"), "{text}");
+}
+
+#[test]
+fn telegram_text_omits_a_zero_or_unreadable_duration() {
+    let instant = "2026-11-05T21:07:12Z";
+    assert!(timed(instant, instant, None).ends_with("\nh · manual · r1"));
+    assert!(timed("t", instant, None).ends_with("\nh · manual · r1"));
+}

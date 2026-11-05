@@ -41,9 +41,9 @@ impl NotifySummary<'_> {
     }
 
     fn meta_line(&self) -> String {
-        let exit = self.exit_suffix();
+        let details = self.run_details();
         format!(
-            "{} · {} · {}{exit}",
+            "{} · {} · {}{details}",
             self.hall,
             self.trigger.as_str(),
             self.run_id

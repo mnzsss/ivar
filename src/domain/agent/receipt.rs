@@ -4,6 +4,8 @@ use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
 
+use crate::domain::session::epoch_secs_from_rfc3339;
+
 pub const RECEIPT_VERSION: u32 = 1;
 
 const NOTIFY_TAIL_CHARS: usize = 2000;
@@ -131,18 +133,34 @@ pub struct NotifySummary<'a> {
 }
 
 impl NotifySummary<'_> {
-    /// Exit 0 repeats what `succeeded` already says.
-    pub(super) fn exit_suffix(&self) -> String {
-        match self.exit_code {
-            Some(code) if code != 0 => format!(" · exit {code}"),
-            _ => String::new(),
+    /// Duration and a non-zero exit code; exit 0 repeats what `succeeded` says.
+    pub(super) fn run_details(&self) -> String {
+        let exit = self
+            .exit_code
+            .filter(|code| *code != 0)
+            .map(|code| format!("exit {code}"));
+        [self.duration(), exit]
+            .into_iter()
+            .flatten()
+            .map(|part| format!(" · {part}"))
+            .collect()
+    }
+
+    fn duration(&self) -> Option<String> {
+        let started = epoch_secs_from_rfc3339(self.started_at)?;
+        let seconds = epoch_secs_from_rfc3339(self.ended_at)? - started;
+        match seconds {
+            ..=0 => None,
+            1..=59 => Some(format!("{seconds}s")),
+            60..=3599 => Some(format!("{}m{:02}s", seconds / 60, seconds % 60)),
+            _ => Some(format!("{}h{:02}m", seconds / 3600, seconds % 3600 / 60)),
         }
     }
 
     pub fn telegram_text(&self) -> String {
-        let exit = self.exit_suffix();
+        let details = self.run_details();
         let mut text = format!(
-            "ivar agent {}: {}\n{} · {} · {}{exit}",
+            "ivar agent {}: {}\n{} · {} · {}{details}",
             self.agent,
             self.outcome.as_str(),
             self.hall,
