@@ -60,6 +60,34 @@ fn tools_are_classified_failed_then_read_then_write_with_unknown_bash_as_write()
 }
 
 #[test]
+fn memory_reads_are_reads_and_memory_writes_are_writes_under_both_name_styles() {
+    let none = serde_json::json!({});
+    for name in [
+        "memory_query",
+        "mcp__acme-ivar__memory_query",
+        "acme-ivar_memory_read_page",
+        "mcp__acme-ivar__memory_lint",
+        "acme-ivar_memory_status",
+        "mcp__acme-ivar__memory_recent",
+        "acme-ivar_memory_read_session_observations",
+    ] {
+        assert_eq!(tool_effect(name, &none, false), ToolEffect::Reads, "{name}");
+    }
+    for name in [
+        "mcp__acme-ivar__memory_write_page",
+        "acme-ivar_memory_patch_page",
+        "mcp__acme-ivar__memory_delete_page",
+    ] {
+        assert_eq!(
+            tool_effect(name, &none, false),
+            ToolEffect::Writes,
+            "{name}"
+        );
+    }
+    assert_eq!(tool_effect("memory_query", &none, true), ToolEffect::Failed);
+}
+
+#[test]
 fn read_only_tools_record_only_name_and_path() {
     let body = tool_body(
         "Read",

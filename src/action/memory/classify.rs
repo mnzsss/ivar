@@ -16,6 +16,14 @@ const READ_TOOLS: [&str; 11] = [
     "glob",
     "list",
 ];
+const MEMORY_READ_TOOLS: [&str; 6] = [
+    "memory_query",
+    "memory_read_page",
+    "memory_lint",
+    "memory_status",
+    "memory_recent",
+    "memory_read_session_observations",
+];
 const READ_COMMANDS: [&str; 14] = [
     "git status",
     "git log",
@@ -48,7 +56,10 @@ pub fn tool_effect(name: &str, input: &serde_json::Value, failed: bool) -> ToolE
     if failed {
         return ToolEffect::Failed;
     }
-    if READ_TOOLS.contains(&name) || name.ends_with("graph_explore") {
+    if READ_TOOLS.contains(&name)
+        || name.ends_with("graph_explore")
+        || MEMORY_READ_TOOLS.iter().any(|tool| name.ends_with(tool))
+    {
         return ToolEffect::Reads;
     }
     if matches!(name, "Bash" | "bash") {
