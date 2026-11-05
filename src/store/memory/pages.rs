@@ -3,7 +3,7 @@
 use std::collections::BTreeSet;
 
 use rusqlite::types::Value;
-use rusqlite::{OptionalExtension, Transaction, params};
+use rusqlite::{Connection, OptionalExtension, Transaction, params};
 
 use super::db::MemoryDb;
 use crate::domain::memory_page::links::{Link, LinkKind, LinkTarget};
@@ -66,10 +66,9 @@ fn hit_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<PageHit> {
 /// # Errors
 ///
 /// Returns the `SQLite` error when the query fails.
-pub fn indexed_files(db: &MemoryDb) -> rusqlite::Result<Vec<IndexedFile>> {
-    let mut stmt = db
-        .conn()
-        .prepare("SELECT path, size, mtime_ns, content_hash FROM pages ORDER BY path")?;
+pub fn indexed_files(conn: &Connection) -> rusqlite::Result<Vec<IndexedFile>> {
+    let mut stmt =
+        conn.prepare("SELECT path, size, mtime_ns, content_hash FROM pages ORDER BY path")?;
     stmt.query_map([], |row| {
         Ok(IndexedFile {
             path: row.get(0)?,
@@ -106,20 +105,19 @@ fn target_text(target: &LinkTarget) -> String {
     }
 }
 
-/// Replaces every row of `page` in one transaction; links stay unresolved until `resolve_links`.
+/// Replaces every row of `page` inside `tx`; links stay unresolved until `resolve_links`.
 ///
 /// # Errors
 ///
-/// Returns the `SQLite` error; the previous rows are kept then.
+/// Returns the `SQLite` error; the caller decides whether to roll `tx` back.
 pub fn upsert_page(
-    db: &mut MemoryDb,
+    tx: &Transaction<'_>,
     page: &Page,
     file: &IndexedFile,
     indexed_at: &str,
     links: &[Link],
 ) -> rusqlite::Result<()> {
-    let tx = db.conn_mut().transaction()?;
-    delete_rows(&tx, &page.path)?;
+    delete_rows(tx, &page.path)?;
     let tags_json = serde_json::to_string(&page.meta.tags)
         .map_err(|error| rusqlite::Error::ToSqlConversionFailure(error.into()))?;
     tx.execute(
@@ -159,16 +157,14 @@ pub fn upsert_page(
             ])?;
         }
     }
-    tx.commit()
+    Ok(())
 }
 
 /// # Errors
 ///
-/// Returns the `SQLite` error; nothing is removed then.
-pub fn remove_page(db: &mut MemoryDb, path: &str) -> rusqlite::Result<()> {
-    let tx = db.conn_mut().transaction()?;
-    delete_rows(&tx, path)?;
-    tx.commit()
+/// Returns the `SQLite` error; the caller decides whether to roll `tx` back.
+pub fn remove_page(tx: &Transaction<'_>, path: &str) -> rusqlite::Result<()> {
+    delete_rows(tx, path)
 }
 
 fn file_stem(path: &str) -> &str {
@@ -213,28 +209,29 @@ fn resolve_target(paths: &[String], target_text: &str) -> Option<String> {
         .cloned()
 }
 
-/// Recomputes `to_path` for every link against the pages currently indexed.
+/// Recomputes `to_path` for every link against the pages currently indexed, writing only the
+/// links whose target changed.
 ///
 /// # Errors
 ///
-/// Returns the `SQLite` error; no link is changed then.
-pub fn resolve_links(db: &mut MemoryDb) -> rusqlite::Result<()> {
-    let tx = db.conn_mut().transaction()?;
+/// Returns the `SQLite` error; the caller decides whether to roll `tx` back.
+pub fn resolve_links(tx: &Transaction<'_>) -> rusqlite::Result<()> {
     let paths: Vec<String> = tx
         .prepare("SELECT path FROM pages ORDER BY path")?
         .query_map([], |row| row.get(0))?
         .collect::<rusqlite::Result<_>>()?;
-    let links: Vec<(i64, String)> = tx
-        .prepare("SELECT rowid, target_text FROM page_links")?
-        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+    let links: Vec<(i64, String, Option<String>)> = tx
+        .prepare("SELECT rowid, target_text, to_path FROM page_links")?
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
         .collect::<rusqlite::Result<_>>()?;
-    {
-        let mut update = tx.prepare("UPDATE page_links SET to_path = ?1 WHERE rowid = ?2")?;
-        for (rowid, text) in links {
-            update.execute(params![resolve_target(&paths, &text), rowid])?;
+    let mut update = tx.prepare("UPDATE page_links SET to_path = ?1 WHERE rowid = ?2")?;
+    for (rowid, text, current) in links {
+        let resolved = resolve_target(&paths, &text);
+        if resolved != current {
+            update.execute(params![resolved, rowid])?;
         }
     }
-    tx.commit()
+    Ok(())
 }
 
 /// # Errors

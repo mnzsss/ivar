@@ -16,7 +16,15 @@ fn put(db: &mut MemoryDb, path: &str, source: &str) {
         mtime_ns: 1,
         content_hash: "h".into(),
     };
-    upsert_page(db, &page, &file, "2026-11-05T00:00:00Z", &links).unwrap();
+    let tx = db.conn_mut().transaction().unwrap();
+    upsert_page(&tx, &page, &file, "2026-11-05T00:00:00Z", &links).unwrap();
+    tx.commit().unwrap();
+}
+
+fn resolve(db: &mut MemoryDb) {
+    let tx = db.conn_mut().transaction().unwrap();
+    resolve_links(&tx).unwrap();
+    tx.commit().unwrap();
 }
 
 fn open() -> (tempfile::TempDir, MemoryDb) {
@@ -118,7 +126,7 @@ fn links_resolve_by_slug_and_by_kind_and_slug_in_both_directions() {
     );
     put(&mut db, "docs/memory/decision/b.md", "# B\n");
     put(&mut db, "docs/memory/concept/c.md", "# C\n");
-    resolve_links(&mut db).unwrap();
+    resolve(&mut db);
     let mut around_b = linked_paths(&db, &["docs/memory/decision/b.md".into()]).unwrap();
     around_b.sort();
     assert_eq!(around_b, ["docs/memory/gotcha/a.md"]);
@@ -139,7 +147,7 @@ fn links_and_relations_resolve_to_session_pages_under_the_ephemeral_root() {
         "---\nrelations:\n  - type: derived_from\n    target: session/abc\n---\n# D\nsee [[session/abc]] and [[abc]]\n",
     );
     put(&mut db, ".ivar/memory/session/abc.md", "# Abc\n");
-    resolve_links(&mut db).unwrap();
+    resolve(&mut db);
     let resolved: Vec<Option<String>> = db
         .conn()
         .prepare("SELECT to_path FROM page_links ORDER BY rowid")
@@ -165,7 +173,7 @@ fn a_relation_is_stored_with_its_type_and_resolves_to_the_target_page() {
         "---\nrelations:\n  - type: supersedes\n    target: decision/old\n---\n# New\n",
     );
     put(&mut db, "docs/memory/decision/old.md", "# Old\n");
-    resolve_links(&mut db).unwrap();
+    resolve(&mut db);
     let (kind, to): (String, Option<String>) = db
         .conn()
         .query_row(
@@ -186,7 +194,9 @@ fn removing_a_page_removes_its_search_row_and_links() {
         "docs/memory/gotcha/a.md",
         "# A\nuniqueword [[b]]\n",
     );
-    remove_page(&mut db, "docs/memory/gotcha/a.md").unwrap();
+    let tx = db.conn_mut().transaction().unwrap();
+    remove_page(&tx, "docs/memory/gotcha/a.md").unwrap();
+    tx.commit().unwrap();
     assert!(
         search_pages(&db, "\"uniqueword\"", &filter(), 10)
             .unwrap()
@@ -197,4 +207,17 @@ fn removing_a_page_removes_its_search_row_and_links() {
         .query_row("SELECT count(*) FROM page_links", [], |r| r.get(0))
         .unwrap();
     assert_eq!(links, 0);
+}
+
+#[test]
+fn resolving_links_again_writes_nothing() {
+    let (_dir, mut db) = open();
+    put(&mut db, "docs/memory/gotcha/a.md", "# A\nsee [[b]]\n");
+    put(&mut db, "docs/memory/gotcha/b.md", "# B\n");
+    resolve(&mut db);
+    let before = db.conn().total_changes();
+
+    resolve(&mut db);
+
+    assert_eq!(db.conn().total_changes(), before);
 }

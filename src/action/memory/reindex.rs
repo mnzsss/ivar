@@ -128,17 +128,20 @@ fn mtime_ns(metadata: &std::fs::Metadata) -> i64 {
 
 fn index(layout: &Layout, db: &mut MemoryDb, full: bool) -> Result<ReindexReport, String> {
     let sql = |error: rusqlite::Error| error.to_string();
-    if full {
-        let tx = db.conn_mut().transaction().map_err(sql)?;
-        tx.execute_batch("DELETE FROM pages_fts; DELETE FROM page_links; DELETE FROM pages;")
-            .map_err(sql)?;
-        tx.commit().map_err(sql)?;
-    }
-    let rows: BTreeMap<String, IndexedFile> = pages::indexed_files(db)
+    let tx = db.conn_mut().transaction().map_err(sql)?;
+    let previous: BTreeMap<String, IndexedFile> = pages::indexed_files(&tx)
         .map_err(sql)?
         .into_iter()
         .map(|row| (row.path.clone(), row))
         .collect();
+    let no_rows = BTreeMap::new();
+    let known = if full {
+        tx.execute_batch("DELETE FROM pages_fts; DELETE FROM page_links; DELETE FROM pages;")
+            .map_err(sql)?;
+        &no_rows
+    } else {
+        &previous
+    };
     let mut report = ReindexReport::default();
     let mut kept = BTreeSet::new();
     let indexed_at = rfc3339_now();
@@ -150,7 +153,7 @@ fn index(layout: &Layout, db: &mut MemoryDb, full: bool) -> Result<ReindexReport
         let size = metadata.len();
         let mtime = mtime_ns(&metadata);
         let read = || std::fs::read_to_string(&file.path).ok();
-        if let Some(row) = rows.get(&file.rel)
+        if let Some(row) = known.get(&file.rel)
             && unchanged(row, size, mtime, read)
         {
             kept.insert(file.rel);
@@ -176,28 +179,45 @@ fn index(layout: &Layout, db: &mut MemoryDb, full: bool) -> Result<ReindexReport
             mtime_ns: mtime,
             content_hash: hash::text(&text),
         };
-        pages::upsert_page(db, &page, &indexed, &indexed_at, &links).map_err(sql)?;
+        pages::upsert_page(&tx, &page, &indexed, &indexed_at, &links).map_err(sql)?;
         kept.insert(file.rel);
         report.indexed += 1;
     }
-    for path in rows.keys().filter(|path| !kept.contains(*path)) {
-        pages::remove_page(db, path).map_err(sql)?;
+    for path in previous.keys().filter(|path| !kept.contains(*path)) {
+        pages::remove_page(&tx, path).map_err(sql)?;
         report.removed += 1;
     }
-    pages::resolve_links(db).map_err(sql)?;
+    if report.indexed > 0 || report.removed > 0 {
+        pages::resolve_links(&tx).map_err(sql)?;
+    }
+    tx.commit().map_err(sql)?;
     Ok(report)
 }
 
-fn record(layout: &Layout, outcome: &Result<ReindexReport, String>) {
+fn record_error(layout: &Layout, error: &str) {
     let mut state = read_state(layout);
-    match outcome {
-        Ok(report) => {
-            state.last_reindex_at = Some(rfc3339_now());
-            state.last_error = None;
-            state.pages = report.indexed + report.unchanged;
-        }
-        Err(error) => state.last_error = Some(error.clone()),
+    state.last_error = Some(error.to_owned());
+    write_state(layout, &state);
+}
+
+fn record(layout: &Layout, outcome: &Result<ReindexReport, String>) {
+    let report = match outcome {
+        Ok(report) => report,
+        Err(error) => return record_error(layout, error),
+    };
+    let mut state = read_state(layout);
+    let pages = report.indexed + report.unchanged;
+    let nothing_to_record = report.indexed == 0
+        && report.removed == 0
+        && state.last_error.is_none()
+        && state.last_reindex_at.is_some()
+        && state.pages == pages;
+    if nothing_to_record {
+        return;
     }
+    state.last_reindex_at = Some(rfc3339_now());
+    state.last_error = None;
+    state.pages = pages;
     write_state(layout, &state);
 }
 
@@ -212,6 +232,12 @@ fn finish(
             format!("could not index the memory pages: {error}"),
         )
     })
+}
+
+fn recorded<T>(layout: &Layout, locked: Result<T, impl Into<Failure>>) -> Result<T, Failure> {
+    locked
+        .map_err(Into::into)
+        .inspect_err(|failure| record_error(layout, &failure.what))
 }
 
 /// The caller must hold `memory.lock`; the lock is not re-entrant.
@@ -238,9 +264,9 @@ fn run(layout: &Layout, full: bool) -> Result<ReindexReport, Failure> {
 ///
 /// # Errors
 ///
-/// When the lock or the database cannot be used.
+/// When the lock or the database cannot be used; the error is recorded in `_reindex.json`.
 pub fn refresh(layout: &Layout) -> Result<ReindexReport, Failure> {
-    let _lock = fs::lock_exclusive(&layout.memory_lock())?;
+    let _lock = recorded(layout, fs::lock_exclusive(&layout.memory_lock()))?;
     run(layout, false)
 }
 
@@ -251,7 +277,7 @@ pub fn refresh(layout: &Layout) -> Result<ReindexReport, Failure> {
 ///
 /// When the lock or the database cannot be used.
 pub fn refresh_if_free(layout: &Layout) -> Result<ReindexReport, Failure> {
-    let Some(_lock) = fs::try_lock_exclusive(&layout.memory_lock())? else {
+    let Some(_lock) = recorded(layout, fs::try_lock_exclusive(&layout.memory_lock()))? else {
         return Ok(ReindexReport::default());
     };
     run(layout, false)
@@ -263,7 +289,7 @@ pub fn refresh_if_free(layout: &Layout) -> Result<ReindexReport, Failure> {
 ///
 /// When the lock or the database cannot be used.
 pub fn rebuild(layout: &Layout) -> Result<ReindexReport, Failure> {
-    let _lock = fs::lock_exclusive(&layout.memory_lock())?;
+    let _lock = recorded(layout, fs::lock_exclusive(&layout.memory_lock()))?;
     run(layout, true)
 }
 
