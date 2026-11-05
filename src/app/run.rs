@@ -348,6 +348,37 @@ pub fn run(cli: Cli) -> ExitCode {
                 &mut stdout,
                 &mut stderr,
             ),
+            MemoryCommand::Query {
+                text,
+                kind,
+                tier,
+                tag,
+                limit,
+                include_expired,
+                explain,
+            } => respond(
+                crate::action::memory::query::query(
+                    &ctx,
+                    &crate::action::memory::query::QueryInput {
+                        text,
+                        kinds: kind,
+                        tier,
+                        tag,
+                        limit,
+                        include_expired,
+                        explain,
+                    },
+                ),
+                json,
+                &mut stdout,
+                &mut stderr,
+            ),
+            MemoryCommand::Reindex => respond(
+                crate::action::memory::reindex::reindex(&ctx),
+                json,
+                &mut stdout,
+                &mut stderr,
+            ),
         },
         // Git's credential protocol is raw on stdin/stdout — it must not pass
         // through `respond`, which would render a `Report` on top of it.

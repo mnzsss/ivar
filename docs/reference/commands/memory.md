@@ -16,6 +16,29 @@ Show the hall memory database: path, schema version, application id, size, obser
 Delete the hall memory database after confirmation. Nothing else deletes it
 
 
+## `ivar memory query`
+
+Search the pages under docs/memory. When no page matches and no filter is set, retained observations answer instead
+
+| argument | required | description |
+| --- | --- | --- |
+| `text` | yes | Words to search for |
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--kind` | `<KIND>` |  | Keep only pages of this kind (repeatable) |
+| `--tier` | `<TIER>` |  | Keep only pages of this tier: semantic, procedural, episodic or working |
+| `--tag` | `<TAG>` |  | Keep only pages carrying this exact tag |
+| `--limit` | `<LIMIT>` | `10` | Most results to return (at most 20) |
+| `--include-expired` |  |  | Also return pages whose expires_at has passed |
+| `--explain` |  |  | Show how each source ranked every result |
+
+
+## `ivar memory reindex`
+
+Rebuild the page index from docs/memory. Observations are not touched
+
+
 ## `ivar memory capture`
 
 Record one session hook event into the capture spool. Always exits 0 and prints nothing

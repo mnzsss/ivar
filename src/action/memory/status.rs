@@ -6,12 +6,14 @@ use camino::{Utf8Path, Utf8PathBuf};
 use serde::Serialize;
 
 use crate::action::memory::drain::{drain_locked, read_state};
+use crate::action::memory::reindex;
 use crate::action::memory::sweep;
 use crate::action::{Ctx, discover_hall};
 use crate::error::{Failure, Outcome, Report, WriteHuman};
 use crate::infra::fs;
 use crate::store::memory::db::MemoryDb;
 use crate::store::memory::observations::count_by_source_event;
+use crate::store::memory::pages::count_by_kind;
 use crate::store::memory::retention::{SESSION_RETENTION_DAYS, oldest_session_last_observation};
 use crate::store::memory::spool;
 
@@ -27,6 +29,21 @@ pub struct MemoryStatusOutcome {
     pub last_drain_at: Option<String>,
     pub last_drain_error: Option<String>,
     pub retention: RetentionStatus,
+    pub pages: PagesStatus,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct KindCount {
+    pub kind: String,
+    pub count: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct PagesStatus {
+    pub by_kind: Vec<KindCount>,
+    pub last_reindex_at: Option<String>,
+    pub last_reindex_error: Option<String>,
+    pub invalid: usize,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -104,12 +121,27 @@ pub fn status(ctx: &Ctx) -> Outcome<MemoryStatusOutcome> {
             format!("could not read `{path}`: {error}"),
         )
     })?;
-    let db = MemoryDb::open(path.as_std_path()).map_err(|error| {
+    let mut db = MemoryDb::open(path.as_std_path()).map_err(|error| {
         Failure::failed(
             "memory.open_failed",
             format!("could not open `{path}`: {error}"),
         )
     })?;
+    let invalid = reindex::refresh_locked(&layout, &mut db, false)
+        .map(|report| report.invalid.len())
+        .unwrap_or_default();
+    let by_kind = count_by_kind(&db)
+        .map_err(|error| Failure::failed("memory.read_failed", error.to_string()))?
+        .into_iter()
+        .map(|(kind, count)| KindCount { kind, count })
+        .collect();
+    let reindex_state = reindex::read_state(&layout);
+    let pages = PagesStatus {
+        by_kind,
+        last_reindex_at: reindex_state.last_reindex_at,
+        last_reindex_error: reindex_state.last_error,
+        invalid,
+    };
     let observations = count_by_source_event(&db)
         .map_err(|error| Failure::failed("memory.read_failed", error.to_string()))?
         .into_iter()
@@ -140,6 +172,7 @@ pub fn status(ctx: &Ctx) -> Outcome<MemoryStatusOutcome> {
         last_drain_at: state.last_drain_at,
         last_drain_error: state.last_error,
         retention,
+        pages,
     }))
 }
 
@@ -189,6 +222,18 @@ impl WriteHuman for MemoryStatusOutcome {
         )?;
         if let Some(error) = &self.retention.last_sweep_error {
             writeln!(w, "  last sweep error: {error}")?;
+        }
+        for count in &self.pages.by_kind {
+            writeln!(w, "  pages {}: {}", count.kind, count.count)?;
+        }
+        writeln!(
+            w,
+            "  last reindex: {}, {} invalid",
+            self.pages.last_reindex_at.as_deref().unwrap_or("never"),
+            self.pages.invalid
+        )?;
+        if let Some(error) = &self.pages.last_reindex_error {
+            writeln!(w, "  last reindex error: {error}")?;
         }
         Ok(())
     }

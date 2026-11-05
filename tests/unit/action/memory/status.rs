@@ -165,3 +165,30 @@ fn status_reports_the_retention_window_and_the_stalest_session() {
         Some(&serde_json::json!(30))
     );
 }
+
+#[test]
+fn status_reports_pages_per_kind_and_the_last_reindex() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root.clone());
+    std::fs::create_dir_all(layout.root().join("docs/memory/gotcha")).unwrap();
+    std::fs::write(layout.root().join("docs/memory/gotcha/a.md"), "# A\n").unwrap();
+    std::fs::write(
+        layout.root().join("docs/memory/gotcha/Bad_Slug.md"),
+        "# B\n",
+    )
+    .unwrap();
+
+    let value = status(&Ctx::new(root)).unwrap().value;
+
+    assert_eq!(
+        value
+            .pages
+            .by_kind
+            .iter()
+            .map(|k| (k.kind.as_str(), k.count))
+            .collect::<Vec<_>>(),
+        [("gotcha", 1)]
+    );
+    assert!(value.pages.last_reindex_at.is_some());
+    assert_eq!(value.pages.invalid, 1);
+}
