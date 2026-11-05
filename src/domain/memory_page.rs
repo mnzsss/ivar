@@ -184,7 +184,8 @@ fn issue(code: PageIssueCode, message: impl Into<String>) -> PageIssue {
     }
 }
 
-fn is_kebab(slug: &str) -> bool {
+#[must_use]
+pub fn is_kebab(slug: &str) -> bool {
     !slug.is_empty()
         && slug.split('-').all(|part| {
             !part.is_empty()
@@ -194,7 +195,8 @@ fn is_kebab(slug: &str) -> bool {
         })
 }
 
-fn has_number_prefix(slug: &str) -> bool {
+#[must_use]
+pub fn has_number_prefix(slug: &str) -> bool {
     slug.split_once('-').is_some_and(|(number, rest)| {
         number.len() == 3 && number.bytes().all(|b| b.is_ascii_digit()) && !rest.is_empty()
     })

@@ -1,6 +1,7 @@
 mod confine;
 mod instructions;
 mod observations;
+mod pages;
 mod tools;
 
 use serde_json::{Value, json};
@@ -14,6 +15,7 @@ pub use instructions::{KIND_DEFINITIONS, MEMORY_INSTRUCTIONS};
 
 const MAX_LIMIT: usize = 20;
 const DEFAULT_LIMIT: usize = 10;
+const SIMILAR_TITLE_THRESHOLD: f64 = 0.8;
 
 pub const TOOL_NAMES: &[&str] = &[
     "memory_query",
@@ -21,6 +23,7 @@ pub const TOOL_NAMES: &[&str] = &[
     "memory_read_page",
     "memory_recent",
     "memory_read_session_observations",
+    "memory_write_page",
 ];
 
 #[must_use]
@@ -43,6 +46,7 @@ pub fn call(layout: &Layout, name: &str, args: &Value) -> Result<String, String>
         "memory_read_page" => read_page(layout, args),
         "memory_recent" => observations::recent(layout, args),
         "memory_read_session_observations" => observations::session(layout, args),
+        "memory_write_page" => pages::write(layout, args),
         other => Err(format!("Unknown tool: {other}")),
     }
 }
@@ -126,3 +130,7 @@ mod tests;
 #[cfg(test)]
 #[path = "../../../../tests/unit/action/memory/mcp_observations.rs"]
 mod observation_tests;
+
+#[cfg(test)]
+#[path = "../../../../tests/unit/action/memory/mcp_pages.rs"]
+mod page_tests;

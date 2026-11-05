@@ -1,5 +1,7 @@
 use serde_json::{Value, json};
 
+use super::KIND_DEFINITIONS;
+
 fn read_only(name: &str, description: &str, properties: &Value, required: &[&str]) -> Value {
     json!({
         "name": name,
@@ -62,5 +64,36 @@ pub(super) fn definitions() -> Vec<Value> {
             }),
             &["session"],
         ),
+        write_page(),
     ]
+}
+
+fn write_page() -> Value {
+    json!({
+        "name": "memory_write_page",
+        "description": format!("Write a page under docs/memory/<kind>/. Never commits. Kinds: {KIND_DEFINITIONS}. The kind `session` is refused: only the consolidation writes it."),
+        "annotations": { "readOnlyHint": false },
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "kind": { "type": "string", "description": "Page kind" },
+                "title": { "type": "string", "description": "Page title; the slug derives from it" },
+                "body": { "type": "string", "description": "Markdown body" },
+                "slug": { "type": "string", "description": "Kebab-case slug; defaults to the title. Product and update pages get their NNN- number from the tool, so omit it" },
+                "tags": { "type": "array", "items": { "type": "string" } },
+                "pinned": { "type": "boolean" },
+                "relations": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": { "type": { "type": "string" }, "target": { "type": "string" } },
+                        "required": ["type", "target"]
+                    }
+                },
+                "expires_at": { "type": "string", "description": "RFC 3339 expiry" },
+                "replace": { "type": "boolean", "description": "Overwrite an existing page of the same path (default false)" }
+            },
+            "required": ["kind", "title"]
+        }
+    })
 }

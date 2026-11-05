@@ -1,4 +1,4 @@
-use camino::Utf8PathBuf;
+use camino::{Utf8Path, Utf8PathBuf};
 
 use crate::domain::memory_page::{DURABLE_ROOT, EPHEMERAL_ROOT, PageKind};
 use crate::store::layout::Layout;
@@ -27,4 +27,47 @@ pub(super) fn resolve_readable(layout: &Layout, rel: &str) -> Result<Utf8PathBuf
         return Err(format!("`{rel}` resolves outside the hall"));
     }
     Ok(path)
+}
+
+pub(super) struct Target {
+    pub kind: PageKind,
+    pub path: Utf8PathBuf,
+}
+
+pub(super) fn resolve_durable(layout: &Layout, rel: &str) -> Result<Target, String> {
+    let parts: Vec<&str> = rel.split('/').collect();
+    let shaped = match parts.as_slice() {
+        ["docs", "memory", kind, file] => PageKind::parse(kind)
+            .filter(|kind| kind.is_durable())
+            .filter(|_| {
+                !rel.contains('\\')
+                    && file.len() > ".md".len()
+                    && file.ends_with(".md")
+                    && !file.starts_with('.')
+            }),
+        _ => None,
+    };
+    let Some(kind) = shaped else {
+        return Err(format!(
+            "`{rel}` is not docs/memory/<durable kind>/<slug>.md"
+        ));
+    };
+    let path = layout.root().join(rel);
+    refuse_symlinks(layout.root(), &path)?;
+    Ok(Target { kind, path })
+}
+
+pub(super) fn refuse_symlinks(root: &Utf8Path, path: &Utf8Path) -> Result<(), String> {
+    let mut current = root.to_path_buf();
+    for component in path
+        .strip_prefix(root)
+        .map_err(|error| error.to_string())?
+        .components()
+    {
+        current.push(component);
+        if std::fs::symlink_metadata(&current).is_ok_and(|meta| meta.file_type().is_symlink()) {
+            return Err(format!("`{current}` is a symlink"));
+        }
+    }
+    Ok(())
 }
