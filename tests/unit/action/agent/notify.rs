@@ -141,6 +141,29 @@ fn telegram_sends_the_run_text_to_the_chat() {
 }
 
 #[test]
+fn telegram_sends_a_timed_out_run_with_its_exit_code_and_tail() {
+    let fake = FakeTelegram::start(vec![(200, r#"{"ok":true,"result":{}}"#)]);
+    let mut receipt = skipped();
+    receipt.outcome = AgentRunOutcome::TimedOut;
+    receipt.exit_code = Some(124);
+    receipt.output = "step 3 of 9\nstill waiting".into();
+    deliver_to(
+        &spec(Some("telegram:-100123".into())),
+        &mut receipt,
+        || Ok("123:secret".into()),
+        &fake.api,
+    );
+    let request = &fake.requests()[0];
+    assert!(
+        request.contains("ivar agent nightly: timed_out"),
+        "{request}"
+    );
+    assert!(request.contains("exit 124"), "{request}");
+    assert!(request.contains(r"step 3 of 9\nstill waiting"), "{request}");
+    assert_eq!(receipt.notify_error, None);
+}
+
+#[test]
 fn a_failed_telegram_send_never_records_the_token() {
     let fake = FakeTelegram::start(vec![(
         401,
