@@ -42,13 +42,13 @@ pub(crate) const OBSERVATIONS_TABLE: &str = "observations";
 // The version lives in a table, not only in `user_version`: an ivar older than
 // the split opens this file as its graph and overwrites `user_version` with the
 // graph's version, and the repair needs the real one back.
-const MIGRATION_V1: &str = "
+pub(crate) const MIGRATION_V1: &str = "
 CREATE TABLE memory_schema (version INTEGER NOT NULL);
 INSERT INTO memory_schema (version) VALUES (1);
 ";
 
 // DELETE stays allowed: the retention sweep removes expired observations.
-const MIGRATION_V2: &str = "
+pub(crate) const MIGRATION_V2: &str = "
 CREATE TABLE observations (
     id                INTEGER PRIMARY KEY,
     event_id          TEXT NOT NULL UNIQUE,
@@ -111,20 +111,19 @@ END;
 INSERT INTO observations_fts (observations_fts) VALUES ('rebuild');
 ";
 
-pub(crate) fn migrate_up_to(tx: &Transaction<'_>, from: i64, to: i64) -> rusqlite::Result<()> {
-    if from < 1 && to >= 1 {
+pub(crate) fn migrate(tx: &Transaction<'_>, from: i64) -> rusqlite::Result<()> {
+    if from < 1 {
         tx.execute_batch(MIGRATION_V1)?;
     }
-    if from < 2 && to >= 2 {
+    if from < 2 {
         tx.execute_batch(MIGRATION_V2)?;
     }
-    if from < 3 && to >= 3 {
+    if from < 3 {
         tx.execute_batch(MIGRATION_V3)?;
     }
-    tx.execute("UPDATE memory_schema SET version = ?1", [to])?;
-    tx.execute_batch(&format!("PRAGMA user_version = {to};"))
-}
-
-pub(crate) fn migrate(tx: &Transaction<'_>, from: i64) -> rusqlite::Result<()> {
-    migrate_up_to(tx, from, MEMORY_SCHEMA_VERSION)
+    tx.execute(
+        "UPDATE memory_schema SET version = ?1",
+        [MEMORY_SCHEMA_VERSION],
+    )?;
+    tx.execute_batch(&format!("PRAGMA user_version = {MEMORY_SCHEMA_VERSION};"))
 }

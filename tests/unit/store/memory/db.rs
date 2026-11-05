@@ -229,7 +229,13 @@ fn schema_two_migrates_to_three_and_indexes_existing_observations() {
         conn.execute_batch(&format!("PRAGMA application_id = {APPLICATION_ID};"))
             .unwrap();
         let tx = conn.transaction().unwrap();
-        crate::store::memory::schema::migrate_up_to(&tx, 0, 2).unwrap();
+        tx.execute_batch(crate::store::memory::schema::MIGRATION_V1)
+            .unwrap();
+        tx.execute_batch(crate::store::memory::schema::MIGRATION_V2)
+            .unwrap();
+        tx.execute("UPDATE memory_schema SET version = 2", [])
+            .unwrap();
+        tx.execute_batch("PRAGMA user_version = 2;").unwrap();
         tx.execute(
             "INSERT INTO observations (event_id, source_event, occurred_at, native_session_id, provider, ivar_version, importance, body)
              VALUES ('e1', 'delivery.pr', '2026-11-01T00:00:00Z', '', 'claude-code', '0', 4, 'opened the pull request for teardown')",
