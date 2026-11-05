@@ -211,7 +211,7 @@ pub(crate) fn finish(
     spec: &AgentSpec,
     mut receipt: AgentRunReceipt,
 ) -> Outcome<AgentRunReceipt> {
-    notify::deliver(spec, &mut receipt);
+    notify::deliver(layout, spec, &mut receipt);
     store::agent::write_receipt(layout, &receipt)?;
     Ok(Report::new(receipt))
 }

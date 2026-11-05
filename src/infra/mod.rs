@@ -25,6 +25,7 @@ pub mod progress;
 pub mod release;
 pub mod systemd;
 pub mod table;
+pub mod telegram;
 pub mod term;
 pub mod url;
 pub mod webhook;
