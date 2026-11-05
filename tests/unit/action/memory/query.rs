@@ -150,3 +150,35 @@ fn an_unknown_kind_or_tier_is_refused_and_an_oversized_limit_is_capped() {
     many.limit = 500;
     assert_eq!(query(&Ctx::new(root), &many).unwrap().value.pages.len(), 20);
 }
+
+#[test]
+fn an_expired_page_reached_through_a_link_stays_hidden_unless_included() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root.clone());
+    page(
+        &layout,
+        "docs/memory/gotcha/a.md",
+        "# A\nabout teardown, see [[b]]\n",
+    );
+    page(
+        &layout,
+        "docs/memory/decision/b.md",
+        "---\nexpires_at: 2020-01-01T00:00:00Z\n---\n# B\nunrelated words\n",
+    );
+
+    let hidden = query(&Ctx::new(root.clone()), &input("teardown"))
+        .unwrap()
+        .value;
+    let mut including = input("teardown");
+    including.include_expired = true;
+    let shown = query(&Ctx::new(root), &including).unwrap().value;
+
+    let paths = |outcome: &QueryOutcome| -> Vec<String> {
+        outcome.pages.iter().map(|h| h.path.clone()).collect()
+    };
+    assert_eq!(paths(&hidden), ["docs/memory/gotcha/a.md"]);
+    assert_eq!(
+        paths(&shown),
+        ["docs/memory/gotcha/a.md", "docs/memory/decision/b.md"]
+    );
+}

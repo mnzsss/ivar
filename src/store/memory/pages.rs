@@ -317,14 +317,16 @@ pub fn page_by_path(
     db: &MemoryDb,
     path: &str,
     snippet_of: Option<&str>,
+    live_at: Option<&str>,
 ) -> rusqlite::Result<Option<PageHit>> {
     let conn = db.conn();
     let Some(mut hit) = conn
         .query_row(
             "SELECT p.path, p.kind, p.tier, p.title, p.pinned, pages_fts.body, 0.0
                FROM pages p JOIN pages_fts ON pages_fts.rowid = p.id
-              WHERE p.path = ?1",
-            [path],
+              WHERE p.path = ?1
+                AND (?2 IS NULL OR p.expires_at IS NULL OR p.expires_at >= ?2)",
+            params![path, live_at],
             hit_from_row,
         )
         .optional()?

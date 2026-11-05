@@ -139,6 +139,7 @@ fn fuse(
     if filtered {
         return Ok(ranked.into_values().collect());
     }
+    let live_at = (!filter.include_expired).then_some(filter.now.as_str());
     let seeds: Vec<String> = fts_hits
         .iter()
         .take(NEIGHBOUR_SEEDS)
@@ -152,7 +153,7 @@ fn fuse(
                 source: "links".into(),
                 rank,
             });
-        } else if let Some(mut hit) = pages::page_by_path(db, &path, None)? {
+        } else if let Some(mut hit) = pages::page_by_path(db, &path, None, live_at)? {
             hit.snippet.clone_from(&hit.title);
             ranked.insert(
                 path,
