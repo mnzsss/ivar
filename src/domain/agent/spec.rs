@@ -2,6 +2,7 @@
 
 use std::time::Duration;
 
+use camino::{Utf8Path, Utf8PathBuf};
 use serde::{Deserialize, Serialize};
 
 use super::cron::CronExpr;
@@ -32,6 +33,8 @@ pub struct AgentFrontmatter {
     pub workdir: Option<String>,
     #[serde(default)]
     pub catchup: bool,
+    #[serde(default)]
+    pub write: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -108,6 +111,46 @@ fn notify_target(value: &str) -> Result<NotifyTarget, SpecError> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WritePath {
+    Absolute(Utf8PathBuf),
+    Home(Utf8PathBuf),
+    Hall(Utf8PathBuf),
+}
+
+impl WritePath {
+    /// # Errors
+    ///
+    /// When `raw` is empty, has a `..` segment or names another user's home.
+    pub fn parse(raw: &str) -> Result<Self, String> {
+        if raw.is_empty() || raw.split('/').any(|part| part == "..") {
+            return Err(format!("`{raw}` must be a non-empty path without `..`"));
+        }
+        if raw.starts_with('~') && raw != "~" && !raw.starts_with("~/") {
+            return Err(format!(
+                "`{raw}` names another user's home; use `~/…` or an absolute path"
+            ));
+        }
+        Ok(if raw == "~" {
+            Self::Home(Utf8PathBuf::new())
+        } else if let Some(rest) = raw.strip_prefix("~/") {
+            Self::Home(rest.into())
+        } else if raw.starts_with('/') {
+            Self::Absolute(raw.into())
+        } else {
+            Self::Hall(raw.into())
+        })
+    }
+
+    pub fn resolve(&self, home: &Utf8Path, hall: &Utf8Path) -> Utf8PathBuf {
+        match self {
+            Self::Absolute(path) => path.clone(),
+            Self::Home(rel) => home.join(rel),
+            Self::Hall(rel) => hall.join(rel),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AgentSpec {
     pub name: String,
     pub schedule: CronExpr,
@@ -120,6 +163,7 @@ pub struct AgentSpec {
     pub timeout: Duration,
     pub workdir: Option<String>,
     pub catchup: bool,
+    pub write: Vec<WritePath>,
     pub prompt: String,
 }
 
@@ -205,6 +249,18 @@ impl AgentSpec {
                 ));
             }
         }
+        if fm.runtime != Runtime::Host && !fm.write.is_empty() {
+            return Err(err(
+                "write",
+                "`write` adds Landlock roots to a `runtime: host` run; remove it or set `runtime: host`",
+            ));
+        }
+        let write = fm
+            .write
+            .iter()
+            .map(|raw| WritePath::parse(raw))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|reason| err("write", reason))?;
         let launch = launch_of(&fm)?;
         if let Some(bad) = fm.network.iter().find(|d| !is_host(d)) {
             return Err(err(
@@ -252,6 +308,7 @@ impl AgentSpec {
             timeout,
             workdir: fm.workdir,
             catchup: fm.catchup,
+            write,
             prompt: prompt.to_owned(),
         })
     }
