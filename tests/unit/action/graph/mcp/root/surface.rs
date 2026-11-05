@@ -29,10 +29,7 @@ fn test_mcp_initialize_and_tools_list() {
 
     let init_resp: Value = serde_json::from_str(&lines[0]).expect("parse init");
     assert_eq!(init_resp["id"], 1);
-    assert_eq!(
-        init_resp["result"]["serverInfo"]["name"],
-        "ivar-codebase-graph"
-    );
+    assert_eq!(init_resp["result"]["serverInfo"]["name"], "ivar");
 
     let list_resp: Value = serde_json::from_str(&lines[1]).expect("parse list");
     assert_eq!(list_resp["id"], 2);

@@ -217,7 +217,7 @@ where
                     "tools": {}
                 },
                 "serverInfo": {
-                    "name": "ivar-codebase-graph",
+                    "name": "ivar",
                     "version": env!("CARGO_PKG_VERSION")
                 },
                 "instructions": INSTRUCTIONS

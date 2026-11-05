@@ -7,7 +7,8 @@ use crate::store::manifest::{Manifest, MigrationPlan};
 
 use super::outcome::McpRegistration;
 
-const SERVER_NAME: &str = "graph";
+pub(crate) const SERVER_NAME: &str = "ivar";
+pub(crate) const LEGACY_SERVER_NAME: &str = "graph";
 
 fn graph_server() -> McpServerDef {
     McpServerDef::new(SERVER_NAME, "local")
@@ -37,8 +38,8 @@ pub fn register_graph_mcp(
         let warning = Warning::new(
             "graph.mcp_name_clash",
             "ivar.json",
-            "an MCP server named `graph` already exists with a different command, so the graph \
-             MCP server was not registered; add `{\"name\":\"ivar-graph\",\"type\":\"local\",\
+            "an MCP server named `ivar` already exists with a different command, so the graph \
+             MCP server was not registered; add `{\"name\":\"ivar\",\"type\":\"local\",\
              \"command\":\"ivar\",\"args\":[\"graph\",\"mcp\"]}` to `mcp` by hand, then run `ivar sync`",
         );
         return (McpRegistration::NameClash, Some(warning));
