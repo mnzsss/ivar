@@ -1,5 +1,5 @@
 use crate::action::Ctx;
-use crate::action::memory::status::status;
+use crate::action::memory::status::{status, status_in};
 use crate::error::WriteHuman;
 use crate::store::graph::db::GraphDb;
 use crate::store::layout::Layout;
@@ -214,5 +214,21 @@ fn status_surfaces_a_failed_page_refresh_instead_of_reporting_zero_invalid() {
         String::from_utf8(human)
             .unwrap()
             .contains("page refresh failed")
+    );
+}
+
+#[test]
+fn status_in_reports_from_a_layout_without_a_ctx() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root.clone());
+
+    let mut via_layout = status_in(&layout).unwrap().value;
+    let mut via_ctx = status(&Ctx::new(root)).unwrap().value;
+    via_layout.last_drain_at = None;
+    via_ctx.last_drain_at = None;
+
+    assert_eq!(
+        serde_json::to_value(&via_layout).unwrap(),
+        serde_json::to_value(&via_ctx).unwrap()
     );
 }

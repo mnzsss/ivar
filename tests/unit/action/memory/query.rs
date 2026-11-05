@@ -257,3 +257,18 @@ fn fts_operators_in_the_text_never_raise_a_syntax_error() {
 
     assert!(outcome.is_ok());
 }
+
+#[test]
+fn query_in_answers_from_a_layout_without_a_ctx() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root);
+    page(
+        &layout,
+        "docs/memory/gotcha/teardown.md",
+        "# Teardown\nabout teardown\n",
+    );
+
+    let outcome = query_in(&layout, &input("teardown")).unwrap().value;
+
+    assert_eq!(outcome.pages[0].path, "docs/memory/gotcha/teardown.md");
+}
