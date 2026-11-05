@@ -38,6 +38,7 @@ use support::{home, isolated_ivar, run_ok};
 
 const PROMPT: &str = "Read the file README.md and answer with its first word.";
 const QUERY_PROMPT: &str = "Run `ivar memory query seeded-page --json` in the shell and answer with the path of the first result.";
+const MCP_PROMPT: &str = "Call the memory_write_page tool with kind decision, title Live check and body from the live check. Then answer with the path it returned.";
 const T3_THREAD_WAIT: Duration = Duration::from_secs(180);
 
 #[derive(Clone, Copy, Debug)]
@@ -148,6 +149,38 @@ impl Live {
                 QUERY_PROMPT,
             ],
             Self::OpenCode => vec!["run", "--format", "json", QUERY_PROMPT],
+        };
+        args.into_iter().map(str::to_owned).collect()
+    }
+}
+
+impl Live {
+    fn mcp_args(self, view: &Utf8Path) -> Vec<String> {
+        let args: Vec<&str> = match self {
+            Self::Claude => vec![
+                "-p",
+                MCP_PROMPT,
+                "--output-format",
+                "stream-json",
+                "--verbose",
+                "--model",
+                "haiku",
+                "--allowedTools",
+                "mcp__acme-ivar__memory_write_page",
+            ],
+            Self::Omp => vec![
+                "-p",
+                "--mode",
+                "json",
+                "--no-session",
+                "--no-title",
+                "--model",
+                "haiku",
+                "--cwd",
+                view.as_str(),
+                MCP_PROMPT,
+            ],
+            Self::OpenCode => vec!["run", "--format", "json", MCP_PROMPT],
         };
         args.into_iter().map(str::to_owned).collect()
     }
@@ -342,6 +375,44 @@ fn omp_runs_memory_query() {
 #[ignore = "needs provider credentials: opencode"]
 fn opencode_runs_memory_query() {
     pages_scenario(Live::OpenCode);
+}
+
+fn mcp_scenario(live: Live) {
+    if !live.enabled() {
+        return;
+    }
+    let (_guard, root) = scratch_hall();
+    let (id, view) = session(&root, "mcp", live.provider());
+    finish(launch(&root, &id, live, &live.mcp_args(&view)));
+    stop(&root, &id);
+    assert!(
+        root.join("docs/memory/decision/live-check.md").exists(),
+        "{live:?}: memory_write_page did not create docs/memory/decision/live-check.md"
+    );
+    assert!(
+        tool_bodies(&root)
+            .iter()
+            .any(|body| body.contains("memory_write_page")),
+        "{live:?}: no memory_write_page call was captured"
+    );
+}
+
+#[test]
+#[ignore = "needs provider credentials: claude"]
+fn claude_writes_a_page_through_the_mcp_tool() {
+    mcp_scenario(Live::Claude);
+}
+
+#[test]
+#[ignore = "needs provider credentials: omp"]
+fn omp_writes_a_page_through_the_mcp_tool() {
+    mcp_scenario(Live::Omp);
+}
+
+#[test]
+#[ignore = "needs provider credentials: opencode"]
+fn opencode_writes_a_page_through_the_mcp_tool() {
+    mcp_scenario(Live::OpenCode);
 }
 
 /// T3 threads live in the desktop app, so a human opens a thread, sends a prompt and archives

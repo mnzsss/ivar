@@ -41,6 +41,9 @@ mod memory_capture;
 #[path = "cli/memory_capture_contract.rs"]
 mod memory_capture_contract;
 
+#[path = "cli/memory_mcp_contract.rs"]
+mod memory_mcp_contract;
+
 #[path = "cli/memory_pages_contract.rs"]
 mod memory_pages_contract;
 
