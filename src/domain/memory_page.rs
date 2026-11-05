@@ -1,3 +1,5 @@
+pub mod links;
+
 use serde::Deserialize;
 
 pub const DURABLE_ROOT: &str = "docs/memory/";
