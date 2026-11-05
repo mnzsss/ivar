@@ -206,7 +206,7 @@ pub fn query(ctx: &Ctx, input: &QueryInput) -> Outcome<QueryOutcome> {
         include_expired: input.include_expired,
         now: rfc3339_now(),
     };
-    reindex::refresh(&layout)?;
+    let _ = reindex::refresh(&layout);
     let Some(expression) = fts_expression(&input.text) else {
         return Ok(Report::new(QueryOutcome {
             pages: Vec::new(),

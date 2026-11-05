@@ -144,6 +144,7 @@ fn index(layout: &Layout, db: &mut MemoryDb, full: bool) -> Result<ReindexReport
     let indexed_at = rfc3339_now();
     for file in walk_pages(layout) {
         let Ok(metadata) = std::fs::metadata(&file.path) else {
+            kept.insert(file.rel);
             continue;
         };
         let size = metadata.len();

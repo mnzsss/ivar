@@ -182,3 +182,34 @@ fn an_expired_page_reached_through_a_link_stays_hidden_unless_included() {
         ["docs/memory/gotcha/a.md", "docs/memory/decision/b.md"]
     );
 }
+
+#[test]
+fn a_reindex_that_cannot_run_leaves_the_last_good_index_answering() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root.clone());
+    page(
+        &layout,
+        "docs/memory/gotcha/teardown.md",
+        "# Teardown\nabout worktree teardown\n",
+    );
+    query(&Ctx::new(root.clone()), &input("teardown")).unwrap();
+    let lock = layout.memory_lock();
+    let _ = std::fs::remove_file(&lock);
+    std::fs::create_dir_all(&lock).unwrap();
+    assert!(reindex::refresh(&layout).is_err());
+
+    let outcome = query(&Ctx::new(root), &input("teardown")).unwrap().value;
+
+    assert_eq!(outcome.pages[0].path, "docs/memory/gotcha/teardown.md");
+}
+
+#[test]
+fn fts_operators_in_the_text_never_raise_a_syntax_error() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root.clone());
+    page(&layout, "docs/memory/gotcha/x.md", "# X\nAND NEAR x\n");
+
+    let outcome = query(&Ctx::new(root), &input("AND NEAR( * \"x"));
+
+    assert!(outcome.is_ok());
+}
