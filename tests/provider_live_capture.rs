@@ -37,6 +37,7 @@ use common::{hall_root, ivar};
 use support::{home, isolated_ivar, run_ok};
 
 const PROMPT: &str = "Read the file README.md and answer with its first word.";
+const QUERY_PROMPT: &str = "Run `ivar memory query seeded-page --json` in the shell and answer with the path of the first result.";
 const T3_THREAD_WAIT: Duration = Duration::from_secs(180);
 
 #[derive(Clone, Copy, Debug)]
@@ -110,6 +111,43 @@ impl Live {
                 PROMPT,
             ],
             Self::OpenCode => vec!["run", "--format", "json", PROMPT],
+        };
+        args.into_iter().map(str::to_owned).collect()
+    }
+}
+
+impl Live {
+    fn query_args(self, view: &Utf8Path) -> Vec<String> {
+        let args: Vec<&str> = match self {
+            Self::Claude => vec![
+                "-p",
+                QUERY_PROMPT,
+                "--output-format",
+                "stream-json",
+                "--verbose",
+                "--model",
+                "haiku",
+                "--strict-mcp-config",
+                "--tools",
+                "Bash",
+                "--allowedTools",
+                "Bash",
+            ],
+            Self::Omp => vec![
+                "-p",
+                "--mode",
+                "json",
+                "--no-session",
+                "--no-title",
+                "--model",
+                "haiku",
+                "--cwd",
+                view.as_str(),
+                "--tools",
+                "bash",
+                QUERY_PROMPT,
+            ],
+            Self::OpenCode => vec!["run", "--format", "json", QUERY_PROMPT],
         };
         args.into_iter().map(str::to_owned).collect()
     }
@@ -255,6 +293,55 @@ fn omp_capture_records_the_declared_events() {
 #[ignore = "needs provider credentials: opencode"]
 fn opencode_capture_records_the_declared_events() {
     capture_scenario(Live::OpenCode);
+}
+
+fn tool_bodies(root: &Utf8Path) -> Vec<String> {
+    captured_events(root);
+    let db = rusqlite::Connection::open(root.join(".ivar/memory.db")).unwrap();
+    let mut stmt = db
+        .prepare("SELECT body FROM observations WHERE source_event = 'session.tool'")
+        .unwrap();
+    stmt.query_map([], |row| row.get(0))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect()
+}
+
+fn pages_scenario(live: Live) {
+    if !live.enabled() {
+        return;
+    }
+    let (_guard, root) = scratch_hall();
+    let page = root.join("docs/memory/gotcha/seeded-page.md");
+    std::fs::create_dir_all(page.parent().unwrap()).unwrap();
+    std::fs::write(&page, "# Seeded page\n\nseeded-page marker\n").unwrap();
+    let (id, view) = session(&root, "pages", live.provider());
+    finish(launch(&root, &id, live, &live.query_args(&view)));
+    stop(&root, &id);
+    assert!(
+        tool_bodies(&root)
+            .iter()
+            .any(|body| body.contains("memory query")),
+        "{live:?}: no `ivar memory query` call was captured"
+    );
+}
+
+#[test]
+#[ignore = "needs provider credentials: claude"]
+fn claude_runs_memory_query() {
+    pages_scenario(Live::Claude);
+}
+
+#[test]
+#[ignore = "needs provider credentials: omp"]
+fn omp_runs_memory_query() {
+    pages_scenario(Live::Omp);
+}
+
+#[test]
+#[ignore = "needs provider credentials: opencode"]
+fn opencode_runs_memory_query() {
+    pages_scenario(Live::OpenCode);
 }
 
 /// T3 threads live in the desktop app, so a human opens a thread, sends a prompt and archives
