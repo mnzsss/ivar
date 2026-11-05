@@ -250,6 +250,30 @@ fn graph_explore_tool_names_are_recognised_across_providers() {
 }
 
 #[test]
+fn the_guard_accepts_the_ivar_server_and_keeps_the_graph_one() {
+    assert!(is_graph_explore_tool("valhalla-hall-ivar_graph_explore"));
+    assert!(is_graph_explore_tool("foo_ivar_graph_explore"));
+    assert!(is_graph_explore_tool(
+        "mcp__valhalla-hall-ivar__graph_explore"
+    ));
+    assert!(is_graph_explore_tool("valhalla-hall-graph_graph_explore"));
+    assert!(!is_graph_explore_tool(
+        "mcp__valhalla-hall-ivar__graph_feedback"
+    ));
+    assert!(!is_graph_explore_tool("foo_ivar_graph_explore_v2"));
+}
+
+#[test]
+fn the_graph_suffixes_leave_in_the_0_20_line() {
+    let major: u32 = env!("CARGO_PKG_VERSION_MAJOR").parse().unwrap();
+    let minor: u32 = env!("CARGO_PKG_VERSION_MINOR").parse().unwrap();
+    assert!(
+        (major, minor) < (0, 20) || LEGACY_SERVER_SUFFIXES.is_empty(),
+        "remove the `graph` server suffixes from the guard"
+    );
+}
+
+#[test]
 fn a_search_after_a_hook_recorded_graph_call_is_a_followup() {
     let (_guard, env, db_path) = session_env_with_graph_db();
 
