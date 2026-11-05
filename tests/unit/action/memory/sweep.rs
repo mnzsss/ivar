@@ -285,7 +285,7 @@ fn a_page_with_broken_frontmatter_is_left_alone() {
 }
 
 #[test]
-fn a_page_expired_by_its_expires_at_is_not_recreated_by_the_next_consolidation() {
+fn a_page_expired_by_its_expires_at_comes_back_only_with_a_new_observation() {
     use crate::action::memory::consolidate::consolidate_if_free;
     use crate::action::memory::page_file::page_rel;
     let (_guard, root) = crate::test_support::seeded_hall();
@@ -320,4 +320,25 @@ fn a_page_expired_by_its_expires_at_is_not_recreated_by_the_next_consolidation()
     consolidate_if_free(&layout, NOW).unwrap();
 
     assert!(!page.exists());
+
+    let db = MemoryDb::open(layout.memory_db().as_std_path()).unwrap();
+    for (id, event, importance, body) in [
+        ("r", "session.prompted", 5, "voltar"),
+        ("s", "session.ended", 1, "{}"),
+    ] {
+        db.conn()
+            .execute(
+                "INSERT INTO observations (event_id, source_event, occurred_at, session_id,
+                    native_session_id, provider, ivar_version, origin, importance, body)
+                 VALUES (?1, ?2, ?3, 's1', 'done', 'claude-code', '0', 'user', ?4, ?5)",
+                rusqlite::params![id, event, at(0), importance, body],
+            )
+            .unwrap();
+    }
+    drop(db);
+    consolidate_if_free(&layout, NOW).unwrap();
+
+    let recreated = std::fs::read_to_string(&page).expect("a new observation recreates the page");
+    assert!(recreated.contains("voltar"), "{recreated}");
+    assert!(!recreated.contains("expires_at"), "{recreated}");
 }
