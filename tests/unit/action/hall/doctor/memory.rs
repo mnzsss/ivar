@@ -185,3 +185,22 @@ fn a_session_from_2020_is_overdue_and_a_session_from_today_is_not() {
             .all(|d| d.code != "memory.retention_overdue")
     );
 }
+
+#[test]
+fn a_failed_consolidation_is_reported_with_its_error() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root);
+    let state = crate::action::memory::consolidate::state::ConsolidateState {
+        last_error: Some("disk full".into()),
+        ..Default::default()
+    };
+    crate::action::memory::consolidate::state::write_state(&layout, &state).unwrap();
+
+    let findings = spool_diagnoses(&layout);
+
+    assert!(
+        findings
+            .iter()
+            .any(|d| d.code == "memory.consolidate_failed" && d.what.contains("disk full"))
+    );
+}

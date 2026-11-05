@@ -5,7 +5,7 @@ use std::io;
 use camino::{Utf8Path, Utf8PathBuf};
 use serde::Serialize;
 
-use crate::action::memory::consolidate::{Scope, consolidate_locked};
+use crate::action::memory::consolidate::{Scope, consolidate_locked, state as consolidate_state};
 use crate::action::memory::drain::{drain_locked, epoch_secs_now, read_state};
 use crate::action::memory::reindex;
 use crate::action::memory::sweep;
@@ -32,6 +32,14 @@ pub struct MemoryStatusOutcome {
     pub last_drain_error: Option<String>,
     pub retention: RetentionStatus,
     pub pages: PagesStatus,
+    pub consolidation: ConsolidationStatus,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ConsolidationStatus {
+    pub last_run_at: Option<String>,
+    pub last_error: Option<String>,
+    pub written_total: u64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -174,6 +182,12 @@ pub fn status_in(layout: &Layout) -> Outcome<MemoryStatusOutcome> {
         swept_total: sweep_state.swept_total,
         oldest_session_observation_at: oldest_session_last_observation(path.as_std_path()),
     };
+    let consolidate_state = consolidate_state::read_state(layout);
+    let consolidation = ConsolidationStatus {
+        last_run_at: consolidate_state.last_run_at,
+        last_error: consolidate_state.last_error,
+        written_total: consolidate_state.written_total,
+    };
     Ok(Report::new(MemoryStatusOutcome {
         path,
         exists: true,
@@ -186,6 +200,7 @@ pub fn status_in(layout: &Layout) -> Outcome<MemoryStatusOutcome> {
         last_drain_error: state.last_error,
         retention,
         pages,
+        consolidation,
     }))
 }
 
@@ -250,6 +265,15 @@ impl WriteHuman for MemoryStatusOutcome {
         }
         if let Some(error) = &self.pages.refresh_error {
             writeln!(w, "  page refresh failed: {error}")?;
+        }
+        writeln!(
+            w,
+            "  consolidation: last {}, {} page(s) written",
+            self.consolidation.last_run_at.as_deref().unwrap_or("never"),
+            self.consolidation.written_total
+        )?;
+        if let Some(error) = &self.consolidation.last_error {
+            writeln!(w, "  last consolidation error: {error}")?;
         }
         Ok(())
     }
