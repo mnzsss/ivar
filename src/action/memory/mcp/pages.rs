@@ -1,11 +1,10 @@
 use std::collections::BTreeSet;
-use std::fmt::Write as _;
 
-use camino::{Utf8Path, Utf8PathBuf};
+use camino::Utf8Path;
 use serde_json::{Map, Value, json};
 
 use super::{SIMILAR_TITLE_THRESHOLD, confine, to_text};
-use crate::action::memory::consolidate::attribute::SESSION_PAGES_DIR;
+use crate::action::memory::page_file::{SESSION_PAGES_DIR, publish, render_meta};
 use crate::action::memory::reindex;
 use crate::domain::memory_page::{
     PageIssue, PageKind, PageMeta, Relation, has_number_prefix, is_kebab,
@@ -198,45 +197,6 @@ fn invalid(rel: &str, issues: &[PageIssue]) -> String {
     format!("`{rel}` is not a valid page: {}", messages.join("; "))
 }
 
-pub(super) fn temp_path(dir: &Utf8Path) -> Utf8PathBuf {
-    dir.join(format!(
-        ".{}-{:?}.tmp",
-        std::process::id(),
-        std::thread::current().id()
-    ))
-}
-
-pub(crate) fn publish(
-    path: &Utf8Path,
-    rel: &str,
-    content: &str,
-    replace: bool,
-) -> Result<(), String> {
-    let dir = path.parent().ok_or("page path has no directory")?;
-    std::fs::create_dir_all(dir).map_err(|error| error.to_string())?;
-    let temp = temp_path(dir);
-    if let Err(error) = std::fs::write(&temp, content) {
-        let _ = std::fs::remove_file(&temp);
-        return Err(error.to_string());
-    }
-    // hard_link fails with AlreadyExists instead of replacing, so a page another writer created first is never clobbered; rename would overwrite it.
-    let placed = if replace {
-        std::fs::rename(&temp, path)
-    } else {
-        std::fs::hard_link(&temp, path)
-    };
-    let _ = std::fs::remove_file(&temp);
-    placed.map_err(|error| {
-        if error.kind() == std::io::ErrorKind::AlreadyExists {
-            format!("`{rel}` already exists; pass `replace: true` to overwrite it")
-        } else if replace {
-            error.to_string()
-        } else {
-            format!("could not write `{rel}` without overwriting; the filesystem may not support hard links: {error}")
-        }
-    })
-}
-
 fn next_page_number(dir: &Utf8Path) -> u32 {
     let highest = std::fs::read_dir(dir)
         .into_iter()
@@ -290,10 +250,6 @@ fn validate_slug(slug: &str, kind: PageKind) -> Result<(), String> {
     Ok(())
 }
 
-fn json_scalar(text: &str) -> String {
-    serde_json::to_string(text).unwrap_or_default()
-}
-
 pub(super) fn apply_metadata(meta: &mut PageMeta, args: &Value) {
     if let Some(tags) = args.get("tags").and_then(Value::as_array) {
         meta.tags = tags
@@ -327,40 +283,6 @@ fn render(title: &str, args: &Value, body: &str) -> String {
     let mut meta = PageMeta::default();
     apply_metadata(&mut meta, args);
     render_meta(Some(title), &meta, body)
-}
-
-pub(crate) fn render_meta(title: Option<&str>, meta: &PageMeta, body: &str) -> String {
-    let mut out = String::from("---\n");
-    if let Some(title) = title {
-        let _ = writeln!(out, "title: {}", json_scalar(title));
-    }
-    if !meta.tags.is_empty() {
-        let tags: Vec<String> = meta.tags.iter().map(|tag| json_scalar(tag)).collect();
-        let _ = writeln!(out, "tags: [{}]", tags.join(", "));
-    }
-    if meta.pinned {
-        out.push_str("pinned: true\n");
-    }
-    if !meta.relations.is_empty() {
-        out.push_str("relations:\n");
-        for relation in &meta.relations {
-            let _ = writeln!(
-                out,
-                "  - type: {}\n    target: {}",
-                json_scalar(&relation.kind),
-                json_scalar(&relation.target)
-            );
-        }
-    }
-    if let Some(expires_at) = &meta.expires_at {
-        let _ = writeln!(out, "expires_at: {}", json_scalar(expires_at));
-    }
-    if out == "---\n" {
-        return body.to_owned();
-    }
-    out.push_str("---\n");
-    out.push_str(body);
-    out
 }
 
 fn words(title: &str) -> BTreeSet<String> {

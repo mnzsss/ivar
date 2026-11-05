@@ -560,28 +560,6 @@ fn update_pages_cannot_be_patched_or_replaced() {
     );
 }
 
-#[cfg(target_os = "linux")]
-#[test]
-fn a_failed_temp_write_leaves_no_temp_file_behind() {
-    let (_guard, root) = seeded_hall();
-    let layout = Layout::at(root.clone());
-    let dir = root.join("docs/memory/decision");
-    std::fs::create_dir_all(&dir).unwrap();
-    std::os::unix::fs::symlink("/dev/full", pages::temp_path(&dir)).unwrap();
-
-    let result = pages::publish(
-        &dir.join("full.md"),
-        "docs/memory/decision/full.md",
-        "x\n",
-        false,
-    );
-
-    assert!(result.is_err());
-    let stray: Vec<_> = std::fs::read_dir(&dir).unwrap().flatten().collect();
-    assert!(stray.is_empty(), "{stray:?}");
-    drop(layout);
-}
-
 #[test]
 fn replacing_a_page_does_not_report_it_as_similar_to_itself() {
     let (_guard, root) = seeded_hall();

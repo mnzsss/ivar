@@ -44,7 +44,9 @@ fn hall() -> (tempfile::TempDir, Layout) {
 }
 
 fn page(layout: &Layout, native: &str) -> camino::Utf8PathBuf {
-    layout.root().join(attribute::page_rel(native))
+    layout
+        .root()
+        .join(crate::action::memory::page_file::page_rel(native))
 }
 
 #[test]
@@ -223,7 +225,7 @@ fn written_pages_are_indexed() {
         .conn()
         .query_row(
             "SELECT kind FROM pages WHERE path = ?1",
-            [attribute::page_rel("n")],
+            [crate::action::memory::page_file::page_rel("n")],
             |r| r.get(0),
         )
         .unwrap();

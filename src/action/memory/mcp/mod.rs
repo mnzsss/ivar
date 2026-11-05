@@ -1,7 +1,7 @@
 mod confine;
 mod instructions;
 mod observations;
-pub(crate) mod pages;
+mod pages;
 mod tools;
 
 use serde_json::{Value, json};

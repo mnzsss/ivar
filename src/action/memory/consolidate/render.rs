@@ -4,7 +4,7 @@ use std::fmt::Write as _;
 
 use serde_json::Value;
 
-use crate::action::memory::mcp::pages::render_meta;
+use crate::action::memory::page_file::render_meta;
 use crate::domain::memory_page::PageMeta;
 use crate::store::memory::conversations::{ConversationHead, ConversationRow};
 

@@ -7,7 +7,7 @@ pub mod state;
 use std::collections::BTreeSet;
 
 use crate::action::memory::drain::drain_locked;
-use crate::action::memory::mcp::pages::publish;
+use crate::action::memory::page_file::{page_rel, page_stem, publish};
 use crate::action::memory::reindex;
 use crate::domain::memory_page::PageMeta;
 use crate::domain::session::{epoch_secs_from_rfc3339, rfc3339_now};
@@ -156,7 +156,7 @@ fn run(
             .max()
             .unwrap_or(0)
             .max(head.last_id);
-        let stem = attribute::page_stem(&head.native_session_id);
+        let stem = page_stem(&head.native_session_id);
         let seen = state
             .markers
             .get(&stem)
@@ -168,7 +168,7 @@ fn run(
             continue;
         }
         let rows = conversation_rows(db, &head.native_session_id).map_err(sql)?;
-        let rel = attribute::page_rel(&head.native_session_id);
+        let rel = page_rel(&head.native_session_id);
         let path = layout.root().join(&rel);
         let current = std::fs::read_to_string(&path).ok();
         let preserved = current

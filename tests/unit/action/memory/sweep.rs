@@ -287,7 +287,8 @@ fn a_page_with_broken_frontmatter_is_left_alone() {
 
 #[test]
 fn a_page_expired_by_its_expires_at_is_not_recreated_by_the_next_consolidation() {
-    use crate::action::memory::consolidate::{attribute::page_rel, consolidate_if_free};
+    use crate::action::memory::consolidate::consolidate_if_free;
+    use crate::action::memory::page_file::page_rel;
     let (_guard, root) = crate::test_support::seeded_hall();
     let layout = Layout::at(root);
     let db = MemoryDb::open(layout.memory_db().as_std_path()).unwrap();

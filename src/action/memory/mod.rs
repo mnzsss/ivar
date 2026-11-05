@@ -8,6 +8,7 @@ pub mod delivery;
 pub mod drain;
 pub mod lint;
 pub mod mcp;
+pub mod page_file;
 pub mod query;
 pub mod reindex;
 pub mod status;

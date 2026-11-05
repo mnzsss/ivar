@@ -8,7 +8,8 @@ use serde::{Deserialize, Serialize};
 
 use camino::Utf8Path;
 
-use crate::action::memory::consolidate::{self, attribute::SESSION_PAGES_DIR};
+use crate::action::memory::consolidate;
+use crate::action::memory::page_file::SESSION_PAGES_DIR;
 use crate::action::memory::reindex;
 use crate::domain::session::{epoch_secs_from_rfc3339, rfc3339_now};
 use crate::error::Failure;
