@@ -181,3 +181,93 @@ fn a_busy_lock_leaves_no_error_and_no_state() {
 
     assert_eq!(read_state(&layout), SweepState::default());
 }
+
+fn session_page(layout: &Layout, name: &str, frontmatter: &str) -> camino::Utf8PathBuf {
+    let dir = layout.root().join(".ivar/memory/session");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(format!("{name}.md"));
+    std::fs::write(
+        &path,
+        format!("---\ntitle: \"{name}\"\n{frontmatter}---\nx\n"),
+    )
+    .unwrap();
+    path
+}
+
+fn mark(layout: &Layout, name: &str, days_ago: u64) {
+    let mut state = crate::action::memory::consolidate::state::read_state(layout);
+    state.markers.insert(
+        name.to_owned(),
+        crate::action::memory::consolidate::state::Marker {
+            last_id: 1,
+            last_at: at(days_ago),
+            session_id: String::new(),
+        },
+    );
+    crate::action::memory::consolidate::state::write_state(layout, &state).unwrap();
+}
+
+#[test]
+fn session_pages_past_thirty_days_are_removed_unless_pinned() {
+    let (_guard, root) = crate::test_support::seeded_hall();
+    let layout = Layout::at(root);
+    let old = session_page(&layout, "old", "");
+    let pinned = session_page(&layout, "pinned", "pinned: true\n");
+    let fresh = session_page(&layout, "fresh", "");
+    mark(&layout, "old", 31);
+    mark(&layout, "pinned", 31);
+    mark(&layout, "fresh", 2);
+    crate::action::memory::reindex::refresh(&layout).unwrap();
+
+    let report = sweep(&layout, NOW).unwrap();
+
+    assert_eq!(report.pages_removed, 1);
+    assert!(!old.exists());
+    assert!(pinned.exists());
+    assert!(fresh.exists());
+    assert!(
+        !crate::action::memory::consolidate::state::read_state(&layout)
+            .markers
+            .contains_key("old")
+    );
+    let db = MemoryDb::open(layout.memory_db().as_std_path()).unwrap();
+    let indexed: i64 = db
+        .conn()
+        .query_row(
+            "SELECT count(*) FROM pages WHERE path = '.ivar/memory/session/old.md'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(indexed, 0);
+}
+
+#[test]
+fn an_explicit_expires_at_wins_over_pinned() {
+    let (_guard, root) = crate::test_support::seeded_hall();
+    let layout = Layout::at(root);
+    let page = session_page(
+        &layout,
+        "gone",
+        "pinned: true\nexpires_at: \"2020-01-01T00:00:00Z\"\n",
+    );
+    mark(&layout, "gone", 1);
+    sweep(&layout, NOW).unwrap();
+    assert!(!page.exists());
+}
+
+#[test]
+fn a_page_without_a_marker_ages_by_its_mtime() {
+    let (_guard, root) = crate::test_support::seeded_hall();
+    let layout = Layout::at(root);
+    let page = session_page(&layout, "nomark", "");
+    let old = std::time::UNIX_EPOCH + std::time::Duration::from_secs(NOW - 40 * DAY);
+    std::fs::File::options()
+        .write(true)
+        .open(&page)
+        .unwrap()
+        .set_modified(old)
+        .unwrap();
+    sweep(&layout, NOW).unwrap();
+    assert!(!page.exists());
+}

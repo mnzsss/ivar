@@ -6,11 +6,16 @@ use std::time::SystemTime;
 
 use serde::{Deserialize, Serialize};
 
-use crate::domain::session::rfc3339_now;
+use camino::Utf8Path;
+
+use crate::action::memory::consolidate::{self, attribute::SESSION_PAGES_DIR};
+use crate::action::memory::reindex;
+use crate::domain::session::{epoch_secs_from_rfc3339, rfc3339_now};
 use crate::error::Failure;
 use crate::infra::fs;
 use crate::store::layout::Layout;
 use crate::store::memory::db::MemoryDb;
+use crate::store::memory::page_source::parse_page;
 use crate::store::memory::retention::{
     SESSION_RETENTION_DAYS, cutoff_before, delete_expired_sessions,
 };
@@ -29,6 +34,7 @@ pub struct SweepState {
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct SweepReport {
     pub deleted: usize,
+    pub pages_removed: usize,
     pub busy: bool,
 }
 
@@ -47,26 +53,26 @@ pub fn sweep(layout: &Layout, now_epoch_secs: u64) -> Result<SweepReport, Failur
         Ok(Some(lock)) => lock,
         Ok(None) => {
             return Ok(SweepReport {
-                deleted: 0,
                 busy: true,
+                ..SweepReport::default()
             });
         }
         Err(error) => return Err(record_failure(layout, &mut state, error.to_string())),
     };
     let cutoff = cutoff_before(now_epoch_secs, SESSION_RETENTION_DAYS);
-    match delete_all_expired(layout, &cutoff) {
-        Ok(deleted) => {
-            state.swept_total += u64::try_from(deleted).unwrap_or(u64::MAX);
-            state.last_sweep_at = Some(rfc3339_now());
-            state.last_error = None;
-            let _ = write_state(layout, &state);
-            Ok(SweepReport {
-                deleted,
-                busy: false,
-            })
-        }
-        Err(error) => Err(record_failure(layout, &mut state, error)),
-    }
+    let deleted = delete_all_expired(layout, &cutoff)
+        .map_err(|error| record_failure(layout, &mut state, error))?;
+    let pages_removed = expire_session_pages(layout, now_epoch_secs)
+        .map_err(|error| record_failure(layout, &mut state, error))?;
+    state.swept_total += u64::try_from(deleted).unwrap_or(u64::MAX);
+    state.last_sweep_at = Some(rfc3339_now());
+    state.last_error = None;
+    let _ = write_state(layout, &state);
+    Ok(SweepReport {
+        deleted,
+        pages_removed,
+        busy: false,
+    })
 }
 
 fn record_failure(layout: &Layout, state: &mut SweepState, error: String) -> Failure {
@@ -120,6 +126,65 @@ fn delete_all_expired(layout: &Layout, cutoff: &str) -> Result<usize, String> {
             .map_err(|e| e.to_string())?;
     }
     Ok(total)
+}
+
+/// A page ages from its conversation's marker in `_consolidate.json`, keyed by
+/// the file stem, or from its mtime when the marker is gone.
+fn expire_session_pages(layout: &Layout, now_epoch_secs: u64) -> Result<usize, String> {
+    let dir = layout.root().join(SESSION_PAGES_DIR);
+    let Ok(entries) = dir.read_dir_utf8() else {
+        return Ok(0);
+    };
+    let mut state = consolidate::state::read_state(layout);
+    let now = i64::try_from(now_epoch_secs).unwrap_or(i64::MAX);
+    let mut removed = 0;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension() != Some("md") {
+            continue;
+        }
+        let Some(name) = path.file_stem().map(str::to_owned) else {
+            continue;
+        };
+        let rel = format!("{SESSION_PAGES_DIR}{name}.md");
+        let Ok(text) = std::fs::read_to_string(path) else {
+            continue;
+        };
+        let meta = parse_page(&rel, &text)
+            .map(|page| page.meta)
+            .unwrap_or_default();
+        let last_at = state
+            .markers
+            .get(&name)
+            .and_then(|marker| epoch_secs_from_rfc3339(&marker.last_at))
+            .or_else(|| mtime_epoch(path))
+            .unwrap_or(now);
+        if consolidate::is_expired(&meta, last_at, now) {
+            std::fs::remove_file(path).map_err(|e| e.to_string())?;
+            state.markers.remove(&name);
+            removed += 1;
+        }
+    }
+    if removed > 0 {
+        consolidate::state::write_state(layout, &state)?;
+        if layout.memory_db().exists() {
+            let mut db =
+                MemoryDb::open(layout.memory_db().as_std_path()).map_err(|e| e.to_string())?;
+            reindex::refresh_locked(layout, &mut db, false).map_err(|f| f.what)?;
+        }
+    }
+    Ok(removed)
+}
+
+fn mtime_epoch(path: &Utf8Path) -> Option<i64> {
+    let modified = std::fs::metadata(path).ok()?.modified().ok()?;
+    i64::try_from(
+        modified
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .ok()?
+            .as_secs(),
+    )
+    .ok()
 }
 
 #[cfg(test)]
