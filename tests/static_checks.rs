@@ -11,6 +11,9 @@ mod architecture;
 #[path = "static_checks/docs_reference.rs"]
 mod docs_reference;
 
+#[path = "static_checks/memory_mcp_docs.rs"]
+mod memory_mcp_docs;
+
 #[path = "static_checks/shipped_text.rs"]
 mod shipped_text;
 

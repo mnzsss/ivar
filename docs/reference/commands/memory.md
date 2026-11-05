@@ -39,6 +39,11 @@ Search the pages under docs/memory. When no page matches and no filter is set, r
 Rebuild the page index from docs/memory. Observations are not touched
 
 
+## `ivar memory lint`
+
+Check the pages under docs/memory against the page rules. Exits non-zero when any rule is broken
+
+
 ## `ivar memory capture`
 
 Record one session hook event into the capture spool. Always exits 0 and prints nothing

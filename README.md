@@ -163,12 +163,19 @@ after the session's last observation; delivery events are kept. See the
 `update`, `decision`, `gotcha`, `procedure`, `concept`), with `--kind`, `--tier` and
 `--tag` filters. The index follows the files on disk, committed or not, and
 `ivar memory reindex` rebuilds it. See the [page format](docs/reference/on-disk-format-pages.md).
+`ivar memory lint` checks the pages on disk against the page rules and exits non-zero on an
+error.
+
+The same server that serves the code graph serves the memory to your agent. It lists
+`memory_query` and `memory_write_page` beside seven more memory tools, which read, patch,
+delete and lint pages and read captured observations. The tools never commit. See the
+[MCP tools](docs/reference/mcp-tools.md).
 
 ## MCP server
 
-`ivar graph mcp` serves the hall's code graph to your harness over MCP, with the
-`graph_explore` and `graph_feedback` tools. It runs inside an ivar hall; start it
-with `ivar graph mcp` from the hall root.
+`ivar graph mcp` serves the hall's code graph and memory to your harness over MCP as the
+`<hall>-ivar` server, with `graph_explore`, `graph_feedback` and the nine `memory_*` tools.
+It runs inside an ivar hall; start it with `ivar graph mcp` from the hall root.
 
 mcp-name: io.github.mnzsss/ivar
 

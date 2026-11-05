@@ -34,7 +34,8 @@ src/
     sync/          sync — big enough to own a directory: the public verb and
                    report types live in mod.rs, repo materialisation in
                    repo.rs, provider/config reconciliation in providers.rs,
-                   and setup-script execution in setup.rs.
+                   setup-script execution in setup.rs, and the one-time
+                   `graph` to `ivar` MCP entry rename in mcp_rename.rs.
     repo/          add · list · remove · pull · setup · upstream, where pull/
                    splits the sweep in mod.rs from diagnosis.rs — whether a
                    diverged branch is safe to reset, and which blocker to name
@@ -77,10 +78,14 @@ src/
                    commit and deliver preview fingerprint).
     skill/         create · add · update · remove · detach · sync · status ·
                    list · doctor
-    memory/        status · clean · query · reindex, plus capture, drain and
+    memory/        status · clean · query · reindex · lint, plus capture, drain and
                    sweep for observations. reindex.rs walks `docs/memory/` and
                    `.ivar/memory/` into `pages` (size and mtime, confirmed by
-                   hash); query.rs fuses page FTS and link neighbours.
+                   hash); query.rs fuses page FTS and link neighbours; lint.rs
+                   checks the page rules on disk. mcp/ holds the `memory_*` tool
+                   schemas and handlers that `ivar graph mcp` routes to: pages.rs
+                   writes, patches and deletes, confine.rs confines paths,
+                   observations.rs reads the capture log.
     mcp/           auth — big enough to own a directory: the public verb,
                    input/outcome types, and resolution live in auth/mod.rs,
                    Figma pre-registration and the secret handoff in

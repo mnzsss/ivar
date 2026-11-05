@@ -265,3 +265,22 @@ that true:
 
 Because the index is derived, a corrupt or stale one is repaired by
 `ivar memory reindex`, not migrated. See [ADR-0010](../adr/0010-pages-in-hall-docs.md).
+
+### 10. Memory MCP tools: one server, tool-side confinement
+
+`ivar graph mcp` is the only MCP server of the hall, named `ivar`. It serves the graph
+tools and the `memory_*` tools of `action::memory::mcp`.
+
+- The server routes a `memory_*` call before `call_tool_in_session`, so the graph index
+  and its refresh are never on the memory path. The call gets a `Layout`, not a `Ctx`:
+  `query_in` and `status_in` are the cores of `ivar memory query` and `status`.
+- The server runs outside the session guard hook, so `action::memory::mcp` confines
+  every write itself: durable kinds under `docs/memory/` only, no symlink component,
+  parse before publish, `hard_link` for a new page. It never commits.
+- `action::memory::lint` is one function behind `ivar memory lint` and `memory_lint`. It
+  walks the disk, not the index.
+- `action::sync::mcp_rename` renames an unedited `graph` manifest entry to `ivar`.
+  `sync` otherwise leaves `ivar.json` alone.
+
+See [ADR-0011](../adr/0011-one-mcp-server-for-graph-and-memory.md) and
+[MCP tools](../reference/mcp-tools.md).
