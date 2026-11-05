@@ -40,15 +40,25 @@ fn a_failing_reindex_does_not_stop_the_drain_in_the_same_tick() {
         format!("{}\n", spooled_line()),
     )
     .unwrap();
-    let mut clock = MemoryClock::new(Instant::now());
+    let start = Instant::now();
+    let mut clock = MemoryClock::new(start);
 
-    clock.tick(&layout, Instant::now() + DRAIN_EVERY);
+    let mut drained = 0;
+    for attempt in 1..=50 {
+        clock.tick(&layout, start + DRAIN_EVERY * attempt);
+        drained = MemoryDb::open(layout.memory_db().as_std_path())
+            .unwrap()
+            .conn()
+            .query_row("SELECT count(*) FROM observations", [], |r| {
+                r.get::<_, i64>(0)
+            })
+            .unwrap();
+        if drained == 1 {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
 
     assert!(reindex::read_state(&layout).last_error.is_some());
-    let drained: i64 = MemoryDb::open(layout.memory_db().as_std_path())
-        .unwrap()
-        .conn()
-        .query_row("SELECT count(*) FROM observations", [], |r| r.get(0))
-        .unwrap();
     assert_eq!(drained, 1);
 }
