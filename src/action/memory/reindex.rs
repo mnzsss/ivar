@@ -82,13 +82,16 @@ fn collect(dir: &Utf8Path, found: &mut Vec<Utf8PathBuf>) {
         let path = entry.into_path();
         if path.is_dir() {
             collect(&path, found);
-        } else if path.extension() == Some("md") {
+        } else if path
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("md"))
+        {
             found.push(path);
         }
     }
 }
 
-/// Every `.md` file at any depth, so a nested file or an unknown kind
+/// Every Markdown file (any extension case) at any depth, so a nested file or an unknown kind
 /// directory reaches validation instead of vanishing.
 #[must_use]
 pub fn walk_pages(layout: &Layout) -> Vec<PageFile> {

@@ -223,3 +223,16 @@ fn a_rebuild_reports_the_pages_that_no_longer_exist_as_removed() {
 
     assert_eq!((report.indexed, report.removed), (1, 1));
 }
+
+#[test]
+fn a_markdown_file_with_an_uppercase_extension_is_invalid_not_indexed() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root);
+    write_page(&layout, "docs/memory/gotcha/a.md", "# A\n");
+    write_page(&layout, "docs/memory/gotcha/Upper.MD", "# Upper\n");
+
+    let report = refresh(&layout).unwrap();
+    assert_eq!(report.indexed, 1);
+    assert_eq!(report.invalid, ["docs/memory/gotcha/Upper.MD"]);
+    assert_eq!(count(&layout, "SELECT count(*) FROM pages"), 1);
+}
