@@ -91,6 +91,39 @@ pub fn load(layout: &Layout, name: &str) -> Result<AgentSpec, Failure> {
     })
 }
 
+fn with_notify(source: &str, value: &str) -> Result<String, Failure> {
+    let split = frontmatter::split(source)?;
+    let Some(block) = split.frontmatter else {
+        return Err(Failure::failed(
+            "agent.no_frontmatter",
+            "the agent file has no frontmatter to hold `notify`",
+        ));
+    };
+    let line = format!("notify: {value}");
+    let mut lines: Vec<&str> = block.lines().collect();
+    match lines.iter_mut().find(|l| l.starts_with("notify:")) {
+        Some(existing) => *existing = &line,
+        None => lines.push(&line),
+    }
+    Ok(format!("---\n{}\n---\n{}", lines.join("\n"), split.body))
+}
+
+/// Set `notify: <value>` in the agent's frontmatter, leaving the rest of the file as it was.
+///
+/// # Errors
+///
+/// `agent.invalid` when the edited file would not validate (nothing is written),
+/// `agent.no_frontmatter`, or a write failure.
+pub fn set_notify(file: &AgentFile, value: &str) -> Result<(), Failure> {
+    let source = with_notify(&file.source, value)?;
+    parse(&AgentFile {
+        source: source.clone(),
+        ..file.clone()
+    })?;
+    fs::write_atomic(&file.path, source.as_bytes())?;
+    Ok(())
+}
+
 fn receipt_store(path: Utf8PathBuf) -> Store<AgentRunReceipt> {
     Store::new(path, Vec::new(), RECEIPT_VERSION, Policy::Local)
 }
