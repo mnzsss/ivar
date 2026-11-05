@@ -9,6 +9,7 @@ use camino::Utf8PathBuf;
 
 use super::*;
 use crate::domain::feature::RunId;
+use crate::domain::memory_page::PageKind;
 use crate::error::Status;
 use crate::test_support::canonical_temp_dir as hall_root;
 
@@ -527,4 +528,25 @@ fn the_hall_databases_and_their_locks_live_directly_under_the_dotdir() {
     assert_eq!(layout.memory_db(), root.join(".ivar/memory.db"));
     assert_eq!(layout.memory_lock(), root.join(".ivar/memory.lock"));
     assert_eq!(layout.memory_spool_dir(), root.join(".ivar/spool/memory"));
+}
+
+#[test]
+fn page_directories_follow_the_kind() {
+    let layout = Layout::at(Utf8PathBuf::from("/hall"));
+    assert_eq!(
+        layout.docs_memory_dir(),
+        Utf8PathBuf::from("/hall/docs/memory")
+    );
+    assert_eq!(
+        layout.page_dir(PageKind::Gotcha),
+        Utf8PathBuf::from("/hall/docs/memory/gotcha")
+    );
+    assert_eq!(
+        layout.page_dir(PageKind::Session),
+        Utf8PathBuf::from("/hall/.ivar/memory/session")
+    );
+    assert_eq!(
+        layout.update_pages_dir(),
+        Utf8PathBuf::from("/hall/docs/memory/update")
+    );
 }

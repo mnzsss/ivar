@@ -50,3 +50,44 @@ fn a_graph_that_cannot_be_opened_warns_without_failing_sync() {
         report.warnings
     );
 }
+
+#[test]
+fn sync_indexes_pages_without_a_warning() {
+    let (_guard, root) = crate::test_support::seeded_hall();
+    let page = root.join("docs/memory/gotcha/a.md");
+    std::fs::create_dir_all(page.parent().unwrap()).unwrap();
+    std::fs::write(&page, "# A\nsyncword\n").unwrap();
+
+    let report = sync(&Ctx::new(root.clone()), &SyncInput::default()).unwrap();
+
+    assert!(report.warnings.is_empty(), "{:?}", report.warnings);
+    let db = crate::store::memory::db::MemoryDb::open(
+        crate::store::layout::Layout::at(root)
+            .memory_db()
+            .as_std_path(),
+    )
+    .unwrap();
+    let rows: i64 = db
+        .conn()
+        .query_row("SELECT count(*) FROM pages", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(rows, 1);
+}
+
+#[test]
+fn sync_does_not_wait_for_the_memory_lock() {
+    let (_guard, root) = crate::test_support::seeded_hall();
+    let layout = crate::store::layout::Layout::at(root.clone());
+    let _held = crate::infra::fs::lock_exclusive(&layout.memory_lock()).unwrap();
+    let (sender, receiver) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = sender.send(sync(&Ctx::new(root), &SyncInput::default()));
+    });
+
+    let report = receiver
+        .recv_timeout(std::time::Duration::from_secs(10))
+        .expect("sync returned while memory.lock was held")
+        .unwrap();
+
+    assert!(report.warnings.is_empty(), "{:?}", report.warnings);
+}

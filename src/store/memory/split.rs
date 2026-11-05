@@ -84,6 +84,21 @@ pub fn probe_legacy_graph_db(path: &Path) -> Result<bool, SplitError> {
     }
 }
 
+/// Whether a pre-split graph still sits in `.ivar/memory.db`. Reads without
+/// taking any lock, so callers that must not wait can tell a graph-less hall
+/// from one that still needs [`ensure_split`].
+///
+/// # Errors
+///
+/// As [`probe_legacy_graph_db`].
+pub fn legacy_split_pending(layout: &Layout) -> Result<bool, SplitError> {
+    let memory = layout.memory_db();
+    if layout.graph_db().exists() || !memory.exists() {
+        return Ok(false);
+    }
+    probe_legacy_graph_db(memory.as_std_path())
+}
+
 /// Moves a legacy `.ivar/memory.db` to `.ivar/graph.db` and creates the hall
 /// memory database when it is missing. Idempotent and resumable after a crash.
 ///

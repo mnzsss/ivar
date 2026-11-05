@@ -351,7 +351,7 @@ fn in_flight_receipts(layout: &Layout) -> Result<Vec<(FeatureName, RunReceipt)>,
 /// Since working documents live exclusively under `.ivar/features/<name>/`,
 /// files left in committed `plans/` or `docs/` are no longer read or updated.
 ///
-/// Precision note: `<hall>/docs/` holds topic docs (`product/`, `updates/`,
+/// Precision note: `<hall>/docs/` holds topic docs (`memory/`,
 /// `repo-relations/` or any custom doc folders). We ONLY flag directories under
 /// `docs/` if they contain a `discovery.md` file AND are not reserved topic dirs.
 pub(super) fn check_legacy_working_docs(
@@ -387,7 +387,7 @@ pub(super) fn check_legacy_working_docs(
         for entry in fs::read_dir(&docs_dir)? {
             if fs::is_dir(&entry)?
                 && let Some(name) = entry.file_name()
-                && !["product", "updates", "repo-relations"].contains(&name)
+                && !["memory", "repo-relations"].contains(&name)
                 && FeatureName::new(name.to_owned()).is_ok()
             {
                 let discovery = entry.join("discovery.md");

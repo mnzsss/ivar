@@ -158,6 +158,11 @@ merge, cleanup, close, delete) into the same database. Session events are delete
 after the session's last observation; delivery events are kept. See the
 [limitations of session capture](docs/reference/limitations-memory.md).
 
+`ivar memory query <text>` searches the markdown pages under `docs/memory/` (`product`,
+`update`, `decision`, `gotcha`, `procedure`, `concept`), with `--kind`, `--tier` and
+`--tag` filters. The index follows the files on disk, committed or not, and
+`ivar memory reindex` rebuilds it. See the [page format](docs/reference/on-disk-format-pages.md).
+
 ## MCP server
 
 `ivar graph mcp` serves the hall's code graph to your harness over MCP, with the

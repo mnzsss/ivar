@@ -77,8 +77,8 @@ fn apply_refuses_when_descendant_is_not_integrated() {
     let preview = run_preview(&root);
     assert!(preview.has_blockers());
     let layout = Layout::at(root.clone());
-    fs::ensure_dir(&layout.docs_updates_dir()).unwrap();
-    let record_rel_path = Utf8PathBuf::from("docs/updates/001-checkout.cleanup.json");
+    fs::ensure_dir(&layout.update_pages_dir()).unwrap();
+    let record_rel_path = Utf8PathBuf::from("docs/memory/update/001-checkout.cleanup.json");
     fs::write_text(
         &root.join(&record_rel_path),
         &format!(
@@ -89,7 +89,7 @@ fn apply_refuses_when_descendant_is_not_integrated() {
                 "fingerprint": "{}",
                 "approvals": {{
                     "delivery": {{ "approved": true, "at": "2026-08-28T12:00:00Z" }},
-                    "documentation": {{ "decision": "written", "paths": ["docs/product/001-checkout.md"], "reason": null, "at": "2026-08-28T12:05:00Z" }},
+                    "documentation": {{ "decision": "written", "paths": ["docs/memory/product/001-checkout.md"], "reason": null, "at": "2026-08-28T12:05:00Z" }},
                     "teardown": {{ "approved": true, "at": "2026-08-28T12:10:00Z" }}
                 }},
                 "outcome": null
@@ -125,8 +125,8 @@ fn apply_stops_at_first_failed_node_and_leaves_ancestor_feature_json() {
     .unwrap();
     let preview = run_preview(&root);
     let layout = Layout::at(root.clone());
-    fs::ensure_dir(&layout.docs_updates_dir()).unwrap();
-    let record_rel_path = Utf8PathBuf::from("docs/updates/001-checkout.cleanup.json");
+    fs::ensure_dir(&layout.update_pages_dir()).unwrap();
+    let record_rel_path = Utf8PathBuf::from("docs/memory/update/001-checkout.cleanup.json");
     fs::write_text(
         &root.join(&record_rel_path),
         &format!(
@@ -137,7 +137,7 @@ fn apply_stops_at_first_failed_node_and_leaves_ancestor_feature_json() {
                 "fingerprint": "{}",
                 "approvals": {{
                     "delivery": {{ "approved": true, "at": "2026-08-28T12:00:00Z" }},
-                    "documentation": {{ "decision": "written", "paths": ["docs/product/001-checkout.md"], "reason": null, "at": "2026-08-28T12:05:00Z" }},
+                    "documentation": {{ "decision": "written", "paths": ["docs/memory/product/001-checkout.md"], "reason": null, "at": "2026-08-28T12:05:00Z" }},
                     "teardown": {{ "approved": true, "at": "2026-08-28T12:10:00Z" }}
                 }},
                 "outcome": null
@@ -212,7 +212,7 @@ fn apply_updates_durable_record_file_with_descendants_outcome() {
 
     let _apply = apply_with_approved_record(&root);
 
-    let record_file = root.join("docs/updates/001-checkout.cleanup.json");
+    let record_file = root.join("docs/memory/update/001-checkout.cleanup.json");
     let text = fs::read_text(&record_file).unwrap().unwrap();
     let record: CleanupRecord = serde_json::from_str(&text).unwrap();
     let outcome = record.outcome.unwrap();

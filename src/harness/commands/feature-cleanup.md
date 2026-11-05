@@ -5,7 +5,7 @@ argument-hint: <feature-name>
 
 # Feature Cleanup
 
-`/ivar-feature-cleanup` orchestrates the human-gated end-of-feature cleanup process. It inspects a delivered feature, presents delivery evidence, proposes and updates durable product and update documentation, collects human approvals across three gates, writes a durable JSON cleanup record, and performs safe, deterministic local teardown using `ivar feature cleanup`.
+`/ivar-feature-cleanup` orchestrates the human-gated end-of-feature cleanup process. It inspects a delivered feature, presents delivery evidence, proposes and updates durable product and update pages under `docs/memory/`, collects human approvals across three gates, writes a durable JSON cleanup record, and performs safe, deterministic local teardown using `ivar feature cleanup`.
 
 ## Usage
 
@@ -18,7 +18,7 @@ ivar feature cleanup <feature> --preview
 Apply an approved cleanup record:
 
 ```bash
-ivar feature cleanup <feature> --record docs/updates/<NNN>-<feature>.cleanup.json
+ivar feature cleanup <feature> --record docs/memory/update/<NNN>-<feature>.cleanup.json
 ```
 
 ## Prerequisites
@@ -41,7 +41,7 @@ ivar feature cleanup <feature> --record docs/updates/<NNN>-<feature>.cleanup.jso
 The cleanup workflow owns three explicit human decisions, recorded independently. Present **one question per turn** with no bundled consent:
 
 1. **Delivery Gate** — Approve evidence that every promoted repository is delivered.
-2. **Documentation Gate** — Approve the exact `HALL.md` and `docs/*` diff, or explicitly approve `not_required` with a human reason.
+2. **Documentation Gate** — Approve the exact `docs/memory/*` diff, or explicitly approve `not_required` with a human reason.
 3. **Teardown Gate** — Approve the exact local sessions, worktrees, metadata, working documents in the feature directory, and local branches to be removed.
 
 ## Workflow Steps
@@ -65,11 +65,11 @@ Present delivery evidence for every promoted repository in manifest order:
 
 ### Step 3: Documentation Gate
 
-Read the feature plan (`.ivar/features/<feature>/plan.md` or `../../plan.md` from a session), per-repo commits/diffs for promoted repos, `HALL.md`, and existing topics in `docs/product/`, `docs/updates/`, and `docs/repo-relations/`.
+Read the feature plan (`.ivar/features/<feature>/plan.md` or `../../plan.md` from a session), per-repo commits/diffs for promoted repos, and existing pages in `docs/memory/product/`, `docs/memory/update/`, and `docs/repo-relations/`.
 
 Propose the minimum durable documentation:
-- **Product documentation** (`docs/product/NNN-<slug>.md`): Update an existing product topic before creating a duplicate. Describe current durable product behavior.
-- **Update documentation** (`docs/updates/NNN-<slug>.md`): Add an update topic only when the delivery matters to future users or operators.
+- **Product documentation** (`docs/memory/product/NNN-<slug>.md`): Update an existing product topic before creating a duplicate. Describe current durable product behavior.
+- **Update documentation** (`docs/memory/update/NNN-<slug>.md`): Add an update topic only when the delivery matters to future users or operators.
 - **Repository relations**: Delegate changed repository relations to the established `/ivar-relations` contract. Never rewrite relation prose yourself.
 - **Not required**: Allow an explicit `not_required` decision with a human reason (e.g. internal refactor with no user-visible change).
 
@@ -77,13 +77,11 @@ Rules for documentation writes:
 - Show the exact documentation diff to the human.
 - Write **nothing** until the documentation gate is explicitly approved.
 - Re-read every target file immediately before writing and stop on concurrent change.
-- Numbers are monotonic within each directory (`max + 1`, three digits, e.g. `001`, `002`). Never reuse or renumber identifiers.
-- Touch only bytes inside the workflow-owned HALL index markers (`<!-- ivar:product-docs:start -->` and `<!-- ivar:updates:start -->`). Never touch `ivar-managed` or `relations` markers.
-- Edit `HALL.md` directly. `CLAUDE.md` and `AGENTS.md` are aliases to `HALL.md`, never independent edit targets.
+- Numbers are monotonic within each directory (three digits, e.g. `001`, `002`). The next update number is the maximum of `docs/memory/update/` plus one, counting `.cleanup.json` files, which share the sequence. Product numbers are the maximum of `docs/memory/product/` plus one. Never reuse or renumber identifiers.
 
 ### Step 4: Record Creation & Re-preview
 
-Write the durable cleanup record to `docs/updates/<NNN>-<feature>.cleanup.json`.
+Write the durable cleanup record to `docs/memory/update/<NNN>-<feature>.cleanup.json`.
 
 After documentation writes, re-run `ivar feature cleanup <feature> --preview` because hall state or Git refs may have changed, and bind the final record to that new fingerprint.
 
@@ -105,7 +103,7 @@ Ask for explicit human teardown approval after presenting this set and warning.
 Update `approvals.teardown.approved` to `true` in the cleanup record and execute:
 
 ```bash
-ivar feature cleanup <feature> --record docs/updates/<NNN>-<feature>.cleanup.json
+ivar feature cleanup <feature> --record docs/memory/update/<NNN>-<feature>.cleanup.json
 ```
 
 On partial failure:
@@ -114,32 +112,9 @@ On partial failure:
 - Never turn a failed apply into an assertion of success.
 - A subtree apply stops at the first node it cannot fully remove; that node and every ancestor keep their records. Re-run the preview — removed descendants drop out — and bind the record to the new fingerprint.
 
-## Product Documentation & Index Markers
-
-`HALL.md` maintains two workflow-owned index regions outside `<!-- ivar:managed:* -->` and `<!-- ivar:relations:* -->`:
-
-```markdown
-<!-- ivar:product-docs:start -->
-## Product documentation
-
-- [Feature Cleanup](docs/product/003-feature-cleanup.md): Human-gated cleanup and documentation workflow.
-<!-- ivar:product-docs:end -->
-
-<!-- ivar:updates:start -->
-## Updates
-
-- [Feature Cleanup](docs/updates/007-feature-cleanup.md): Delivered the feature-cleanup command and enforcement CLI.
-<!-- ivar:updates:end -->
-```
-
-Files live under `docs/`:
-- `docs/product/NNN-<slug>.md` — current durable product behavior.
-- `docs/updates/NNN-<slug>.md` — delivery-relevant change log.
-- `docs/repo-relations/NNN-<slug>.md` — owned exclusively by `/ivar-relations`.
-
 ## Cleanup Record Schema
 
-The durable cleanup record is stored at `docs/updates/<NNN>-<feature>.cleanup.json`.
+The durable cleanup record is stored at `docs/memory/update/<NNN>-<feature>.cleanup.json`.
 
 ### JSON Schema
 
@@ -157,8 +132,8 @@ The durable cleanup record is stored at `docs/updates/<NNN>-<feature>.cleanup.js
     "documentation": {
       "decision": "written",
       "paths": [
-        "docs/product/003-feature-cleanup.md",
-        "docs/updates/007-feature-cleanup.md"
+        "docs/memory/product/003-feature-cleanup.md",
+        "docs/memory/update/007-feature-cleanup.md"
       ],
       "reason": null,
       "at": "2026-08-28T12:05:00Z"
@@ -180,7 +155,7 @@ The durable cleanup record is stored at `docs/updates/<NNN>-<feature>.cleanup.js
 - `approvals.documentation.decision` is `"written"` or `"not_required"`.
   - `"written"` requires a non-empty `paths` array and a null `reason`.
   - `"not_required"` requires a non-empty `reason` string and an empty `paths` array.
-- Every `paths` entry is hall-relative and must resolve inside `docs/`.
+- Every `paths` entry is hall-relative and must resolve inside `docs/memory/` or `docs/repo-relations/`.
 - `at` is an ISO-8601 UTC timestamp.
 - `approvals.delivery.approved` and `approvals.teardown.approved` must both be `true`. `false` is a valid record and a refusal to apply, never a bypass.
 - `outcome` is `null` until apply completes; apply writes the final per-repository and teardown results into it. A record whose `outcome` is already populated describes a finished run and is refused as an authorization for a new one.

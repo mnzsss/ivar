@@ -245,3 +245,23 @@ access to shorten them, or the guarantee silently goes away.
 
 Nothing is validated here. Turning a `String` into a `FeatureName` needs
 `domain`, which `cli` may not import; that stays the action's job.
+
+### 9. Memory pages: pure model, derived index
+
+A page is a file, and the index in `memory.db` is a cache of it. Three layers keep
+that true:
+
+- `domain::memory_page` is pure: `PageKind`, `Tier`, `PageMeta`, the path rule and the
+  validation. It reads no file and no YAML.
+- `store::memory::page_source` parses front matter through `infra::frontmatter` and calls
+  the domain; `store::memory::pages` writes and searches the `pages`, `pages_fts` and
+  `page_links` rows. `ivar doctor` and the reindex share `parse_page`/`build_page` (doctor
+  through `validate_page`, which wraps them), so the two cannot disagree on what a valid
+  page is.
+- `action::memory::{reindex,query}` own the behaviour: the reindex refreshes the index from
+  disk (before `query` and `status`, in `sync`, and on the MCP leader's tick) and never
+  touches `observations`; the query fuses page FTS and one-hop link neighbours with the
+  ranking constants of `domain::memory_rank`.
+
+Because the index is derived, a corrupt or stale one is repaired by
+`ivar memory reindex`, not migrated. See [ADR-0010](../adr/0010-pages-in-hall-docs.md).

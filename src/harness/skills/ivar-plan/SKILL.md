@@ -91,11 +91,20 @@ default is the only guard, and the rest is on you.
 
 ## Phase 2: Analysis
 
-1. Read `HALL.md` before analyzing. Select the relations involving potentially
-affected Repos, follow only the linked topics, and record the relevant context
-in `analysis.md`. Offer `/ivar-relations` only when cited code evidence
-contradicts, extends, or obsoletes the prose — and deferring that review never
-blocks approval of this artifact. This checkpoint never edits `HALL.md`;
+1. Consult memory before analyzing. Run `memory_query` for the affected repos,
+modules and the theme, filtering by `decision`, `gotcha`, `procedure` and
+`product`; when the tool does not exist, run
+`ivar memory query "<theme>" --kind decision --kind gotcha --kind procedure --kind product --json`.
+Read the pages that apply and record them in a "Conhecimento prévio" section of
+`analysis.md`: title, kind, path and what applies to this work. When nothing
+applies, say so. When the lookup fails, write "memória indisponível" and go on:
+a failed lookup never blocks approval of this artifact.
+
+   Then read `HALL.md` for the relations only. Select the relations involving
+potentially affected Repos, follow only the linked topics, and record the
+relevant context in `analysis.md`. Offer `/ivar-relations` only when cited code
+evidence contradicts, extends, or obsoletes the prose, and deferring that review
+never blocks approval of this artifact. This checkpoint never edits `HALL.md`;
 `/ivar-relations` is the only writer of the relation region.
 
 2. With approved Requirements as context, analyze the codebase to determine:

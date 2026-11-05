@@ -1,5 +1,6 @@
 use crate::action::Ctx;
 use crate::action::memory::status::status;
+use crate::error::WriteHuman;
 use crate::store::graph::db::GraphDb;
 use crate::store::layout::Layout;
 use crate::store::memory::db::MemoryDb;
@@ -163,5 +164,55 @@ fn status_reports_the_retention_window_and_the_stalest_session() {
     assert_eq!(
         json.pointer("/retention/window_days"),
         Some(&serde_json::json!(30))
+    );
+}
+
+#[test]
+fn status_reports_pages_per_kind_and_the_last_reindex() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root.clone());
+    std::fs::create_dir_all(layout.root().join("docs/memory/gotcha")).unwrap();
+    std::fs::write(layout.root().join("docs/memory/gotcha/a.md"), "# A\n").unwrap();
+    std::fs::write(
+        layout.root().join("docs/memory/gotcha/Bad_Slug.md"),
+        "# B\n",
+    )
+    .unwrap();
+
+    let value = status(&Ctx::new(root)).unwrap().value;
+
+    assert_eq!(
+        value
+            .pages
+            .by_kind
+            .iter()
+            .map(|k| (k.kind.as_str(), k.count))
+            .collect::<Vec<_>>(),
+        [("gotcha", 1)]
+    );
+    assert!(value.pages.last_reindex_at.is_some());
+    assert_eq!(value.pages.invalid, 1);
+}
+
+#[test]
+fn status_surfaces_a_failed_page_refresh_instead_of_reporting_zero_invalid() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root.clone());
+    {
+        let db = MemoryDb::open(layout.memory_db().as_std_path()).unwrap();
+        db.conn().execute_batch("DROP TABLE pages_fts").unwrap();
+    }
+    std::fs::create_dir_all(layout.root().join("docs/memory/gotcha")).unwrap();
+    std::fs::write(layout.root().join("docs/memory/gotcha/a.md"), "# A\n").unwrap();
+
+    let value = status(&Ctx::new(root)).unwrap().value;
+
+    assert!(value.pages.refresh_error.is_some());
+    let mut human = Vec::new();
+    value.write_human(&mut human).unwrap();
+    assert!(
+        String::from_utf8(human)
+            .unwrap()
+            .contains("page refresh failed")
     );
 }

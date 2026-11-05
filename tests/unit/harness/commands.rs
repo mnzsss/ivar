@@ -494,3 +494,27 @@ fn feature_create_command_does_not_assume_multiple_repos() {
     assert!(!command.content.contains("cross-repo"));
     assert!(command.content.contains("one repo or several"));
 }
+
+#[test]
+fn feature_cleanup_writes_pages_under_docs_memory_and_leaves_the_hall_index_alone() {
+    let text = catalog()
+        .iter()
+        .find(|c| c.id == "feature-cleanup")
+        .unwrap()
+        .content;
+    assert!(text.contains("docs/memory/update/<NNN>-<feature>.cleanup.json"));
+    assert!(text.contains("docs/memory/product/"));
+    assert!(text.contains("must resolve inside `docs/memory/` or `docs/repo-relations/`"));
+    assert!(
+        text.contains(".cleanup.json") && text.contains("plus one"),
+        "numbering rule missing: {text}"
+    );
+    for gone in [
+        "docs/updates",
+        "docs/product",
+        "ivar:product-docs",
+        "ivar:updates",
+    ] {
+        assert!(!text.contains(gone), "{gone} is still in the command");
+    }
+}

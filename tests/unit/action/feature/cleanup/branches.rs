@@ -13,8 +13,8 @@ fn apply_cleanup_reports_branch_deletion_in_apply_outcome() {
     assert!(preview.blockers.is_empty());
     assert!(git_sys.revision_commit(&bare, "checkout").is_ok());
 
-    fs::ensure_dir(&layout.docs_updates_dir()).unwrap();
-    let record_rel_path = Utf8PathBuf::from("docs/updates/001-checkout.cleanup.json");
+    fs::ensure_dir(&layout.update_pages_dir()).unwrap();
+    let record_rel_path = Utf8PathBuf::from("docs/memory/update/001-checkout.cleanup.json");
     let record_file = root.join(&record_rel_path);
     fs::write_text(
         &record_file,
@@ -74,8 +74,8 @@ fn apply_cleanup_preserves_remote_refs() {
         .unwrap();
 
     let preview = run_preview(&root);
-    fs::ensure_dir(&layout.docs_updates_dir()).unwrap();
-    let record_rel_path = Utf8PathBuf::from("docs/updates/001-checkout.cleanup.json");
+    fs::ensure_dir(&layout.update_pages_dir()).unwrap();
+    let record_rel_path = Utf8PathBuf::from("docs/memory/update/001-checkout.cleanup.json");
     let record_file = root.join(&record_rel_path);
     fs::write_text(
         &record_file,

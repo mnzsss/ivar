@@ -41,6 +41,7 @@ use crate::store::graph::db::GraphDb;
 use crate::store::graph::db::usage::MissFilter;
 use crate::store::layout::Layout;
 use crate::store::manifest::Manifest;
+use crate::store::memory::split::legacy_split_pending;
 
 pub use affected::{AffectedError, find_affected_tests, is_test_file, parse_files_from_reader};
 pub use clean::clean_cmd;
@@ -182,6 +183,11 @@ pub fn refresh_base_graph(
     manifest: &Manifest,
     progress: &dyn Progress,
 ) -> Result<Option<HallIndex>, Failure> {
+    let split_pending =
+        legacy_split_pending(layout).map_err(|error| split_failure(layout, error))?;
+    if !layout.graph_db().exists() && !split_pending {
+        return Ok(None);
+    }
     let db_path = graph_db_path(layout)?;
     if !db_path.as_std_path().exists() {
         return Ok(None);

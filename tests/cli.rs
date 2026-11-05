@@ -41,6 +41,9 @@ mod memory_capture;
 #[path = "cli/memory_capture_contract.rs"]
 mod memory_capture_contract;
 
+#[path = "cli/memory_pages_contract.rs"]
+mod memory_pages_contract;
+
 #[path = "cli/nested_subfeatures.rs"]
 mod nested_subfeatures;
 

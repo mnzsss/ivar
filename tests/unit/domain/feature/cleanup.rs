@@ -144,8 +144,8 @@ fn sample_record() -> CleanupRecord {
             documentation: DocumentationApproval {
                 decision: DocumentationDecision::Written,
                 paths: vec![
-                    Utf8PathBuf::from("docs/product/003-x.md"),
-                    Utf8PathBuf::from("docs/updates/007-y.md"),
+                    Utf8PathBuf::from("docs/memory/product/003-x.md"),
+                    Utf8PathBuf::from("docs/memory/update/007-y.md"),
                 ],
                 reason: None,
                 at: "2026-08-28T12:05:00Z".to_owned(),
@@ -208,7 +208,7 @@ fn cleanup_record_documentation_not_required_rules() {
     let mut record = sample_record();
     record.approvals.documentation.decision = DocumentationDecision::NotRequired;
     record.approvals.documentation.reason = Some("Internal refactoring".to_owned());
-    record.approvals.documentation.paths = vec![Utf8PathBuf::from("docs/product/003-x.md")];
+    record.approvals.documentation.paths = vec![Utf8PathBuf::from("docs/memory/product/003-x.md")];
     assert!(
         record
             .validate()
@@ -576,4 +576,16 @@ fn preview_has_blockers_checks_root_and_descendants() {
         paths_to_remove: Vec::new(),
     });
     assert!(preview.has_blockers());
+}
+
+#[test]
+fn cleanup_domain_sources_fit_the_commit_hook_limit() {
+    for rel in [
+        "src/domain/feature/cleanup.rs",
+        "src/domain/feature/cleanup/approvals.rs",
+    ] {
+        let path = format!("{}/{rel}", env!("CARGO_MANIFEST_DIR"));
+        let bytes = std::fs::metadata(&path).unwrap().len();
+        assert!(bytes < 20_000, "{rel} is {bytes} bytes");
+    }
 }

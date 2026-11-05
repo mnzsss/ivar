@@ -6,7 +6,7 @@ use rusqlite::Transaction;
 pub const APPLICATION_ID: i32 = 0x6976_6d31;
 
 /// The memory schema this binary migrates to.
-pub const MEMORY_SCHEMA_VERSION: i64 = 2;
+pub const MEMORY_SCHEMA_VERSION: i64 = 3;
 
 /// Every schema object a memory database up to [`MEMORY_SCHEMA_VERSION`]
 /// owns. Anything else in the file was put there by another program.
@@ -17,6 +17,24 @@ pub(crate) const MEMORY_OBJECTS: &[&str] = &[
     "observations_source_event",
     "observations_time",
     "observations_no_update",
+    "pages",
+    "pages_kind",
+    "pages_fts",
+    "pages_fts_data",
+    "pages_fts_idx",
+    "pages_fts_content",
+    "pages_fts_docsize",
+    "pages_fts_config",
+    "page_links",
+    "page_links_from",
+    "page_links_to",
+    "observations_fts",
+    "observations_fts_data",
+    "observations_fts_idx",
+    "observations_fts_docsize",
+    "observations_fts_config",
+    "observations_fts_insert",
+    "observations_fts_delete",
 ];
 
 pub(crate) const OBSERVATIONS_TABLE: &str = "observations";
@@ -24,13 +42,13 @@ pub(crate) const OBSERVATIONS_TABLE: &str = "observations";
 // The version lives in a table, not only in `user_version`: an ivar older than
 // the split opens this file as its graph and overwrites `user_version` with the
 // graph's version, and the repair needs the real one back.
-const MIGRATION_V1: &str = "
+pub(crate) const MIGRATION_V1: &str = "
 CREATE TABLE memory_schema (version INTEGER NOT NULL);
 INSERT INTO memory_schema (version) VALUES (1);
 ";
 
 // DELETE stays allowed: the retention sweep removes expired observations.
-const MIGRATION_V2: &str = "
+pub(crate) const MIGRATION_V2: &str = "
 CREATE TABLE observations (
     id                INTEGER PRIMARY KEY,
     event_id          TEXT NOT NULL UNIQUE,
@@ -56,12 +74,52 @@ CREATE TRIGGER observations_no_update BEFORE UPDATE ON observations
 BEGIN SELECT RAISE(ABORT, 'observations are append-only'); END;
 ";
 
+const MIGRATION_V3: &str = "
+CREATE TABLE pages (
+    id           INTEGER PRIMARY KEY,
+    path         TEXT NOT NULL UNIQUE,
+    kind         TEXT NOT NULL,
+    tier         TEXT NOT NULL,
+    title        TEXT NOT NULL,
+    tags         TEXT NOT NULL DEFAULT '[]',
+    pinned       INTEGER NOT NULL DEFAULT 0,
+    expires_at   TEXT,
+    size         INTEGER NOT NULL,
+    mtime_ns     INTEGER NOT NULL,
+    content_hash TEXT NOT NULL,
+    indexed_at   TEXT NOT NULL
+);
+CREATE INDEX pages_kind ON pages (kind);
+CREATE VIRTUAL TABLE pages_fts USING fts5(title, tags, body, tokenize = 'unicode61 remove_diacritics 2');
+CREATE TABLE page_links (
+    from_path     TEXT NOT NULL,
+    to_path       TEXT,
+    source        TEXT NOT NULL,
+    relation_type TEXT NOT NULL DEFAULT '',
+    target_text   TEXT NOT NULL
+);
+CREATE INDEX page_links_from ON page_links (from_path);
+CREATE INDEX page_links_to ON page_links (to_path);
+CREATE VIRTUAL TABLE observations_fts USING fts5(source_event, body, content = 'observations', content_rowid = 'id');
+CREATE TRIGGER observations_fts_insert AFTER INSERT ON observations BEGIN
+    INSERT INTO observations_fts (rowid, source_event, body) VALUES (new.id, new.source_event, new.body);
+END;
+CREATE TRIGGER observations_fts_delete AFTER DELETE ON observations BEGIN
+    INSERT INTO observations_fts (observations_fts, rowid, source_event, body)
+    VALUES ('delete', old.id, old.source_event, old.body);
+END;
+INSERT INTO observations_fts (observations_fts) VALUES ('rebuild');
+";
+
 pub(crate) fn migrate(tx: &Transaction<'_>, from: i64) -> rusqlite::Result<()> {
     if from < 1 {
         tx.execute_batch(MIGRATION_V1)?;
     }
     if from < 2 {
         tx.execute_batch(MIGRATION_V2)?;
+    }
+    if from < 3 {
+        tx.execute_batch(MIGRATION_V3)?;
     }
     tx.execute(
         "UPDATE memory_schema SET version = ?1",

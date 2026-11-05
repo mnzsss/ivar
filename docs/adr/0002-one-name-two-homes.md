@@ -16,9 +16,11 @@ held in the agent's context and lost when the session ends.
 
 The obvious fix — one folder per unit of work, `docs/<name>/` holding both
 — collides with a convention already shipped. `feature cleanup` writes
-`docs/product/NNN-<slug>.md`, `docs/updates/NNN-<slug>.md`, and
+`docs/memory/product/NNN-<slug>.md`, `docs/memory/update/NNN-<slug>.md`, and
 `docs/repo-relations/NNN-<slug>.md`, and validates that its record
-resolves inside `docs/updates/` (`src/action/feature/cleanup.rs:129`).
+resolves inside `docs/memory/update/` (`src/action/feature/cleanup.rs:129`;
+the folders were `docs/product/` and `docs/updates/` before
+[ADR-0010](0010-pages-in-hall-docs.md)).
 Under one folder, a unit of work named `updates` is indistinguishable from
 that topic directory.
 

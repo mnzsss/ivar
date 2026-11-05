@@ -140,12 +140,25 @@ impl Layout {
         self.feature_dir(feature).join("discovery.md")
     }
 
-    /// `<hall>/docs/updates/` — numbered delivery-relevant change records,
-    /// including a feature's durable cleanup record (MNZS-379's convention).
-    /// Committed.
+    /// `<hall>/docs/memory/` — committed durable memory pages, one directory per kind.
     #[must_use]
-    pub fn docs_updates_dir(&self) -> Utf8PathBuf {
-        self.root.join("docs").join("updates")
+    pub fn docs_memory_dir(&self) -> Utf8PathBuf {
+        self.root.join("docs").join("memory")
+    }
+
+    #[must_use]
+    pub fn page_dir(&self, kind: crate::domain::memory_page::PageKind) -> Utf8PathBuf {
+        let base = if kind.is_durable() {
+            self.docs_memory_dir()
+        } else {
+            self.ivar_dir().join("memory")
+        };
+        base.join(kind.as_str())
+    }
+
+    #[must_use]
+    pub fn update_pages_dir(&self) -> Utf8PathBuf {
+        self.page_dir(crate::domain::memory_page::PageKind::Update)
     }
 
     /// `<hall>/.claude/` or `<hall>/.opencode/` — the harness-dictated config

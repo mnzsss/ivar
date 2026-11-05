@@ -51,6 +51,36 @@ running leader never sweeps, `ivar doctor` reports `memory.retention_overdue` af
 37 days, and a broken graph database stops the loop. `delivery.*` observations are kept;
 `ivar memory clean` deletes the whole database.
 
+## The page index
+
+`ivar memory query` searches the pages under `docs/memory/` through an index in
+`memory.db`; see [memory pages](on-disk-format-pages.md).
+
+- The index follows the disk, not a watcher. It is refreshed by `ivar memory query`,
+  `ivar memory status` and `ivar sync`, and every 5 s by the `ivar graph mcp` leader. A
+  hall without a leader reindexes only on those reads. `ivar sync` never waits for
+  `memory.lock`: when another process holds it, sync leaves the pass to that process.
+  An uncommitted page is indexed too.
+- A page that fails validation is not indexed and `ivar doctor` names it
+  (`memory.page_invalid`, `memory.page_kind_unknown`, `memory.page_misplaced`). A
+  failed reindex, including one that could not take `memory.lock`, shows as
+  `memory.index_failed`, and `ivar memory status` prints the refresh error. A pass is
+  one transaction, so the last good index keeps answering, also after a failed
+  `ivar memory reindex`.
+- A pass that indexes and removes nothing leaves `_reindex.json` as it is, so
+  `last_reindex_at` is the last pass that changed the index, not the last tick.
+- Wikilinks resolve by slug. Two pages with the same slug in different kinds make a
+  bare `[[slug]]` ambiguous; write `[[kind/slug]]`.
+- Ranking constants (the fusion constant, the tier multipliers, the pinned bonus) belong
+  to the binary and are not configurable.
+- Link expansion adds the neighbours of the ten best matches, ranked behind them. It is
+  skipped when `--kind`, `--tier` or `--tag` is set.
+- Anchors are absent: a page is found as a whole, never at a heading.
+- `docs/memory/` is indexed twice until the retrieval slice: `ivar graph index` still
+  reads `docs/` as text, so the same page can also answer `graph_explore`.
+- Observations answer only when no page matches and no filter is set, and only the ones
+  the retention sweep has not deleted.
+
 ## Older `ivar`
 
 A hall that sets `memory.capture` in `ivar.json` cannot be read by an `ivar` that

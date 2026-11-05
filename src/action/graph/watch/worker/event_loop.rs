@@ -11,6 +11,7 @@ use crate::action::graph::watch::worker::registry::{add_control_dirs, register_a
 use crate::action::graph::watch::worker::reindex::reindex;
 use crate::action::graph::watch::worker::{Discover, TICK, Target};
 use crate::action::memory::drain::drain_one;
+use crate::action::memory::reindex;
 use crate::action::memory::sweep::sweep_now;
 use crate::git::System as GitSystem;
 use crate::store::graph::db::GraphDb;
@@ -19,6 +20,52 @@ use crate::store::memory::spool;
 
 const DRAIN_EVERY: Duration = Duration::from_millis(250);
 const SWEEP_EVERY: Duration = Duration::from_secs(3600);
+const REINDEX_EVERY: Duration = Duration::from_secs(5);
+
+fn reindex_due(last: &mut Option<Instant>, now: Instant) -> bool {
+    let due = last.is_none_or(|at| now.duration_since(at) >= REINDEX_EVERY);
+    if due {
+        *last = Some(now);
+    }
+    due
+}
+
+struct MemoryClock {
+    last_drain: Instant,
+    last_sweep: Option<Instant>,
+    last_reindex: Option<Instant>,
+}
+
+impl MemoryClock {
+    fn new(now: Instant) -> Self {
+        Self {
+            last_drain: now,
+            last_sweep: None,
+            last_reindex: None,
+        }
+    }
+
+    fn tick(&mut self, layout: &Layout, now: Instant) {
+        if reindex_due(&mut self.last_reindex, now) {
+            let _ = reindex::refresh_if_free(layout);
+        }
+
+        if now.duration_since(self.last_drain) >= DRAIN_EVERY {
+            self.last_drain = now;
+            if spool::has_pending(&layout.memory_spool_dir()) {
+                let _ = drain_one(layout);
+            }
+        }
+
+        if self
+            .last_sweep
+            .is_none_or(|at| now.duration_since(at) >= SWEEP_EVERY)
+        {
+            self.last_sweep = Some(now);
+            let _ = sweep_now(layout);
+        }
+    }
+}
 
 pub(super) fn handle_fs_event(
     event: &notify::Event,
@@ -138,6 +185,13 @@ fn forget_rows_without_target(layout: &Layout, db: &GraphDb, targets: &[Target])
     }
 }
 
+fn flag_all_for_catchup(db: &GraphDb, targets: &[Target], deb: &mut Debouncer, now: Instant) {
+    for t in targets {
+        let _ = db.watch_flag_catchup(&t.scope.key());
+        let _ = deb.record(t.scope.clone(), now);
+    }
+}
+
 pub(super) fn run(
     layout: Layout,
     db_path: Utf8PathBuf,
@@ -174,8 +228,7 @@ pub(super) fn run(
     forget_rows_without_target(&layout, &db, &targets);
 
     let mut rediscover = false;
-    let mut last_drain = Instant::now();
-    let mut last_sweep: Option<Instant> = None;
+    let mut memory_clock = MemoryClock::new(Instant::now());
 
     while !stop.load(Ordering::Relaxed) {
         let now = Instant::now();
@@ -199,13 +252,7 @@ pub(super) fn run(
                     &mut rediscover,
                 );
             }
-            Ok(Err(error)) => {
-                for t in &targets {
-                    let _ = db.watch_flag_catchup(&t.scope.key());
-                    let _ = deb.record(t.scope.clone(), now);
-                }
-                let _ = error;
-            }
+            Ok(Err(_)) => flag_all_for_catchup(&db, &targets, &mut deb, now),
             Err(mpsc::RecvTimeoutError::Timeout) => {}
             Err(mpsc::RecvTimeoutError::Disconnected) => break,
         }
@@ -247,16 +294,10 @@ pub(super) fn run(
         let now = Instant::now();
         process_due_scopes(&layout, &db, &mut deb, &targets, now);
 
-        if last_drain.elapsed() >= DRAIN_EVERY {
-            last_drain = Instant::now();
-            if spool::has_pending(&layout.memory_spool_dir()) {
-                let _ = drain_one(&layout);
-            }
-        }
-
-        if last_sweep.is_none_or(|at| at.elapsed() >= SWEEP_EVERY) {
-            last_sweep = Some(Instant::now());
-            let _ = sweep_now(&layout);
-        }
+        memory_clock.tick(&layout, Instant::now());
     }
 }
+
+#[cfg(test)]
+#[path = "../../../../../tests/unit/action/graph/watch/event_loop.rs"]
+mod tests;

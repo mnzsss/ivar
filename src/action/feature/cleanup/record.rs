@@ -25,7 +25,7 @@ pub(super) fn load_and_validate_record(
     record_path: &Utf8Path,
     layout: &crate::store::layout::Layout,
 ) -> Result<CleanupRecord, Failure> {
-    let docs_updates = layout.docs_updates_dir();
+    let update_pages = layout.update_pages_dir();
 
     let abs_record_path = if record_path.is_absolute() {
         record_path.to_path_buf()
@@ -33,10 +33,10 @@ pub(super) fn load_and_validate_record(
         layout.root().join(record_path)
     };
 
-    let canonical_updates = fs_err::canonicalize(&docs_updates).map_err(|_| {
+    let canonical_update_pages = fs_err::canonicalize(&update_pages).map_err(|_| {
         Failure::blocked(
             "feature.cleanup_record_outside_docs_updates",
-            format!("cleanup record `{record_path}` must resolve inside `{docs_updates}`"),
+            format!("cleanup record `{record_path}` must resolve inside `{update_pages}`"),
         )
     })?;
 
@@ -47,10 +47,10 @@ pub(super) fn load_and_validate_record(
         )
     })?;
 
-    if !canonical_record.starts_with(&canonical_updates) {
+    if !canonical_record.starts_with(&canonical_update_pages) {
         return Err(Failure::blocked(
             "feature.cleanup_record_outside_docs_updates",
-            format!("cleanup record `{record_path}` must resolve inside `{docs_updates}`"),
+            format!("cleanup record `{record_path}` must resolve inside `{update_pages}`"),
         ));
     }
 
