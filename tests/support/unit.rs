@@ -35,10 +35,8 @@ mod fake_telegram;
 pub(crate) use fake_telegram::FakeTelegram;
 
 #[path = "scripted_confirm.rs"]
-#[allow(dead_code)]
 mod scripted_confirm;
 
-#[allow(unused_imports)]
 pub(crate) use scripted_confirm::Scripted;
 
 /// `fake`'s `gh` script with its state files in the environment — what a

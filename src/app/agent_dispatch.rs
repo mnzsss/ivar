@@ -3,7 +3,7 @@ use std::process::ExitCode;
 
 use super::respond::{respond, respond_failure};
 use crate::action::{Ctx, agent};
-use crate::cli::agent::AgentCommand;
+use crate::cli::agent::{AgentCommand, NotifyCommand, TelegramCommand};
 
 pub(super) fn dispatch_agent(
     cmd: AgentCommand,
@@ -27,6 +27,12 @@ pub(super) fn dispatch_agent(
         }
         AgentCommand::Feedback(args) => respond(
             agent::feedback::feedback(ctx, args.into()),
+            json,
+            stdout,
+            stderr,
+        ),
+        AgentCommand::Notify(NotifyCommand::Telegram(TelegramCommand::Setup)) => respond(
+            agent::notify_setup::telegram_setup(ctx),
             json,
             stdout,
             stderr,
