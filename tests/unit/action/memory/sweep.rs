@@ -201,7 +201,6 @@ fn mark(layout: &Layout, name: &str, days_ago: u64) {
         crate::action::memory::consolidate::state::Marker {
             last_id: 1,
             last_at: at(days_ago),
-            session_id: String::new(),
         },
     );
     crate::action::memory::consolidate::state::write_state(layout, &state).unwrap();

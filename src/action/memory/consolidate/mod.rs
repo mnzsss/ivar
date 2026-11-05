@@ -204,7 +204,6 @@ fn run(
             Marker {
                 last_id: newest,
                 last_at: head.last_at.clone(),
-                session_id: head.session_id.clone(),
             },
         );
     }

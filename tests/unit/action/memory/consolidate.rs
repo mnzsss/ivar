@@ -257,3 +257,22 @@ fn expiry_follows_ttl_pinned_and_explicit_expires_at() {
     };
     assert!(!is_expired(&future, old, now));
 }
+
+#[test]
+fn a_marker_written_with_a_session_id_still_loads_and_is_rewritten_without_it() {
+    let (_g, layout) = hall();
+    std::fs::create_dir_all(layout.memory_spool_dir()).unwrap();
+    std::fs::write(
+        layout.memory_spool_dir().join("_consolidate.json"),
+        r#"{"markers": {"n": {"last_id": 7, "last_at": "2026-11-04T10:00:00Z", "session_id": "s1"}}}"#,
+    )
+    .unwrap();
+
+    let loaded = state::read_state(&layout);
+    assert_eq!(loaded.markers["n"].last_id, 7);
+    state::write_state(&layout, &loaded).unwrap();
+
+    let text =
+        std::fs::read_to_string(layout.memory_spool_dir().join("_consolidate.json")).unwrap();
+    assert!(!text.contains("session_id"), "{text}");
+}

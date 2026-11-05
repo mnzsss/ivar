@@ -14,7 +14,6 @@ const STATE_FILE: &str = "_consolidate.json";
 pub struct Marker {
     pub last_id: i64,
     pub last_at: String,
-    pub session_id: String,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
