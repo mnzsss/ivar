@@ -577,3 +577,15 @@ fn preview_has_blockers_checks_root_and_descendants() {
     });
     assert!(preview.has_blockers());
 }
+
+#[test]
+fn cleanup_domain_sources_fit_the_commit_hook_limit() {
+    for rel in [
+        "src/domain/feature/cleanup.rs",
+        "src/domain/feature/cleanup/approvals.rs",
+    ] {
+        let path = format!("{}/{rel}", env!("CARGO_MANIFEST_DIR"));
+        let bytes = std::fs::metadata(&path).unwrap().len();
+        assert!(bytes < 20_000, "{rel} is {bytes} bytes");
+    }
+}
