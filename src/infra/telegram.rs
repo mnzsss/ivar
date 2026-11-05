@@ -60,6 +60,34 @@ pub fn send_message(api: &str, token: &str, chat_id: &str, text: &str) -> Result
     .map(|_| ())
 }
 
+/// Sends `html`, falling back to `plain` when Telegram refuses the markup,
+/// with a button that copies `copy_text` to the clipboard.
+///
+/// # Errors
+///
+/// Telegram's refusal or a transport failure, without the token.
+pub fn send_card(
+    api: &str,
+    token: &str,
+    chat_id: &str,
+    html: &str,
+    plain: &str,
+    copy: (&str, &str),
+) -> Result<(), String> {
+    let (label, copy_text) = copy;
+    let keyboard =
+        json!({ "inline_keyboard": [[{ "text": label, "copy_text": { "text": copy_text } }]] });
+    let html_body =
+        json!({ "chat_id": chat_id, "text": html, "parse_mode": "HTML", "reply_markup": keyboard });
+    match call(api, token, "sendMessage", &html_body) {
+        Err(error) if error.contains("(HTTP 400)") => {
+            let plain_body = json!({ "chat_id": chat_id, "text": plain, "reply_markup": keyboard });
+            call(api, token, "sendMessage", &plain_body).map(|_| ())
+        }
+        result => result.map(|_| ()),
+    }
+}
+
 fn chat_of(update: &Value) -> Option<Chat> {
     let chat = CHAT_KEYS
         .iter()

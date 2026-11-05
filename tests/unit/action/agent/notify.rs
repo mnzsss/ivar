@@ -89,7 +89,13 @@ fn posts_the_summary_as_json() {
     let (url, server) = one_shot_server("200 OK");
     let mut receipt =
         AgentRunReceipt::skipped("r1".into(), "nightly".into(), Trigger::Schedule, "t".into());
-    deliver_to(&spec(Some(url)), &mut receipt, no_token, "");
+    deliver_to(
+        &spec(Some(url)),
+        &mut receipt,
+        "valhalla-hall",
+        no_token,
+        "",
+    );
     let request = server.join().unwrap();
     assert!(request.starts_with("POST /hook "));
     assert!(
@@ -106,7 +112,13 @@ fn a_failed_post_is_recorded_and_leaves_the_outcome() {
     let (url, server) = one_shot_server("500 Internal Server Error");
     let mut receipt =
         AgentRunReceipt::skipped("r1".into(), "nightly".into(), Trigger::Schedule, "t".into());
-    deliver_to(&spec(Some(url)), &mut receipt, no_token, "");
+    deliver_to(
+        &spec(Some(url)),
+        &mut receipt,
+        "valhalla-hall",
+        no_token,
+        "",
+    );
     server.join().unwrap();
     assert!(receipt.notify_error.as_deref().unwrap().contains("500"));
     assert_eq!(receipt.outcome, AgentRunOutcome::Skipped);
@@ -116,7 +128,7 @@ fn a_failed_post_is_recorded_and_leaves_the_outcome() {
 fn no_notify_url_sends_nothing() {
     let mut receipt =
         AgentRunReceipt::skipped("r1".into(), "nightly".into(), Trigger::Schedule, "t".into());
-    deliver_to(&spec(None), &mut receipt, no_token, "");
+    deliver_to(&spec(None), &mut receipt, "valhalla-hall", no_token, "");
     assert_eq!(receipt.notify_error, None);
 }
 
@@ -127,6 +139,7 @@ fn telegram_sends_the_run_text_to_the_chat() {
     deliver_to(
         &spec(Some("telegram:-100123".into())),
         &mut receipt,
+        "valhalla-hall",
         || Ok("123:secret".into()),
         &fake.api,
     );
@@ -136,7 +149,12 @@ fn telegram_sends_the_run_text_to_the_chat() {
         "{request}"
     );
     assert!(request.contains(r#""chat_id":"-100123""#), "{request}");
-    assert!(request.contains("ivar agent nightly: skipped"), "{request}");
+    assert!(request.contains("<b>nightly</b> · skipped"), "{request}");
+    assert!(request.contains("<i>valhalla-hall · schedule"), "{request}");
+    assert!(
+        request.contains("ivar agent logs nightly --run r1"),
+        "{request}"
+    );
     assert_eq!(receipt.notify_error, None);
 }
 
@@ -150,14 +168,12 @@ fn telegram_sends_a_timed_out_run_with_its_exit_code_and_tail() {
     deliver_to(
         &spec(Some("telegram:-100123".into())),
         &mut receipt,
+        "valhalla-hall",
         || Ok("123:secret".into()),
         &fake.api,
     );
     let request = &fake.requests()[0];
-    assert!(
-        request.contains("ivar agent nightly: timed_out"),
-        "{request}"
-    );
+    assert!(request.contains("<b>nightly</b> · timed_out"), "{request}");
     assert!(request.contains("exit 124"), "{request}");
     assert!(request.contains(r"step 3 of 9\nstill waiting"), "{request}");
     assert_eq!(receipt.notify_error, None);
@@ -173,6 +189,7 @@ fn a_failed_telegram_send_never_records_the_token() {
     deliver_to(
         &spec(Some("telegram:@ivar_runs".into())),
         &mut receipt,
+        "valhalla-hall",
         || Ok("123:secret".into()),
         &fake.api,
     );
@@ -189,6 +206,7 @@ fn a_missing_telegram_token_is_recorded_without_a_request() {
     deliver_to(
         &spec(Some("telegram:123".into())),
         &mut receipt,
+        "valhalla-hall",
         || Err(format!("secret `{TELEGRAM_TOKEN_KEY}` is not set")),
         "http://127.0.0.1:9",
     );

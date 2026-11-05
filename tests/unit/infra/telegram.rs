@@ -79,3 +79,43 @@ fn send_message_posts_the_chat_id_and_text() {
     assert!(request.contains(r#""chat_id":"-100123""#), "{request}");
     assert!(request.contains(r#""text":"hello""#), "{request}");
 }
+
+#[test]
+fn send_card_posts_html_with_a_copy_button() {
+    let fake = FakeTelegram::start(vec![(200, r#"{"ok":true,"result":{}}"#)]);
+    send_card(&fake.api, TOKEN, "1", "<b>hi</b>", "hi", ("Copy", "do it")).unwrap();
+    let request = &fake.requests()[0];
+    assert!(request.contains(r#""parse_mode":"HTML""#), "{request}");
+    assert!(
+        request.contains(r#""copy_text":{"text":"do it"}"#),
+        "{request}"
+    );
+}
+
+#[test]
+fn send_card_falls_back_to_plain_text_when_telegram_refuses_the_markup() {
+    let fake = FakeTelegram::start(vec![
+        (
+            400,
+            r#"{"ok":false,"error_code":400,"description":"Bad Request: can't parse entities"}"#,
+        ),
+        (200, r#"{"ok":true,"result":{}}"#),
+    ]);
+    send_card(
+        &fake.api,
+        TOKEN,
+        "1",
+        "<b>hi",
+        "plain hi",
+        ("Copy", "do it"),
+    )
+    .unwrap();
+    let requests = fake.requests();
+    assert!(!requests[1].contains("parse_mode"), "{}", requests[1]);
+    assert!(
+        requests[1].contains(r#""text":"plain hi""#),
+        "{}",
+        requests[1]
+    );
+    assert!(requests[1].contains(r#""copy_text""#), "{}", requests[1]);
+}

@@ -222,6 +222,33 @@ fn rfc3339_from_parts(secs: i64, nanos: u32) -> String {
     format!("{year:04}-{month:02}-{day:02}T{hours:02}:{minutes:02}:{seconds:02}.{nanos:09}Z")
 }
 
+/// Whole epoch seconds of a UTC `YYYY-MM-DDTHH:MM:SS[.fraction]Z` timestamp,
+/// the form [`rfc3339_now`] writes; any other offset is refused.
+#[must_use]
+pub fn epoch_secs_from_rfc3339(text: &str) -> Option<i64> {
+    let (date, time) = text.strip_suffix('Z')?.split_once('T')?;
+    let whole_seconds = time.split('.').next()?;
+    let [year, month, day] = three_numbers(date, '-')?;
+    let [hours, minutes, seconds] = three_numbers(whole_seconds, ':')?;
+    Some(days_from_civil(year, month, day) * 86_400 + hours * 3600 + minutes * 60 + seconds)
+}
+
+fn three_numbers(text: &str, separator: char) -> Option<[i64; 3]> {
+    let mut parts = text.split(separator).map(|part| part.parse::<i64>().ok());
+    let numbers = [parts.next()??, parts.next()??, parts.next()??];
+    parts.next().is_none().then_some(numbers)
+}
+
+/// The inverse of [`civil_from_days`], from the same Hinnant algorithms.
+fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
+    let year = if month <= 2 { year - 1 } else { year };
+    let era = year.div_euclid(400);
+    let year_of_era = year.rem_euclid(400);
+    let day_of_year = (153 * ((month + 9) % 12) + 2) / 5 + day - 1;
+    let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
+    era * 146_097 + day_of_era - 719_468
+}
+
 /// Days since 1970-01-01 to a civil (year, month, day), in UTC.
 ///
 /// Howard Hinnant's `civil_from_days` algorithm — the standard, well-tested

@@ -4,11 +4,13 @@ use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
 
+use crate::domain::session::epoch_secs_from_rfc3339;
+
 pub const RECEIPT_VERSION: u32 = 1;
 
 const NOTIFY_TAIL_CHARS: usize = 2000;
 /// Telegram counts a message's length in UTF-16 code units.
-const TELEGRAM_TEXT_LIMIT: usize = 4096;
+pub(super) const TELEGRAM_TEXT_LIMIT: usize = 4096;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -117,6 +119,7 @@ pub struct AgentRunReceipt {
 
 #[derive(Debug, Serialize)]
 pub struct NotifySummary<'a> {
+    pub hall: &'a str,
     pub run_id: &'a str,
     pub agent: &'a str,
     pub trigger: Trigger,
@@ -125,17 +128,42 @@ pub struct NotifySummary<'a> {
     pub started_at: &'a str,
     pub ended_at: &'a str,
     pub tail: &'a str,
+    #[serde(skip)]
+    pub tail_is_cut: bool,
 }
 
 impl NotifySummary<'_> {
-    pub fn telegram_text(&self) -> String {
+    /// Duration and a non-zero exit code; exit 0 repeats what `succeeded` says.
+    pub(super) fn run_details(&self) -> String {
         let exit = self
             .exit_code
-            .map_or_else(String::new, |code| format!(" · exit {code}"));
+            .filter(|code| *code != 0)
+            .map(|code| format!("exit {code}"));
+        [self.duration(), exit]
+            .into_iter()
+            .flatten()
+            .map(|part| format!(" · {part}"))
+            .collect()
+    }
+
+    fn duration(&self) -> Option<String> {
+        let started = epoch_secs_from_rfc3339(self.started_at)?;
+        let seconds = epoch_secs_from_rfc3339(self.ended_at)? - started;
+        match seconds {
+            ..=0 => None,
+            1..=59 => Some(format!("{seconds}s")),
+            60..=3599 => Some(format!("{}m{:02}s", seconds / 60, seconds % 60)),
+            _ => Some(format!("{}h{:02}m", seconds / 3600, seconds % 3600 / 60)),
+        }
+    }
+
+    pub fn telegram_text(&self) -> String {
+        let details = self.run_details();
         let mut text = format!(
-            "ivar agent {}: {}\n{} · {}{exit}",
+            "ivar agent {}: {}\n{} · {} · {}{details}",
             self.agent,
             self.outcome.as_str(),
+            self.hall,
             self.trigger.as_str(),
             self.run_id
         );
@@ -148,7 +176,7 @@ impl NotifySummary<'_> {
     }
 }
 
-fn utf16_suffix(text: &str, max_units: usize) -> &str {
+pub(super) fn utf16_suffix(text: &str, max_units: usize) -> &str {
     let mut units = 0;
     for (start, ch) in text.char_indices().rev() {
         units += ch.len_utf16();
@@ -219,12 +247,14 @@ impl AgentRunReceipt {
         )
     }
 
-    pub fn notify_summary(&self) -> NotifySummary<'_> {
+    pub fn notify_summary<'a>(&'a self, hall: &'a str) -> NotifySummary<'a> {
         let tail = match self.output.char_indices().rev().nth(NOTIFY_TAIL_CHARS - 1) {
             Some((start, _)) => &self.output[start..],
             None => &self.output,
         };
+        let tail_is_cut = tail.len() < self.output.len();
         NotifySummary {
+            hall,
             run_id: &self.run_id,
             agent: &self.agent,
             trigger: self.trigger,
@@ -233,6 +263,7 @@ impl AgentRunReceipt {
             started_at: &self.started_at,
             ended_at: &self.ended_at,
             tail,
+            tail_is_cut,
         }
     }
 }

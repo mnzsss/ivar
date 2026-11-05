@@ -114,3 +114,32 @@ fn rfc3339_from_epoch_secs_does_not_panic_at_the_far_future_clamp() {
         "must still produce a well-formed timestamp: {formatted}"
     );
 }
+
+#[test]
+fn epoch_secs_from_rfc3339_inverts_the_formatter_to_whole_seconds() {
+    for secs in [0.0, 951_782_400.0, 1_800_000_000.5, 4_102_444_799.9] {
+        let text = rfc3339_from_epoch_secs(secs);
+        assert_eq!(
+            epoch_secs_from_rfc3339(&text),
+            Some(secs.floor() as i64),
+            "{text}"
+        );
+    }
+    assert_eq!(
+        epoch_secs_from_rfc3339("2026-11-05T21:07:12Z"),
+        Some(1_793_912_832)
+    );
+}
+
+#[test]
+fn epoch_secs_from_rfc3339_rejects_what_it_cannot_read() {
+    for text in [
+        "t",
+        "",
+        "2026-11-05",
+        "2026-11-05T21:07:12",
+        "2026-11-05T21:07:12+01:00",
+    ] {
+        assert_eq!(epoch_secs_from_rfc3339(text), None, "{text}");
+    }
+}
