@@ -30,6 +30,43 @@ fn reindex_due(last: &mut Option<Instant>, now: Instant) -> bool {
     due
 }
 
+struct MemoryClock {
+    last_drain: Instant,
+    last_sweep: Option<Instant>,
+    last_reindex: Option<Instant>,
+}
+
+impl MemoryClock {
+    fn new(now: Instant) -> Self {
+        Self {
+            last_drain: now,
+            last_sweep: None,
+            last_reindex: None,
+        }
+    }
+
+    fn tick(&mut self, layout: &Layout, now: Instant) {
+        if reindex_due(&mut self.last_reindex, now) {
+            let _ = reindex::refresh_if_free(layout);
+        }
+
+        if now.duration_since(self.last_drain) >= DRAIN_EVERY {
+            self.last_drain = now;
+            if spool::has_pending(&layout.memory_spool_dir()) {
+                let _ = drain_one(layout);
+            }
+        }
+
+        if self
+            .last_sweep
+            .is_none_or(|at| now.duration_since(at) >= SWEEP_EVERY)
+        {
+            self.last_sweep = Some(now);
+            let _ = sweep_now(layout);
+        }
+    }
+}
+
 pub(super) fn handle_fs_event(
     event: &notify::Event,
     watcher: &mut RecommendedWatcher,
@@ -191,9 +228,7 @@ pub(super) fn run(
     forget_rows_without_target(&layout, &db, &targets);
 
     let mut rediscover = false;
-    let mut last_drain = Instant::now();
-    let mut last_sweep: Option<Instant> = None;
-    let mut last_reindex: Option<Instant> = None;
+    let mut memory_clock = MemoryClock::new(Instant::now());
 
     while !stop.load(Ordering::Relaxed) {
         let now = Instant::now();
@@ -259,21 +294,7 @@ pub(super) fn run(
         let now = Instant::now();
         process_due_scopes(&layout, &db, &mut deb, &targets, now);
 
-        if reindex_due(&mut last_reindex, Instant::now()) {
-            let _ = reindex::refresh_if_free(&layout);
-        }
-
-        if last_drain.elapsed() >= DRAIN_EVERY {
-            last_drain = Instant::now();
-            if spool::has_pending(&layout.memory_spool_dir()) {
-                let _ = drain_one(&layout);
-            }
-        }
-
-        if last_sweep.is_none_or(|at| at.elapsed() >= SWEEP_EVERY) {
-            last_sweep = Some(Instant::now());
-            let _ = sweep_now(&layout);
-        }
+        memory_clock.tick(&layout, Instant::now());
     }
 }
 
