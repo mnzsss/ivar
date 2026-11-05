@@ -51,3 +51,18 @@ Record your verdict on a run
 | `--rating` | `<RATING>` |  | Your verdict on the run |
 | `--comment` | `<COMMENT>` |  | Why, in a sentence |
 
+
+## `ivar agent notify`
+
+Set up where agents send their run notifications
+
+
+### `ivar agent notify telegram`
+
+Notifications through a Telegram bot
+
+
+#### `ivar agent notify telegram setup`
+
+Save the bot token, find the chat, send a test message and set `notify` on agents
+

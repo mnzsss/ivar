@@ -33,7 +33,7 @@ ivar runs no process of its own between runs. Linux with systemd only.
 | `workdir` | `/workspace` | relative path under the hall's repos, first segment is the repo; required for `access: feature` |
 | `network` | `[]` | bare hostnames the egress proxy allows; everything else fails |
 | `secrets` | `[]` | names (`^[A-Z][A-Z0-9_]*$`) read from `.ivar/secrets/agents.env` |
-| `notify` | — | `http(s)://` URL that receives a JSON run summary |
+| `notify` | — | `http(s)://` URL that receives a JSON run summary, or `telegram:<chat_id>` to message a Telegram chat (see [Telegram](#telegram)) |
 | `timeout` | `30m` | `90s`, `45m`, `2h`; at most `24h` |
 | `catchup` | `false` | `true`: when the machine was off or asleep at the scheduled time, run once as soon as the timer is active again, however many runs were missed. Sets `Persistent=true` on the timer; run `ivar agent sync` after changing it |
 
@@ -46,8 +46,28 @@ ivar runs no process of its own between runs. Linux with systemd only.
 | `ivar agent run <name>` | runs now, through the same path the timer uses |
 | `ivar agent logs <name> [--run <id>]` | output of the latest or given run |
 | `ivar agent feedback <run-id> --rating up [--comment <text>]` | records your verdict on the run; `--rating` is `up` or `down` |
+| `ivar agent notify telegram setup` | asks for the bot token, finds the chat, sends a test message and sets `notify` on the agents you pick |
 
 Every command takes `--json`.
+
+## Telegram
+
+`notify: telegram:<chat_id>` sends each run's outcome and the last 2000
+characters of its output to a Telegram chat. `<chat_id>` is a number
+(`123456`, `-1001234567890` for a group) or a public channel's
+`@username`; to post in a channel, the bot must be one of its admins.
+
+Create a bot with @BotFather, then run `ivar agent notify telegram setup`.
+It asks for the token without echoing it, checks it with Telegram, saves
+it in `.ivar/secrets/agents.env` as `TELEGRAM_BOT_TOKEN`, lists the chats
+that have messaged the bot, sends a test message, and offers to set
+`notify` on your agents. It needs a terminal; without one, put the token
+in `agents.env` yourself and write the `notify` line by hand.
+
+ivar reads the token when the run ends; the agent does not see it unless
+it lists it in `secrets`. A failed send is recorded in the receipt's
+`notify_error`, with the token replaced by `[redacted]`, and never changes
+the run's outcome. Changing `notify` needs no `ivar agent sync`.
 
 ## What a run can reach
 

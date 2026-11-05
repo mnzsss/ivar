@@ -61,7 +61,8 @@ The first part of the map is in [module-map.md](module-map.md).
     discovery.rs   discovery doc parsing and rendering (frontmatter I/O)
     skill.rs       the lockfile and skill state
     agent.rs       agent definitions and run receipts under .ivar/agents/
-    agent_secrets.rs  .ivar/secrets/agents.env, mode 600, read per agent
+    agent_secrets.rs  .ivar/secrets/agents.env, mode 600, read per agent and
+                      written by `ivar agent notify telegram setup`
     render.rs      materialising a skill: symlink or copy, and verify
 
   git/             the only module that knows git exists
@@ -144,6 +145,7 @@ The first part of the map is in [module-map.md](module-map.md).
     systemd.rs     systemctl --user and the user unit directory
     docker.rs      the docker CLI an agent run drives
     webhook.rs     the HTTP POST behind an agent's `notify`
+    telegram.rs    the Telegram Bot API calls (getMe, getUpdates, sendMessage)
     oauth.rs       OAuth 2.0 PKCE and code-for-token exchange primitives
     figma.rs       Figma MCP client pre-registration and dynamic OAuth discovery
     http_callback.rs  transient loopback listener for OAuth authorization code
