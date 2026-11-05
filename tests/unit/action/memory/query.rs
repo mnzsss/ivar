@@ -127,6 +127,50 @@ fn observations_answer_only_when_no_page_matches_and_no_filter_is_set() {
 }
 
 #[test]
+fn the_fallback_hides_session_observations_past_retention_before_the_sweep_runs() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root.clone());
+    {
+        let db =
+            crate::store::memory::db::MemoryDb::open(layout.memory_db().as_std_path()).unwrap();
+        let recent = crate::domain::session::rfc3339_now();
+        for (event_id, session, occurred_at, source_event) in [
+            (
+                "old",
+                "n-old",
+                "2020-01-01T00:00:00.000000000Z",
+                "session.tool",
+            ),
+            ("new", "n-new", recent.as_str(), "session.tool"),
+            (
+                "kept",
+                "n-kept",
+                "2020-01-01T00:00:00.000000000Z",
+                "delivery.pr",
+            ),
+        ] {
+            db.conn()
+                .execute(
+                    "INSERT INTO observations (event_id, source_event, occurred_at, session_id, native_session_id, provider, ivar_version, importance, body)
+                     VALUES (?1, ?2, ?3, '', ?4, 'p', '0', 4, 'zebra marker')",
+                    rusqlite::params![event_id, source_event, occurred_at, session],
+                )
+                .unwrap();
+        }
+    }
+
+    let outcome = query(&Ctx::new(root), &input("zebra")).unwrap().value;
+
+    let mut events: Vec<_> = outcome
+        .observations
+        .iter()
+        .map(|o| (o.source_event.as_str(), o.occurred_at.starts_with("2020")))
+        .collect();
+    events.sort_unstable();
+    assert_eq!(events, [("delivery.pr", true), ("session.tool", false)]);
+}
+
+#[test]
 fn an_unknown_kind_or_tier_is_refused_and_an_oversized_limit_is_capped() {
     let (_guard, root) = seeded_hall();
     let mut bad = input("x");

@@ -24,18 +24,37 @@ fn session_events_in_list() -> String {
         .join(",")
 }
 
+fn expired_session_keys_sql(cutoff: &str) -> String {
+    let events = session_events_in_list();
+    format!(
+        "SELECT session_id, native_session_id FROM observations
+          WHERE source_event IN ({events})
+          GROUP BY session_id, native_session_id
+          HAVING max(occurred_at) < {cutoff}"
+    )
+}
+
 fn delete_batch_sql() -> String {
     let events = session_events_in_list();
+    let expired = expired_session_keys_sql("?1");
     format!(
         "DELETE FROM observations WHERE id IN (
     SELECT id FROM observations
     WHERE source_event IN ({events})
-      AND (session_id, native_session_id) IN (
-          SELECT session_id, native_session_id FROM observations
-          WHERE source_event IN ({events})
-          GROUP BY session_id, native_session_id
-          HAVING max(occurred_at) < ?1)
+      AND (session_id, native_session_id) IN ({expired})
     LIMIT ?2)"
+    )
+}
+
+/// SQL condition, for rows aliased `o`, that holds for every row the sweep
+/// would keep at the cutoff bound to `cutoff`.
+#[must_use]
+pub fn retained_sql(cutoff: &str) -> String {
+    let events = session_events_in_list();
+    let expired = expired_session_keys_sql(cutoff);
+    format!(
+        "NOT (o.source_event IN ({events})
+          AND (o.session_id, o.native_session_id) IN ({expired}))"
     )
 }
 

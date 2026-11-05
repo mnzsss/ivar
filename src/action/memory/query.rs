@@ -4,6 +4,7 @@ use std::collections::BTreeMap;
 
 use serde::Serialize;
 
+use crate::action::memory::drain::epoch_secs_now;
 use crate::action::memory::reindex;
 use crate::action::{Ctx, discover_hall};
 use crate::domain::memory_page::{PageKind, Tier};
@@ -15,6 +16,7 @@ use crate::error::{Failure, Outcome, Report, WriteHuman};
 use crate::store::memory::db::MemoryDb;
 use crate::store::memory::observation_search;
 use crate::store::memory::pages::{self, PageFilter, PageHit};
+use crate::store::memory::retention::{SESSION_RETENTION_DAYS, cutoff_before};
 
 const MAX_LIMIT: usize = 20;
 const CANDIDATES: usize = 50;
@@ -227,15 +229,20 @@ pub fn query(ctx: &Ctx, input: &QueryInput) -> Outcome<QueryOutcome> {
     });
     pages.truncate(limit);
     let observations = if pages.is_empty() && !filtered {
-        observation_search::search(&db, &expression, limit)
-            .map_err(|error| sqlite_failure(&error))?
-            .into_iter()
-            .map(|found| ObservationHit {
-                source_event: found.source_event,
-                occurred_at: found.occurred_at,
-                snippet: found.snippet,
-            })
-            .collect()
+        observation_search::search(
+            &db,
+            &expression,
+            limit,
+            &cutoff_before(epoch_secs_now(), SESSION_RETENTION_DAYS),
+        )
+        .map_err(|error| sqlite_failure(&error))?
+        .into_iter()
+        .map(|found| ObservationHit {
+            source_event: found.source_event,
+            occurred_at: found.occurred_at,
+            snippet: found.snippet,
+        })
+        .collect()
     } else {
         Vec::new()
     };
