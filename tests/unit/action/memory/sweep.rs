@@ -226,7 +226,7 @@ fn session_pages_past_thirty_days_are_removed_unless_pinned() {
     assert!(pinned.exists());
     assert!(fresh.exists());
     assert!(
-        !crate::action::memory::consolidate::state::read_state(&layout)
+        crate::action::memory::consolidate::state::read_state(&layout)
             .markers
             .contains_key("old")
     );
@@ -269,5 +269,55 @@ fn a_page_without_a_marker_ages_by_its_mtime() {
         .set_modified(old)
         .unwrap();
     sweep(&layout, NOW).unwrap();
+    assert!(!page.exists());
+}
+
+#[test]
+fn a_page_with_broken_frontmatter_is_left_alone() {
+    let (_guard, root) = crate::test_support::seeded_hall();
+    let layout = Layout::at(root);
+    let dir = layout.root().join(".ivar/memory/session");
+    std::fs::create_dir_all(&dir).unwrap();
+    let page = dir.join("broken.md");
+    std::fs::write(&page, "---\npinned: [unclosed\n---\nx\n").unwrap();
+    mark(&layout, "broken", 31);
+    sweep(&layout, NOW).unwrap();
+    assert!(page.exists());
+}
+
+#[test]
+fn a_page_expired_by_its_expires_at_is_not_recreated_by_the_next_consolidation() {
+    use crate::action::memory::consolidate::{attribute::page_rel, consolidate_if_free};
+    let (_guard, root) = crate::test_support::seeded_hall();
+    let layout = Layout::at(root);
+    let db = MemoryDb::open(layout.memory_db().as_std_path()).unwrap();
+    for (id, event, importance, body) in [
+        ("p", "session.prompted", 5, "fechar"),
+        ("q", "session.ended", 1, "{}"),
+    ] {
+        db.conn()
+            .execute(
+                "INSERT INTO observations (event_id, source_event, occurred_at, session_id,
+                    native_session_id, provider, ivar_version, origin, importance, body)
+                 VALUES (?1, ?2, ?3, 's1', 'done', 'claude-code', '0', 'user', ?4, ?5)",
+                rusqlite::params![id, event, at(1), importance, body],
+            )
+            .unwrap();
+    }
+    drop(db);
+    let rel = page_rel("done");
+    let page = layout.root().join(&rel);
+    consolidate_if_free(&layout, NOW).unwrap();
+    assert!(page.exists());
+    crate::action::memory::mcp::call(
+        &layout,
+        "memory_patch_page",
+        &serde_json::json!({ "path": rel, "expires_at": "2027-01-15T07:00:00Z" }),
+    )
+    .unwrap();
+
+    assert_eq!(sweep(&layout, NOW).unwrap().pages_removed, 1);
+    consolidate_if_free(&layout, NOW).unwrap();
+
     assert!(!page.exists());
 }

@@ -129,13 +129,14 @@ fn delete_all_expired(layout: &Layout, cutoff: &str) -> Result<usize, String> {
 }
 
 /// A page ages from its conversation's marker in `_consolidate.json`, keyed by
-/// the file stem, or from its mtime when the marker is gone.
+/// the file stem, or from its mtime when the marker is gone. A page whose
+/// frontmatter does not parse is left to lint and doctor.
 fn expire_session_pages(layout: &Layout, now_epoch_secs: u64) -> Result<usize, String> {
     let dir = layout.root().join(SESSION_PAGES_DIR);
     let Ok(entries) = dir.read_dir_utf8() else {
         return Ok(0);
     };
-    let mut state = consolidate::state::read_state(layout);
+    let state = consolidate::state::read_state(layout);
     let now = i64::try_from(now_epoch_secs).unwrap_or(i64::MAX);
     let mut removed = 0;
     for entry in entries.flatten() {
@@ -150,28 +151,25 @@ fn expire_session_pages(layout: &Layout, now_epoch_secs: u64) -> Result<usize, S
         let Ok(text) = std::fs::read_to_string(path) else {
             continue;
         };
-        let meta = parse_page(&rel, &text)
-            .map(|page| page.meta)
-            .unwrap_or_default();
+        let Ok(page) = parse_page(&rel, &text) else {
+            continue;
+        };
         let last_at = state
             .markers
             .get(&name)
             .and_then(|marker| epoch_secs_from_rfc3339(&marker.last_at))
             .or_else(|| mtime_epoch(path))
             .unwrap_or(now);
-        if consolidate::is_expired(&meta, last_at, now) {
+        if consolidate::is_expired(&page.meta, last_at, now) {
             std::fs::remove_file(path).map_err(|e| e.to_string())?;
-            state.markers.remove(&name);
+            // The marker stays so consolidation does not recreate the page
+            // without its expires_at; consolidation prunes it after 30 days.
             removed += 1;
         }
     }
-    if removed > 0 {
-        consolidate::state::write_state(layout, &state)?;
-        if layout.memory_db().exists() {
-            let mut db =
-                MemoryDb::open(layout.memory_db().as_std_path()).map_err(|e| e.to_string())?;
-            reindex::refresh_locked(layout, &mut db, false).map_err(|f| f.what)?;
-        }
+    if removed > 0 && layout.memory_db().exists() {
+        let mut db = MemoryDb::open(layout.memory_db().as_std_path()).map_err(|e| e.to_string())?;
+        reindex::refresh_locked(layout, &mut db, false).map_err(|f| f.what)?;
     }
     Ok(removed)
 }

@@ -19,13 +19,15 @@ use crate::store::memory::conversations::{
 };
 use crate::store::memory::db::MemoryDb;
 use crate::store::memory::page_source::parse_page;
-use crate::store::memory::retention::cutoff_before;
+use crate::store::memory::retention::{SESSION_RETENTION_DAYS, cutoff_before};
 
 use attribute::{IDLE_SECS, attribute};
 use render::{Conversation, render};
 use state::{ConsolidateState, Marker};
 
-pub const PAGE_TTL_DAYS: u64 = 30;
+pub const PAGE_TTL_DAYS: u64 = SESSION_RETENTION_DAYS;
+#[allow(clippy::cast_possible_wrap)]
+const PAGE_TTL_SECS: i64 = PAGE_TTL_DAYS as i64 * 86_400;
 
 #[derive(Debug, Clone, Copy)]
 pub enum Scope<'a> {
@@ -88,8 +90,7 @@ pub fn is_expired(meta: &PageMeta, last_at_epoch: i64, now_epoch_secs: i64) -> b
     if let Some(at) = meta.expires_at.as_deref().and_then(epoch_secs_from_rfc3339) {
         return at <= now_epoch_secs;
     }
-    let ttl = i64::try_from(PAGE_TTL_DAYS).unwrap_or(i64::MAX) * 86_400;
-    !meta.pinned && now_epoch_secs - last_at_epoch >= ttl
+    !meta.pinned && now_epoch_secs - last_at_epoch >= PAGE_TTL_SECS
 }
 
 /// The caller must hold `memory.lock`; the lock is not re-entrant.

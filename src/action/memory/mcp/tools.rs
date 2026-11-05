@@ -114,7 +114,7 @@ fn patch_page() -> Value {
         "inputSchema": {
             "type": "object",
             "properties": {
-                "path": { "type": "string", "description": "Page path (docs/memory/<kind>/<slug>.md)" },
+                "path": { "type": "string", "description": "Page path (docs/memory/<kind>/<slug>.md or .ivar/memory/session/<id>.md)" },
                 "old": { "type": "string", "description": "Body text to replace; must appear exactly once" },
                 "new": { "type": "string", "description": "Replacement text (default empty)" },
                 "tags": { "type": "array", "items": { "type": "string" } },
