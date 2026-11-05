@@ -21,11 +21,7 @@ pub(super) fn resolve_readable(layout: &Layout, rel: &str) -> Result<Utf8PathBuf
         ));
     }
     let path = layout.root().join(rel);
-    if let (Ok(real), Ok(real_root)) = (path.canonicalize_utf8(), layout.root().canonicalize_utf8())
-        && !real.starts_with(&real_root)
-    {
-        return Err(format!("`{rel}` resolves outside the hall"));
-    }
+    refuse_symlinks(layout.root(), &path)?;
     Ok(path)
 }
 

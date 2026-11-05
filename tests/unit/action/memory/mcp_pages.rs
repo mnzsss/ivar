@@ -275,6 +275,28 @@ fn patch_replaces_one_exact_occurrence_and_keeps_the_title() {
 }
 
 #[test]
+fn patch_edits_only_the_body_when_the_same_text_is_in_the_frontmatter() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root);
+    page(
+        &layout,
+        "docs/memory/decision/flag.md",
+        "---\npinned: true\n---\ntrue\n",
+    );
+
+    call_json(
+        &layout,
+        "memory_patch_page",
+        json!({"path": "docs/memory/decision/flag.md", "old": "true", "new": "false"}),
+    );
+
+    let source =
+        std::fs::read_to_string(layout.root().join("docs/memory/decision/flag.md")).unwrap();
+    assert!(source.starts_with("---\npinned: true\n---\n"), "{source}");
+    assert!(source.ends_with("false\n"), "{source}");
+}
+
+#[test]
 fn patch_refuses_text_that_appears_zero_or_many_times() {
     let (_guard, root) = seeded_hall();
     let layout = Layout::at(root);

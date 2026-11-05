@@ -124,7 +124,25 @@ fn memory_read_page_refuses_a_symlink_that_leaves_the_hall() {
     )
     .unwrap_err();
 
-    assert!(error.contains("outside the hall"), "{error}");
+    assert!(error.contains("symlink"), "{error}");
+}
+
+#[cfg(unix)]
+#[test]
+fn memory_read_page_refuses_symlinks_that_stay_inside_the_hall() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root.clone());
+    std::fs::write(root.join(".env"), "SECRET=1\n").unwrap();
+    std::fs::create_dir_all(root.join("docs/memory/gotcha")).unwrap();
+    std::os::unix::fs::symlink("../../../.env", root.join("docs/memory/gotcha/env.md")).unwrap();
+    std::fs::create_dir_all(root.join("docs/other")).unwrap();
+    std::fs::write(root.join("docs/other/x.md"), "# X\n").unwrap();
+    std::os::unix::fs::symlink("../other", root.join("docs/memory/concept")).unwrap();
+
+    for path in ["docs/memory/gotcha/env.md", "docs/memory/concept/x.md"] {
+        let error = call(&layout, "memory_read_page", &json!({"path": path})).unwrap_err();
+        assert!(error.contains("symlink"), "{path}: {error}");
+    }
 }
 
 #[test]

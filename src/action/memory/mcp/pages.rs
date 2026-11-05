@@ -88,7 +88,12 @@ pub(super) fn patch(layout: &Layout, args: &Value) -> Result<String, String> {
         apply_metadata(&mut meta, args);
         render_meta(page.meta.title.as_deref(), &meta, &body)
     } else {
-        source.replacen(&page.body, &body, 1)
+        let head = source
+            .len()
+            .checked_sub(page.body.len())
+            .and_then(|end| source.get(..end))
+            .ok_or_else(|| format!("`{rel}` could not be split into frontmatter and body"))?;
+        format!("{head}{body}")
     };
     parse_page(rel, &content).map_err(|issues| invalid(rel, &issues))?;
     publish(&target.path, rel, &content, true)?;

@@ -100,3 +100,70 @@ fn memory_read_session_observations_needs_a_session() {
     let layout = Layout::at(root);
     assert!(call(&layout, "memory_read_session_observations", &json!({})).is_err());
 }
+
+fn spool_line(event_id: &str, body: &str) -> String {
+    json!({
+        "event_id": event_id, "source_event": "session.prompted",
+        "occurred_at": "2026-11-04T10:00:00.000000000Z", "session_id": "s1",
+        "native_session_id": "n1", "provider": "claude-code", "ivar_version": "0.19.0",
+        "feature": "", "parent_feature": "", "repo": "", "origin": "user",
+        "importance": 5, "attempt_id": "", "body": body
+    })
+    .to_string()
+}
+
+fn spool(layout: &Layout, body: &str) {
+    std::fs::create_dir_all(layout.memory_spool_dir()).unwrap();
+    std::fs::write(
+        layout.memory_spool_dir().join("s1.jsonl"),
+        format!("{}\n", spool_line("spooled", body)),
+    )
+    .unwrap();
+}
+
+#[test]
+fn memory_recent_drains_the_spool_before_reading() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root);
+    spool(&layout, "from the spool");
+
+    let out = call_json(&layout, "memory_recent", json!({}));
+
+    assert_eq!(out["observations"][0]["body"], "from the spool");
+}
+
+#[test]
+fn memory_read_session_observations_drains_the_spool_before_reading() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root);
+    spool(&layout, "from the spool");
+
+    let out = call_json(
+        &layout,
+        "memory_read_session_observations",
+        json!({"session": "s1"}),
+    );
+
+    assert_eq!(out["observations"][0]["body"], "from the spool");
+}
+
+#[test]
+fn memory_status_answers_one_json_text_with_the_status_fields() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root);
+
+    let out = call_json(&layout, "memory_status", json!({}));
+
+    for field in [
+        "path",
+        "exists",
+        "schema_version",
+        "observations",
+        "spool",
+        "last_drain_at",
+        "retention",
+        "pages",
+    ] {
+        assert!(out.get(field).is_some(), "missing `{field}` in {out}");
+    }
+}
