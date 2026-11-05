@@ -172,7 +172,7 @@ pub(super) fn temp_path(dir: &Utf8Path) -> Utf8PathBuf {
     ))
 }
 
-pub(super) fn publish(
+pub(crate) fn publish(
     path: &Utf8Path,
     rel: &str,
     content: &str,

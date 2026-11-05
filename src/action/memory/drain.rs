@@ -99,7 +99,7 @@ pub(crate) fn drain_locked(layout: &Layout, max_files: usize) -> Result<DrainRep
     }
 }
 
-pub(super) fn epoch_secs_now() -> u64 {
+pub(crate) fn epoch_secs_now() -> u64 {
     SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap_or_default()
