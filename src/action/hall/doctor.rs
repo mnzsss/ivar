@@ -37,6 +37,7 @@ mod database;
 mod features;
 mod graph;
 mod harness;
+pub(crate) mod mcp;
 mod memory;
 mod pages;
 mod repos;
@@ -116,6 +117,7 @@ pub fn doctor(ctx: &Ctx) -> Outcome<DoctorOutcome> {
     findings.extend(diagnose_orphan_worktrees(&layout, &manifest, &git));
     findings.extend(diagnose_feature_state(&layout, &git));
     findings.extend(diagnose_mcp_auth(&manifest, &providers::credential_state));
+    findings.extend(mcp::mcp_name_diagnoses(&layout, &manifest));
     findings.extend(diagnose_t3_host(&manifest, &layout));
     let agent_files = crate::store::agent::list_files(&layout)?;
     let agent_specs: Vec<_> = agent_files
