@@ -87,3 +87,25 @@ fn write_and_delete_still_refuse_session_pages() {
         .is_err()
     );
 }
+
+#[test]
+fn a_patch_keeps_the_page_mtime_so_its_ttl_does_not_restart() {
+    let (_g, layout) = hall_with_session_page();
+    let path = layout.root().join(".ivar/memory/session/n1.md");
+    let old = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_700_000_000);
+    std::fs::File::options()
+        .write(true)
+        .open(&path)
+        .unwrap()
+        .set_modified(old)
+        .unwrap();
+
+    mcp::call(
+        &layout,
+        "memory_patch_page",
+        &json!({"path": ".ivar/memory/session/n1.md", "pinned": false}),
+    )
+    .unwrap();
+
+    assert_eq!(std::fs::metadata(&path).unwrap().modified().unwrap(), old);
+}

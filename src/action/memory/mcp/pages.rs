@@ -145,7 +145,16 @@ fn patch_session(layout: &Layout, rel: &str, args: &Value) -> Result<String, Str
     apply_metadata(&mut meta, args);
     let content = render_meta(Some(&page.title), &meta, &page.body);
     parse_page(rel, &content).map_err(|issues| invalid(rel, &issues))?;
+    let aged_since = std::fs::metadata(&path)
+        .and_then(|metadata| metadata.modified())
+        .map_err(|error| format!("could not read `{rel}`: {error}"))?;
     publish(&path, rel, &content, true)?;
+    // The sweep ages a page without a marker by its mtime; a patch must not restart it.
+    std::fs::File::options()
+        .write(true)
+        .open(&path)
+        .and_then(|file| file.set_modified(aged_since))
+        .map_err(|error| format!("could not keep the mtime of `{rel}`: {error}"))?;
     drop(lock);
 
     let indexed = reindex::refresh(layout).is_ok();
