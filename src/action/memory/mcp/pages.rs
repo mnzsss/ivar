@@ -6,7 +6,9 @@ use serde_json::{Value, json};
 
 use super::{SIMILAR_TITLE_THRESHOLD, confine, to_text};
 use crate::action::memory::reindex;
-use crate::domain::memory_page::{PageKind, PageMeta, Relation, has_number_prefix, is_kebab};
+use crate::domain::memory_page::{
+    PageIssue, PageKind, PageMeta, Relation, has_number_prefix, is_kebab,
+};
 use crate::infra::{fs, hash};
 use crate::store::layout::Layout;
 use crate::store::memory::page_source::parse_page;
@@ -57,6 +59,64 @@ pub(super) fn write(layout: &Layout, args: &Value) -> Result<String, String> {
         "indexed": indexed,
         "similar": similar,
     }))
+}
+
+pub(super) fn patch(layout: &Layout, args: &Value) -> Result<String, String> {
+    let rel = str_arg(args, "path")?;
+    let target = confine::resolve_durable(layout, rel)?;
+    let lock = fs::lock_exclusive(&layout.memory_lock()).map_err(|error| error.to_string())?;
+    let source = std::fs::read_to_string(&target.path)
+        .map_err(|error| format!("could not read `{rel}`: {error}"))?;
+    let page = parse_page(rel, &source).map_err(|issues| invalid(rel, &issues))?;
+
+    let mut body = page.body.clone();
+    if let Some(old) = args.get("old").and_then(Value::as_str) {
+        let found = body.matches(old).count();
+        if found != 1 {
+            return Err(format!(
+                "`old` must appear exactly once in the body (found {found})"
+            ));
+        }
+        let new = args.get("new").and_then(Value::as_str).unwrap_or("");
+        body = body.replacen(old, new, 1);
+    }
+    let metadata_changed = ["tags", "pinned", "relations", "expires_at"]
+        .iter()
+        .any(|key| args.get(key).is_some());
+    let content = if metadata_changed {
+        let mut meta = page.meta.clone();
+        apply_metadata(&mut meta, args);
+        render_meta(page.meta.title.as_deref(), &meta, &body)
+    } else {
+        source.replacen(&page.body, &body, 1)
+    };
+    parse_page(rel, &content).map_err(|issues| invalid(rel, &issues))?;
+    publish(&target.path, rel, &content, true)?;
+    drop(lock);
+
+    let indexed = reindex::refresh(layout).is_ok();
+    to_text(&json!({ "path": rel, "hash": hash::text(&content), "indexed": indexed }))
+}
+
+pub(super) fn delete(layout: &Layout, args: &Value) -> Result<String, String> {
+    let rel = str_arg(args, "path")?;
+    let target = confine::resolve_durable(layout, rel)?;
+    if target.kind == PageKind::Update {
+        return Err(
+            "`update` pages belong to the delivery record and cannot be deleted".to_owned(),
+        );
+    }
+    let lock = fs::lock_exclusive(&layout.memory_lock()).map_err(|error| error.to_string())?;
+    std::fs::remove_file(&target.path)
+        .map_err(|error| format!("could not delete `{rel}`: {error}"))?;
+    drop(lock);
+    let indexed = reindex::refresh(layout).is_ok();
+    to_text(&json!({ "path": rel, "indexed": indexed }))
+}
+
+fn invalid(rel: &str, issues: &[PageIssue]) -> String {
+    let messages: Vec<&str> = issues.iter().map(|issue| issue.message.as_str()).collect();
+    format!("`{rel}` is not a valid page: {}", messages.join("; "))
 }
 
 pub(super) fn publish(

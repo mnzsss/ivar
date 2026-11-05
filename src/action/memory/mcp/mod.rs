@@ -24,6 +24,8 @@ pub const TOOL_NAMES: &[&str] = &[
     "memory_recent",
     "memory_read_session_observations",
     "memory_write_page",
+    "memory_patch_page",
+    "memory_delete_page",
 ];
 
 #[must_use]
@@ -47,6 +49,8 @@ pub fn call(layout: &Layout, name: &str, args: &Value) -> Result<String, String>
         "memory_recent" => observations::recent(layout, args),
         "memory_read_session_observations" => observations::session(layout, args),
         "memory_write_page" => pages::write(layout, args),
+        "memory_patch_page" => pages::patch(layout, args),
+        "memory_delete_page" => pages::delete(layout, args),
         other => Err(format!("Unknown tool: {other}")),
     }
 }

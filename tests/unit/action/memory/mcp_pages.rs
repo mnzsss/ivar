@@ -244,3 +244,182 @@ fn concurrent_writers_never_share_a_number() {
     unique.dedup();
     assert_eq!(unique.len(), 4, "{paths:?}");
 }
+
+fn seed_decision(layout: &Layout) {
+    call_json(
+        layout,
+        "memory_write_page",
+        json!({"kind": "decision", "title": "Pick one", "body": "Use A because A.\n", "tags": ["old"]}),
+    );
+}
+
+#[test]
+fn patch_replaces_one_exact_occurrence_and_keeps_the_title() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root);
+    seed_decision(&layout);
+
+    call_json(
+        &layout,
+        "memory_patch_page",
+        json!({"path": "docs/memory/decision/pick-one.md", "old": "because A", "new": "because B"}),
+    );
+
+    let read = call_json(
+        &layout,
+        "memory_read_page",
+        json!({"path": "docs/memory/decision/pick-one.md"}),
+    );
+    assert_eq!(read["body"], "Use A because B.\n");
+    assert_eq!(read["title"], "Pick one");
+}
+
+#[test]
+fn patch_refuses_text_that_appears_zero_or_many_times() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root);
+    call_json(
+        &layout,
+        "memory_write_page",
+        json!({"kind": "decision", "title": "Twice", "body": "a a\n"}),
+    );
+    for old in ["missing", "a"] {
+        let error = call(
+            &layout,
+            "memory_patch_page",
+            &json!({"path": "docs/memory/decision/twice.md", "old": old, "new": "b"}),
+        )
+        .unwrap_err();
+        assert!(error.contains("exactly once"), "{error}");
+    }
+}
+
+#[test]
+fn patch_changes_metadata_without_touching_kind_title_or_body() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root);
+    seed_decision(&layout);
+
+    call_json(
+        &layout,
+        "memory_patch_page",
+        json!({"path": "docs/memory/decision/pick-one.md", "tags": ["new"], "pinned": true}),
+    );
+
+    let read = call_json(
+        &layout,
+        "memory_read_page",
+        json!({"path": "docs/memory/decision/pick-one.md"}),
+    );
+    assert_eq!(read["tags"], json!(["new"]));
+    assert_eq!(read["pinned"], true);
+    assert_eq!(read["title"], "Pick one");
+    assert_eq!(read["kind"], "decision");
+    assert_eq!(read["body"], "Use A because A.\n");
+}
+
+#[test]
+fn patch_and_delete_refuse_session_pages_and_paths_outside_docs_memory() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root);
+    for path in [
+        ".ivar/memory/session/s.md",
+        "docs/memory/session/s.md",
+        "../x.md",
+        "/etc/passwd",
+        "ivar.json",
+    ] {
+        assert!(
+            call(
+                &layout,
+                "memory_patch_page",
+                &json!({"path": path, "old": "a", "new": "b"})
+            )
+            .is_err(),
+            "{path}"
+        );
+        assert!(
+            call(&layout, "memory_delete_page", &json!({"path": path})).is_err(),
+            "{path}"
+        );
+    }
+}
+
+#[test]
+fn patch_and_delete_refuse_a_page_file_that_is_a_symlink() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root.clone());
+    seed_decision(&layout);
+    let outside = root.join("outside.md");
+    std::fs::write(&outside, "keep\n").unwrap();
+    let link = root.join("docs/memory/decision/linked.md");
+    std::os::unix::fs::symlink(&outside, &link).unwrap();
+
+    let patch = call(
+        &layout,
+        "memory_patch_page",
+        &json!({"path": "docs/memory/decision/linked.md", "old": "keep", "new": "x"}),
+    );
+    let delete = call(
+        &layout,
+        "memory_delete_page",
+        &json!({"path": "docs/memory/decision/linked.md"}),
+    );
+
+    assert!(patch.unwrap_err().contains("symlink"));
+    assert!(delete.unwrap_err().contains("symlink"));
+    assert_eq!(std::fs::read_to_string(&outside).unwrap(), "keep\n");
+}
+
+#[test]
+fn only_the_delete_tool_is_destructive_and_every_read_tool_is_read_only() {
+    let tools = tool_definitions();
+    for tool in &tools {
+        let name = tool["name"].as_str().unwrap();
+        let destructive = tool["annotations"]["destructiveHint"] == true;
+        assert_eq!(destructive, name == "memory_delete_page", "{name}");
+        if matches!(
+            name,
+            "memory_query"
+                | "memory_status"
+                | "memory_read_page"
+                | "memory_recent"
+                | "memory_read_session_observations"
+        ) {
+            assert_eq!(tool["annotations"]["readOnlyHint"], true, "{name}");
+        } else {
+            assert_eq!(tool["annotations"]["readOnlyHint"], false, "{name}");
+        }
+    }
+    assert!(tools.iter().any(|t| t["name"] == "memory_patch_page"));
+}
+
+#[test]
+fn delete_removes_the_file_and_the_index_row_but_refuses_updates() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root.clone());
+    seed_decision(&layout);
+    let update = call_json(
+        &layout,
+        "memory_write_page",
+        json!({"kind": "update", "title": "Shipped"}),
+    );
+
+    call_json(
+        &layout,
+        "memory_delete_page",
+        json!({"path": "docs/memory/decision/pick-one.md"}),
+    );
+
+    assert!(!root.join("docs/memory/decision/pick-one.md").exists());
+    let found = call_json(&layout, "memory_query", json!({"query": "pick"}));
+    assert!(found["pages"].as_array().unwrap().is_empty());
+    let error = call(
+        &layout,
+        "memory_delete_page",
+        &json!({"path": update["path"]}),
+    )
+    .unwrap_err();
+    assert!(error.contains("update"), "{error}");
+    assert!(root.join(update["path"].as_str().unwrap()).exists());
+}

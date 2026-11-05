@@ -65,6 +65,8 @@ pub(super) fn definitions() -> Vec<Value> {
             &["session"],
         ),
         write_page(),
+        patch_page(),
+        delete_page(),
     ]
 }
 
@@ -94,6 +96,49 @@ fn write_page() -> Value {
                 "replace": { "type": "boolean", "description": "Overwrite an existing page of the same path (default false)" }
             },
             "required": ["kind", "title"]
+        }
+    })
+}
+
+fn patch_page() -> Value {
+    json!({
+        "name": "memory_patch_page",
+        "description": "Edit one durable page in place. Replace one exact piece of the body with old/new, and/or change tags, pinned, relations or expires_at. Kind and title cannot change. Never commits.",
+        "annotations": { "readOnlyHint": false },
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "path": { "type": "string", "description": "Page path (docs/memory/<kind>/<slug>.md)" },
+                "old": { "type": "string", "description": "Body text to replace; must appear exactly once" },
+                "new": { "type": "string", "description": "Replacement text (default empty)" },
+                "tags": { "type": "array", "items": { "type": "string" } },
+                "pinned": { "type": "boolean" },
+                "relations": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": { "type": { "type": "string" }, "target": { "type": "string" } },
+                        "required": ["type", "target"]
+                    }
+                },
+                "expires_at": { "type": "string", "description": "RFC 3339 expiry" }
+            },
+            "required": ["path"]
+        }
+    })
+}
+
+fn delete_page() -> Value {
+    json!({
+        "name": "memory_delete_page",
+        "description": "Delete one durable page file. Never commits. Refuses `update` pages, which belong to the delivery record.",
+        "annotations": { "readOnlyHint": false, "destructiveHint": true },
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "path": { "type": "string", "description": "Page path (docs/memory/<kind>/<slug>.md)" }
+            },
+            "required": ["path"]
         }
     })
 }
