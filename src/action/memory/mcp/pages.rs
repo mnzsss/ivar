@@ -295,7 +295,7 @@ fn render(title: &str, args: &Value, body: &str) -> String {
     render_meta(Some(title), &meta, body)
 }
 
-pub(super) fn render_meta(title: Option<&str>, meta: &PageMeta, body: &str) -> String {
+pub(crate) fn render_meta(title: Option<&str>, meta: &PageMeta, body: &str) -> String {
     let mut out = String::from("---\n");
     if let Some(title) = title {
         let _ = writeln!(out, "title: {}", json_scalar(title));
