@@ -255,9 +255,9 @@ that true:
   validation. It reads no file and no YAML.
 - `store::memory::page_source` parses front matter through `infra::frontmatter` and calls
   the domain; `store::memory::pages` writes and searches the `pages`, `pages_fts` and
-  `page_links` rows. `ivar doctor` and the reindex share `parse_page`/`build_page` (doctor through
-  `validate_page`, which wraps them), so the two
-  cannot disagree on what a valid page is.
+  `page_links` rows. `ivar doctor` and the reindex share `parse_page`/`build_page` (doctor
+  through `validate_page`, which wraps them), so the two cannot disagree on what a valid
+  page is.
 - `action::memory::{reindex,query}` own the behaviour: the reindex refreshes the index from
   disk (before `query` and `status`, in `sync`, and on the MCP leader's tick) and never
   touches `observations`; the query fuses page FTS and one-hop link neighbours with the

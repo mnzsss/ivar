@@ -62,7 +62,12 @@ running leader never sweeps, `ivar doctor` reports `memory.retention_overdue` af
   too.
 - A page that fails validation is not indexed and `ivar doctor` names it
   (`memory.page_invalid`, `memory.page_kind_unknown`, `memory.page_misplaced`). A
-  failed reindex shows as `memory.index_failed` and the last good index keeps answering.
+  failed reindex, including one that could not take `memory.lock`, shows as
+  `memory.index_failed`, and `ivar memory status` prints the refresh error. A pass is
+  one transaction, so the last good index keeps answering, also after a failed
+  `ivar memory reindex`.
+- A pass that indexes and removes nothing leaves `_reindex.json` as it is, so
+  `last_reindex_at` is the last pass that changed the index, not the last tick.
 - Wikilinks resolve by slug. Two pages with the same slug in different kinds make a
   bare `[[slug]]` ambiguous; write `[[kind/slug]]`.
 - Ranking constants (the fusion constant, the tier multipliers, the pinned bonus) belong

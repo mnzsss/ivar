@@ -123,9 +123,11 @@ searchable. The page reindex never touches `observations` or its index: observat
 cannot be rebuilt from anything.
 
 The incremental reindex compares `size` and `mtime_ns` with the row and, when they
-differ, confirms by `content_hash` before rewriting. Its state (`last_reindex_at`,
-`last_error`, `pages`) is in `.ivar/spool/memory/_reindex.json`, beside `_sweep.json`.
-The `ivar` that builds the index owns it; `ivar doctor` reports a failed reindex as
+differ, confirms by `content_hash` before rewriting. A pass, incremental or full, is one
+transaction, so a failure keeps the previous rows. Its state (`last_reindex_at`,
+`last_error`, `pages`) is in `.ivar/spool/memory/_reindex.json`, beside `_sweep.json`;
+a pass that indexes and removes nothing does not rewrite it. The `ivar` that builds the
+index owns it; `ivar doctor` reports a failed reindex, or a lock it could not take, as
 `memory.index_failed`.
 
 ### Moving a legacy graph
