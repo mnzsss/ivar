@@ -253,8 +253,8 @@ fn doctor_ignores_topic_docs_directories() {
     let (_guard, root) = hall_with_repo();
     let ctx = Ctx::new(root.clone());
 
-    // Topic doc directories under docs/ (product, updates, repo-relations) are not legacy feature docs
-    for topic in ["product", "updates", "repo-relations"] {
+    // Topic doc directories under docs/ (memory, repo-relations) are not legacy feature docs
+    for topic in ["memory", "repo-relations"] {
         let topic_dir = root.join(format!("docs/{topic}"));
         fs::ensure_dir(&topic_dir).unwrap();
         fs::write_text(&topic_dir.join("overview.md"), "# Overview\n").unwrap();

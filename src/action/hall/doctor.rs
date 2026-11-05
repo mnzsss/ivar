@@ -38,6 +38,7 @@ mod features;
 mod graph;
 mod harness;
 mod memory;
+mod pages;
 mod repos;
 
 use features::{
@@ -109,6 +110,7 @@ pub fn doctor(ctx: &Ctx) -> Outcome<DoctorOutcome> {
     findings.extend(diagnose_instructions(&manifest, &layout));
     findings.extend(database::database_diagnoses(&layout, &manifest));
     findings.extend(memory::memory_capture_diagnoses(&layout, &manifest));
+    findings.extend(pages::page_diagnoses(&layout));
     findings.extend(graph_diagnoses(&layout, &manifest, &git));
     findings.extend(diagnose_orphaned_runs(&layout)?);
     findings.extend(diagnose_orphan_worktrees(&layout, &manifest, &git));
