@@ -373,6 +373,14 @@ pub fn run(cli: Cli) -> ExitCode {
                 &mut stdout,
                 &mut stderr,
             ),
+            MemoryCommand::Lint => {
+                let outcome = crate::action::memory::lint::lint(&ctx);
+                let failing = outcome
+                    .as_ref()
+                    .is_ok_and(|report| report.value.has_errors());
+                let code = respond(outcome, json, &mut stdout, &mut stderr);
+                if failing { ExitCode::FAILURE } else { code }
+            }
             MemoryCommand::Reindex => respond(
                 crate::action::memory::reindex::reindex(&ctx),
                 json,

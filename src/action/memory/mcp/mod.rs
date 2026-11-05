@@ -6,6 +6,7 @@ mod tools;
 
 use serde_json::{Value, json};
 
+use crate::action::memory::lint::lint_in;
 use crate::action::memory::query::{QueryInput, query_in};
 use crate::action::memory::status::status_in;
 use crate::store::layout::Layout;
@@ -26,6 +27,7 @@ pub const TOOL_NAMES: &[&str] = &[
     "memory_write_page",
     "memory_patch_page",
     "memory_delete_page",
+    "memory_lint",
 ];
 
 #[must_use]
@@ -51,6 +53,7 @@ pub fn call(layout: &Layout, name: &str, args: &Value) -> Result<String, String>
         "memory_write_page" => pages::write(layout, args),
         "memory_patch_page" => pages::patch(layout, args),
         "memory_delete_page" => pages::delete(layout, args),
+        "memory_lint" => to_text(&json!({ "issues": lint_in(layout) })),
         other => Err(format!("Unknown tool: {other}")),
     }
 }

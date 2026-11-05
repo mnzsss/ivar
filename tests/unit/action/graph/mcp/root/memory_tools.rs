@@ -82,3 +82,27 @@ fn the_server_instructions_carry_the_memory_section() {
     assert!(text.contains("never `session`"));
     assert!(text.contains(crate::action::memory::mcp::KIND_DEFINITIONS));
 }
+
+#[test]
+fn memory_lint_returns_the_same_issues_as_the_function_and_the_surface_has_eleven_tools() {
+    let (_guard, root) = crate::test_support::seeded_hall();
+    std::fs::create_dir_all(root.join("docs/memory/decision")).unwrap();
+    std::fs::write(
+        root.join("docs/memory/decision/a.md"),
+        "---\nconfidence: high\n---\n",
+    )
+    .unwrap();
+    let layout = crate::store::layout::Layout::at(root.clone());
+
+    let text = crate::action::memory::mcp::call(&layout, "memory_lint", &json!({})).unwrap();
+    let issues: Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(issues["issues"][0]["code"], "lint.field_unknown");
+    assert_eq!(issues["issues"][0]["severity"], "error");
+
+    let listed = rpc(
+        root.as_std_path(),
+        ToolSurface::Explore,
+        json!({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}),
+    );
+    assert_eq!(listed["result"]["tools"].as_array().unwrap().len(), 11);
+}

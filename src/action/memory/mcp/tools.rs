@@ -67,6 +67,12 @@ pub(super) fn definitions() -> Vec<Value> {
         write_page(),
         patch_page(),
         delete_page(),
+        read_only(
+            "memory_lint",
+            "Check every page under docs/memory against the page rules on disk: unknown kind, invalid frontmatter, misplaced file, unknown field and markdown links to missing pages. Returns issues with path, code, severity and message.",
+            &json!({}),
+            &[],
+        ),
     ]
 }
 

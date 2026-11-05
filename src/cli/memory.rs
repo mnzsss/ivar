@@ -33,6 +33,8 @@ pub enum MemoryCommand {
     },
     /// Rebuild the page index from docs/memory. Observations are not touched.
     Reindex,
+    /// Check the pages under docs/memory against the page rules. Exits non-zero when any rule is broken.
+    Lint,
     /// Record one session hook event into the capture spool. Always exits 0 and prints nothing.
     Capture {
         /// Provider whose hook payload arrives on stdin; without one nothing is recorded.

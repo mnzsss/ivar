@@ -79,3 +79,9 @@ fn memory_query_defaults_the_limit_and_reindex_parses() {
         Command::Memory(MemoryCommand::Reindex)
     ));
 }
+
+#[test]
+fn memory_lint_parses_with_json() {
+    let cli = Cli::try_parse_from(["ivar", "memory", "lint", "--json"]).unwrap();
+    assert!(matches!(cli.command, Command::Memory(MemoryCommand::Lint)));
+}
