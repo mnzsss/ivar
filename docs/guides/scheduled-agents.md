@@ -53,7 +53,8 @@ Every command takes `--json`.
 ## Telegram
 
 `notify: telegram:<chat_id>` sends each run's outcome and the last 2000
-characters of its output to a Telegram chat. `<chat_id>` is a number
+characters of its output to a Telegram chat, fewer when the message would
+pass Telegram's 4096-unit limit. `<chat_id>` is a number
 (`123456`, `-1001234567890` for a group) or a public channel's
 `@username`; to post in a channel, the bot must be one of its admins.
 
@@ -61,7 +62,8 @@ Create a bot with @BotFather, then run `ivar agent notify telegram setup`.
 It asks for the token without echoing it, checks it with Telegram, saves
 it in `.ivar/secrets/agents.env` as `TELEGRAM_BOT_TOKEN`, lists the chats
 that have messaged the bot, sends a test message, and offers to set
-`notify` on your agents. It needs a terminal; without one, put the token
+`notify` on your agents; an agent file it cannot update is left as it
+was and listed with the reason. It needs a terminal; without one, put the token
 in `agents.env` yourself and write the `notify` line by hand.
 
 ivar reads the token when the run ends; the agent does not see it unless
