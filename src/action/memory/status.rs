@@ -43,6 +43,7 @@ pub struct PagesStatus {
     pub by_kind: Vec<KindCount>,
     pub last_reindex_at: Option<String>,
     pub last_reindex_error: Option<String>,
+    pub refresh_error: Option<String>,
     pub invalid: usize,
 }
 
@@ -127,9 +128,10 @@ pub fn status(ctx: &Ctx) -> Outcome<MemoryStatusOutcome> {
             format!("could not open `{path}`: {error}"),
         )
     })?;
-    let invalid = reindex::refresh_locked(&layout, &mut db, false)
-        .map(|report| report.invalid.len())
-        .unwrap_or_default();
+    let (invalid, refresh_error) = match reindex::refresh_locked(&layout, &mut db, false) {
+        Ok(report) => (report.invalid.len(), None),
+        Err(failure) => (0, Some(failure.what)),
+    };
     let by_kind = count_by_kind(&db)
         .map_err(|error| Failure::failed("memory.read_failed", error.to_string()))?
         .into_iter()
@@ -140,6 +142,7 @@ pub fn status(ctx: &Ctx) -> Outcome<MemoryStatusOutcome> {
         by_kind,
         last_reindex_at: reindex_state.last_reindex_at,
         last_reindex_error: reindex_state.last_error,
+        refresh_error,
         invalid,
     };
     let observations = count_by_source_event(&db)
@@ -234,6 +237,9 @@ impl WriteHuman for MemoryStatusOutcome {
         )?;
         if let Some(error) = &self.pages.last_reindex_error {
             writeln!(w, "  last reindex error: {error}")?;
+        }
+        if let Some(error) = &self.pages.refresh_error {
+            writeln!(w, "  page refresh failed: {error}")?;
         }
         Ok(())
     }
