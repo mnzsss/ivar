@@ -14,7 +14,7 @@ use crate::domain::agent::container::{
 use crate::domain::agent::host_env::host_env;
 use crate::domain::agent::images::{BASE_IMAGE, PROXY_IMAGE};
 use crate::domain::agent::receipt::{self, AgentRunReceipt, Trigger, classify, scrub};
-use crate::domain::agent::spec::{Access, AgentSpec, Launch, Runtime};
+use crate::domain::agent::spec::{Access, AgentSpec, Launch, Runtime, WritePath};
 use crate::domain::agent::tool::Credential;
 use crate::domain::session::rfc3339_now;
 use crate::error::{Failure, Outcome, Report, WriteHuman};
@@ -137,7 +137,15 @@ pub(crate) fn run_with(
             Runtime::Docker => execute(&spec, &run_id, &scratch, &secrets, ws)?,
             Runtime::Host => {
                 let state = layout.agent_tool_state(&spec.name, tool_name(&spec));
-                execute_host(&spec, &scratch, &state, &secrets, &ws, &host()?)?
+                execute_host(
+                    &spec,
+                    layout.root(),
+                    &scratch,
+                    &state,
+                    &secrets,
+                    &ws,
+                    &host()?,
+                )?
             }
         };
         let delivered = worktree
@@ -354,8 +362,58 @@ pub(crate) fn write_back_credentials(state: &Utf8Path, seeded: &[Seeded]) -> Res
     Ok(())
 }
 
+/// Canonical Landlock roots for `write`. Landlock grants a whole subtree, so a
+/// root that is an ancestor of the home, the hall or the tool's login is refused.
+pub(crate) fn write_roots(
+    writes: &[WritePath],
+    home: &Utf8Path,
+    hall: &Utf8Path,
+    credentials: &[Credential],
+) -> Result<Vec<Utf8PathBuf>, Failure> {
+    let canon = |p: &Utf8Path| fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+    let (home, hall) = (canon(home), canon(hall));
+    let protected: Vec<Utf8PathBuf> = [".ivar", ".git", "agents"]
+        .iter()
+        .map(|dir| hall.join(dir))
+        .chain(
+            credentials
+                .iter()
+                .filter(|c| c.write_back)
+                .filter_map(|c| c.real.parent().map(canon)),
+        )
+        .collect();
+    let logins: Vec<Utf8PathBuf> = credentials.iter().map(|c| canon(&c.real)).collect();
+    writes
+        .iter()
+        .map(|write| {
+            let path = write.resolve(&home, &hall);
+            let root = fs::canonicalize(&path).map_err(|_| {
+                Failure::failed(
+                    "agent.write_missing",
+                    format!("`write` path `{path}` does not exist; create it before the run"),
+                )
+            })?;
+            let exposes = [&home, &hall]
+                .into_iter()
+                .chain(&logins)
+                .any(|p| p.starts_with(&root))
+                || protected.iter().any(|p| root.starts_with(p));
+            if exposes {
+                return Err(Failure::failed(
+                    "agent.write_refused",
+                    format!(
+                        "`write` path `{path}` resolves to `{root}`, which would make the hall, the home or the tool's login writable"
+                    ),
+                ));
+            }
+            Ok(root)
+        })
+        .collect()
+}
+
 fn execute_host(
     spec: &AgentSpec,
+    hall: &Utf8Path,
     scratch: &Utf8Path,
     state: &Utf8Path,
     secrets: &[(String, String)],
@@ -374,22 +432,25 @@ fn execute_host(
             "`runtime: host` needs `tool`",
         ));
     };
-    let (cwd, writable) = host_workspace(scratch, ws)?;
-    let tmp = scratch.join("tmp");
-    fs::ensure_dir(&tmp)?;
     let var = |key: &str| {
         host.parent_env
             .iter()
             .find(|(k, _)| k == key)
             .map(|(_, v)| v.clone())
     };
-    let seeded = seed_credentials(state, tool.credentials(&host.home, &var))?;
+    let credentials = tool.credentials(&host.home, &var);
+    let extra = write_roots(&spec.write, &host.home, hall, &credentials)?;
+    let (cwd, writable) = host_workspace(scratch, ws)?;
+    let tmp = scratch.join("tmp");
+    fs::ensure_dir(&tmp)?;
+    let seeded = seed_credentials(state, credentials)?;
     let mut roots = vec![
         scratch.to_path_buf(),
         state.to_path_buf(),
         Utf8PathBuf::from("/dev/null"),
     ];
     roots.extend(writable);
+    roots.extend(extra);
     let mut command = Command::new(host.launcher.as_str()).args(["agent", "sandbox"]);
     for root in &roots {
         command = command.arg("--write").arg(root.as_str());
