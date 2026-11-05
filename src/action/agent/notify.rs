@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use crate::domain::agent::receipt::AgentRunReceipt;
 use crate::domain::agent::spec::{AgentSpec, NotifyTarget};
+use crate::domain::agent::telegram_card::COPY_PROMPT_LABEL;
 use crate::infra::{json, telegram, webhook};
 use crate::store::agent_secrets::AgentSecrets;
 use crate::store::layout::Layout;
@@ -26,8 +27,15 @@ pub(crate) fn deliver_to(
         None => return,
         Some(NotifyTarget::Webhook(url)) => post_summary(url, receipt),
         Some(NotifyTarget::Telegram { chat_id }) => token().and_then(|token| {
-            let text = receipt.notify_summary().telegram_text();
-            telegram::send_message(telegram_api, &token, chat_id, &text)
+            let summary = receipt.notify_summary();
+            telegram::send_card(
+                telegram_api,
+                &token,
+                chat_id,
+                &summary.telegram_html(),
+                &summary.telegram_text(),
+                (COPY_PROMPT_LABEL, &summary.investigation_prompt()),
+            )
         }),
     };
     if let Err(e) = result {

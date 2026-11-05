@@ -136,7 +136,11 @@ fn telegram_sends_the_run_text_to_the_chat() {
         "{request}"
     );
     assert!(request.contains(r#""chat_id":"-100123""#), "{request}");
-    assert!(request.contains("ivar agent nightly: skipped"), "{request}");
+    assert!(request.contains("<b>nightly</b> · skipped"), "{request}");
+    assert!(
+        request.contains("ivar agent logs nightly --run r1"),
+        "{request}"
+    );
     assert_eq!(receipt.notify_error, None);
 }
 
@@ -154,10 +158,7 @@ fn telegram_sends_a_timed_out_run_with_its_exit_code_and_tail() {
         &fake.api,
     );
     let request = &fake.requests()[0];
-    assert!(
-        request.contains("ivar agent nightly: timed_out"),
-        "{request}"
-    );
+    assert!(request.contains("<b>nightly</b> · timed_out"), "{request}");
     assert!(request.contains("exit 124"), "{request}");
     assert!(request.contains(r"step 3 of 9\nstill waiting"), "{request}");
     assert_eq!(receipt.notify_error, None);

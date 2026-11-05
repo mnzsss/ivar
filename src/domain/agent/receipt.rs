@@ -8,7 +8,7 @@ pub const RECEIPT_VERSION: u32 = 1;
 
 const NOTIFY_TAIL_CHARS: usize = 2000;
 /// Telegram counts a message's length in UTF-16 code units.
-const TELEGRAM_TEXT_LIMIT: usize = 4096;
+pub(super) const TELEGRAM_TEXT_LIMIT: usize = 4096;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -125,6 +125,8 @@ pub struct NotifySummary<'a> {
     pub started_at: &'a str,
     pub ended_at: &'a str,
     pub tail: &'a str,
+    #[serde(skip)]
+    pub tail_is_cut: bool,
 }
 
 impl NotifySummary<'_> {
@@ -148,7 +150,7 @@ impl NotifySummary<'_> {
     }
 }
 
-fn utf16_suffix(text: &str, max_units: usize) -> &str {
+pub(super) fn utf16_suffix(text: &str, max_units: usize) -> &str {
     let mut units = 0;
     for (start, ch) in text.char_indices().rev() {
         units += ch.len_utf16();
@@ -224,6 +226,7 @@ impl AgentRunReceipt {
             Some((start, _)) => &self.output[start..],
             None => &self.output,
         };
+        let tail_is_cut = tail.len() < self.output.len();
         NotifySummary {
             run_id: &self.run_id,
             agent: &self.agent,
@@ -233,6 +236,7 @@ impl AgentRunReceipt {
             started_at: &self.started_at,
             ended_at: &self.ended_at,
             tail,
+            tail_is_cut,
         }
     }
 }
