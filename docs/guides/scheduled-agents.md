@@ -31,6 +31,7 @@ ivar runs no process of its own between runs. Linux with systemd only.
 | `access` | `read` | `read`: repos mounted read-only, the run produces a report. `feature`: only the `agent-<name>` feature worktree is writable |
 | `runtime` | `docker` | `docker`: the container below. `host`: the installed `tool` under your own login, confined by Landlock; needs `tool`, refuses `image`, `command` and `network` |
 | `workdir` | `/workspace` | relative path under the hall's repos, first segment is the repo; required for `access: feature` |
+| `write` | `[]` | `runtime: host` only. Extra writable paths: absolute (`/srv/out`), home-relative (`~/.cache/x`) or hall-relative (`brand/metricas`); no `..`. Each must exist when the run starts |
 | `network` | `[]` | bare hostnames the egress proxy allows; everything else fails |
 | `secrets` | `[]` | names (`^[A-Z][A-Z0-9_]*$`) read from `.ivar/secrets/agents.env` |
 | `notify` | — | `http(s)://` URL that receives a JSON run summary, or `telegram:<chat_id>` to message a Telegram chat (see [Telegram](#telegram)) |
@@ -98,6 +99,15 @@ variables that point the tool at its private state, the secrets it lists,
 and git pointed at an empty config with no credential helper. No
 credential variable is passed. When the run ends, its whole process group
 is stopped.
+
+`write` adds paths to that set. Each is resolved and canonicalized when the
+run starts. A path that does not exist fails the run with
+`agent.write_missing`. Landlock grants a whole subtree, so a path is refused
+with `agent.write_refused` when it would contain the home, the hall or the
+tool's login, or when it sits inside the hall's `.ivar/`, `.git/` or
+`agents/`, or inside the tool's login directory. Anything else you list
+becomes writable by the agent, including config other programs read: keep
+the list to the directories the run must produce.
 
 What it does not isolate: **reads are ambient** and **the network is
 open**. Anything your user can read is exposed, including SSH keys and
