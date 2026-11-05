@@ -1,4 +1,3 @@
-
 use rstest::rstest;
 
 use super::*;
