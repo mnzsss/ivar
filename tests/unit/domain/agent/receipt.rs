@@ -104,3 +104,23 @@ fn telegram_text_omits_an_absent_exit_code_and_an_empty_tail() {
         "ivar agent nightly: skipped\nmanual · r1"
     );
 }
+
+#[test]
+fn telegram_text_fits_the_message_limit_and_keeps_the_end_of_the_output() {
+    let agent = "a".repeat(100);
+    let mut receipt = AgentRunReceipt::skipped(
+        "20261019T090000Z-aaaaaaaa".into(),
+        agent.clone(),
+        Trigger::Schedule,
+        "t".into(),
+    );
+    receipt.output = "😀".repeat(2000);
+    let text = receipt.notify_summary().telegram_text();
+    assert!(
+        text.encode_utf16().count() <= 4096,
+        "{}",
+        text.encode_utf16().count()
+    );
+    assert!(text.ends_with('😀'));
+    assert!(text.starts_with(&format!("ivar agent {agent}: skipped\n")));
+}

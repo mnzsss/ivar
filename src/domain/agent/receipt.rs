@@ -7,6 +7,8 @@ use serde::{Deserialize, Serialize};
 pub const RECEIPT_VERSION: u32 = 1;
 
 const NOTIFY_TAIL_CHARS: usize = 2000;
+/// Telegram counts a message's length in UTF-16 code units.
+const TELEGRAM_TEXT_LIMIT: usize = 4096;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -139,10 +141,22 @@ impl NotifySummary<'_> {
         );
         if !self.tail.is_empty() {
             text.push_str("\n\n");
-            text.push_str(self.tail);
+            let room = TELEGRAM_TEXT_LIMIT.saturating_sub(text.encode_utf16().count());
+            text.push_str(utf16_suffix(self.tail, room));
         }
         text
     }
+}
+
+fn utf16_suffix(text: &str, max_units: usize) -> &str {
+    let mut units = 0;
+    for (start, ch) in text.char_indices().rev() {
+        units += ch.len_utf16();
+        if units > max_units {
+            return &text[start + ch.len_utf8()..];
+        }
+    }
+    text
 }
 
 impl AgentRunReceipt {
