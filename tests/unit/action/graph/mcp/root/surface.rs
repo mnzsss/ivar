@@ -36,7 +36,7 @@ fn test_mcp_initialize_and_tools_list() {
     let tools = list_resp["result"]["tools"]
         .as_array()
         .expect("tools array");
-    assert_eq!(tools.len(), 15);
+    assert_eq!(tools.len(), 17);
     let tool_names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
     assert!(tool_names.contains(&"graph_feedback"));
     assert!(tool_names.contains(&"graph_explore"));
@@ -51,6 +51,8 @@ fn test_mcp_initialize_and_tools_list() {
     assert!(tool_names.contains(&"get_complexity"));
     assert!(tool_names.contains(&"get_hierarchy"));
     assert!(tool_names.contains(&"memory_query"));
+    assert!(tool_names.contains(&"memory_recent"));
+    assert!(tool_names.contains(&"memory_read_session_observations"));
     assert!(
         !tool_names.contains(&"get_graph_stats"),
         "get_graph_stats stays out of the tool list"

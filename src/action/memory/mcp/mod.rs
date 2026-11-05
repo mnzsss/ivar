@@ -1,5 +1,6 @@
 mod confine;
 mod instructions;
+mod observations;
 mod tools;
 
 use serde_json::{Value, json};
@@ -14,7 +15,13 @@ pub use instructions::{KIND_DEFINITIONS, MEMORY_INSTRUCTIONS};
 const MAX_LIMIT: usize = 20;
 const DEFAULT_LIMIT: usize = 10;
 
-pub const TOOL_NAMES: &[&str] = &["memory_query", "memory_status", "memory_read_page"];
+pub const TOOL_NAMES: &[&str] = &[
+    "memory_query",
+    "memory_status",
+    "memory_read_page",
+    "memory_recent",
+    "memory_read_session_observations",
+];
 
 #[must_use]
 pub fn is_memory_tool(name: &str) -> bool {
@@ -34,6 +41,8 @@ pub fn call(layout: &Layout, name: &str, args: &Value) -> Result<String, String>
         "memory_query" => query(layout, args),
         "memory_status" => to_text(&status_in(layout).map_err(|failure| failure.what)?.value),
         "memory_read_page" => read_page(layout, args),
+        "memory_recent" => observations::recent(layout, args),
+        "memory_read_session_observations" => observations::session(layout, args),
         other => Err(format!("Unknown tool: {other}")),
     }
 }
@@ -113,3 +122,7 @@ fn read_page(layout: &Layout, args: &Value) -> Result<String, String> {
 #[cfg(test)]
 #[path = "../../../../tests/unit/action/memory/mcp.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "../../../../tests/unit/action/memory/mcp_observations.rs"]
+mod observation_tests;

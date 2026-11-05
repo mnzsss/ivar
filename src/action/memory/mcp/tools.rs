@@ -42,5 +42,25 @@ pub(super) fn definitions() -> Vec<Value> {
             }),
             &["path"],
         ),
+        read_only(
+            "memory_recent",
+            "Newest captured observations first, each with a one-line summary. Pending spool is drained before reading.",
+            &json!({
+                "limit": { "type": "integer", "description": "Maximum observations (default 20, maximum 100)" },
+                "source_event": { "type": "string", "description": "Only observations whose source event starts with this prefix, such as delivery." },
+                "feature": { "type": "string", "description": "Only observations of this feature" }
+            }),
+            &[],
+        ),
+        read_only(
+            "memory_read_session_observations",
+            "Read the captured observations of one session, oldest first, a page at a time. Pass next_cursor back as cursor for the next page.",
+            &json!({
+                "session": { "type": "string", "description": "Session id or native session id" },
+                "limit": { "type": "integer", "description": "Maximum observations (default 50, maximum 100)" },
+                "cursor": { "type": "integer", "description": "next_cursor of the previous page" }
+            }),
+            &["session"],
+        ),
     ]
 }
