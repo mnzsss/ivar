@@ -164,7 +164,7 @@ fn expire_session_pages(layout: &Layout, now_epoch_secs: u64) -> Result<usize, S
         if consolidate::is_expired(&page.meta, last_at, now) {
             std::fs::remove_file(path).map_err(|e| e.to_string())?;
             // The marker stays so consolidation does not recreate the page
-            // without its expires_at; consolidation prunes it after 30 days.
+            // without its expires_at; consolidation prunes it after PAGE_TTL_DAYS.
             removed += 1;
         }
     }
