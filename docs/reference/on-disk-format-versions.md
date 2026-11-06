@@ -125,6 +125,10 @@ capture back on removes the key.
 The hall memory database has its own schema version, `memory_schema.version`, which is
 4 today; see [Memory database](on-disk-format-databases.md#memory-database-ivarmemorydb).
 
+The graph database has its own schema version, 12 today. Version 12: hall `docs/memory/` files
+lose their content-index rows; see
+[Graph schema v12](on-disk-format-databases.md#graph-schema-v12).
+
 ### `feature.json` v3
 
 v3 adds the nested-subfeature fields. Only the child side of the lineage is

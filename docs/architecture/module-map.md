@@ -85,7 +85,10 @@ src/
                    checks the page rules on disk. mcp/ holds the `memory_*` tool
                    schemas and handlers that `ivar graph mcp` routes to: pages.rs
                    writes, patches and deletes, confine.rs confines paths,
-                   observations.rs reads the capture log.
+                   observations.rs reads the capture log. Anchors live in
+                   store/memory/anchors.rs (resolved by reindex through a
+                   read-only ATTACH of graph.db); store/memory/usage.rs records
+                   memory_query usage and misses.
     mcp/           auth — big enough to own a directory: the public verb,
                    input/outcome types, and resolution live in auth/mod.rs,
                    Figma pre-registration and the secret handoff in
