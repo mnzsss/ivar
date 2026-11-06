@@ -45,6 +45,7 @@ fn a_push_fingerprint_cannot_be_applied_as_a_land() {
             global_metadata: PullRequestMetadata::default(),
             repo_overrides: Vec::new(),
             only: Vec::new(),
+            skip_memory_review: None,
         },
     )
     .expect("push preview");
@@ -59,6 +60,7 @@ fn a_push_fingerprint_cannot_be_applied_as_a_land() {
             global_metadata: PullRequestMetadata::default(),
             repo_overrides: Vec::new(),
             only: Vec::new(),
+            skip_memory_review: None,
         },
     );
     let failure = refused.expect_err("a push fingerprint must not open a land");
@@ -81,6 +83,7 @@ fn a_land_fingerprint_cannot_be_applied_as_a_push() {
             global_metadata: PullRequestMetadata::default(),
             repo_overrides: Vec::new(),
             only: Vec::new(),
+            skip_memory_review: None,
         },
     )
     .expect("land preview");
@@ -95,6 +98,7 @@ fn a_land_fingerprint_cannot_be_applied_as_a_push() {
             global_metadata: PullRequestMetadata::default(),
             repo_overrides: Vec::new(),
             only: Vec::new(),
+            skip_memory_review: None,
         },
     );
     let failure = refused.expect_err("a land fingerprint must not open a push");

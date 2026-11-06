@@ -184,6 +184,7 @@ pub(super) fn preview_input(feature: &str) -> DeliverInput {
         global_metadata: PullRequestMetadata::default(),
         repo_overrides: Vec::new(),
         only: Vec::new(),
+        skip_memory_review: None,
     }
 }
 
@@ -213,6 +214,7 @@ pub(super) fn apply_input(feature: &str, fingerprint: &str) -> DeliverInput {
         global_metadata: PullRequestMetadata::default(),
         repo_overrides: Vec::new(),
         only: Vec::new(),
+        skip_memory_review: None,
     }
 }
 
@@ -225,6 +227,7 @@ pub(super) fn land_preview_input(feature: &str) -> DeliverInput {
         global_metadata: PullRequestMetadata::default(),
         repo_overrides: Vec::new(),
         only: Vec::new(),
+        skip_memory_review: None,
     }
 }
 

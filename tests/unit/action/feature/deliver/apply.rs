@@ -17,6 +17,7 @@ fn apply_requires_a_preview_fingerprint() {
             global_metadata: PullRequestMetadata::default(),
             repo_overrides: Vec::new(),
             only: Vec::new(),
+            skip_memory_review: None,
         },
     )
     .unwrap_err();

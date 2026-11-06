@@ -17,6 +17,8 @@ pub struct FeatureDeliverArgs {
     pub repo_overrides: Vec<deliver::RepoMetadataOverride>,
     /// Promoted repositories to restrict delivery to.
     pub only: Vec<String>,
+    /// Apply without the memory review, recording this reason.
+    pub skip_memory_review: Option<String>,
 }
 
 impl clap::Args for FeatureDeliverArgs {
@@ -87,6 +89,12 @@ impl clap::Args for FeatureDeliverArgs {
                 .default_missing_value("true")
                 .action(clap::ArgAction::Append),
         )
+        .arg(
+            clap::Arg::new("skip-memory-review")
+                .long("skip-memory-review")
+                .value_name("REASON")
+                .help("Apply without the memory review the delivery requires, and record `memory.review_skipped` with REASON. Apply only: it lifts no other blocker and is not part of the fingerprint."),
+        )
     }
 
     fn augment_args_for_update(cmd: clap::Command) -> clap::Command {
@@ -100,6 +108,7 @@ impl clap::FromArgMatches for FeatureDeliverArgs {
         let preview = matches.get_flag("preview");
         let land = matches.get_flag("land");
         let fingerprint = matches.get_one::<String>("fingerprint").cloned();
+        let skip_memory_review = matches.get_one::<String>("skip-memory-review").cloned();
 
         let only = matches
             .get_many::<String>("only")
@@ -116,6 +125,7 @@ impl clap::FromArgMatches for FeatureDeliverArgs {
             global_metadata,
             repo_overrides,
             only,
+            skip_memory_review,
         })
     }
 
@@ -259,6 +269,7 @@ impl From<FeatureDeliverArgs> for deliver::DeliverInput {
             global_metadata,
             repo_overrides,
             only,
+            skip_memory_review,
         } = args;
 
         Self {
@@ -269,6 +280,11 @@ impl From<FeatureDeliverArgs> for deliver::DeliverInput {
             global_metadata,
             repo_overrides,
             only,
+            skip_memory_review,
         }
     }
 }
+
+#[cfg(test)]
+#[path = "../../../tests/unit/cli/feature_delivery.rs"]
+mod tests;

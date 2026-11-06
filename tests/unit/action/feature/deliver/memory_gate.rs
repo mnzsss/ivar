@@ -1,6 +1,7 @@
 use super::fixture::*;
 use super::*;
 use crate::action::memory::events::{MemoryEventScope, record_memory_event};
+use crate::action::memory::review::{ReviewState, review_state};
 use crate::domain::feature::MemoryReviewGate;
 use crate::domain::observation::SourceEvent;
 use serde_json::json;
@@ -131,4 +132,77 @@ fn a_skip_alone_does_not_satisfy_the_gate() {
         preview(&root).value.preview.memory_review,
         MemoryReviewGate::Missing
     );
+}
+
+fn apply_skipping(
+    root: &Utf8Path,
+    fingerprint: &str,
+    reason: &str,
+) -> Result<Report<DeliverOutcome>, Failure> {
+    deliver(
+        &Ctx::new(root.to_path_buf()),
+        DeliverInput {
+            skip_memory_review: Some(reason.to_owned()),
+            ..apply_input("checkout", fingerprint)
+        },
+    )
+}
+
+fn skip_state(root: &Utf8Path) -> ReviewState {
+    let layout = Layout::at(root.to_path_buf());
+    crate::action::memory::drain::drain(&layout).unwrap();
+    review_state(&layout, &FeatureName::new("checkout").unwrap()).unwrap()
+}
+
+#[test]
+fn a_skip_with_a_reason_lifts_only_the_memory_gate_and_records_the_skip() {
+    let (_guard, root) = hall_with_promoted(&["api"]);
+    approve_plan_gates(&root);
+    let fingerprint = preview(&root).value.preview.fingerprint;
+
+    let report = apply_skipping(&root, &fingerprint, "hotfix for prod").unwrap();
+
+    assert_eq!(
+        report.value.preview.memory_review,
+        MemoryReviewGate::Missing
+    );
+    assert!(!report.value.pushes.is_empty(), "{:?}", report.value);
+    assert_eq!(skip_state(&root), ReviewState::Skipped);
+}
+
+#[test]
+fn a_skip_still_refuses_every_other_blocker_and_records_nothing() {
+    let (_guard, root) = hall_with_promoted(&["api"]);
+    approve_plan_gates(&root);
+    std::fs::write(root.join(".ivar/repos/api/checkout/wip.md"), "wip\n").unwrap();
+    let fingerprint = preview(&root).value.preview.fingerprint;
+
+    let failure = apply_skipping(&root, &fingerprint, "hotfix").unwrap_err();
+
+    assert_eq!(failure.code, "deliver.blocked");
+    let actual = failure.actual.clone().unwrap_or_default();
+    assert!(actual.contains("uncommitted"), "{actual}");
+    assert!(!actual.contains("memory review"), "{actual}");
+    assert_eq!(skip_state(&root), ReviewState::Missing);
+}
+
+#[test]
+fn a_skip_is_refused_with_the_preview_and_with_an_empty_reason() {
+    let (_guard, root) = hall_with_promoted(&["api"]);
+    approve_plan_gates(&root);
+    let ctx = Ctx::new(root.clone());
+
+    let with_preview = deliver(
+        &ctx,
+        DeliverInput {
+            skip_memory_review: Some("hotfix".to_owned()),
+            ..preview_input("checkout")
+        },
+    )
+    .unwrap_err();
+    let fingerprint = preview(&root).value.preview.fingerprint;
+    let blank = apply_skipping(&root, &fingerprint, "   ").unwrap_err();
+
+    assert_eq!(with_preview.code, "deliver.skip_memory_review_with_preview");
+    assert_eq!(blank.code, "deliver.skip_memory_review_reason_required");
 }

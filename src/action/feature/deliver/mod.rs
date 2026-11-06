@@ -197,6 +197,7 @@ fn run(
 ) -> Outcome<DeliverOutcome> {
     let manifest = read_manifest(layout)?;
     let git = git::System;
+    let skipping = memory_gate::check_skip(&input)?;
     let (feature_name, feature, preview, memory_warnings) =
         preflight_and_resolve(ctx, layout, &manifest, &git, &input)?;
 
@@ -205,7 +206,7 @@ fn run(
         return Ok(Report::with_warnings(
             DeliverOutcome {
                 root: layout.root().to_path_buf(),
-                blockers: blockers(&preview),
+                blockers: blockers(&preview, false),
                 preview,
                 apply_command: Some(apply_command),
                 pushes: Vec::new(),
@@ -248,19 +249,25 @@ fn run(
         ));
     }
 
-    if preview.memory_review == MemoryReviewGate::Missing {
+    if preview.memory_review == MemoryReviewGate::Missing && !skipping {
         return Err(memory_gate::memory_not_reviewed(&feature_name));
     }
 
     check_fingerprint(&feature_name, input.fingerprint, &preview.fingerprint)?;
+    let skipped = input
+        .skip_memory_review
+        .filter(|_| preview.memory_review == MemoryReviewGate::Missing);
 
     if input.land {
         let plans = land::preflight(&git, layout, &feature, &preview)?;
-        refuse_blockers(&feature_name, &preview)?;
+        refuse_blockers(&feature_name, &preview, skipping)?;
         let mut warnings = memory_warnings;
         let checks = run_land_checks(&git, &manifest, layout, &feature, &preview, emitter)?;
         let land_results = land::execute(&git, layout, &plans, &mut warnings)?;
         events::emit_land_outcome(emitter, &git, layout, &feature, &land_results);
+        if let Some(reason) = &skipped {
+            memory_gate::record_skip(layout, &feature_name, reason);
+        }
         return Ok(Report::with_warnings(
             DeliverOutcome {
                 root: layout.root().to_path_buf(),
@@ -275,8 +282,8 @@ fn run(
         ));
     }
 
-    refuse_blockers(&feature_name, &preview)?;
-    push::execute_with(
+    refuse_blockers(&feature_name, &preview, skipping)?;
+    let result = push::execute_with(
         &git,
         layout,
         &manifest,
@@ -288,7 +295,13 @@ fn run(
     .map(|mut report| {
         report.warnings.splice(0..0, memory_warnings);
         report
-    })
+    });
+    if result.is_ok()
+        && let Some(reason) = &skipped
+    {
+        memory_gate::record_skip(layout, &feature_name, reason);
+    }
+    result
 }
 
 fn check_fingerprint(
@@ -318,8 +331,12 @@ fn check_fingerprint(
 
 /// The catch-all after the specific refusals above: whatever the preview
 /// still lists refuses here, so no listed blocker is ever informational.
-fn refuse_blockers(feature: &FeatureName, preview: &DeliveryPreview) -> Result<(), Failure> {
-    let remaining = blockers(preview);
+fn refuse_blockers(
+    feature: &FeatureName,
+    preview: &DeliveryPreview,
+    skip_memory_review: bool,
+) -> Result<(), Failure> {
+    let remaining = blockers(preview, skip_memory_review);
     if remaining.is_empty() {
         Ok(())
     } else {

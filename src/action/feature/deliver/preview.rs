@@ -92,7 +92,7 @@ pub(crate) fn plan_gate_state(
 
 /// Everything that refuses apply, in the order apply checks it. The preview
 /// prints this list, and apply refuses exactly when it is non-empty.
-pub(crate) fn blockers(preview: &DeliveryPreview) -> Vec<String> {
+pub(crate) fn blockers(preview: &DeliveryPreview, skip_memory_review: bool) -> Vec<String> {
     let descendants = preview.tree_blockers.iter().map(|blocker| {
         format!(
             "descendant `{}` is {}: {}",
@@ -101,12 +101,13 @@ pub(crate) fn blockers(preview: &DeliveryPreview) -> Vec<String> {
     });
     let plan = (preview.plan_gate != GateState::Approved)
         .then(|| format!("the plan gate is {}, not approved", preview.plan_gate));
-    let memory = (preview.memory_review == MemoryReviewGate::Missing).then(|| {
-        format!(
-            "memory review is missing: run `memory_review` in a session of `{}`",
-            preview.feature
-        )
-    });
+    let memory =
+        (preview.memory_review == MemoryReviewGate::Missing && !skip_memory_review).then(|| {
+            format!(
+                "memory review is missing: run `memory_review` in a session of `{}`",
+                preview.feature
+            )
+        });
     let land = (preview.mode == DeliveryMode::Land && preview.repos.is_empty())
         .then(|| "no repositories are promoted to land".to_owned());
     let repos = preview.repos.iter().flat_map(|repo| {

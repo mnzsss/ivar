@@ -39,4 +39,7 @@ pub struct DeliverInput {
     pub repo_overrides: Vec<RepoMetadataOverride>,
     /// Promoted repositories to deliver; empty delivers every promoted repository.
     pub only: Vec<String>,
+    /// Apply without the memory review, recording `memory.review_skipped`
+    /// with this reason. Apply only, never fingerprinted.
+    pub skip_memory_review: Option<String>,
 }

@@ -29,6 +29,7 @@ fn resolve_empty_metadata_produces_absent_fields_for_all_promoted_repos() {
         global_metadata: PullRequestMetadata::default(),
         repo_overrides: Vec::new(),
         only: Vec::new(),
+        skip_memory_review: None,
     };
 
     let resolved = resolve(&ctx, &feature, &input).unwrap();
@@ -58,6 +59,7 @@ fn resolve_global_metadata_applies_to_all_repos() {
         },
         repo_overrides: Vec::new(),
         only: Vec::new(),
+        skip_memory_review: None,
     };
 
     let resolved = resolve(&ctx, &feature, &input).unwrap();
@@ -108,6 +110,7 @@ fn resolve_field_wise_inheritance_and_repo_overrides() {
             },
         ],
         only: Vec::new(),
+        skip_memory_review: None,
     };
 
     let resolved = resolve(&ctx, &feature, &input).unwrap();
@@ -157,6 +160,7 @@ fn resolve_inline_body_versus_file_body() {
         },
         repo_overrides: Vec::new(),
         only: Vec::new(),
+        skip_memory_review: None,
     };
 
     let resolved = resolve(&ctx, &feature, &input).unwrap();
@@ -182,6 +186,7 @@ fn resolve_inline_body_versus_file_body() {
         },
         repo_overrides: Vec::new(),
         only: Vec::new(),
+        skip_memory_review: None,
     };
     let resolved_inline = resolve(&ctx, &feature, &input_inline).unwrap();
     assert_eq!(
@@ -209,6 +214,7 @@ fn resolve_rejects_metadata_in_land_mode() {
         },
         repo_overrides: Vec::new(),
         only: Vec::new(),
+        skip_memory_review: None,
     };
 
     let failure = resolve(&ctx, &feature, &input).unwrap_err();
@@ -235,6 +241,7 @@ fn resolve_rejects_duplicate_repository_group() {
             },
         ],
         only: Vec::new(),
+        skip_memory_review: None,
     };
 
     let failure = resolve(&ctx, &feature, &input).unwrap_err();
@@ -256,6 +263,7 @@ fn resolve_rejects_unpromoted_repository_group() {
             metadata: PullRequestMetadata::default(),
         }],
         only: Vec::new(),
+        skip_memory_review: None,
     };
 
     let failure = resolve(&ctx, &feature, &input).unwrap_err();
@@ -278,6 +286,7 @@ fn resolve_rejects_missing_or_invalid_body_file() {
         },
         repo_overrides: Vec::new(),
         only: Vec::new(),
+        skip_memory_review: None,
     };
 
     let failure = resolve(&ctx, &feature, &input_missing).unwrap_err();
@@ -298,6 +307,7 @@ fn resolve_rejects_missing_or_invalid_body_file() {
         },
         repo_overrides: Vec::new(),
         only: Vec::new(),
+        skip_memory_review: None,
     };
     let failure_utf8 = resolve(&ctx, &feature, &input_invalid).unwrap_err();
     assert_eq!(failure_utf8.code, "deliver.body_file_not_utf8");
