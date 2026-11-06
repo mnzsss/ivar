@@ -219,5 +219,5 @@ struct EncodedRow {
 }
 
 #[cfg(test)]
-#[path = "../../../../../tests/unit/action/graph/mcp/explore_output.rs"]
+#[path = "../../../../../tests/unit/action/graph/mcp/explore_output/mod.rs"]
 mod tests;
