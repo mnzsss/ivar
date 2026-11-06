@@ -7,10 +7,16 @@ use ivar::domain::provider::Provider;
 use crate::common::{hall_root, ivar};
 
 fn sync_hall(provider: Provider) -> (tempfile::TempDir, Utf8PathBuf) {
-    let (guard, root) = hall_root();
-    ivar().current_dir(&root).arg("init").assert().success();
     let mut available = vec!["claude-code", provider.id()];
     available.dedup();
+    let (guard, root) = hall_with(&available, provider);
+    ivar().current_dir(&root).arg("sync").assert().success();
+    (guard, root)
+}
+
+fn hall_with(available: &[&str], provider: Provider) -> (tempfile::TempDir, Utf8PathBuf) {
+    let (guard, root) = hall_root();
+    ivar().current_dir(&root).arg("init").assert().success();
     let path = root.join("ivar.json");
     let mut manifest: serde_json::Map<String, serde_json::Value> =
         serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
@@ -20,7 +26,6 @@ fn sync_hall(provider: Provider) -> (tempfile::TempDir, Utf8PathBuf) {
         serde_json::json!({"available": available, "default": provider.id()}),
     );
     std::fs::write(&path, serde_json::to_string_pretty(&manifest).unwrap()).unwrap();
-    ivar().current_dir(&root).arg("sync").assert().success();
     (guard, root)
 }
 
@@ -50,6 +55,19 @@ fn the_brief_is_materialised_exactly_where_the_matrix_says_supported() {
         let expected = matches!(provider_support(provider).memory_brief, Support::Supported);
         assert_eq!(brief_materialised(&root, provider), expected, "{provider}");
     }
+}
+
+#[test]
+fn t3_is_never_synced_without_the_claude_code_settings_that_carry_its_brief() {
+    let (_guard, root) = hall_with(&["t3"], Provider::T3);
+
+    ivar()
+        .current_dir(&root)
+        .arg("sync")
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("needs `claude-code`"));
+    assert!(!root.join(".claude/settings.json").exists());
 }
 
 #[test]
