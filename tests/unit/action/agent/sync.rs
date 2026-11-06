@@ -176,7 +176,9 @@ fn a_host_agent_that_writes_proc_syncs_with_a_warning() {
         .iter()
         .filter(|w| w.code == "agent.host_write_proc")
         .collect();
-    assert_eq!(proc_warnings.len(), 1, "{proc_warnings:?}");
-    assert!(proc_warnings[0].what.contains("`chrome`"));
-    assert!(proc_warnings[0].what.contains("ptrace"));
+    let [warning] = proc_warnings.as_slice() else {
+        panic!("{proc_warnings:?}");
+    };
+    assert!(warning.what.contains("`chrome`"));
+    assert!(warning.what.contains("ptrace"));
 }
