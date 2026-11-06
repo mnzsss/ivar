@@ -41,6 +41,9 @@ mod memory_capture;
 #[path = "cli/memory_capture_contract.rs"]
 mod memory_capture_contract;
 
+#[path = "cli/memory_handoff_cli.rs"]
+mod memory_handoff_cli;
+
 #[path = "cli/memory_mcp_contract.rs"]
 mod memory_mcp_contract;
 

@@ -3,8 +3,10 @@ use std::process::ExitCode;
 
 use super::respond::respond;
 use crate::action::Ctx;
+use crate::action::memory::coordination::cli;
 use crate::action::memory::{clean, lint, query, reindex, review, status};
 use crate::cli::MemoryCommand;
+use crate::cli::memory::HandoffCommand;
 
 pub(super) fn dispatch_memory(
     cmd: MemoryCommand,
@@ -54,6 +56,46 @@ pub(super) fn dispatch_memory(
             respond(review::review(ctx, feature), json, stdout, stderr)
         }
         MemoryCommand::Reindex => respond(reindex::reindex(ctx), json, stdout, stderr),
+        MemoryCommand::Handoff { command } => match command {
+            HandoffCommand::Begin {
+                summary,
+                pending,
+                decision,
+                file,
+                feature,
+                hall,
+                to_provider,
+                to_session,
+                session,
+            } => respond(
+                cli::begin_from_cli(
+                    ctx,
+                    &cli::BeginCliInput {
+                        summary,
+                        pending,
+                        decision,
+                        file,
+                        feature,
+                        hall,
+                        to_provider,
+                        to_session,
+                        session,
+                    },
+                ),
+                json,
+                stdout,
+                stderr,
+            ),
+            HandoffCommand::List { feature, hall } => respond(
+                cli::list_from_cli(ctx, feature.as_deref(), hall),
+                json,
+                stdout,
+                stderr,
+            ),
+            HandoffCommand::Cancel { id } => {
+                respond(cli::cancel_from_cli(ctx, &id), json, stdout, stderr)
+            }
+        },
     }
 }
 

@@ -1,5 +1,6 @@
 //! Handoff and message queues as the MCP tools and the CLI see them.
 
+pub mod cli;
 pub mod handoff;
 pub mod message;
 

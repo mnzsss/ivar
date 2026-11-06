@@ -53,6 +53,47 @@ Show what a feature wrote to memory, its gaps and the pages its diff may have ma
 | `feature` | no | Feature to review. Defaults to the session's feature |
 
 
+## `ivar memory handoff`
+
+Open, list or cancel a handoff for the next session. Accepting one and messages are MCP-only
+
+
+### `ivar memory handoff begin`
+
+Open a handoff in this session's feature queue, or the hall's outside a feature
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--summary` | `<SUMMARY>` |  | Where the work stopped, in markdown |
+| `--pending` | `<PENDING>` |  | A task the next session should pick up (repeatable) |
+| `--decision` | `<DECISION>` |  | A decision still open (repeatable) |
+| `--file` | `<FILE>` |  | A file the work touched (repeatable) |
+| `--feature` | `<FEATURE>` |  | Open it in this feature's queue instead |
+| `--hall` |  |  | Open it in the hall queue |
+| `--to-provider` | `<TO_PROVIDER>` |  | Only sessions of this provider see it |
+| `--to-session` | `<TO_SESSION>` |  | Only this ivar session sees it |
+| `--session` | `<SESSION>` |  | Open it on behalf of this ivar session, which becomes its owner |
+
+
+### `ivar memory handoff list`
+
+List open handoffs. Read-only
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--feature` | `<FEATURE>` |  | Only this feature's queue |
+| `--hall` |  |  | Only the hall queue |
+
+
+### `ivar memory handoff cancel`
+
+Cancel an open handoff, whoever owns it
+
+| argument | required | description |
+| --- | --- | --- |
+| `id` | yes | The handoff id, as `list` shows it |
+
+
 ## `ivar memory capture`
 
 Record one session hook event into the capture spool. Always exits 0 and prints nothing
