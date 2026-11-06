@@ -24,6 +24,36 @@ ivar feature deliver <feature> --fingerprint <fp>
 
 Run `ivar feature deliver <feature> --help` for the full flag surface.
 
+## Review memory before apply
+
+Delivery refuses a feature whose memory was not reviewed
+(`deliver.memory_not_reviewed`), and the preview lists it as a blocker.
+Before the preview, in a session of the feature:
+
+1. Call the `memory_review` MCP tool with no arguments. It returns three lists:
+   - **written**: the pages the feature wrote under `docs/memory/`;
+   - **gaps**: a failed tool with no `gotcha`, no `update` page, an Analysis
+     approved without a `memory_query`;
+   - **stale**: durable pages the feature's diff may have made stale.
+2. Show the three lists to the human. Write the `update` page and any gotcha
+   the human wants now, with `memory_write_page`. A gap never blocks the
+   confirmation.
+3. Ask the human for a verdict on each stale page: `updated` (you patched it)
+   or `still_valid`.
+4. Call `memory_review` with `confirm: true`, the verdicts in `stale`, and
+   `not_required` with the human's reason when the feature wrote no page.
+
+Then preview. The review is part of the fingerprint, so a review recorded
+after a preview needs a new preview. A `deliver.memory_review_outdated`
+warning means a repo moved since the review: review again if the new commits
+change what memory says.
+
+Without the MCP tool, `ivar memory review <feature>` prints the same lists,
+read-only. Only the human decides to skip the review:
+`ivar feature deliver <feature> --fingerprint <fp> --skip-memory-review "<reason>"`
+applies without it and records `memory.review_skipped` with the reason. It
+lifts no other blocker. Never pass it on your own.
+
 ## Deliver a subset of repos
 
 `--only <repo>` restricts preview and apply to the named promoted repos;
@@ -103,7 +133,8 @@ so PR metadata is rejected.
 2. **Apply** (`--fingerprint <fp>` required): validates the supplied
    fingerprint from the reviewed preview against current state — rejects if
    state changed. Never replaces the reviewed fingerprint with a freshly
-   generated one. Pushes each accepted repo's branch and creates or updates
+   generated one. Refuses a feature without a memory review unless the human
+   passed `--skip-memory-review`. Pushes each accepted repo's branch and creates or updates
    its PR.
 
 ## Link pull requests to the T3 Code thread
