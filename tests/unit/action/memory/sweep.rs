@@ -342,3 +342,33 @@ fn a_page_expired_by_its_expires_at_comes_back_only_with_a_new_observation() {
     assert!(recreated.contains("voltar"), "{recreated}");
     assert!(!recreated.contains("expires_at"), "{recreated}");
 }
+
+#[test]
+fn usage_and_misses_older_than_thirty_days_are_pruned() {
+    let (_guard, root) = crate::test_support::seeded_hall();
+    let layout = Layout::at(root);
+    let db = MemoryDb::open(layout.memory_db().as_std_path()).unwrap();
+    let old = (NOW - 31 * DAY) as i64;
+    let recent = (NOW - DAY) as i64;
+    db.conn()
+        .execute_batch(&format!(
+            "INSERT INTO memory_usage (ts, source) VALUES ({old}, 'cli'), ({recent}, 'mcp');
+             INSERT INTO memory_misses (ts, kind) VALUES ({old}, 'empty'), ({recent}, 'skipped');"
+        ))
+        .unwrap();
+    drop(db);
+
+    let report = sweep(&layout, NOW).unwrap();
+
+    assert_eq!(report.usage_pruned, 2);
+    let db = MemoryDb::open(layout.memory_db().as_std_path()).unwrap();
+    let left: i64 = db
+        .conn()
+        .query_row(
+            "SELECT (SELECT count(*) FROM memory_usage) + (SELECT count(*) FROM memory_misses)",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(left, 2);
+}

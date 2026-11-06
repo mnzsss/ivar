@@ -44,13 +44,13 @@ is the scope. The read tools carry `readOnlyHint`. `memory_delete_page` carries
 
 | Tool | Arguments | Result |
 | --- | --- | --- |
-| `memory_query` | `query` (required), `kind[]`, `tier`, `tag`, `limit` (default 10, maximum 20), `include_expired` | Pages with title, kind, tier, path, excerpt and `pinned`. Observations appear only as a fallback, in a separate section. |
+| `memory_query` | `query` (required), `kind[]`, `tier`, `tag`, `limit` (default 10, maximum 20), `include_expired` | Pages with title, kind, tier, path, excerpt and `pinned`. Each page lists up to 10 `anchors` `{repo, path, symbol?, broken}`, broken first. Observations appear only as a fallback, in a separate section. |
 | `memory_read_page` | `path` | Frontmatter fields and body. Also reads `.ivar/memory/` pages. Refuses a file that is not a regular file or is larger than 256 KiB. |
 | `memory_write_page` | `kind` and `title` (required), `body`, `slug`, `tags`, `pinned`, `relations[{type,target}]`, `expires_at`, `replace` | `path`, `hash`, `indexed`, `similar`. |
 | `memory_patch_page` | `path` (required), `old`, `new`, `tags`, `pinned`, `relations`, `expires_at`; only `pinned` and `expires_at` on a `session` page | `path`, `hash`, `indexed`. |
 | `memory_delete_page` | `path` | `path`, `indexed`. |
 | `memory_lint` | none | `issues`: a list of `{path, code, severity, message}`. |
-| `memory_status` | none | The same block as `ivar memory status`. |
+| `memory_status` | none | The same block as `ivar memory status`, plus `anchors_pending` and 30-day `usage`: `queries_cli`, `queries_mcp`, `empty`, `followup`, `skipped` and `miss_rate_cli` / `miss_rate_mcp` (empty queries over queries, per source). |
 | `memory_recent` | `limit` (default 20, maximum 100), `source_event` (prefix), `feature` | Observations, newest first, each with a one-line summary, and `drain_error` when the spool drain failed. |
 | `memory_read_session_observations` | `session` (required), `limit` (default 50, maximum 100), `cursor` | Observations of one session, oldest first, `next_cursor` while more remain, and `drain_error` when the spool drain failed. |
 
@@ -106,7 +106,7 @@ refuses a path that resolves outside the hall.
 
 `memory_lint` and `ivar memory lint` share one function. It reads the files, not the
 index, so it covers uncommitted pages. The verb exits non-zero when it finds an issue and
-accepts `--json`. Every issue has severity `error`.
+accepts `--json`. Every issue is an `error` except `lint.anchor_broken` and `lint.reindex_failed`, both `warning`s that do not change the exit code.
 
 | Code | When |
 | --- | --- |
@@ -115,6 +115,28 @@ accepts `--json`. Every issue has severity `error`.
 | `lint.field_unknown` | A field outside the six frontmatter fields. |
 | `lint.link_broken` | A markdown link that resolves to a missing `.md` under `docs/memory/`. |
 | `lint.misplaced` | A subfolder, a slug that is not kebab-case ASCII, or a `product` or `update` page without `NNN-`. |
+| `lint.anchor_broken` | An anchor whose file or symbol the current graph no longer has. Checked only when `graph.db` exists. |
+| `lint.reindex_failed` | The index refresh that precedes the anchor check failed; the message carries the error. Checked only when `graph.db` and `memory.db` exist. |
+
+## Related memory in `graph_explore`
+
+When durable pages are anchored to the files or primary symbols of an answer, `graph_explore`
+ends with up to 3 of them (path, kind, title), ordered by matching anchors, then tier. Markdown
+shows a **Related memory** list, compact a `#SCHEMA: related_memory_path|kind|title|anchors`
+block, JSON a `related_memory` array. It is the first thing dropped when the answer exceeds its
+byte budget; the answer then carries a `memory_query` continuation instead.
+
+## Memory usage
+
+Every `memory_query` is recorded in `memory.db` with its source: `cli`, `mcp`, or `hook` when the
+session guard sees the call. Three kinds of miss are recorded:
+
+- `empty`: the query returned nothing.
+- `followup`: a search or read of memory files within 120 s of a `memory_query`, which suggests
+  the answer was not enough.
+- `skipped`: a memory read with no `memory_query` in the last 120 s.
+
+`ivar memory status` prints the 30-day counts and the miss rate for the CLI and for MCP.
 
 ## Session guard and the tool names
 

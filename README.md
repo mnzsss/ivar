@@ -173,6 +173,7 @@ The same server that serves the code graph serves the memory to your agent. It l
 `memory_query` and `memory_write_page` beside seven more memory tools, which read, patch,
 delete and lint pages and read captured observations. The tools never commit. See the
 [MCP tools](docs/reference/mcp-tools.md).
+Pages cite code as anchors: `memory_query` lists them, and `graph_explore` names the pages anchored to what it returns.
 
 ## MCP server
 

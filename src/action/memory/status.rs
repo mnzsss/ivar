@@ -18,6 +18,7 @@ use crate::store::memory::observations::count_by_source_event;
 use crate::store::memory::pages::count_by_kind;
 use crate::store::memory::retention::{SESSION_RETENTION_DAYS, oldest_session_last_observation};
 use crate::store::memory::spool;
+use crate::store::memory::usage::{self, USAGE_RETENTION_DAYS};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct MemoryStatusOutcome {
@@ -33,6 +34,16 @@ pub struct MemoryStatusOutcome {
     pub retention: RetentionStatus,
     pub pages: PagesStatus,
     pub consolidation: ConsolidationStatus,
+    pub usage: UsageStatus,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct UsageStatus {
+    pub window_days: u64,
+    #[serde(flatten)]
+    pub summary: usage::UsageSummary,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub usage_error: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -55,6 +66,7 @@ pub struct PagesStatus {
     pub last_reindex_error: Option<String>,
     pub refresh_error: Option<String>,
     pub invalid: usize,
+    pub anchors_pending: usize,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -155,6 +167,10 @@ pub fn status_in(layout: &Layout) -> Outcome<MemoryStatusOutcome> {
         .into_iter()
         .map(|(kind, count)| KindCount { kind, count })
         .collect();
+    let mut read_errors = Vec::new();
+    let anchors_pending = crate::store::memory::anchors::pending_count(db.conn())
+        .map_err(|error| read_errors.push(format!("anchor count: {error}")))
+        .unwrap_or(0);
     let reindex_state = reindex::read_state(layout);
     let pages = PagesStatus {
         by_kind,
@@ -162,6 +178,7 @@ pub fn status_in(layout: &Layout) -> Outcome<MemoryStatusOutcome> {
         last_reindex_error: reindex_state.last_error,
         refresh_error,
         invalid,
+        anchors_pending,
     };
     let observations = count_by_source_event(&db)
         .map_err(|error| Failure::failed("memory.read_failed", error.to_string()))?
@@ -171,6 +188,16 @@ pub fn status_in(layout: &Layout) -> Outcome<MemoryStatusOutcome> {
             count,
         })
         .collect();
+    let since =
+        i64::try_from(epoch_secs_now().saturating_sub(USAGE_RETENTION_DAYS * 86_400)).unwrap_or(0);
+    let summary = usage::summary(db.conn(), since)
+        .map_err(|error| read_errors.push(format!("usage summary: {error}")))
+        .unwrap_or_default();
+    let usage = UsageStatus {
+        window_days: USAGE_RETENTION_DAYS,
+        summary,
+        usage_error: (!read_errors.is_empty()).then(|| read_errors.join("; ")),
+    };
     let state = read_state(layout);
     let mut spool = SpoolStatus::read(&layout.memory_spool_dir());
     spool.dropped_total = state.dropped_total;
@@ -201,6 +228,7 @@ pub fn status_in(layout: &Layout) -> Outcome<MemoryStatusOutcome> {
         retention,
         pages,
         consolidation,
+        usage,
     }))
 }
 
@@ -251,6 +279,23 @@ impl WriteHuman for MemoryStatusOutcome {
         if let Some(error) = &self.retention.last_sweep_error {
             writeln!(w, "  last sweep error: {error}")?;
         }
+        let u = &self.usage.summary;
+        writeln!(
+            w,
+            "  queries ({} days): {} cli ({} empty, {:.0}% miss), {} mcp ({} empty, {:.0}% miss); misses: {} followup, {} skipped",
+            self.usage.window_days,
+            u.queries_cli,
+            u.empty_cli,
+            u.miss_rate_cli * 100.0,
+            u.queries_mcp,
+            u.empty_mcp,
+            u.miss_rate_mcp * 100.0,
+            u.followup,
+            u.skipped
+        )?;
+        if let Some(error) = &self.usage.usage_error {
+            writeln!(w, "  usage failed: {error}")?;
+        }
         for count in &self.pages.by_kind {
             writeln!(w, "  pages {}: {}", count.kind, count.count)?;
         }
@@ -260,6 +305,7 @@ impl WriteHuman for MemoryStatusOutcome {
             self.pages.last_reindex_at.as_deref().unwrap_or("never"),
             self.pages.invalid
         )?;
+        writeln!(w, "  anchors pending: {}", self.pages.anchors_pending)?;
         if let Some(error) = &self.pages.last_reindex_error {
             writeln!(w, "  last reindex error: {error}")?;
         }

@@ -1,6 +1,7 @@
 //! `ivar memory query`: pages by reciprocal-rank fusion, observations as fallback.
 
 use std::collections::BTreeMap;
+use std::time::Duration;
 
 use serde::Serialize;
 
@@ -8,6 +9,7 @@ use crate::action::memory::consolidate::consolidate_if_free;
 use crate::action::memory::drain::epoch_secs_now;
 use crate::action::memory::reindex;
 use crate::action::{Ctx, discover_hall};
+use crate::domain::memory_anchor::AnchorView;
 use crate::domain::memory_page::{PageKind, Tier};
 use crate::domain::memory_rank::{
     NEIGHBOUR_SEEDS, PINNED_BONUS, fts_expression, rrf_contribution, tier_multiplier,
@@ -15,13 +17,16 @@ use crate::domain::memory_rank::{
 use crate::domain::session::rfc3339_now;
 use crate::error::{Failure, Outcome, Report, WriteHuman};
 use crate::store::layout::Layout;
+use crate::store::memory::anchors;
 use crate::store::memory::db::MemoryDb;
 use crate::store::memory::observation_search;
 use crate::store::memory::pages::{self, PageFilter, PageHit};
 use crate::store::memory::retention::{SESSION_RETENTION_DAYS, cutoff_before};
+use crate::store::memory::usage::{self, MemoryMiss, MemoryMissKind, QueryRecord};
 
 const MAX_LIMIT: usize = 20;
 const CANDIDATES: usize = 50;
+const ANCHORS_PER_HIT: usize = 10;
 
 #[derive(Debug, Clone)]
 pub struct QueryInput {
@@ -50,6 +55,8 @@ pub struct QueryHit {
     pub pinned: bool,
     pub score: f64,
     pub sources: Vec<SourceRank>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub anchors: Vec<AnchorView>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -74,6 +81,22 @@ impl WriteHuman for QueryOutcome {
                 hit.path, hit.kind, hit.tier, hit.title
             )?;
             writeln!(out, "  {}", hit.snippet)?;
+            if !hit.anchors.is_empty() {
+                let listed: Vec<String> = hit
+                    .anchors
+                    .iter()
+                    .map(|a| {
+                        let symbol = a
+                            .symbol
+                            .as_deref()
+                            .map(|s| format!("#{s}"))
+                            .unwrap_or_default();
+                        let broken = if a.broken { " (broken)" } else { "" };
+                        format!("{}:{}{symbol}{broken}", a.repo, a.path)
+                    })
+                    .collect();
+                writeln!(out, "  anchors: {}", listed.join(", "))?;
+            }
         }
         for hit in &self.observations {
             writeln!(
@@ -119,9 +142,52 @@ fn parse_tier(tier: Option<&str>) -> Result<Option<Tier>, Failure> {
     .transpose()
 }
 
+fn add_source(
+    db: &MemoryDb,
+    ranked: &mut BTreeMap<String, Ranked>,
+    source: &str,
+    paths: impl IntoIterator<Item = (usize, String)>,
+    live_at: Option<&str>,
+) -> rusqlite::Result<()> {
+    for (rank, path) in paths {
+        if let Some(entry) = ranked.get_mut(&path) {
+            entry.score += rrf_contribution(rank);
+            entry.sources.push(SourceRank {
+                source: source.into(),
+                rank,
+            });
+        } else if let Some(mut hit) = pages::page_by_path(db, &path, None, live_at)? {
+            hit.snippet.clone_from(&hit.title);
+            ranked.insert(
+                path,
+                Ranked {
+                    hit,
+                    score: rrf_contribution(rank),
+                    sources: vec![SourceRank {
+                        source: source.into(),
+                        rank,
+                    }],
+                },
+            );
+        }
+    }
+    Ok(())
+}
+
+fn query_terms(text: &str) -> Vec<String> {
+    text.split_whitespace()
+        .map(|t| {
+            t.trim_matches(|c: char| !c.is_alphanumeric() && c != '_' && c != '.' && c != '/')
+                .to_lowercase()
+        })
+        .filter(|t| !t.is_empty())
+        .collect()
+}
+
 fn fuse(
     db: &MemoryDb,
     expression: &str,
+    terms: &[String],
     filter: &PageFilter,
     filtered: bool,
 ) -> rusqlite::Result<Vec<Ranked>> {
@@ -149,29 +215,17 @@ fn fuse(
         .take(NEIGHBOUR_SEEDS)
         .map(|hit| hit.path.clone())
         .collect();
-    for (index, path) in pages::linked_paths(db, &seeds)?.into_iter().enumerate() {
-        let rank = NEIGHBOUR_SEEDS + index;
-        if let Some(entry) = ranked.get_mut(&path) {
-            entry.score += rrf_contribution(rank);
-            entry.sources.push(SourceRank {
-                source: "links".into(),
-                rank,
-            });
-        } else if let Some(mut hit) = pages::page_by_path(db, &path, None, live_at)? {
-            hit.snippet.clone_from(&hit.title);
-            ranked.insert(
-                path,
-                Ranked {
-                    hit,
-                    score: rrf_contribution(rank),
-                    sources: vec![SourceRank {
-                        source: "links".into(),
-                        rank,
-                    }],
-                },
-            );
-        }
-    }
+    let linked = pages::linked_paths(db, &seeds)?
+        .into_iter()
+        .enumerate()
+        .map(|(index, path)| (NEIGHBOUR_SEEDS + index, path));
+    add_source(db, &mut ranked, "links", linked, live_at)?;
+    let matched = anchors::match_terms(db.conn(), terms)?;
+    let anchored = matched
+        .into_iter()
+        .enumerate()
+        .map(|(rank, (path, _, _))| (rank, path));
+    add_source(db, &mut ranked, "anchors", anchored, live_at)?;
     Ok(ranked.into_values().collect())
 }
 
@@ -191,6 +245,7 @@ fn into_query_hit(ranked: Ranked, explain: bool) -> QueryHit {
         snippet: hit.snippet,
         pinned: hit.pinned,
         sources: if explain { sources } else { Vec::new() },
+        anchors: Vec::new(),
     }
 }
 
@@ -199,13 +254,91 @@ fn into_query_hit(ranked: Ranked, explain: bool) -> QueryHit {
 /// When no hall is found, a kind or tier is unknown, or the index cannot be read.
 pub fn query(ctx: &Ctx, input: &QueryInput) -> Outcome<QueryOutcome> {
     let layout = discover_hall(ctx)?;
-    query_in(&layout, input)
+    query_in(
+        &layout,
+        input,
+        &QueryOrigin {
+            source: "cli",
+            session: std::env::var("IVAR_SESSION_ID").ok(),
+        },
+    )
+}
+
+#[derive(Debug, Clone)]
+pub struct QueryOrigin {
+    pub source: &'static str,
+    pub session: Option<String>,
 }
 
 /// # Errors
 ///
 /// When a kind or tier is unknown, or the index cannot be read.
-pub fn query_in(layout: &Layout, input: &QueryInput) -> Outcome<QueryOutcome> {
+pub fn query_in(
+    layout: &Layout,
+    input: &QueryInput,
+    origin: &QueryOrigin,
+) -> Outcome<QueryOutcome> {
+    let started = std::time::Instant::now();
+    let outcome = search(layout, input);
+    record_usage(
+        layout,
+        input,
+        origin,
+        outcome.as_ref().ok().map(|report| &report.value),
+        started.elapsed(),
+    );
+    outcome
+}
+
+fn record_usage(
+    layout: &Layout,
+    input: &QueryInput,
+    origin: &QueryOrigin,
+    found: Option<&QueryOutcome>,
+    took: Duration,
+) {
+    let Ok(conn) = rusqlite::Connection::open(layout.memory_db().as_std_path()) else {
+        return;
+    };
+    // A busy database drops the row rather than delaying the answer.
+    if conn.busy_timeout(Duration::from_millis(50)).is_err() {
+        return;
+    }
+    let filters = serde_json::json!({ "kind": input.kinds, "tier": input.tier, "tag": input.tag })
+        .to_string();
+    let (pages, observations) = found.map_or((0, 0), |o| (o.pages.len(), o.observations.len()));
+    let Ok(usage_id) = usage::record_query(
+        &conn,
+        &QueryRecord {
+            source: origin.source.to_owned(),
+            session: origin.session.clone(),
+            query: input.text.clone(),
+            filters: filters.clone(),
+            page_count: pages,
+            observation_count: observations,
+            duration_ms: u64::try_from(took.as_millis()).unwrap_or(u64::MAX),
+            error: found.is_none(),
+        },
+    ) else {
+        return;
+    };
+    if found.is_some() && pages == 0 {
+        let _ = usage::record_miss(
+            &conn,
+            &MemoryMiss {
+                kind: MemoryMissKind::Empty,
+                session: origin.session.clone(),
+                query: Some(input.text.clone()),
+                filters: Some(filters),
+                pattern: None,
+                usage_id: Some(usage_id),
+                fallback: observations > 0,
+            },
+        );
+    }
+}
+
+fn search(layout: &Layout, input: &QueryInput) -> Outcome<QueryOutcome> {
     let kinds = parse_kinds(&input.kinds)?;
     let tier = parse_tier(input.tier.as_deref())?;
     let limit = input.limit.clamp(1, MAX_LIMIT);
@@ -227,17 +360,31 @@ pub fn query_in(layout: &Layout, input: &QueryInput) -> Outcome<QueryOutcome> {
     };
     let db = MemoryDb::open(layout.memory_db().as_std_path())
         .map_err(|error| Failure::failed("memory.db_unavailable", error.to_string()))?;
-    let mut pages: Vec<QueryHit> = fuse(&db, &expression, &filter, filtered)
-        .map_err(|error| sqlite_failure(&error))?
-        .into_iter()
-        .map(|ranked| into_query_hit(ranked, input.explain))
-        .collect();
+    let mut pages: Vec<QueryHit> = fuse(
+        &db,
+        &expression,
+        &query_terms(&input.text),
+        &filter,
+        filtered,
+    )
+    .map_err(|error| sqlite_failure(&error))?
+    .into_iter()
+    .map(|ranked| into_query_hit(ranked, input.explain))
+    .collect();
     pages.sort_by(|a, b| {
         b.score
             .total_cmp(&a.score)
             .then_with(|| a.path.cmp(&b.path))
     });
     pages.truncate(limit);
+    let attached = anchors::attach_graph(db.conn(), &layout.graph_db());
+    for hit in &mut pages {
+        hit.anchors = anchors::anchors_for(db.conn(), &hit.path, attached, ANCHORS_PER_HIT)
+            .unwrap_or_default();
+    }
+    if attached {
+        anchors::detach_graph(db.conn());
+    }
     let observations = if pages.is_empty() && !filtered {
         observation_search::search(
             &db,

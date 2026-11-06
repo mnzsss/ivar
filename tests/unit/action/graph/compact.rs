@@ -246,9 +246,9 @@ fn test_encode_path() {
     assert!(compact.len() < json.len() / 2);
 }
 
-#[test]
-fn test_encode_explore() {
-    let explore = ExploreResult {
+fn sample_explore_result() -> ExploreResult {
+    ExploreResult {
+        related_memory: Vec::new(),
         confidence: crate::domain::graph::ExploreConfidence::High,
         file_matches: Vec::new(),
         query: "fetch".into(),
@@ -295,7 +295,12 @@ fn test_encode_explore() {
             path_via: vec!["main".into(), "caller_func".into()],
             cross_repo: true,
         }],
-    };
+    }
+}
+
+#[test]
+fn test_encode_explore() {
+    let explore = sample_explore_result();
     let compact = explore.to_compact();
     let expected = format!(
         "{}\n10|fetch|fn|src/net.rs|1|0|3\n{}\nmain|ivar|src/main.rs|incoming|fetch|ivar|src/net.rs|calls|extracted|1.00|42|1|false\n{}\ncaller_func|ivar-orca|src/index.ts|2|main -> caller_func|true",
@@ -307,6 +312,7 @@ fn test_encode_explore() {
 #[test]
 fn complete_compact_exploration_keeps_every_distinct_consumer() {
     let res = ExploreResult {
+        related_memory: Vec::new(),
         confidence: crate::domain::graph::ExploreConfidence::High,
         query: "fetch".into(),
         file_matches: vec![],
@@ -349,4 +355,22 @@ fn complete_compact_exploration_keeps_every_distinct_consumer() {
         );
     }
     assert!(!text.contains("#SCHEMA: partial|budget_bytes"));
+}
+
+#[test]
+fn compact_lists_related_memory_last_with_pipes_escaped() {
+    let mut res = sample_explore_result();
+    res.related_memory = vec![crate::domain::memory_anchor::RelatedPage {
+        path: "docs/memory/gotcha/a.md".into(),
+        kind: "gotcha".into(),
+        title: "A | pipe".into(),
+        anchors: 2,
+    }];
+    let text = res.to_compact();
+    assert!(
+        text.ends_with(&format!(
+            "{RELATED_MEMORY_SCHEMA}\ndocs/memory/gotcha/a.md|gotcha|A / pipe|2"
+        )),
+        "{text}"
+    );
 }

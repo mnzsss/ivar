@@ -66,6 +66,17 @@ fn a_memory_call_is_answered_from_the_hall_and_writes_no_usage_row() {
         .query_row("SELECT COUNT(*) FROM usage", [], |r| r.get(0))
         .unwrap();
     assert_eq!(rows, 0);
+    let memory = crate::store::memory::db::MemoryDb::open(
+        crate::store::layout::Layout::at(root.clone())
+            .memory_db()
+            .as_std_path(),
+    )
+    .unwrap();
+    let source: String = memory
+        .conn()
+        .query_row("SELECT source FROM memory_usage", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(source, "mcp");
 }
 
 #[test]

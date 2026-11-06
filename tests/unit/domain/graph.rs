@@ -126,6 +126,7 @@ fn test_graph_stats_json_roundtrip() {
 #[test]
 fn test_explore_result_json_roundtrip() {
     let explore = ExploreResult {
+        related_memory: Vec::new(),
         confidence: crate::domain::graph::ExploreConfidence::High,
         query: "Symbol".to_owned(),
         file_matches: vec![FileMatch {

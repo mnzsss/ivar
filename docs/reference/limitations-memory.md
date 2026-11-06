@@ -104,6 +104,17 @@ and skip the pass when another process holds `memory.lock`. `ivar memory status`
 - Observations answer only when no page matches and no filter is set, and only the ones
   the retention sweep has not deleted.
 
+## Anchors and usage
+
+- Anchors resolve against the base layer only, never a feature session's layer.
+- A change in the graph never re-anchors a page. A file indexed after the page was anchored joins
+  only when the page changes or `ivar memory reindex` runs.
+- An ambiguous path or symbol becomes an anchor only when the page also cites a resolved path in
+  the same repo or file; otherwise it is dropped.
+- The guard counts a memory read from a `Read` target, a Grep or Glob `path`, or a Bash search
+  command. A non-search Bash read such as `cat docs/memory/x.md` is not counted.
+- Usage and misses are written with a 50 ms busy timeout and dropped when the database is busy.
+
 ## The memory MCP tools
 
 The tools are in [MCP tools](mcp-tools.md).

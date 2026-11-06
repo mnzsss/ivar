@@ -46,6 +46,20 @@ pub struct MemoryDb {
     conn: Connection,
 }
 
+/// Opens an existing `memory.db` without ever creating or writing it.
+///
+/// # Errors
+///
+/// Returns the `SQLite` error when the file is missing or unreadable.
+pub fn open_read_only(path: &Path) -> rusqlite::Result<Connection> {
+    Connection::open_with_flags(
+        path,
+        OpenFlags::SQLITE_OPEN_READ_ONLY
+            | OpenFlags::SQLITE_OPEN_URI
+            | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )
+}
+
 impl MemoryDb {
     /// Opens or creates the memory database at `path`, migrates it to
     /// [`MEMORY_SCHEMA_VERSION`] and drops objects an older ivar left in it.
@@ -98,10 +112,7 @@ impl MemoryDb {
     /// [`MemoryDbError::ForeignApplication`] when the file is not a memory
     /// database, and [`MemoryDbError::Sqlite`] when `SQLite` fails.
     pub fn inspect(path: &Path) -> Result<MemoryInspection, MemoryDbError> {
-        let conn = Connection::open_with_flags(
-            path,
-            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
-        )?;
+        let conn = open_read_only(path)?;
         let application_id = application_id(&conn)?;
         if application_id != APPLICATION_ID {
             return Err(MemoryDbError::ForeignApplication {

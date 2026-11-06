@@ -43,6 +43,12 @@ Schema version 11 adds `watch_scopes`, one row per scope the graph watcher keeps
 A scope is settled when `indexed >= observed`, `needs_catchup = 0` and `error` is null.
 Migrating from v10 keeps the existing index.
 
+### Graph schema v12
+
+Schema version 12 keeps memory pages out of the content index. A file of the `hall` repo under
+`docs/memory/` keeps its `files` row, so `graph_explore` `paths` still returns it whole, but it has
+no `file_content_fts` row. Migrating from v11 deletes those rows; the rest of the index stays.
+
 ### Watcher lease (`.ivar/graph-watch.lock`)
 
 Every `ivar graph mcp` process tries a non-blocking exclusive lock on this file on each tool call.
@@ -60,7 +66,7 @@ shared by every session, in WAL mode, with writers serialised on `.ivar/memory.l
 | --- | --- |
 | `PRAGMA application_id` | `0x69766d31` (`ivm1`) |
 | Schema version | the single row of `memory_schema(version)`, mirrored in `PRAGMA user_version` |
-| Current schema | 3 — `memory_schema`, `observations`, `pages`, `page_links`, search |
+| Current schema | 4 — `memory_schema`, `observations`, `pages`, `page_links`, `page_anchors`, `memory_usage`, `memory_misses`, search |
 
 ### Observations (schema 2)
 
@@ -131,6 +137,18 @@ and `_consolidate.json`, which holds the session page consolidation's `last_run_
 a pass that indexes and removes nothing does not rewrite it. The `ivar` that builds the
 index owns it; `ivar doctor` reports a failed reindex, or a lock it could not take, as
 `memory.index_failed`.
+
+### Anchors and usage (schema 4)
+
+Schema 4 adds the anchors of a page and a record of how `memory_query` is used. Anchors are
+resolved against `graph.db` by the reindex, so they are a cache like the rest of the index.
+
+| Table or column | Meaning |
+| --- | --- |
+| `page_anchors` | one row per anchor: `page_path`, `repo`, `path`, `symbol` (null for a file anchor). Text keys, never graph row ids. Rewritten when the page hash changes; deleted with the page. Indexes `page_anchors_page`, `page_anchors_target`, `page_anchors_symbol` |
+| `pages.anchors_pending` | `1` when the page was indexed without a readable `graph.db`; the next reindex with a graph resolves it |
+| `memory_usage` | one row per `memory_query`: `ts`, `source` (`cli`, `mcp`, `hook`), `session`, `query`, `filters`, `page_count`, `observation_count`, `duration_ms`, `error`. Kept 30 days |
+| `memory_misses` | `kind` (`empty`, `followup`, `skipped`), `session`, `query`, `filters`, `pattern`, `usage_id`, `fallback`. Kept 30 days |
 
 ### Moving a legacy graph
 

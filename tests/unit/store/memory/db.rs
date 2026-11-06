@@ -247,7 +247,7 @@ fn schema_two_migrates_to_three_and_indexes_existing_observations() {
 
     let db = MemoryDb::open(&path).unwrap();
 
-    assert_eq!(db.schema_version().unwrap(), 3);
+    assert_eq!(db.schema_version().unwrap(), MEMORY_SCHEMA_VERSION);
     let hits: i64 = db
         .conn()
         .query_row(
@@ -316,4 +316,48 @@ fn deleting_an_observation_removes_it_from_the_search_index() {
         )
         .unwrap();
     assert_eq!(hits, 0);
+}
+
+#[test]
+fn schema_three_migrates_to_four_with_anchor_and_usage_tables() {
+    let (_dir, path) = temp_db();
+    {
+        let mut conn = Connection::open(&path).unwrap();
+        conn.execute_batch(&format!("PRAGMA application_id = {APPLICATION_ID};"))
+            .unwrap();
+        let tx = conn.transaction().unwrap();
+        tx.execute_batch(crate::store::memory::schema::MIGRATION_V1)
+            .unwrap();
+        tx.execute_batch(crate::store::memory::schema::MIGRATION_V2)
+            .unwrap();
+        tx.execute_batch(crate::store::memory::schema::MIGRATION_V3)
+            .unwrap();
+        tx.execute("UPDATE memory_schema SET version = 3", [])
+            .unwrap();
+        tx.execute_batch("PRAGMA user_version = 3;").unwrap();
+        tx.execute(
+            "INSERT INTO pages (path, kind, tier, title, size, mtime_ns, content_hash, indexed_at)
+             VALUES ('docs/memory/decision/a.md', 'decision', 'semantic', 'A', 1, 1, 'h', 't')",
+            [],
+        )
+        .unwrap();
+        tx.commit().unwrap();
+    }
+
+    let db = MemoryDb::open(&path).unwrap();
+
+    assert_eq!(db.schema_version().unwrap(), 4);
+    let pending: i64 = db
+        .conn()
+        .query_row("SELECT anchors_pending FROM pages", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(pending, 0);
+    for table in ["page_anchors", "memory_usage", "memory_misses"] {
+        db.conn()
+            .query_row(&format!("SELECT count(*) FROM {table}"), [], |r| {
+                r.get::<_, i64>(0)
+            })
+            .unwrap();
+    }
+    assert_eq!(object_names(&path), memory_objects());
 }

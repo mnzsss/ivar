@@ -5,7 +5,7 @@ use crate::domain::graph::{MissKind, UsageEvent, UsageSource};
 use crate::store::graph::db::GraphDb;
 use crate::store::graph::db::usage::MissFilter;
 
-fn session_env_in_hall(
+pub(super) fn session_env_in_hall(
     root: &Utf8PathBuf,
     session_id: &str,
 ) -> crate::action::session::env::SessionEnv {

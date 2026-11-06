@@ -384,6 +384,10 @@ enum Extraction {
     Failed(String),
 }
 
+pub(crate) fn is_memory_page(repo: &str, rel_path: &str) -> bool {
+    repo == HALL_REPO && rel_path.starts_with(crate::domain::memory_anchor::MEMORY_DOCS_PREFIX)
+}
+
 fn extract_job(repo_id: &str, job: &ExtractJob) -> Extraction {
     let bytes = match std::fs::read(&job.full_path) {
         Ok(bytes) => bytes,
@@ -412,7 +416,11 @@ fn extract_job(repo_id: &str, job: &ExtractJob) -> Extraction {
         None => ExtractedFile::default(),
     };
 
-    let indexed_content = content[..indexed_len].to_string();
+    let indexed_content = if is_memory_page(repo_id, &job.rel_path) {
+        String::new()
+    } else {
+        content[..indexed_len].to_string()
+    };
 
     Extraction::Extracted {
         content_hash,

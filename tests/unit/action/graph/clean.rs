@@ -436,3 +436,38 @@ fn clean_opens_the_graph_database_only_under_the_index_lock() {
     worker.join().unwrap().unwrap();
     assert_eq!(write_version(), 2);
 }
+
+#[test]
+fn clean_all_leaves_memory_usage_alone() {
+    let dir = tempdir().unwrap();
+    drop(populate_hall_with_graph(dir.path()));
+    let memory =
+        crate::store::memory::db::MemoryDb::open(&dir.path().join(".ivar/memory.db")).unwrap();
+    memory
+        .conn()
+        .execute(
+            "INSERT INTO memory_usage (ts, source) VALUES (1, 'cli')",
+            [],
+        )
+        .unwrap();
+    drop(memory);
+
+    clean_cmd(
+        &make_ctx(dir.path()),
+        CleanInput {
+            repo: None,
+            feature: None,
+            all: true,
+            path: None,
+        },
+    )
+    .unwrap();
+
+    let memory =
+        crate::store::memory::db::MemoryDb::open(&dir.path().join(".ivar/memory.db")).unwrap();
+    let rows: i64 = memory
+        .conn()
+        .query_row("SELECT count(*) FROM memory_usage", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(rows, 1);
+}

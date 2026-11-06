@@ -245,3 +245,60 @@ fn status_reports_the_last_consolidation() {
     assert!(outcome.consolidation.last_run_at.is_some());
     assert_eq!(outcome.consolidation.written_total, 0);
 }
+
+#[test]
+fn status_counts_pages_waiting_for_anchors() {
+    let (_guard, root) = crate::test_support::seeded_hall();
+    let layout = Layout::at(root);
+    let _ = std::fs::remove_file(layout.graph_db());
+    let page = layout.root().join("docs/memory/gotcha/a.md");
+    std::fs::create_dir_all(page.parent().unwrap()).unwrap();
+    std::fs::write(&page, "# A\n\nSee `src/a.rs`.\n").unwrap();
+
+    let value = status_in(&layout).unwrap().value;
+
+    assert_eq!(value.pages.anchors_pending, 1);
+}
+
+#[test]
+fn status_reports_thirty_days_of_queries_and_misses_by_source() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root);
+    let db = MemoryDb::open(layout.memory_db().as_std_path()).unwrap();
+    db.conn()
+        .execute_batch(
+            "INSERT INTO memory_usage (id, ts, source) VALUES (1, unixepoch(), 'cli'), (2, unixepoch(), 'mcp'),
+                                                             (3, unixepoch(), 'hook'), (4, 0, 'cli');
+             INSERT INTO memory_misses (ts, kind, usage_id) VALUES (unixepoch(), 'empty', 2), (unixepoch(), 'followup', 3);",
+        )
+        .unwrap();
+    drop(db);
+
+    let value = status_in(&layout).unwrap().value;
+
+    assert_eq!(value.usage.window_days, 30);
+    let s = &value.usage.summary;
+    assert_eq!((s.queries_cli, s.queries_mcp), (1, 1));
+    assert_eq!(
+        (s.empty, s.empty_cli, s.empty_mcp, s.followup),
+        (1, 0, 1, 1)
+    );
+    assert_eq!((s.miss_rate_cli, s.miss_rate_mcp), (0.0, 1.0));
+}
+
+#[test]
+fn status_surfaces_a_failed_usage_summary_instead_of_reporting_zero_queries() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root.clone());
+    {
+        let db = MemoryDb::open(layout.memory_db().as_std_path()).unwrap();
+        db.conn().execute_batch("DROP TABLE memory_usage").unwrap();
+    }
+
+    let value = status(&Ctx::new(root)).unwrap().value;
+
+    assert!(value.usage.usage_error.is_some());
+    let mut human = Vec::new();
+    value.write_human(&mut human).unwrap();
+    assert!(String::from_utf8(human).unwrap().contains("usage failed"));
+}

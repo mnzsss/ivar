@@ -135,6 +135,21 @@ fn memory_schema_version_in_the_docs_matches_the_code() {
 }
 
 #[test]
+fn graph_schema_version_in_the_docs_matches_the_code() {
+    use crate::store::graph::schema::SCHEMA_VERSION;
+    const DATABASES: &str = include_str!("../../../docs/reference/on-disk-format-databases.md");
+    assert!(
+        DATABASES.contains(&format!("### Graph schema v{SCHEMA_VERSION}")),
+        "on-disk-format-databases.md has no section for graph schema v{SCHEMA_VERSION}"
+    );
+    assert!(
+        DATABASES.contains("page_anchors")
+            && DATABASES.contains("memory_usage")
+            && DATABASES.contains("memory_misses")
+    );
+}
+
+#[test]
 fn the_page_format_doc_exists_is_linked_and_names_the_roots() {
     const PAGES: &str = include_str!("../../../docs/reference/on-disk-format-pages.md");
     assert!(DOC.contains("](on-disk-format-pages.md)"));

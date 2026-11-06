@@ -35,3 +35,4 @@ The codebase graph indexes all Git-tracked UTF-8 text files, but applies clear o
   every candidate is weak the answer says `confidence: none` and lists them as locations without source;
   see [graph_explore precision](../product/012-graph-explore-precision.md). Matching is by whole word
   (plurals folded), so a query whose words are synonyms of the code's names can still miss.
+- Pages under `docs/memory/` are not in the content index: find them with `memory_query`, or read one by exact path.

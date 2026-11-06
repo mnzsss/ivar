@@ -60,6 +60,26 @@ pub fn guard(
     {
         record_graph_call_at(cwd, evaluation.session_env.as_ref(), ambient.clone());
     }
+    if let Some(cwd) = evaluation.cwd.as_deref()
+        && matches!(evaluation.decision, GuardDecision::Allow)
+    {
+        if is_memory_query_tool(&evaluation.request.tool) {
+            let query = evaluation
+                .request
+                .input
+                .get("query")
+                .and_then(serde_json::Value::as_str);
+            record_memory_call_at(cwd, evaluation.session_env.as_ref(), ambient.clone(), query);
+        }
+        if let Some(pattern) = memory_read_pattern(&evaluation.request, cwd) {
+            record_memory_read_at(
+                cwd,
+                evaluation.session_env.as_ref(),
+                ambient.clone(),
+                &pattern,
+            );
+        }
+    }
     if let Some(pattern) = &evaluation.request.search_pattern
         && let Some(cwd) = evaluation.cwd.as_deref()
     {

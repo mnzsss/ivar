@@ -131,6 +131,7 @@ fn graph_feedback_records_the_resolved_session_on_the_miss() {
 
 fn weak_explore(confidence: ExploreConfidence, with_candidates: bool) -> ExploreResult {
     let mut res = ExploreResult {
+        related_memory: Vec::new(),
         query: "q".to_owned(),
         confidence,
         file_matches: vec![],

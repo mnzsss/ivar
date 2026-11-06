@@ -128,3 +128,76 @@ fn lint_reads_the_disk_not_the_index() {
     std::fs::remove_file(layout.root().join("docs/memory/decision/a.md")).unwrap();
     assert!(lint_in(&layout).is_empty());
 }
+
+#[test]
+fn an_anchor_whose_file_left_the_graph_is_a_warning_not_an_error() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root);
+    let graph = crate::store::graph::db::GraphDb::open(layout.graph_db().as_std_path()).unwrap();
+    graph
+        .conn()
+        .execute_batch(
+            "INSERT INTO repos (id, root_path, default_branch, indexed_at) VALUES ('ivar', '/i', 'main', 0);
+             INSERT INTO files (id, repo, path, content_hash, mtime_ns, size_bytes, indexed_at)
+               VALUES (1, 'ivar', 'src/a.rs', 'h', 0, 1, 0);",
+        )
+        .unwrap();
+    page(
+        &layout,
+        "docs/memory/decision/a.md",
+        "# A\n\nSee `src/a.rs`.\n",
+    );
+    crate::action::memory::reindex::refresh(&layout).unwrap();
+    graph
+        .conn()
+        .execute("DELETE FROM files WHERE id = 1", [])
+        .unwrap();
+    drop(graph);
+
+    let issues = lint_in(&layout);
+
+    assert_eq!(issues.len(), 1);
+    let issue = issues.first().unwrap();
+    assert_eq!(issue.code, "lint.anchor_broken");
+    assert_eq!(issue.severity, "warning");
+    assert_eq!(issue.path, "docs/memory/decision/a.md");
+    assert!(issue.message.contains("ivar:src/a.rs"));
+    let outcome = LintOutcome {
+        issues: issues.clone(),
+    };
+    assert!(!outcome.has_errors());
+}
+
+#[test]
+fn without_a_graph_the_anchor_check_is_skipped() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root);
+    page(
+        &layout,
+        "docs/memory/decision/a.md",
+        "# A\n\nSee `src/a.rs`.\n",
+    );
+    let _ = std::fs::remove_file(layout.graph_db());
+    assert!(lint_in(&layout).is_empty());
+}
+
+#[test]
+fn a_failed_refresh_is_a_warning_and_not_an_error() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root);
+    crate::store::graph::db::GraphDb::open(layout.graph_db().as_std_path()).unwrap();
+    for suffix in ["", "-wal", "-shm"] {
+        let _ = std::fs::remove_file(format!("{}{suffix}", layout.memory_db()));
+    }
+    std::fs::write(layout.memory_db(), b"not a database").unwrap();
+
+    let issues = lint_in(&layout);
+
+    let issue = issues
+        .iter()
+        .find(|issue| issue.code == "lint.reindex_failed")
+        .unwrap();
+    assert_eq!(issue.severity, "warning");
+    assert!(!issue.message.is_empty());
+    assert!(!LintOutcome { issues }.has_errors());
+}

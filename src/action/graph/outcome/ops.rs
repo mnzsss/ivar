@@ -195,6 +195,15 @@ impl WriteHuman for ExploreOutcome {
         {
             writeln!(buf, "  Impact Summary: {}", impact)?;
         }
+        for page in &res.related_memory {
+            let line = format!(
+                "  Related memory: {} ({}) {}\n",
+                page.path, page.kind, page.title
+            );
+            if buf.len() + line.len() <= MAX_OUTPUT_CHARS {
+                buf.extend_from_slice(line.as_bytes());
+            }
+        }
         w.write_all(&buf)
     }
 }

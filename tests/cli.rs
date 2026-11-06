@@ -47,6 +47,9 @@ mod memory_mcp_contract;
 #[path = "cli/memory_pages_contract.rs"]
 mod memory_pages_contract;
 
+#[path = "cli/memory_retrieval_contract.rs"]
+mod memory_retrieval_contract;
+
 #[path = "cli/nested_subfeatures.rs"]
 mod nested_subfeatures;
 

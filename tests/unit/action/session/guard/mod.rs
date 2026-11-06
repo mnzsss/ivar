@@ -24,6 +24,7 @@ use camino::{Utf8Path, Utf8PathBuf};
 mod adapter;
 mod decide;
 mod instructions;
+mod memory_usage;
 mod resolution;
 mod set;
 mod usage;

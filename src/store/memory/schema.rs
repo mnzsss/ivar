@@ -6,7 +6,7 @@ use rusqlite::Transaction;
 pub const APPLICATION_ID: i32 = 0x6976_6d31;
 
 /// The memory schema this binary migrates to.
-pub const MEMORY_SCHEMA_VERSION: i64 = 3;
+pub const MEMORY_SCHEMA_VERSION: i64 = 4;
 
 /// Every schema object a memory database up to [`MEMORY_SCHEMA_VERSION`]
 /// owns. Anything else in the file was put there by another program.
@@ -35,6 +35,14 @@ pub(crate) const MEMORY_OBJECTS: &[&str] = &[
     "observations_fts_config",
     "observations_fts_insert",
     "observations_fts_delete",
+    "page_anchors",
+    "page_anchors_page",
+    "page_anchors_target",
+    "page_anchors_symbol",
+    "memory_usage",
+    "memory_usage_session_ts",
+    "memory_misses",
+    "memory_misses_session_ts",
 ];
 
 pub(crate) const OBSERVATIONS_TABLE: &str = "observations";
@@ -74,7 +82,7 @@ CREATE TRIGGER observations_no_update BEFORE UPDATE ON observations
 BEGIN SELECT RAISE(ABORT, 'observations are append-only'); END;
 ";
 
-const MIGRATION_V3: &str = "
+pub(crate) const MIGRATION_V3: &str = "
 CREATE TABLE pages (
     id           INTEGER PRIMARY KEY,
     path         TEXT NOT NULL UNIQUE,
@@ -111,6 +119,44 @@ END;
 INSERT INTO observations_fts (observations_fts) VALUES ('rebuild');
 ";
 
+pub(crate) const MIGRATION_V4: &str = "
+ALTER TABLE pages ADD COLUMN anchors_pending INTEGER NOT NULL DEFAULT 0;
+CREATE TABLE page_anchors (
+    page_path TEXT NOT NULL,
+    repo      TEXT NOT NULL,
+    path      TEXT NOT NULL,
+    symbol    TEXT
+);
+CREATE INDEX page_anchors_page ON page_anchors (page_path);
+CREATE INDEX page_anchors_target ON page_anchors (repo, path);
+CREATE INDEX page_anchors_symbol ON page_anchors (symbol) WHERE symbol IS NOT NULL;
+CREATE TABLE memory_usage (
+    id                INTEGER PRIMARY KEY,
+    ts                INTEGER NOT NULL,
+    source            TEXT NOT NULL,
+    session           TEXT,
+    query             TEXT,
+    filters           TEXT NOT NULL DEFAULT '{}',
+    page_count        INTEGER NOT NULL DEFAULT 0,
+    observation_count INTEGER NOT NULL DEFAULT 0,
+    duration_ms       INTEGER NOT NULL DEFAULT 0,
+    error             INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX memory_usage_session_ts ON memory_usage (session, ts);
+CREATE TABLE memory_misses (
+    id       INTEGER PRIMARY KEY,
+    ts       INTEGER NOT NULL,
+    session  TEXT,
+    kind     TEXT NOT NULL,
+    query    TEXT,
+    filters  TEXT,
+    pattern  TEXT,
+    usage_id INTEGER,
+    fallback INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX memory_misses_session_ts ON memory_misses (session, ts);
+";
+
 pub(crate) fn migrate(tx: &Transaction<'_>, from: i64) -> rusqlite::Result<()> {
     if from < 1 {
         tx.execute_batch(MIGRATION_V1)?;
@@ -120,6 +166,9 @@ pub(crate) fn migrate(tx: &Transaction<'_>, from: i64) -> rusqlite::Result<()> {
     }
     if from < 3 {
         tx.execute_batch(MIGRATION_V3)?;
+    }
+    if from < 4 {
+        tx.execute_batch(MIGRATION_V4)?;
     }
     tx.execute(
         "UPDATE memory_schema SET version = ?1",

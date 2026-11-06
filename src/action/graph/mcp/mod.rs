@@ -266,6 +266,7 @@ where
                 return Some(memory_tool_response(
                     id.as_ref(),
                     hall_root,
+                    cwd,
                     name,
                     &tool_args,
                 ));
@@ -313,6 +314,7 @@ where
 fn memory_tool_response(
     id: Option<&Value>,
     hall_root: Option<&Path>,
+    cwd: &camino::Utf8Path,
     name: &str,
     args: &Value,
 ) -> Value {
@@ -325,7 +327,12 @@ fn memory_tool_response(
             "the hall path is not valid UTF-8, so memory tools cannot address it",
         );
     };
-    match crate::action::memory::mcp::call(&Layout::at(utf8_root), name, args) {
+    match crate::action::memory::mcp::call_as(
+        &Layout::at(utf8_root),
+        name,
+        args,
+        resolve_session_key(cwd),
+    ) {
         Ok(text) => json!({
             "jsonrpc": "2.0",
             "id": id,

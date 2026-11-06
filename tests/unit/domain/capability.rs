@@ -15,11 +15,13 @@ fn every_selectable_provider_declares_its_capabilities() {
             plan_memory_step,
             memory_mcp,
             planning_memory,
+            memory_misses,
         } = provider_support(provider);
         assert_eq!(cleanup_command, Support::Supported, "{provider}");
         assert_eq!(plan_memory_step, Support::Supported, "{provider}");
         assert_eq!(memory_mcp, Support::Supported, "{provider}");
         assert_eq!(planning_memory, Support::Supported, "{provider}");
+        assert_eq!(memory_misses, Support::Supported, "{provider}");
     }
 }
 

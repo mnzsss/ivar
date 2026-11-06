@@ -19,6 +19,7 @@ pub mod graph;
 pub mod guard;
 pub mod health;
 pub mod mcp;
+pub mod memory_anchor;
 pub mod memory_page;
 pub mod memory_rank;
 pub mod name;

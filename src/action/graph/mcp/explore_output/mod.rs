@@ -159,7 +159,52 @@ pub(super) fn render_explore(
     if let Some(text) = complete_output(result, format, limit)? {
         return Ok(text);
     }
-    partial_output(result, format, limit)
+    if result.related_memory.is_empty() {
+        return partial_output(result, format, limit);
+    }
+    let mut without = result.clone();
+    without.related_memory.clear();
+    let budget = limit.saturating_sub(MEMORY_CONTINUATION_RESERVE);
+    let text = match complete_output(&without, format, budget)? {
+        Some(text) => text,
+        None => partial_output(&without, format, budget)?,
+    };
+    Ok(with_memory_continuation(text, format, &result.query, limit))
+}
+
+/// Room kept for the `memory_query` continuation, so dropping the section never
+/// costs the hint that replaces it.
+const MEMORY_CONTINUATION_RESERVE: usize = 512;
+
+fn with_memory_continuation(
+    text: String,
+    format: ExploreFormat,
+    query: &str,
+    limit: usize,
+) -> String {
+    let arguments = serde_json::json!({ "query": query });
+    let call = serde_json::json!({ "tool": "memory_query", "arguments": arguments });
+    let extended = match format {
+        ExploreFormat::Json => serde_json::from_str::<serde_json::Value>(&text)
+            .ok()
+            .and_then(|mut value| {
+                value
+                    .as_object_mut()?
+                    .insert("related_memory_omitted".into(), call);
+                serde_json::to_string_pretty(&value).ok()
+            }),
+        ExploreFormat::Compact => {
+            let header = if text.lines().any(|line| line == NEXT_SCHEMA) {
+                String::new()
+            } else {
+                format!("\n{NEXT_SCHEMA}")
+            };
+            Some(format!("{text}{header}\nmemory_query|{arguments}"))
+        }
+    };
+    extended
+        .filter(|candidate| candidate.len() <= limit)
+        .unwrap_or(text)
 }
 
 fn complete_output(
@@ -219,5 +264,5 @@ struct EncodedRow {
 }
 
 #[cfg(test)]
-#[path = "../../../../../tests/unit/action/graph/mcp/explore_output.rs"]
+#[path = "../../../../../tests/unit/action/graph/mcp/explore_output/mod.rs"]
 mod tests;

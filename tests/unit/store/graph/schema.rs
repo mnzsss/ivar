@@ -490,7 +490,7 @@ fn a_v10_database_gains_watch_scopes_without_losing_its_index() {
     let version: i64 = conn
         .query_row("PRAGMA user_version", [], |r| r.get(0))
         .unwrap();
-    assert_eq!(version, 11);
+    assert_eq!(version, SCHEMA_VERSION);
     let commit: Option<String> = conn
         .query_row(
             "SELECT last_indexed_commit FROM repos WHERE id = 'api'",

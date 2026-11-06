@@ -164,7 +164,9 @@ pub fn upsert_page(
 ///
 /// Returns the `SQLite` error; the caller decides whether to roll `tx` back.
 pub fn remove_page(tx: &Transaction<'_>, path: &str) -> rusqlite::Result<()> {
-    delete_rows(tx, path)
+    delete_rows(tx, path)?;
+    tx.execute("DELETE FROM page_anchors WHERE page_path = ?1", [path])?;
+    Ok(())
 }
 
 fn file_stem(path: &str) -> &str {
