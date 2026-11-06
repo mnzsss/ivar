@@ -151,3 +151,32 @@ fn a_host_agent_syncs_with_a_warning_about_ambient_reads() {
     assert!(warning.what.contains("`local`"));
     assert!(warning.what.contains("SSH keys"));
 }
+
+fn host_agent(root: &Utf8PathBuf, name: &str, write: &str) {
+    std::fs::create_dir_all(root.join("agents")).unwrap();
+    std::fs::write(
+        root.join(format!("agents/{name}.md")),
+        format!(
+            "---\nschedule: \"@daily\"\nruntime: host\ntool: claude\nwrite: {write}\n---\nGo.\n"
+        ),
+    )
+    .unwrap();
+}
+
+#[test]
+fn a_host_agent_that_writes_proc_syncs_with_a_warning() {
+    let (_guard, root) = seeded_hall();
+    let fake = FakeSystemctl::install(&root);
+    let _r = fake_systemctl_on_this_thread(&fake);
+    host_agent(&root, "chrome", "[/proc]");
+    host_agent(&root, "plain", "[/srv/process]");
+    let report = sync_with(&Ctx::new(root.clone()), &env(root.join("units"))).unwrap();
+    let proc_warnings: Vec<_> = report
+        .warnings
+        .iter()
+        .filter(|w| w.code == "agent.host_write_proc")
+        .collect();
+    assert_eq!(proc_warnings.len(), 1, "{proc_warnings:?}");
+    assert!(proc_warnings[0].what.contains("`chrome`"));
+    assert!(proc_warnings[0].what.contains("ptrace"));
+}

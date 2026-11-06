@@ -9,7 +9,7 @@ use serde::Serialize;
 use super::hall_hash;
 use super::requirements::{self, Probes};
 use crate::action::{Ctx, discover_hall};
-use crate::domain::agent::spec::Runtime;
+use crate::domain::agent::spec::{Runtime, WritePath};
 use crate::domain::agent::unit::{owned_by, render_service, render_timer, unit_prefix, unit_stem};
 use crate::error::{Failure, Outcome, Report, Warning, WriteHuman};
 use crate::infra::{fs, systemd};
@@ -180,7 +180,26 @@ pub fn sync_with(ctx: &Ctx, env: &SyncEnv<'_>) -> Outcome<SyncOutcome> {
             ),
         )
     }));
+    warnings.extend(
+        specs
+            .iter()
+            .filter(|s| s.write.iter().any(writes_proc))
+            .map(|s| {
+                Warning::new(
+                    "agent.host_write_proc",
+                    "agents",
+                    format!(
+                        "`{}` can write /proc. Landlock cannot narrow that to the run's own processes, so it can also change the /proc entries of your other processes that the kernel lets your user write (such as comm or oom_score_adj); their memory stays behind ptrace rules.",
+                        s.name
+                    ),
+                )
+            }),
+    );
     Ok(Report::with_warnings(outcome, warnings))
+}
+
+fn writes_proc(write: &WritePath) -> bool {
+    matches!(write, WritePath::Absolute(path) if path.starts_with("/proc"))
 }
 
 #[cfg(test)]
