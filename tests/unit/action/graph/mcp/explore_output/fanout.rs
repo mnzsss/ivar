@@ -193,7 +193,7 @@ fn big_source(lines: usize) -> crate::domain::graph::SourceFile {
 }
 
 /// A file with a symbol that has many callers, as `graph_explore paths:[file]` returns it.
-fn file_with_many_callers() -> ExploreResult {
+pub(super) fn file_with_many_callers() -> ExploreResult {
     let mut res = empty_result();
     res.query = "src/big.rs".into();
     res.primary_symbols

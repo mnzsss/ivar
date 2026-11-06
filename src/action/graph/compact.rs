@@ -19,6 +19,7 @@ pub const AFFECTED_SCHEMA: &str = "#SCHEMA: test_file";
 pub const AFFECTED_RECOMMENDATION_SCHEMA: &str = "#SCHEMA: repo|test_file|direct_change|hop_count|edge_kind|provenance|confidence|command|reason|causal_path";
 pub const PATH_SCHEMA: &str = "#SCHEMA: step|symbol|kind|file|edge_kind";
 pub const RELATION_SCHEMA: &str = "#SCHEMA: source_symbol|source_repo|source_file|direction|target_symbol|target_repo|target_file|edge_kind|provenance|confidence|line|hop_count|cross_repo";
+pub const RELATED_MEMORY_SCHEMA: &str = "#SCHEMA: related_memory_path|kind|title|anchors";
 pub const EXPLORE_IMPACT_SCHEMA: &str = "#SCHEMA: symbol|repo|file|depth|path_via|cross_repo";
 pub const FILE_MATCH_SCHEMA: &str = "#SCHEMA: repo|file|match_kind|line|excerpt|truncated";
 /// Explore answers that are not `high` confidence add a trailing `weak` column to
@@ -395,9 +396,27 @@ pub(crate) fn write_explore(
             out.write_char('\n')?;
         }
         out.write_str(EXPLORE_IMPACT_SCHEMA)?;
+        has_emitted = true;
         for c in &explore.transitive_consumers {
             out.write_char('\n')?;
             ExploreRecord::TransitiveConsumer(c).write_to(out)?;
+        }
+    }
+    if !explore.related_memory.is_empty() {
+        if has_emitted {
+            out.write_char('\n')?;
+        }
+        out.write_str(RELATED_MEMORY_SCHEMA)?;
+        for page in &explore.related_memory {
+            write!(out, "\n{}|{}|", page.path, page.kind)?;
+            for ch in page.title.chars() {
+                out.write_char(match ch {
+                    '\n' => ' ',
+                    '|' => '/',
+                    other => other,
+                })?;
+            }
+            write!(out, "|{}", page.anchors)?;
         }
     }
     Ok(())

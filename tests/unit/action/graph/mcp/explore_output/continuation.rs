@@ -1,3 +1,4 @@
+use super::fanout::file_with_many_callers;
 use super::*;
 
 struct BigFile {
@@ -180,4 +181,29 @@ fn compact_leads_with_the_confidence_and_a_weak_column_whole_and_partial() {
     assert!(text.starts_with("#SCHEMA: confidence\nnone\n#SCHEMA: id|name"));
     assert!(text.contains("#SCHEMA: partial|budget_bytes"));
     assert!(text.contains("primary_symbols|"));
+}
+
+const RELATED_MEMORY_SCHEMA_FOR_TEST: &str = crate::action::graph::compact::RELATED_MEMORY_SCHEMA;
+
+#[test]
+fn related_memory_is_dropped_first_and_replaced_by_a_memory_query_continuation() {
+    let mut res = file_with_many_callers();
+    res.related_memory = vec![crate::domain::memory_anchor::RelatedPage {
+        path: "docs/memory/gotcha/a.md".into(),
+        kind: "gotcha".into(),
+        title: "x".repeat(400),
+        anchors: 1,
+    }];
+    let full = render_explore(&res, ExploreFormat::Json, false).unwrap();
+    let value: Value = serde_json::from_str(&full).unwrap();
+    assert!(value.get("related_memory").is_none(), "{full}");
+    assert_eq!(value["related_memory_omitted"]["tool"], "memory_query");
+    assert_eq!(
+        value["related_memory_omitted"]["arguments"]["query"],
+        res.query
+    );
+
+    let compact = render_explore(&res, ExploreFormat::Compact, false).unwrap();
+    assert!(!compact.contains(RELATED_MEMORY_SCHEMA_FOR_TEST));
+    assert!(compact.contains("memory_query|"), "{compact}");
 }

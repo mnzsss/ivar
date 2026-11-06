@@ -491,3 +491,14 @@ fn test_narrate_truncation_note_names_next_range() {
         "must name next line range follow up call, got: {out}"
     );
 }
+
+#[test]
+fn related_memory_closes_the_markdown_answer() {
+    let text = narrate_explore(&with_related(result("fetch")));
+    let section = text.find("**Related memory**").expect(&text);
+    assert!(
+        text[section..].contains("- `docs/memory/gotcha/a.md` (gotcha) A | pipe"),
+        "{text}"
+    );
+    assert!(!narrate_explore(&result("fetch")).contains("Related memory"));
+}

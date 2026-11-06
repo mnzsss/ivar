@@ -98,6 +98,16 @@ pub(super) fn relation(
     }
 }
 
+pub(super) fn with_related(mut res: ExploreResult) -> ExploreResult {
+    res.related_memory = vec![crate::domain::memory_anchor::RelatedPage {
+        path: "docs/memory/gotcha/a.md".into(),
+        kind: "gotcha".into(),
+        title: "A | pipe".into(),
+        anchors: 2,
+    }];
+    res
+}
+
 pub(super) fn result(query: &str) -> ExploreResult {
     ExploreResult {
         related_memory: Vec::new(),

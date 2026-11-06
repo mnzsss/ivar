@@ -1,6 +1,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
 
 use super::*;
+use crate::action::graph::ExploreOutcome;
+use crate::domain::graph::ExploreResult;
 use crate::domain::graph::{GraphStats, MissKind, MissRecord, UsageEvent, UsageSource, UsageStats};
 use crate::error::WriteHuman;
 use crate::store::graph::db::GraphDb;
@@ -310,4 +312,37 @@ fn stats_list_hall_paths_with_their_file_counts() {
     let text = String::from_utf8(buf).unwrap();
     assert!(text.contains("Hall paths (1):"), "{text}");
     assert!(text.contains("brand") && text.contains('3'), "{text}");
+}
+
+#[test]
+fn cli_explore_lists_related_memory() {
+    let res = ExploreResult {
+        confidence: crate::domain::graph::ExploreConfidence::High,
+        query: "target_fn".to_owned(),
+        file_matches: Vec::new(),
+        primary_symbols: Vec::new(),
+        call_flows: Vec::new(),
+        impact_summary: None,
+        direct_relations: Vec::new(),
+        entry_points: Vec::new(),
+        transitive_consumers: Vec::new(),
+        sources: Vec::new(),
+        flows: Vec::new(),
+        not_shown: Vec::new(),
+        related_memory: vec![crate::domain::memory_anchor::RelatedPage {
+            path: "docs/memory/gotcha/a.md".into(),
+            kind: "gotcha".into(),
+            title: "A".into(),
+            anchors: 1,
+        }],
+    };
+
+    let mut buf = Vec::new();
+    ExploreOutcome(res).write_human(&mut buf).unwrap();
+    let text = String::from_utf8(buf).unwrap();
+
+    assert!(
+        text.contains("  Related memory: docs/memory/gotcha/a.md (gotcha) A"),
+        "{text}"
+    );
 }

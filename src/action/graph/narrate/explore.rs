@@ -24,13 +24,35 @@ fn is_list_intent(query: &str) -> bool {
 /// The blast radius comes before the source: a model reading top-down learns
 /// what its edit would break before it learns what the code looks like.
 pub fn narrate_explore(res: &ExploreResult) -> String {
-    narrate_explore_within(res, MAX_OUTPUT_CHARS)
+    let mut out = narrate_explore_within(res, MAX_OUTPUT_CHARS);
+    narrate_related_memory(&mut out, res, MAX_OUTPUT_CHARS);
+    out
+}
+
+fn narrate_related_memory(out: &mut String, res: &ExploreResult, max_chars: usize) {
+    if res.related_memory.is_empty() {
+        return;
+    }
+    let mut section = String::from("\n**Related memory**\n\n");
+    for page in &res.related_memory {
+        let _ = writeln!(section, "- `{}` ({}) {}", page.path, page.kind, page.title);
+    }
+    if out.len() + section.len() <= max_chars {
+        out.push_str(&section);
+    } else {
+        let _ = writeln!(
+            out,
+            "\nRelated memory left out for length: call `memory_query` with `{}`.",
+            res.query
+        );
+    }
 }
 
 /// Renders an exploration of files the agent named, with the larger budget of
 /// [`crate::action::graph::explore::explore_files`].
 pub fn narrate_requested_files(res: &ExploreResult) -> String {
     let mut out = narrate_explore_within(res, MAX_REQUESTED_OUTPUT_CHARS);
+    narrate_related_memory(&mut out, res, MAX_REQUESTED_OUTPUT_CHARS);
     if out.contains("\nNext: call `graph_explore`") {
         let _ = writeln!(
             out,
