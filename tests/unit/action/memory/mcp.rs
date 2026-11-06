@@ -227,13 +227,8 @@ fn the_ambient_session_owns_a_call_only_when_it_is_a_session_of_this_hall() {
         uuid::Uuid::new_v4(),
     );
 
-    let foreign = caller_in(
-        &layout,
-        &their_view,
-        Some(&client),
-        Some(theirs.to_string()),
-    );
-    let own = caller_in(&layout, &root, Some(&client), Some(ours.to_string()));
+    let foreign = caller_in(&layout, &their_view, Some(&client), Some(theirs.as_str()));
+    let own = caller_in(&layout, &root, Some(&client), Some(ours.as_str()));
 
     assert_eq!(foreign.session, None);
     assert_eq!(foreign.owner_key, client.owner_key());

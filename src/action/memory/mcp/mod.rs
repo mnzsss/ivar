@@ -74,24 +74,25 @@ impl From<&MemoryCaller> for MemoryEventScope {
 
 #[must_use]
 pub fn caller_for(layout: &Layout, cwd: &Utf8Path, client: Option<&McpClient>) -> MemoryCaller {
-    caller_in(layout, cwd, client, std::env::var("IVAR_SESSION_ID").ok())
+    caller_in(
+        layout,
+        cwd,
+        client,
+        std::env::var("IVAR_SESSION_ID").ok().as_deref(),
+    )
 }
 
 fn caller_in(
     layout: &Layout,
     cwd: &Utf8Path,
     client: Option<&McpClient>,
-    ambient: Option<String>,
+    ambient: Option<&str>,
 ) -> MemoryCaller {
-    let env = SessionEnv::resolve_for_agent(cwd, ambient.as_deref())
+    let env = SessionEnv::resolve_for_agent(cwd, ambient)
         .ok()
         .flatten()
         .filter(|env| same_hall(&env.hall, layout.root()))
-        .or_else(|| {
-            ambient
-                .as_deref()
-                .and_then(|id| SessionEnv::from_ambient(layout, id))
-        });
+        .or_else(|| ambient.and_then(|id| SessionEnv::from_ambient(layout, id)));
     let feature = env.as_ref().and_then(|env| env.feature.clone());
     let parent_feature = feature
         .as_ref()
