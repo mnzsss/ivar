@@ -27,6 +27,10 @@ One dotdir, one manifest, one name everywhere.
     setups/<repo>.session.sh  per-repo session hooks
     skills/               hall-scoped skills (committed)
     skills-local/         personal skills (gitignored)
+  agents/<name>.md        committed scheduled agents: recurring (`schedule:`) or
+                          Agent Tasks (`at:`).
+  agents/done/            committed concluded Agent Tasks, `<name>.<at>.md`.
+                          Never read as agents.
   .claude/ .opencode/     harness-dictated, and the TARGET of symlinks, not the source
   .claude/commands/ivar-*.md   derived workflow commands (gitignored)
   .opencode/commands/ivar-*.md derived workflow commands (gitignored)
@@ -47,6 +51,13 @@ documents live two levels above the view dir at `.ivar/features/<feature>/`
 view, never a copy — it dies with the view dir. Every view dir receives the
 instruction file, whether or not it is feature-bound, and the file never comes
 from the root alias.
+
+`agents/` is hand-edited, and `ivar` does not write to it, with one explicit
+exception: when a timer-fired run concludes an Agent Task, `ivar` moves that task's
+file from `agents/<name>.md` to `agents/done/`, under a name that never overwrites
+an existing file. Nothing else under `agents/` is created, edited or deleted by
+the binary (`ivar agent notify telegram setup` edits only the `notify:` line of
+agents you choose).
 
 Two traps, both learned the hard way:
 

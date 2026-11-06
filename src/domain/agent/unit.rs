@@ -1,5 +1,7 @@
-//! The systemd user units ivar writes for a scheduled agent, and how it
-//! recognises its own units again.
+//! The systemd user units ivar writes for a scheduled agent or an Agent Task,
+//! and how it recognises its own units again.
+
+use super::spec::AgentSpec;
 
 /// The `[Unit]` key that marks a unit as written by a given hall.
 pub const OWNED_KEY: &str = "X-Ivar-Owned";
@@ -42,6 +44,32 @@ pub fn render_timer(hall_hash: &str, agent: &str, on_calendar: &str, catchup: bo
          [Timer]\nOnCalendar={on_calendar}\n{persistent}Unit={stem}.service\n\n\
          [Install]\nWantedBy=timers.target\n"
     )
+}
+
+/// The one-shot timer of an Agent Task: it elapses once, at `on_calendar`.
+///
+/// `Persistent=true` always, so a machine that was off or asleep at that time
+/// runs the task when it comes back instead of dropping it.
+#[must_use]
+pub fn render_once_timer(hall_hash: &str, agent: &str, on_calendar: &str) -> String {
+    let stem = unit_stem(hall_hash, agent);
+    format!(
+        "[Unit]\nDescription=ivar agent {agent} one-shot task\n{OWNED_KEY}={hall_hash}\n\n\
+         [Timer]\nOnCalendar={on_calendar}\nPersistent=true\nUnit={stem}.service\n\n\
+         [Install]\nWantedBy=timers.target\n"
+    )
+}
+
+/// The timer a spec needs: one-shot for an Agent Task, recurring otherwise.
+#[must_use]
+pub fn render_spec_timer(hall_hash: &str, spec: &AgentSpec) -> String {
+    match (&spec.at, &spec.schedule) {
+        (Some(at), _) => render_once_timer(hall_hash, &spec.name, &at.on_calendar()),
+        (None, Some(schedule)) => {
+            render_timer(hall_hash, &spec.name, schedule.on_calendar(), spec.catchup)
+        }
+        (None, None) => String::new(),
+    }
 }
 
 /// Whether `unit_text` carries this hall's ownership marker on a line of its own.

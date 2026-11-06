@@ -99,6 +99,10 @@ pub struct AgentRunReceipt {
     pub trigger: Trigger,
     pub started_at: String,
     pub ended_at: String,
+    /// The `at` of an Agent Task's run: when it was meant to run, where
+    /// `started_at` is when it did.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scheduled_at: Option<String>,
     pub outcome: AgentRunOutcome,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub exit_code: Option<i32>,
@@ -127,6 +131,8 @@ pub struct NotifySummary<'a> {
     pub exit_code: Option<i32>,
     pub started_at: &'a str,
     pub ended_at: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scheduled_at: Option<&'a str>,
     pub tail: &'a str,
     #[serde(skip)]
     pub tail_is_cut: bool,
@@ -157,6 +163,12 @@ impl NotifySummary<'_> {
         }
     }
 
+    /// An Agent Task's scheduled time beside the real one.
+    pub(super) fn task_times(&self) -> Option<String> {
+        self.scheduled_at
+            .map(|at| format!("scheduled {at} · ran {}", self.started_at))
+    }
+
     pub fn telegram_text(&self) -> String {
         let details = self.run_details();
         let mut text = format!(
@@ -167,6 +179,10 @@ impl NotifySummary<'_> {
             self.trigger.as_str(),
             self.run_id
         );
+        if let Some(times) = self.task_times() {
+            text.push('\n');
+            text.push_str(&times);
+        }
         if !self.tail.is_empty() {
             text.push_str("\n\n");
             let room = TELEGRAM_TEXT_LIMIT.saturating_sub(text.encode_utf16().count());
@@ -204,6 +220,7 @@ impl AgentRunReceipt {
             trigger,
             started_at,
             ended_at,
+            scheduled_at: None,
             outcome,
             exit_code: None,
             output,
@@ -262,6 +279,7 @@ impl AgentRunReceipt {
             exit_code: self.exit_code,
             started_at: &self.started_at,
             ended_at: &self.ended_at,
+            scheduled_at: self.scheduled_at.as_deref(),
             tail,
             tail_is_cut,
         }

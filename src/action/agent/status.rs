@@ -1,4 +1,4 @@
-//! `ivar agent status`: each agent's schedule, next and last run, and unit drift.
+//! `ivar agent status`: each agent's schedule or pending `at`, next and last run, and unit drift.
 
 use std::io;
 
@@ -9,7 +9,7 @@ use super::hall_hash;
 use super::sync::current_ivar_bin;
 use crate::action::{Ctx, discover_hall};
 use crate::domain::agent::receipt::AgentRunOutcome;
-use crate::domain::agent::unit::{exec_binary, render_service, render_timer, unit_stem};
+use crate::domain::agent::unit::{exec_binary, render_service, render_spec_timer, unit_stem};
 use crate::error::{Outcome, Report, WriteHuman};
 use crate::infra::{fs, systemd, table};
 use crate::store;
@@ -40,6 +40,8 @@ impl UnitSync {
 pub struct AgentStatus {
     pub name: String,
     pub schedule: Option<String>,
+    /// A pending Agent Task's time, as written; `schedule` is unset then.
+    pub at: Option<String>,
     pub on_calendar: Option<String>,
     pub next_run: Option<String>,
     pub last_run_id: Option<String>,
@@ -60,6 +62,14 @@ impl WriteHuman for StatusOutcome {
         }
         let mut t = table::new(&["NAME", "SCHEDULE", "NEXT", "LAST", "SYNC"]);
         for agent in &self.agents {
+            let schedule = agent.at.as_ref().map_or_else(
+                || agent.schedule.clone().unwrap_or_else(|| "-".to_owned()),
+                |at| format!("at {at}"),
+            );
+            let next = agent
+                .next_run
+                .as_deref()
+                .or_else(|| agent.at.as_ref().and(agent.on_calendar.as_deref()));
             let last = agent
                 .last_outcome
                 .as_ref()
@@ -68,8 +78,8 @@ impl WriteHuman for StatusOutcome {
                 .unwrap_or_else(|| "-".to_owned());
             t.add_row(vec![
                 agent.name.as_str(),
-                agent.schedule.as_deref().unwrap_or("-"),
-                agent.next_run.as_deref().unwrap_or("-"),
+                &schedule,
+                next.unwrap_or("-"),
                 &last,
                 agent.sync.label(),
             ]);
@@ -116,6 +126,7 @@ pub fn status_in(ctx: &Ctx, unit_dir: &Utf8Path, ivar_bin: &Utf8Path) -> Outcome
         let mut status = AgentStatus {
             name: file.name.clone(),
             schedule: None,
+            at: None,
             on_calendar: None,
             next_run: None,
             last_run_id: last.as_ref().map(|r| r.run_id.clone()),
@@ -136,13 +147,18 @@ pub fn status_in(ctx: &Ctx, unit_dir: &Utf8Path, ivar_bin: &Utf8Path) -> Outcome
                     service.as_deref(),
                     timer.as_deref(),
                     &render_service(&hash, &spec.name, layout.root().as_str(), ivar_bin.as_str()),
-                    &render_timer(&hash, &spec.name, spec.schedule.on_calendar(), spec.catchup),
+                    &render_spec_timer(&hash, &spec),
                 );
                 if matches!(status.sync, UnitSync::InSync | UnitSync::Stale) {
                     status.next_run = systemd::next_elapse(&format!("{stem}.timer"));
                 }
-                status.schedule = Some(spec.schedule.as_str().to_owned());
-                status.on_calendar = Some(spec.schedule.on_calendar().to_owned());
+                status.schedule = spec.schedule.as_ref().map(|s| s.as_str().to_owned());
+                status.at = spec.at.map(|at| at.to_string());
+                status.on_calendar = spec
+                    .schedule
+                    .as_ref()
+                    .map(|s| s.on_calendar().to_owned())
+                    .or_else(|| spec.at.map(|at| at.on_calendar()));
             }
         }
         agents.push(status);

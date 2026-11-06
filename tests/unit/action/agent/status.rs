@@ -7,7 +7,7 @@
 
 use super::*;
 use crate::action::agent::requirements::Probes;
-use crate::action::agent::sync::{SyncEnv, sync_with};
+use crate::action::agent::sync::{Clock, SyncEnv, sync_with};
 use crate::domain::agent::receipt::{AgentRunReceipt, Trigger};
 use crate::store::layout::Layout;
 use crate::test_support::{FakeSystemctl, fake_systemctl_command, seeded_hall};
@@ -53,6 +53,10 @@ fn reports_schedule_next_run_last_outcome_and_drift() {
                 docker_rootless: &rootless,
                 tool_on_path: &|_| true,
                 landlock: &yes,
+            },
+            clock: Clock {
+                now_secs: 0,
+                local_epoch_secs: &|_| None,
             },
         },
     )
@@ -107,4 +111,43 @@ fn reports_schedule_next_run_last_outcome_and_drift() {
         agents.iter().find(|a| a.name == "alpha").unwrap().sync,
         UnitSync::BinaryMissing { .. }
     ));
+}
+
+#[test]
+fn lists_a_pending_task_with_its_resolved_time_and_never_a_concluded_one() {
+    let (_guard, root) = seeded_hall();
+    let units = root.join("units");
+    let bin = root.join("ivar-bin");
+    std::fs::write(&bin, "").unwrap();
+    let fake = FakeSystemctl::install(&root);
+    let _r =
+        crate::infra::proc::redirect_on_this_thread("systemctl", fake_systemctl_command(&fake));
+    std::fs::create_dir_all(root.join("agents/done")).unwrap();
+    std::fs::write(
+        root.join("agents/recheck.md"),
+        "---\nat: 2026-11-08T09:00-03:00\ntool: codex\n---\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("agents/done/old.2026-11-01T0900.md"),
+        "---\nat: 2026-11-01T09:00\ntool: codex\n---\n",
+    )
+    .unwrap();
+
+    let ctx = Ctx::new(root.clone());
+    let status = status_in(&ctx, &units, &bin).unwrap().value;
+    let [task] = status.agents.as_slice() else {
+        panic!("{:?}", status.agents);
+    };
+    assert_eq!(task.name, "recheck");
+    assert_eq!(task.schedule, None);
+    assert_eq!(task.at.as_deref(), Some("2026-11-08T09:00-03:00"));
+    assert_eq!(task.on_calendar.as_deref(), Some("2026-11-08 12:00:00 UTC"));
+    assert_eq!(task.sync, UnitSync::NotInstalled);
+
+    let mut human = Vec::new();
+    status.write_human(&mut human).unwrap();
+    let human = String::from_utf8(human).unwrap();
+    assert!(human.contains("at 2026-11-08T09:00-03:00"), "{human}");
+    assert!(human.contains("2026-11-08 12:00:00 UTC"), "{human}");
 }

@@ -75,13 +75,17 @@ events the binary records. Rows are appended by draining the [capture spool](on-
 nothing else writes them. Delivery events (`delivery.refused`, `delivery.pushed`,
 `delivery.pr`, `delivery.landed`, `delivery.checks`, `delivery.rebased`,
 `delivery.integrated`, `delivery.merged`, `delivery.cleaned`, `delivery.closed`,
-`delivery.deleted`) travel through the same spool under the key `delivery`.
+`delivery.deleted`) travel through the same spool under the key `delivery`, and so does
+`agent_task.concluded`, recorded when a timer-fired run concludes an
+[Agent Task](../guides/scheduled-agents.md#agent-tasks). Its body is JSON with `name`, `at`,
+`ran_at`, `outcome`, `run_id` and `output_tail`; `attempt_id` is the run id, and `origin` and
+`session_id` are empty.
 
 | Column | Meaning |
 | --- | --- |
 | `id` | integer primary key |
 | `event_id` | unique; a replayed spool file inserts nothing twice |
-| `source_event` | `session.started`, `session.prompted`, `session.tool`, `session.ended`, or one of the eleven `delivery.*` names |
+| `source_event` | `session.started`, `session.prompted`, `session.tool`, `session.ended`, one of the eleven `delivery.*` names, or `agent_task.concluded` |
 | `extension` | owner of the event, `'ivar'` by default |
 | `occurred_at` | RFC 3339 time of the event |
 | `session_id` | ivar session id, empty outside a view dir |

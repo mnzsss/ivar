@@ -13,7 +13,7 @@ Install, update and remove the systemd timers for agents/*.md
 
 ## `ivar agent status`
 
-List agents with schedule, next run, last outcome and timer state
+List agents with schedule (or a task's `at`), next run, last outcome and timer state
 
 
 ## `ivar agent run`

@@ -100,9 +100,10 @@ fn all_lists_every_event_once() {
         .map(|event| event.as_str())
         .collect();
     assert_eq!(names.len(), SourceEvent::ALL.len());
-    assert_eq!(SourceEvent::ALL.len(), 24);
+    assert_eq!(SourceEvent::ALL.len(), 25);
     assert!(names.contains("memory.review_skipped"));
     assert!(names.contains("message.popped"));
+    assert!(names.contains("agent_task.concluded"));
 }
 
 #[test]
@@ -150,4 +151,18 @@ fn coordination_events_round_trip_and_carry_their_fixed_importance() {
         assert_eq!(SourceEvent::parse(name), Some(event));
         assert_eq!(importance.get(), level, "{name}");
     }
+}
+
+#[test]
+fn an_agent_task_conclusion_is_its_own_event_and_a_failure_outranks_a_success() {
+    assert_eq!(
+        SourceEvent::AgentTaskConcluded.as_str(),
+        "agent_task.concluded"
+    );
+    assert_eq!(
+        SourceEvent::parse("agent_task.concluded"),
+        Some(SourceEvent::AgentTaskConcluded)
+    );
+    assert_eq!(Importance::agent_task_concluded(true).get(), 4);
+    assert_eq!(Importance::agent_task_concluded(false).get(), 7);
 }

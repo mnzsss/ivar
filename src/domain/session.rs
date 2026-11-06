@@ -233,6 +233,27 @@ pub fn epoch_secs_from_rfc3339(text: &str) -> Option<i64> {
     Some(days_from_civil(year, month, day) * 86_400 + hours * 3600 + minutes * 60 + seconds)
 }
 
+/// Epoch seconds of a civil date and time read as UTC, the inverse of
+/// [`utc_calendar_from_epoch_secs`].
+#[must_use]
+pub fn epoch_secs_from_civil(year: i64, month: i64, day: i64, hours: i64, minutes: i64) -> i64 {
+    days_from_civil(year, month, day) * 86_400 + hours * 3600 + minutes * 60
+}
+
+/// `YYYY-MM-DD HH:MM:SS` of an epoch second, in UTC: the shape a systemd
+/// `OnCalendar=` accepts once ` UTC` follows it.
+#[must_use]
+pub fn utc_calendar_from_epoch_secs(secs: i64) -> String {
+    let seconds_of_day = secs.rem_euclid(86_400);
+    let (year, month, day) = civil_from_days(secs.div_euclid(86_400));
+    format!(
+        "{year:04}-{month:02}-{day:02} {:02}:{:02}:{:02}",
+        seconds_of_day / 3600,
+        (seconds_of_day % 3600) / 60,
+        seconds_of_day % 60
+    )
+}
+
 fn three_numbers(text: &str, separator: char) -> Option<[i64; 3]> {
     let mut parts = text.split(separator).map(|part| part.parse::<i64>().ok());
     let numbers = [parts.next()??, parts.next()??, parts.next()??];

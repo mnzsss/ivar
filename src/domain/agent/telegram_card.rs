@@ -17,9 +17,18 @@ impl NotifySummary<'_> {
             escape(self.agent),
             escape(&meta)
         );
+        if let Some(times) = self.task_times() {
+            html.push_str("\n<i>");
+            html.push_str(&escape(&times));
+            html.push_str("</i>");
+        }
         let tail = self.readable_tail();
         if !tail.is_empty() {
-            let visible_header = format!("{icon} {} · {outcome}\n{meta}\n\n", self.agent);
+            let times = self
+                .task_times()
+                .map(|times| format!("{times}\n"))
+                .unwrap_or_default();
+            let visible_header = format!("{icon} {} · {outcome}\n{meta}\n{times}\n", self.agent);
             let room = TELEGRAM_TEXT_LIMIT.saturating_sub(visible_header.encode_utf16().count());
             html.push_str("\n\n<blockquote expandable>");
             html.push_str(&markdown_html(utf16_suffix(&tail, room)));

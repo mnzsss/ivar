@@ -59,6 +59,12 @@ impl Layout {
         self.root.join("agents")
     }
 
+    /// `<hall>/agents/done/` — concluded Agent Tasks. Never a source of agents.
+    #[must_use]
+    pub fn agents_done_dir(&self) -> Utf8PathBuf {
+        self.agents_dir().join("done")
+    }
+
     /// `<hall>/agents/<name>.md` — one scheduled agent's definition.
     #[must_use]
     pub fn agent_file(&self, name: &str) -> Utf8PathBuf {

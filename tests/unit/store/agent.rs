@@ -201,3 +201,54 @@ fn set_notify_keeps_the_file_mode() {
     let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
     assert_eq!(mode, 0o640);
 }
+
+#[test]
+fn an_agent_task_file_parses_with_an_unquoted_at() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root);
+    write_agent(
+        &layout,
+        "local",
+        "---\nat: 2026-11-08T09:00\ntool: claude\n---\nLook.\n",
+    );
+    write_agent(
+        &layout,
+        "offset",
+        "---\nat: 2026-11-08T09:00-03:00\ntool: claude\n---\nLook.\n",
+    );
+    write_agent(&layout, "later", "---\nat: 2d\ntool: claude\n---\n");
+    assert_eq!(
+        load(&layout, "local").unwrap().at.unwrap().to_string(),
+        "2026-11-08T09:00"
+    );
+    assert_eq!(
+        load(&layout, "offset").unwrap().at.unwrap().to_string(),
+        "2026-11-08T09:00-03:00"
+    );
+    let failure = load(&layout, "later").unwrap_err();
+    assert_eq!(failure.code, "agent.invalid");
+    assert!(failure.what.contains("`at`"), "{}", failure.what);
+}
+
+#[test]
+fn concluded_tasks_in_agents_done_are_not_a_source() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root);
+    write_agent(
+        &layout,
+        "live",
+        "---\nschedule: \"@daily\"\ntool: codex\n---\n",
+    );
+    std::fs::create_dir_all(layout.agents_done_dir()).unwrap();
+    std::fs::write(
+        layout.agents_done_dir().join("old.2026-11-08T0900.md"),
+        "---\nat: 2026-11-08T09:00\ntool: claude\n---\n",
+    )
+    .unwrap();
+    let names: Vec<_> = list_files(&layout)
+        .unwrap()
+        .into_iter()
+        .map(|f| f.name)
+        .collect();
+    assert_eq!(names, ["live"]);
+}

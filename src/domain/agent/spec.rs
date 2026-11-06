@@ -6,6 +6,7 @@ use std::time::Duration;
 use camino::{Utf8Path, Utf8PathBuf};
 use serde::{Deserialize, Serialize};
 
+use super::at::AtTime;
 use super::cron::CronExpr;
 use super::tool::Tool;
 use crate::domain::name::FeatureName;
@@ -17,6 +18,7 @@ const MAX_TIMEOUT_SECS: u64 = 24 * 3600;
 #[serde(deny_unknown_fields)]
 pub struct AgentFrontmatter {
     pub schedule: Option<String>,
+    pub at: Option<String>,
     #[serde(default)]
     pub access: Access,
     #[serde(default)]
@@ -156,7 +158,10 @@ impl WritePath {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AgentSpec {
     pub name: String,
-    pub schedule: CronExpr,
+    /// Set on a recurring agent; exactly one of `schedule` and `at` is set.
+    pub schedule: Option<CronExpr>,
+    /// Set on an Agent Task, which runs once at this time.
+    pub at: Option<AtTime>,
     pub access: Access,
     pub runtime: Runtime,
     pub network: Vec<String>,
@@ -257,6 +262,33 @@ fn launch_of(fm: &AgentFrontmatter) -> Result<Launch, SpecError> {
     }
 }
 
+fn timing_of(fm: &AgentFrontmatter) -> Result<(Option<CronExpr>, Option<AtTime>), SpecError> {
+    match (fm.schedule.as_deref(), fm.at.as_deref()) {
+        (Some(_), Some(_)) => Err(err(
+            "at",
+            "`at` makes a one-shot Agent Task and cannot be combined with `schedule`; set one of them",
+        )),
+        (None, None) => Err(err(
+            "schedule",
+            "is required (or `at` for a one-shot Agent Task)",
+        )),
+        (Some(schedule), None) => CronExpr::parse(schedule)
+            .map(|cron| (Some(cron), None))
+            .map_err(|e| err("schedule", e.reason)),
+        (None, Some(at)) => {
+            if fm.catchup {
+                return Err(err(
+                    "catchup",
+                    "an Agent Task with `at` always catches up after downtime; remove `catchup`",
+                ));
+            }
+            AtTime::parse(at)
+                .map(|time| (None, Some(time)))
+                .map_err(|reason| err("at", reason))
+        }
+    }
+}
+
 impl AgentSpec {
     /// # Errors
     ///
@@ -268,12 +300,7 @@ impl AgentSpec {
                 format!("`{name}` cannot name feature `agent-{name}`: {e}"),
             )
         })?;
-        let schedule = CronExpr::parse(
-            fm.schedule
-                .as_deref()
-                .ok_or_else(|| err("schedule", "is required"))?,
-        )
-        .map_err(|e| err("schedule", e.reason))?;
+        let (schedule, at) = timing_of(&fm)?;
         if fm.runtime == Runtime::Host {
             if fm.image.is_some() || fm.command.is_some() {
                 return Err(err(
@@ -349,6 +376,7 @@ impl AgentSpec {
         Ok(Self {
             name: name.to_owned(),
             schedule,
+            at,
             access: fm.access,
             runtime: fm.runtime,
             network: fm.network,
@@ -362,6 +390,11 @@ impl AgentSpec {
             env: fm.env,
             prompt: prompt.to_owned(),
         })
+    }
+
+    /// Whether this is a one-shot Agent Task rather than a recurring agent.
+    pub const fn is_task(&self) -> bool {
+        self.at.is_some()
     }
 
     pub fn feature_name(&self) -> String {
