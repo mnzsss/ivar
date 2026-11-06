@@ -113,11 +113,20 @@ pub fn begin_from_cli(ctx: &Ctx, input: &BeginCliInput) -> Outcome<HandoffCliOut
 
 /// # Errors
 ///
-/// When the hall cannot be found, `feature` is not a feature name, or the memory database cannot be read.
+/// When the hall cannot be found, `feature` names no feature of the hall, or the memory database cannot be read.
 pub fn list_from_cli(ctx: &Ctx, feature: Option<&str>, hall: bool) -> Outcome<HandoffCliOutput> {
     let layout = discover_hall(ctx)?;
     let filter = match (feature, hall) {
-        (Some(name), _) => Some(Queue::Feature(FeatureName::new(name)?)),
+        (Some(name), _) => {
+            let feature = FeatureName::new(name)?;
+            if Feature::read(&layout, &feature)?.is_none() {
+                return Err(Failure::blocked(
+                    "memory.handoff_feature_unknown",
+                    format!("feature `{name}` does not exist"),
+                ));
+            }
+            Some(Queue::Feature(feature))
+        }
         (None, true) => Some(Queue::Hall),
         (None, false) => None,
     };

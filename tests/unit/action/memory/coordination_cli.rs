@@ -92,3 +92,16 @@ fn listing_without_a_memory_db_does_not_create_it() {
     assert_eq!(listed["handoffs"], json!([]));
     assert!(!layout.memory_db().exists());
 }
+
+#[test]
+fn listing_an_unknown_feature_is_refused_like_the_mcp_list() {
+    let (_guard, root) = seeded_hall();
+
+    let failure = list_from_cli(&Ctx::new(root), Some("nope"), false).unwrap_err();
+
+    assert!(
+        failure.what.contains("feature `nope` does not exist"),
+        "{}",
+        failure.what
+    );
+}
