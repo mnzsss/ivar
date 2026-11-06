@@ -6,6 +6,7 @@ pub mod clean;
 pub mod consolidate;
 pub mod delivery;
 pub mod drain;
+pub mod events;
 pub mod lint;
 pub mod mcp;
 pub mod page_file;
