@@ -182,7 +182,8 @@ CREATE TABLE handoffs (
     created_at     INTEGER NOT NULL,
     expires_at     INTEGER NOT NULL,
     accepted_by    TEXT,
-    accepted_at    INTEGER
+    accepted_at    INTEGER,
+    closed_at      INTEGER
 );
 CREATE INDEX handoffs_state_queue ON handoffs (state, queue, expires_at);
 CREATE INDEX handoffs_owner ON handoffs (owner_key);
@@ -199,7 +200,8 @@ CREATE TABLE messages (
     created_at      INTEGER NOT NULL,
     expires_at      INTEGER NOT NULL,
     popped_by       TEXT,
-    popped_at       INTEGER
+    popped_at       INTEGER,
+    closed_at       INTEGER
 );
 CREATE INDEX messages_state_queue ON messages (state, queue, expires_at);
 CREATE INDEX messages_sender ON messages (sender_key);

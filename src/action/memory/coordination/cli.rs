@@ -145,7 +145,7 @@ pub fn list_from_cli(ctx: &Ctx, feature: Option<&str>, hall: bool) -> Outcome<Ha
 pub fn cancel_from_cli(ctx: &Ctx, id: &str) -> Outcome<HandoffCliOutput> {
     let layout = discover_hall(ctx)?;
     let db = open_db(&layout).map_err(db_unavailable)?;
-    if !coordination::cancel_handoff(db.conn(), id, None)
+    if !coordination::cancel_handoff(db.conn(), id, None, now_secs())
         .map_err(|error| db_unavailable(error.to_string()))?
     {
         return Err(Failure::blocked(

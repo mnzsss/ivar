@@ -107,9 +107,9 @@ fn only_the_owner_cancels_unless_no_owner_is_given() {
     insert_handoff(db.conn(), &handoff("h1", 10, 1_000)).unwrap();
     insert_handoff(db.conn(), &handoff("h2", 10, 1_000)).unwrap();
 
-    assert!(!cancel_handoff(db.conn(), "h1", Some("intruder")).unwrap());
-    assert!(cancel_handoff(db.conn(), "h1", Some("s1")).unwrap());
-    assert!(cancel_handoff(db.conn(), "h2", None).unwrap());
+    assert!(!cancel_handoff(db.conn(), "h1", Some("intruder"), 50).unwrap());
+    assert!(cancel_handoff(db.conn(), "h1", Some("s1"), 50).unwrap());
+    assert!(cancel_handoff(db.conn(), "h2", None, 50).unwrap());
     assert_eq!(
         get_handoff(db.conn(), "h1").unwrap().unwrap().state,
         HandoffState::Cancelled
@@ -137,9 +137,9 @@ fn a_message_pops_once_and_the_sender_cancels_the_rest() {
         get_message(db.conn(), "m1").unwrap().unwrap().state,
         MessageState::Popped
     );
-    assert_eq!(cancel_messages(db.conn(), "intruder", None).unwrap(), 0);
-    assert_eq!(cancel_messages(db.conn(), "s1", Some("m2")).unwrap(), 1);
-    assert_eq!(cancel_messages(db.conn(), "s1", None).unwrap(), 1);
+    assert_eq!(cancel_messages(db.conn(), "intruder", None, 51).unwrap(), 0);
+    assert_eq!(cancel_messages(db.conn(), "s1", Some("m2"), 51).unwrap(), 1);
+    assert_eq!(cancel_messages(db.conn(), "s1", None, 52).unwrap(), 1);
     assert!(pending_messages(db.conn(), 53).unwrap().is_empty());
 }
 
@@ -200,4 +200,25 @@ fn a_claim_by_a_viewer_the_row_is_not_addressed_to_changes_nothing() {
     );
     assert!(claim_handoff(db.conn(), "h1", "s9", &omp("s9"), 50).unwrap());
     assert!(pop_message(db.conn(), "m1", "s2", &omp("s2"), 50).unwrap());
+}
+
+#[test]
+fn a_cancelled_handoff_is_pruned_by_when_it_closed_not_by_its_expiry() {
+    const DAY: i64 = 86_400;
+    let now = 100 * DAY;
+    let (_dir, _path, db) = open();
+    insert_handoff(db.conn(), &handoff("h1", now - 32 * DAY, now + DAY)).unwrap();
+    insert_message(db.conn(), &message("m1", now - 32 * DAY)).unwrap();
+    db.conn()
+        .execute("UPDATE messages SET expires_at = ?1", [now + DAY])
+        .unwrap();
+    assert!(cancel_handoff(db.conn(), "h1", None, now - 31 * DAY).unwrap());
+    assert_eq!(
+        cancel_messages(db.conn(), "s1", None, now - 31 * DAY).unwrap(),
+        1
+    );
+
+    assert_eq!(prune_terminal(db.conn(), now - 30 * DAY).unwrap(), 2);
+    assert!(get_handoff(db.conn(), "h1").unwrap().is_none());
+    assert!(get_message(db.conn(), "m1").unwrap().is_none());
 }

@@ -202,7 +202,7 @@ pub fn claim_handoff(
 ) -> rusqlite::Result<bool> {
     let changed = conn.execute(
         &format!(
-            "UPDATE handoffs SET state = 'accepted', accepted_by = :by, accepted_at = :now
+            "UPDATE handoffs SET state = 'accepted', accepted_by = :by, accepted_at = :now, closed_at = :now
               WHERE id = :id AND state = 'open' AND expires_at > :now AND {ADDRESSED_TO_VIEWER}"
         ),
         named_params! {
@@ -224,11 +224,12 @@ pub fn cancel_handoff(
     conn: &Connection,
     id: &str,
     owner_key: Option<&str>,
+    now: i64,
 ) -> rusqlite::Result<bool> {
     let changed = conn.execute(
-        "UPDATE handoffs SET state = 'cancelled'
+        "UPDATE handoffs SET state = 'cancelled', closed_at = ?3
           WHERE id = ?1 AND state = 'open' AND (?2 IS NULL OR owner_key = ?2)",
-        params![id, owner_key],
+        params![id, owner_key, now],
     )?;
     Ok(changed == 1)
 }
@@ -305,7 +306,7 @@ pub fn pop_message(
 ) -> rusqlite::Result<bool> {
     let changed = conn.execute(
         &format!(
-            "UPDATE messages SET state = 'popped', popped_by = :by, popped_at = :now
+            "UPDATE messages SET state = 'popped', popped_by = :by, popped_at = :now, closed_at = :now
               WHERE id = :id AND state = 'pending' AND expires_at > :now AND {ADDRESSED_TO_VIEWER}"
         ),
         named_params! {
@@ -327,11 +328,12 @@ pub fn cancel_messages(
     conn: &Connection,
     sender_key: &str,
     id: Option<&str>,
+    now: i64,
 ) -> rusqlite::Result<usize> {
     conn.execute(
-        "UPDATE messages SET state = 'cancelled'
+        "UPDATE messages SET state = 'cancelled', closed_at = ?3
           WHERE sender_key = ?1 AND state = 'pending' AND (?2 IS NULL OR id = ?2)",
-        params![sender_key, id],
+        params![sender_key, id, now],
     )
 }
 
@@ -339,33 +341,33 @@ pub fn cancel_messages(
 /// Returns the `SQLite` error.
 pub fn expire_overdue(conn: &Connection, now: i64) -> rusqlite::Result<Expired> {
     let mut stmt = conn.prepare(
-        "UPDATE handoffs SET state = 'expired'
+        "UPDATE handoffs SET state = 'expired', closed_at = expires_at
           WHERE state = 'open' AND expires_at <= ?1 RETURNING id",
     )?;
     let handoffs = stmt
         .query_map([now], |row| row.get(0))?
         .collect::<rusqlite::Result<Vec<String>>>()?;
     let messages = conn.execute(
-        "UPDATE messages SET state = 'expired'
+        "UPDATE messages SET state = 'expired', closed_at = expires_at
           WHERE state = 'pending' AND expires_at <= ?1",
         [now],
     )?;
     Ok(Expired { handoffs, messages })
 }
 
-/// Deletes terminal rows aged before `before` from both tables.
+/// Deletes terminal rows closed before `before` from both tables.
 ///
 /// # Errors
 /// Returns the `SQLite` error.
 pub fn prune_terminal(conn: &Connection, before: i64) -> rusqlite::Result<usize> {
     let handoffs = conn.execute(
         "DELETE FROM handoffs
-          WHERE state <> 'open' AND COALESCE(accepted_at, expires_at) < ?1",
+          WHERE state <> 'open' AND COALESCE(closed_at, expires_at) < ?1",
         [before],
     )?;
     let messages = conn.execute(
         "DELETE FROM messages
-          WHERE state <> 'pending' AND COALESCE(popped_at, expires_at) < ?1",
+          WHERE state <> 'pending' AND COALESCE(closed_at, expires_at) < ?1",
         [before],
     )?;
     Ok(handoffs + messages)

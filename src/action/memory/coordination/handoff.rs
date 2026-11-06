@@ -175,9 +175,13 @@ pub fn cancel(layout: &Layout, caller: &CoordinationCaller, args: &Value) -> Res
         .get("handoff_id")
         .and_then(Value::as_str)
         .ok_or("`handoff_id` is required")?;
-    let cancelled =
-        coordination::cancel_handoff(open_db(layout)?.conn(), id, Some(&caller.owner.key))
-            .map_err(|error| error.to_string())?;
+    let cancelled = coordination::cancel_handoff(
+        open_db(layout)?.conn(),
+        id,
+        Some(&caller.owner.key),
+        now_secs(),
+    )
+    .map_err(|error| error.to_string())?;
     if !cancelled {
         return Err(format!(
             "handoff `{id}` is not open, does not exist, or is not yours"

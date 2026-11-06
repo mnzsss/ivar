@@ -173,6 +173,7 @@ pub fn cancel(layout: &Layout, caller: &CoordinationCaller, args: &Value) -> Res
         open_db(layout)?.conn(),
         &caller.owner.key,
         args.get("message_id").and_then(Value::as_str),
+        now_secs(),
     )
     .map_err(|error| error.to_string())?;
     Ok(json!({ "cancelled": cancelled }))
