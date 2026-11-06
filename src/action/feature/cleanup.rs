@@ -9,6 +9,7 @@ use serde::Serialize;
 use crate::action::Ctx;
 use crate::action::feature::delete;
 use crate::action::memory::delivery::Emitter;
+use crate::action::memory::review::{ReviewState, review_state};
 use crate::action::session::lookup as session_lookup;
 use crate::domain::delivery_event::{DeliveryEvent, DeliveryScope, ObservedBy};
 use crate::domain::feature::{
@@ -157,11 +158,46 @@ pub fn cleanup(ctx: &Ctx, input: CleanupInput) -> Outcome<CleanupOutcome> {
     )?;
     emit_merged(&emitter, &feature, &previewed.merged);
 
-    Ok(Report::new(CleanupOutcome {
-        root: layout.root().to_path_buf(),
-        preview: previewed.preview,
-        apply_outcome: None,
-    }))
+    let (_, memory_warning) = memory_review(&layout, &name);
+    Ok(Report::with_warnings(
+        CleanupOutcome {
+            root: layout.root().to_path_buf(),
+            preview: previewed.preview,
+            apply_outcome: None,
+        },
+        memory_warning,
+    ))
+}
+
+/// What the memory review of `name` says for `delivery.cleaned`, and the
+/// warnings when the spool cannot be drained or the feature was neither
+/// reviewed nor skipped. Never refuses.
+fn memory_review(layout: &Layout, name: &FeatureName) -> (&'static str, Vec<Warning>) {
+    let mut warnings = Vec::new();
+    if let Err(failure) = crate::action::memory::drain::drain(layout) {
+        warnings.push(Warning::new(
+            "cleanup.memory_drain_failed",
+            name.to_string(),
+            format!(
+                "the capture spool could not be drained, so a recent review may be missed: {}",
+                failure.what
+            ),
+        ));
+    }
+    let cause = match review_state(layout, name) {
+        Ok(ReviewState::Reviewed { .. }) => return ("reviewed", warnings),
+        Ok(ReviewState::Skipped) => return ("skipped", warnings),
+        Ok(ReviewState::Missing) => String::new(),
+        Err(failure) => format!(" (memory could not be read: {})", failure.what),
+    };
+    warnings.push(Warning::new(
+        "cleanup.memory_not_reviewed",
+        name.to_string(),
+        format!(
+            "`{name}` has neither `memory.reviewed` nor `memory.review_skipped`: its memory was not reviewed before delivery{cause}"
+        ),
+    ));
+    ("missing", warnings)
 }
 
 fn emit_merged(emitter: &Emitter<'_>, feature: &Feature, merged: &[(RepoName, PullRequest)]) {
@@ -218,6 +254,7 @@ fn apply_cleanup(
             format!("feature `{name}` does not exist"),
         )
     })?;
+    let (review, memory_warning) = memory_review(layout, &name);
     let git = git::System;
     let PreviewedCleanup {
         preview,
@@ -233,22 +270,14 @@ fn apply_cleanup(
 
     let (descendant_outcomes, mut warnings, all_descendants_removed) =
         teardown_descendants(layout, &git, &descendants)?;
+    warnings.extend(memory_warning);
     if !all_descendants_removed {
-        let apply_outcome = CleanupApplyOutcome {
-            feature: feature.name.clone(),
-            branch: feature.branch,
-            fingerprint: preview.fingerprint.clone(),
-            worktrees: Vec::new(),
-            branches: Vec::new(),
-            feature_removed: false,
-            descendants: descendant_outcomes,
-        };
-        return Ok(Report::with_warnings(
-            CleanupOutcome {
-                root: layout.root().to_path_buf(),
-                preview,
-                apply_outcome: Some(apply_outcome),
-            },
+        return Ok(partial_cleanup(
+            layout,
+            feature,
+            preview,
+            (Vec::new(), Vec::new()),
+            descendant_outcomes,
             warnings,
         ));
     }
@@ -262,21 +291,12 @@ fn apply_cleanup(
 
     let complete_success = all_worktrees_removed && all_branches_deleted;
     if !complete_success {
-        let apply_outcome = CleanupApplyOutcome {
-            feature: feature.name.clone(),
-            branch: feature.branch,
-            fingerprint: preview.fingerprint.clone(),
-            worktrees: worktree_removals,
-            branches: branch_deletions,
-            feature_removed: false,
-            descendants: descendant_outcomes,
-        };
-        return Ok(Report::with_warnings(
-            CleanupOutcome {
-                root: layout.root().to_path_buf(),
-                preview,
-                apply_outcome: Some(apply_outcome),
-            },
+        return Ok(partial_cleanup(
+            layout,
+            feature,
+            preview,
+            (worktree_removals, branch_deletions),
+            descendant_outcomes,
             warnings,
         ));
     }
@@ -296,7 +316,11 @@ fn apply_cleanup(
         descendants: descendant_outcomes,
     };
 
-    let docs = record.approvals.documentation.decision.to_string();
+    let docs = record
+        .approvals
+        .documentation
+        .as_ref()
+        .map_or_else(|| review.to_owned(), |doc| doc.decision.to_string());
     write_record_outcome(layout, record, record_path, &apply_outcome)?;
 
     emit_cleaned(
@@ -316,6 +340,35 @@ fn apply_cleanup(
         },
         warnings,
     ))
+}
+
+/// The report of an apply that stopped before removing the feature, so its
+/// record keeps no outcome and the cleanup can be retried.
+fn partial_cleanup(
+    layout: &Layout,
+    feature: Feature,
+    preview: CleanupPreview,
+    (worktrees, branches): (Vec<WorktreeRemoval>, Vec<BranchDeletion>),
+    descendants: Vec<CleanupDescendantOutcome>,
+    warnings: Vec<Warning>,
+) -> Report<CleanupOutcome> {
+    let apply_outcome = CleanupApplyOutcome {
+        feature: feature.name,
+        branch: feature.branch,
+        fingerprint: preview.fingerprint.clone(),
+        worktrees,
+        branches,
+        feature_removed: false,
+        descendants,
+    };
+    Report::with_warnings(
+        CleanupOutcome {
+            root: layout.root().to_path_buf(),
+            preview,
+            apply_outcome: Some(apply_outcome),
+        },
+        warnings,
+    )
 }
 
 #[cfg(test)]

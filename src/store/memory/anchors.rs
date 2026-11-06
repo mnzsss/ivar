@@ -10,6 +10,7 @@ use crate::domain::memory_anchor::{
 };
 use crate::domain::memory_page::Tier;
 use crate::domain::memory_rank::tier_multiplier;
+use crate::domain::memory_review::is_durable_page;
 
 const BASE_REPO: &str = "instr(f.repo, '/') = 0";
 
@@ -19,11 +20,26 @@ const BROKEN: &str =
         SELECT 1 FROM graph.symbols s JOIN graph.files f ON f.id = s.file_id
          WHERE f.repo = a.repo AND f.path = a.path AND s.name = a.symbol)))";
 
-/// Attaches `graph_db` read-only as `graph`; returns whether it is readable.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GraphAttach {
+    Missing,
+    Attached,
+    Unreadable,
+}
+
+impl GraphAttach {
+    pub fn is_attached(self) -> bool {
+        self == Self::Attached
+    }
+}
+
+/// Attaches `graph_db` read-only as `graph`.
 /// `ATTACH` is refused inside an open transaction, so callers attach before `BEGIN`.
-pub fn attach_graph(conn: &Connection, graph_db: &Utf8Path) -> bool {
-    if !graph_db.exists() {
-        return false;
+pub fn attach_graph(conn: &Connection, graph_db: &Utf8Path) -> GraphAttach {
+    match graph_db.symlink_metadata() {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return GraphAttach::Missing,
+        Err(_) => return GraphAttach::Unreadable,
+        Ok(_) => {}
     }
     let escaped = graph_db
         .as_str()
@@ -37,7 +53,7 @@ pub fn attach_graph(conn: &Connection, graph_db: &Utf8Path) -> bool {
         )
         .is_err()
     {
-        return false;
+        return GraphAttach::Unreadable;
     }
     let readable = conn
         .query_row("SELECT count(*) FROM graph.files", [], |r| {
@@ -46,13 +62,14 @@ pub fn attach_graph(conn: &Connection, graph_db: &Utf8Path) -> bool {
         .is_ok();
     if !readable {
         detach_graph(conn);
+        return GraphAttach::Unreadable;
     }
-    readable
+    GraphAttach::Attached
 }
 
 /// Like [`attach_graph`], but an empty graph counts as unavailable: anchoring against it would resolve nothing.
 pub fn attach_indexed_graph(conn: &Connection, graph_db: &Utf8Path) -> bool {
-    if !attach_graph(conn, graph_db) {
+    if !attach_graph(conn, graph_db).is_attached() {
         return false;
     }
     let indexed = conn
@@ -408,6 +425,41 @@ pub fn related_pages(
             .then_with(|| a.0.path.cmp(&b.0.path))
     });
     Ok(out.into_iter().take(limit).map(|(p, _)| p).collect())
+}
+
+/// The `(page_path, repo, path)` of every unexpired durable page anchored to
+/// one of `files`, once per pair, sorted.
+///
+/// # Errors
+///
+/// Returns the `SQLite` error.
+pub fn anchored_files(
+    conn: &Connection,
+    files: &[(String, String)],
+) -> rusqlite::Result<Vec<(String, String, String)>> {
+    let wanted: BTreeSet<&(String, String)> = files.iter().collect();
+    let mut stmt = conn.prepare(
+        "SELECT DISTINCT a.page_path, a.repo, a.path
+           FROM page_anchors a JOIN pages p ON p.path = a.page_path
+          WHERE a.page_path LIKE ?1
+            AND (p.expires_at IS NULL OR p.expires_at > strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+          ORDER BY a.page_path, a.repo, a.path",
+    )?;
+    let rows = stmt.query_map([format!("{MEMORY_DOCS_PREFIX}%")], |r| {
+        Ok((
+            r.get::<_, String>(0)?,
+            r.get::<_, String>(1)?,
+            r.get::<_, String>(2)?,
+        ))
+    })?;
+    let mut out = Vec::new();
+    for row in rows {
+        let (page, repo, path) = row?;
+        if is_durable_page(&page) && wanted.contains(&(repo.clone(), path.clone())) {
+            out.push((page, repo, path));
+        }
+    }
+    Ok(out)
 }
 
 #[cfg(test)]

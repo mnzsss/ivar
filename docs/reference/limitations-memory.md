@@ -133,6 +133,29 @@ The tools are in [MCP tools](mcp-tools.md).
 - Two writers numbering `product` or `update` pages at once are serialised by
   `memory.lock`. A filesystem without hard links cannot publish a page without `replace`.
 
+## The memory review
+
+- A captured write counts as a written page only when the provider's hook exposes its
+  path (`file_path`, `filePath` or `path`). A body cut at 4 KiB keeps the path in most
+  cases, because the path is searched in the raw text too.
+- A stale page comes from the feature's diff against its merge base, uncommitted and
+  untracked files included. Deliver refuses an uncommitted worktree, so at apply the
+  set is `merge-base..HEAD`.
+- OpenCode reports every tool as `failed: false`, so the "failed tool without a
+  gotcha" gap never fires for OpenCode sessions.
+- "Analysis approved without a query" uses the captured `ivar plan approve <feature> analysis`.
+  When that command was not captured, any captured `memory_query` in the feature's
+  sessions counts.
+- A page removed or renamed by a captured Bash command (`rm`, `mv`, `sed -i`) is not
+  seen, so it stays in `written`. A cut body is searched as raw text, so a write that
+  quotes a `docs/memory/` path in its content can count as that page.
+- A stale page is found only through its anchors. A page that cites the changed code in
+  prose without an anchor is not listed.
+- `memory.reviewed` keeps at most 50 verdicts, 50 written and 50 stale paths in its
+  body. A body past 4 KiB is cut and `last` loses its lists, but the heads survive.
+- A broken anchor counts wherever its file is, so a page broken before the feature
+  is listed too and needs a verdict.
+
 ## Older `ivar`
 
 A hall that sets `memory.capture` in `ivar.json` cannot be read by an `ivar` that

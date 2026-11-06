@@ -381,6 +381,12 @@ pub fn run(cli: Cli) -> ExitCode {
                 let code = respond(outcome, json, &mut stdout, &mut stderr);
                 if failing { ExitCode::FAILURE } else { code }
             }
+            MemoryCommand::Review { feature } => respond(
+                crate::action::memory::review::review(&ctx, feature),
+                json,
+                &mut stdout,
+                &mut stderr,
+            ),
             MemoryCommand::Reindex => respond(
                 crate::action::memory::reindex::reindex(&ctx),
                 json,

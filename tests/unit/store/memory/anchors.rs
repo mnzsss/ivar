@@ -70,7 +70,7 @@ fn anchor(repo: &str, p: &str, symbol: Option<&str>) -> Anchor {
 }
 
 fn resolved(f: &mut Fixture, candidates: &[Candidate]) -> Vec<Anchor> {
-    assert!(attach_graph(f.memory.conn(), &f.graph));
+    assert!(attach_graph(f.memory.conn(), &f.graph).is_attached());
     let tx = f.memory.conn_mut().transaction().unwrap();
     let anchors = resolve(&tx, candidates).unwrap();
     tx.commit().unwrap();
@@ -151,6 +151,12 @@ fn stored_anchors_are_read_matched_and_reported_broken() {
         &[anchor("ivar", "src/a.rs", None)],
     )
     .unwrap();
+    replace_anchors(
+        &tx,
+        "docs/memory/session/t.md",
+        &[anchor("ivar", "src/a.rs", None)],
+    )
+    .unwrap();
     set_pending(&tx, ".ivar/memory/session/s.md", true).unwrap();
     assert_eq!(
         pending_paths(&tx).unwrap(),
@@ -163,7 +169,7 @@ fn stored_anchors_are_read_matched_and_reported_broken() {
         match_terms(f.memory.conn(), &["Refresh_Locked".into(), "a".into()]).unwrap()[0],
         ("docs/memory/decision/a.md".to_owned(), 2, 1)
     );
-    assert!(attach_graph(f.memory.conn(), &f.graph));
+    assert!(attach_graph(f.memory.conn(), &f.graph).is_attached());
     let views = anchors_for(f.memory.conn(), "docs/memory/decision/a.md", true, 10).unwrap();
     assert_eq!(
         (views[0].path.as_str(), views[0].broken),
@@ -201,10 +207,43 @@ fn stored_anchors_are_read_matched_and_reported_broken() {
 #[test]
 fn attach_refuses_a_missing_graph() {
     let f = fixture();
-    assert!(!attach_graph(
-        f.memory.conn(),
-        &f.graph.with_file_name("absent.db")
-    ));
+    assert_eq!(
+        attach_graph(f.memory.conn(), &f.graph.with_file_name("absent.db")),
+        GraphAttach::Missing
+    );
+}
+
+#[test]
+fn attach_reports_a_graph_that_is_not_sqlite_as_unreadable() {
+    let f = fixture();
+    let junk = f.graph.with_file_name("junk.db");
+    std::fs::write(&junk, "not a sqlite database").unwrap();
+    assert_eq!(
+        attach_graph(f.memory.conn(), &junk),
+        GraphAttach::Unreadable
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn attach_reports_a_dangling_graph_symlink_as_unreadable() {
+    let f = fixture();
+    let link = f.graph.with_file_name("dangling.db");
+    std::os::unix::fs::symlink(f.graph.with_file_name("absent.db"), &link).unwrap();
+    assert_eq!(
+        attach_graph(f.memory.conn(), &link),
+        GraphAttach::Unreadable
+    );
+}
+
+#[test]
+fn attach_reports_a_graph_that_cannot_be_stat_as_unreadable() {
+    let f = fixture();
+    let under_a_file = f.graph.join("graph.db");
+    assert_eq!(
+        attach_graph(f.memory.conn(), &under_a_file),
+        GraphAttach::Unreadable
+    );
 }
 
 #[test]
@@ -242,5 +281,60 @@ fn a_repo_prefixed_path_is_extracted_whole_and_stored_under_its_repo() {
     assert_eq!(
         resolved(&mut f, &[path(None, "ivar/src/a.rs")]),
         vec![anchor("ivar", "src/a.rs", None)]
+    );
+}
+
+#[test]
+fn anchored_files_lists_each_durable_page_file_pair_once() {
+    let mut f = fixture();
+    f.memory
+        .conn()
+        .execute_batch(
+            "INSERT INTO pages (path, kind, tier, title, size, mtime_ns, content_hash, indexed_at) VALUES
+               ('docs/memory/decision/a.md', 'decision', 'semantic', 'A', 1, 1, 'h', 't'),
+               ('docs/memory/gotcha/b.md', 'gotcha', 'semantic', 'B', 1, 1, 'h', 't'),
+               ('.ivar/memory/session/s.md', 'session', 'episodic', 'S', 1, 1, 'h', 't'),
+               ('docs/memory/session/t.md', 'session', 'episodic', 'T', 1, 1, 'h', 't');",
+        )
+        .unwrap();
+    let tx = f.memory.conn_mut().transaction().unwrap();
+    replace_anchors(
+        &tx,
+        "docs/memory/decision/a.md",
+        &[
+            anchor("ivar", "src/a.rs", None),
+            anchor("ivar", "src/a.rs", Some("open")),
+        ],
+    )
+    .unwrap();
+    replace_anchors(
+        &tx,
+        "docs/memory/gotcha/b.md",
+        &[anchor("web", "src/b.ts", None)],
+    )
+    .unwrap();
+    replace_anchors(
+        &tx,
+        ".ivar/memory/session/s.md",
+        &[anchor("ivar", "src/a.rs", None)],
+    )
+    .unwrap();
+    replace_anchors(
+        &tx,
+        "docs/memory/session/t.md",
+        &[anchor("ivar", "src/a.rs", None)],
+    )
+    .unwrap();
+    tx.commit().unwrap();
+
+    let files = [("ivar".to_owned(), "src/a.rs".to_owned())];
+
+    assert_eq!(
+        anchored_files(f.memory.conn(), &files).unwrap(),
+        vec![(
+            "docs/memory/decision/a.md".to_owned(),
+            "ivar".to_owned(),
+            "src/a.rs".to_owned()
+        )]
     );
 }

@@ -534,3 +534,22 @@ fn deliver_checks_relation_context_between_preview_and_apply() {
     assert!(content.contains("fingerprint"), "was: {content}");
     assert!(content.contains("does not block apply"), "was: {content}");
 }
+
+#[test]
+fn deliver_skill_reviews_memory_before_the_preview_and_never_skips_on_its_own() {
+    let skill = catalog()
+        .iter()
+        .find(|skill| skill.id == "deliver")
+        .expect("deliver is shipped");
+    let content = skill.skill_md();
+
+    assert!(content.contains("## Review memory before apply"));
+    assert!(content.contains("`memory_review`"));
+    assert!(content.contains("`confirm: true`"));
+    assert!(content.contains("`updated`") && content.contains("`still_valid`"));
+    assert!(content.contains("`deliver.memory_not_reviewed`"));
+    assert!(content.contains("`deliver.memory_review_outdated`"));
+    assert!(content.contains("--skip-memory-review"));
+    assert!(content.contains("Never pass it on your own"));
+    assert!(content.find("## Review memory before apply") < content.find("## What happens"));
+}

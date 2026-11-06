@@ -130,6 +130,56 @@ pub fn session_observations(
     .collect()
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FeatureObservation {
+    pub id: i64,
+    pub source_event: String,
+    pub occurred_at: String,
+    pub session_id: String,
+    pub feature: String,
+    pub importance: u8,
+    pub body: String,
+}
+
+/// The rows of `features`, plus every row of a session that touched one of
+/// them: a discovery session keeps its id when it converts to the feature.
+///
+/// # Errors
+///
+/// Returns the `SQLite` error when the query fails.
+pub fn feature_observations(
+    db: &MemoryDb,
+    features: &[String],
+) -> rusqlite::Result<Vec<FeatureObservation>> {
+    if features.is_empty() {
+        return Ok(Vec::new());
+    }
+    let list = serde_json::to_string(features).unwrap_or_else(|_| "[]".to_owned());
+    let mut stmt = db.conn().prepare(
+        "WITH wanted(name) AS (SELECT value FROM json_each(?1)),
+              sessions(id) AS (
+                SELECT DISTINCT session_id FROM observations
+                 WHERE session_id <> '' AND feature IN (SELECT name FROM wanted))
+         SELECT id, source_event, occurred_at, session_id, feature, importance, body
+           FROM observations
+          WHERE feature IN (SELECT name FROM wanted)
+             OR session_id IN (SELECT id FROM sessions)
+          ORDER BY occurred_at, id",
+    )?;
+    stmt.query_map([list], |row| {
+        Ok(FeatureObservation {
+            id: row.get(0)?,
+            source_event: row.get(1)?,
+            occurred_at: row.get(2)?,
+            session_id: row.get(3)?,
+            feature: row.get(4)?,
+            importance: row.get(5)?,
+            body: row.get(6)?,
+        })
+    })?
+    .collect()
+}
+
 fn observation_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ObservationRow> {
     let body: String = row.get(5)?;
     Ok(ObservationRow {

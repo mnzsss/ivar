@@ -13,7 +13,7 @@
 //! The worktree creation on promote is the heart of the slice — see
 //! [`promote`] for the branch-from-default-branch rule.
 
-mod base;
+pub(crate) mod base;
 pub mod cleanup;
 pub mod close;
 pub mod create;
@@ -29,7 +29,7 @@ pub mod promote;
 pub mod prune;
 mod pull_requests;
 pub mod rebase;
-mod relations;
+pub(crate) mod relations;
 pub mod rename;
 pub mod reparent;
 pub mod status;

@@ -61,6 +61,7 @@ fn github_repo_in_land_mode_creates_no_pull_request() {
             global_metadata: PullRequestMetadata::default(),
             repo_overrides: Vec::new(),
             only: Vec::new(),
+            skip_memory_review: None,
         },
     )
     .expect("land preview");
@@ -80,6 +81,7 @@ fn github_repo_in_land_mode_creates_no_pull_request() {
             global_metadata: PullRequestMetadata::default(),
             repo_overrides: Vec::new(),
             only: Vec::new(),
+            skip_memory_review: None,
         },
     )
     .expect("land apply");

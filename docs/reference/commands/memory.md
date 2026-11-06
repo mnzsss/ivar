@@ -44,6 +44,15 @@ Rebuild the page index from docs/memory. Observations are not touched
 Check the pages under docs/memory against the page rules. Exits non-zero when any rule is broken
 
 
+## `ivar memory review`
+
+Show what a feature wrote to memory, its gaps and the pages its diff may have made stale, plus the last review. Read-only: confirm with the memory_review MCP tool
+
+| argument | required | description |
+| --- | --- | --- |
+| `feature` | no | Feature to review. Defaults to the session's feature |
+
+
 ## `ivar memory capture`
 
 Record one session hook event into the capture spool. Always exits 0 and prints nothing

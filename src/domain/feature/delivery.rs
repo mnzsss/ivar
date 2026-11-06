@@ -73,8 +73,22 @@ pub struct DeliveryPreview {
     /// preview reads as drift.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tree_blockers: Vec<DeliveryTreeBlocker>,
+    /// Whether the feature's memory was reviewed (`memory.reviewed`) before
+    /// delivery. Fingerprinted, so a review recorded after the preview reads
+    /// as drift; apply refuses `Missing`.
+    #[serde(default)]
+    pub memory_review: MemoryReviewGate,
     /// Content hash of the preview summary, for apply gating.
     pub fingerprint: String,
+}
+
+/// Whether a feature's memory review is recorded, as delivery sees it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MemoryReviewGate {
+    Reviewed,
+    #[default]
+    Missing,
 }
 
 /// One descendant that blocks a root's delivery.

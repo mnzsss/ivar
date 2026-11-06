@@ -103,7 +103,7 @@ fn broken_anchor_warnings(layout: &Layout) -> Vec<LintIssue> {
     else {
         return refresh_failure.into_iter().collect();
     };
-    if !anchors::attach_graph(&conn, &layout.graph_db()) {
+    if !anchors::attach_graph(&conn, &layout.graph_db()).is_attached() {
         return refresh_failure.into_iter().collect();
     }
     let broken = anchors::broken_anchors(&conn).unwrap_or_default();

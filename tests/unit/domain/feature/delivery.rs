@@ -65,6 +65,7 @@ fn a_delivery_preview_round_trips_through_serde() {
         plan_gate: GateState::Approved,
         repos: vec![repo],
         tree_blockers: Vec::new(),
+        memory_review: MemoryReviewGate::Reviewed,
         fingerprint: "abc123".to_owned(),
     };
 

@@ -3,7 +3,7 @@ use camino::Utf8PathBuf;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
-pub const CLEANUP_RECORD_SCHEMA_VERSION: u32 = 1;
+pub const CLEANUP_RECORD_SCHEMA_VERSION: u32 = 2;
 
 /// The documentation approval decision in a cleanup record.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -48,12 +48,14 @@ pub struct TeardownApproval {
     pub at: String,
 }
 
-/// The three approval gates recorded in a cleanup record.
+/// The approval gates recorded in a cleanup record. Schema 1 also records
+/// the documentation gate; schema 2 drops it for the memory review.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CleanupApprovals {
     pub delivery: DeliveryApproval,
-    pub documentation: DocumentationApproval,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub documentation: Option<DocumentationApproval>,
     pub teardown: TeardownApproval,
 }
 
@@ -104,7 +106,7 @@ pub struct CleanupDescendantOutcome {
     pub feature_removed: bool,
 }
 
-/// The durable cleanup record schema version 1.
+/// The durable cleanup record, schema versions 1 and 2.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CleanupRecord {
@@ -121,67 +123,78 @@ impl CleanupRecord {
     ///
     /// # Errors
     ///
-    /// Returns a message if `schema_version` does not match the current
-    /// schema, the outcome is already populated, or the documentation
-    /// decision's fields violate its own invariants (e.g. `written` without
-    /// `paths`, or with a `reason` set).
+    /// Returns a message if `schema_version` is neither 1 nor 2, schema 1
+    /// lacks `approvals.documentation` or schema 2 carries it, the outcome is
+    /// already populated, or the documentation decision's fields violate its
+    /// own invariants (e.g. `written` without `paths`, or with a `reason` set).
     pub fn validate(&self) -> Result<(), String> {
-        if self.schema_version != CLEANUP_RECORD_SCHEMA_VERSION {
-            return Err(format!(
-                "unsupported schema_version `{}` (expected {})",
-                self.schema_version, CLEANUP_RECORD_SCHEMA_VERSION
-            ));
+        match (self.schema_version, &self.approvals.documentation) {
+            (1, Some(doc)) => validate_documentation(doc)?,
+            (1, None) => return Err("schema 1 requires `approvals.documentation`".to_owned()),
+            (2, None) => {}
+            (2, Some(_)) => {
+                return Err(
+                    "schema 2 has no `approvals.documentation`: the memory review replaces it"
+                        .to_owned(),
+                );
+            }
+            (other, _) => {
+                return Err(format!(
+                    "unsupported schema_version `{other}` (expected 1 or 2)"
+                ));
+            }
         }
 
         if self.outcome.is_some() {
             return Err("cleanup record outcome is already populated".to_owned());
         }
 
-        let doc = &self.approvals.documentation;
-        match doc.decision {
-            DocumentationDecision::Written => {
-                if doc.paths.is_empty() {
-                    return Err(
-                        "documentation decision `written` requires non-empty `paths`".to_owned(),
-                    );
-                }
-                if doc.reason.is_some() {
-                    return Err(
-                        "documentation decision `written` requires null `reason`".to_owned()
-                    );
-                }
-            }
-            DocumentationDecision::NotRequired => {
-                if !doc.paths.is_empty() {
-                    return Err(
-                        "documentation decision `not_required` requires empty `paths`".to_owned(),
-                    );
-                }
-                match &doc.reason {
-                    Some(reason) if !reason.trim().is_empty() => {}
-                    _ => {
-                        return Err(
-                            "documentation decision `not_required` requires a non-empty `reason`"
-                                .to_owned(),
-                        );
-                    }
-                }
-            }
-        }
-
-        for path in &doc.paths {
-            if path.is_absolute()
-                || !(path.starts_with("docs/memory") || path.starts_with("docs/repo-relations"))
-                || path.components().any(|c| c.as_str() == "..")
-            {
-                return Err(format!(
-                    "documentation path `{path}` is not hall-relative or does not resolve inside `docs/memory/` or `docs/repo-relations/`"
-                ));
-            }
-        }
-
         Ok(())
     }
+}
+
+fn validate_documentation(doc: &DocumentationApproval) -> Result<(), String> {
+    match doc.decision {
+        DocumentationDecision::Written => {
+            if doc.paths.is_empty() {
+                return Err(
+                    "documentation decision `written` requires non-empty `paths`".to_owned(),
+                );
+            }
+            if doc.reason.is_some() {
+                return Err("documentation decision `written` requires null `reason`".to_owned());
+            }
+        }
+        DocumentationDecision::NotRequired => {
+            if !doc.paths.is_empty() {
+                return Err(
+                    "documentation decision `not_required` requires empty `paths`".to_owned(),
+                );
+            }
+            match &doc.reason {
+                Some(reason) if !reason.trim().is_empty() => {}
+                _ => {
+                    return Err(
+                        "documentation decision `not_required` requires a non-empty `reason`"
+                            .to_owned(),
+                    );
+                }
+            }
+        }
+    }
+
+    for path in &doc.paths {
+        if path.is_absolute()
+            || !(path.starts_with("docs/memory") || path.starts_with("docs/repo-relations"))
+            || path.components().any(|c| c.as_str() == "..")
+        {
+            return Err(format!(
+                "documentation path `{path}` is not hall-relative or does not resolve inside `docs/memory/` or `docs/repo-relations/`"
+            ));
+        }
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]

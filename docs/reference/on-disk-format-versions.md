@@ -12,13 +12,14 @@ carries today and what changed at each version.
 | `.ivar/features/<feature>/execution/run.json` | 2 |
 | `<view dir>/state.json` | 1 |
 | `.ivar/agents/runs/<agent>/<run-id>.json` | 1 |
-| cleanup record | 1 |
+| cleanup record | 2 |
 
 `<view dir>/state.json` is a session's record, one per View Dir
 (`.ivar/sessions/<id>/` or `.ivar/features/<feature>/sessions/<id>/`). The hall
 itself has no state file of its own. The cleanup record is the file
-`ivar feature cleanup <feature> --record <path>` takes. A test fails the build when this table and
-the version constants in the code disagree.
+`ivar feature cleanup <feature> --record <path>` takes. Schema 1 records,
+which carry `approvals.documentation`, are still accepted. A test fails the
+build when this table and the version constants in the code disagree.
 
 `ivar.json` starts at 1. There is no version 0 to migrate from: a file with no
 `version` field is not an `ivar.json`, and is rejected rather than adopted. A

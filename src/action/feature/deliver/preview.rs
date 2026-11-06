@@ -4,7 +4,7 @@
 
 use super::input::{DeliverInput, PullRequestMetadata};
 use crate::domain::feature::{
-    DeliveryMode, DeliveryPreview, DeliveryRepo, DeliveryTreeBlocker, GateState,
+    DeliveryMode, DeliveryPreview, DeliveryRepo, DeliveryTreeBlocker, GateState, MemoryReviewGate,
 };
 use crate::domain::name::FeatureName;
 use crate::error::{Failure, FixAction};
@@ -66,6 +66,7 @@ pub(crate) fn fingerprint_for(
     feature: &FeatureName,
     mode: DeliveryMode,
     plan_gate: GateState,
+    memory_review: MemoryReviewGate,
     tree_blockers: &[DeliveryTreeBlocker],
     repos: &[DeliveryRepo],
 ) -> Result<String, Failure> {
@@ -75,6 +76,7 @@ pub(crate) fn fingerprint_for(
         plan_gate,
         repos: repos.to_vec(),
         tree_blockers: tree_blockers.to_vec(),
+        memory_review,
         fingerprint: String::new(),
     };
     let rendered = json::to_canonical_string(&preview)?;
@@ -90,7 +92,7 @@ pub(crate) fn plan_gate_state(
 
 /// Everything that refuses apply, in the order apply checks it. The preview
 /// prints this list, and apply refuses exactly when it is non-empty.
-pub(crate) fn blockers(preview: &DeliveryPreview) -> Vec<String> {
+pub(crate) fn blockers(preview: &DeliveryPreview, skip_memory_review: bool) -> Vec<String> {
     let descendants = preview.tree_blockers.iter().map(|blocker| {
         format!(
             "descendant `{}` is {}: {}",
@@ -99,6 +101,13 @@ pub(crate) fn blockers(preview: &DeliveryPreview) -> Vec<String> {
     });
     let plan = (preview.plan_gate != GateState::Approved)
         .then(|| format!("the plan gate is {}, not approved", preview.plan_gate));
+    let memory =
+        (preview.memory_review == MemoryReviewGate::Missing && !skip_memory_review).then(|| {
+            format!(
+                "memory review is missing: run `memory_review` in a session of `{}`",
+                preview.feature
+            )
+        });
     let land = (preview.mode == DeliveryMode::Land && preview.repos.is_empty())
         .then(|| "no repositories are promoted to land".to_owned());
     let repos = preview.repos.iter().flat_map(|repo| {
@@ -106,7 +115,12 @@ pub(crate) fn blockers(preview: &DeliveryPreview) -> Vec<String> {
             .iter()
             .map(move |blocker| format!("{}: {blocker}", repo.repo))
     });
-    descendants.chain(plan).chain(land).chain(repos).collect()
+    descendants
+        .chain(plan)
+        .chain(memory)
+        .chain(land)
+        .chain(repos)
+        .collect()
 }
 
 pub(crate) fn blocked(feature: &FeatureName, blockers: &[String]) -> Failure {

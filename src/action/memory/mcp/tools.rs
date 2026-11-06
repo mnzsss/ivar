@@ -73,7 +73,35 @@ pub(super) fn definitions() -> Vec<Value> {
             &json!({}),
             &[],
         ),
+        review(),
     ]
+}
+
+fn review() -> Value {
+    json!({
+        "name": "memory_review",
+        "description": "Review the memory of this session's feature before delivery. Without arguments it lists the pages written in the feature, the gaps (a failed tool without a gotcha, no update page, an analysis approved without a memory_query) and the durable pages the feature's diff may have made stale. With confirm: true it records memory.reviewed, which `ivar feature deliver` requires; every stale page needs a verdict. Gaps never block the confirmation.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "confirm": { "type": "boolean", "description": "Record the review as memory.reviewed" },
+                "stale": {
+                    "type": "array",
+                    "description": "One verdict per possibly stale page",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "path": { "type": "string" },
+                            "verdict": { "type": "string", "enum": ["updated", "still_valid"] }
+                        },
+                        "required": ["path", "verdict"]
+                    }
+                },
+                "not_required": { "type": "string", "description": "Why the feature needs no page; refused when it wrote one" }
+            },
+            "required": []
+        }
+    })
 }
 
 fn write_page() -> Value {

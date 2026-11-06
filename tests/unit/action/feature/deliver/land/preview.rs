@@ -9,6 +9,7 @@ fn push_and_land_previews_of_the_same_state_fingerprint_differently() {
         &feature,
         DeliveryMode::Push,
         GateState::Approved,
+        MemoryReviewGate::Reviewed,
         &[],
         &repos,
     )
@@ -17,6 +18,7 @@ fn push_and_land_previews_of_the_same_state_fingerprint_differently() {
         &feature,
         DeliveryMode::Land,
         GateState::Approved,
+        MemoryReviewGate::Reviewed,
         &[],
         &repos,
     )
@@ -43,6 +45,7 @@ fn a_push_fingerprint_cannot_be_applied_as_a_land() {
             global_metadata: PullRequestMetadata::default(),
             repo_overrides: Vec::new(),
             only: Vec::new(),
+            skip_memory_review: None,
         },
     )
     .expect("push preview");
@@ -57,6 +60,7 @@ fn a_push_fingerprint_cannot_be_applied_as_a_land() {
             global_metadata: PullRequestMetadata::default(),
             repo_overrides: Vec::new(),
             only: Vec::new(),
+            skip_memory_review: None,
         },
     );
     let failure = refused.expect_err("a push fingerprint must not open a land");
@@ -79,6 +83,7 @@ fn a_land_fingerprint_cannot_be_applied_as_a_push() {
             global_metadata: PullRequestMetadata::default(),
             repo_overrides: Vec::new(),
             only: Vec::new(),
+            skip_memory_review: None,
         },
     )
     .expect("land preview");
@@ -93,6 +98,7 @@ fn a_land_fingerprint_cannot_be_applied_as_a_push() {
             global_metadata: PullRequestMetadata::default(),
             repo_overrides: Vec::new(),
             only: Vec::new(),
+            skip_memory_review: None,
         },
     );
     let failure = refused.expect_err("a land fingerprint must not open a push");
@@ -161,6 +167,7 @@ fn land_preview_names_the_target_and_the_mode() {
                 draft: None,
             }],
             tree_blockers: Vec::new(),
+            memory_review: MemoryReviewGate::Reviewed,
             fingerprint: "abc123".to_owned(),
         },
         blockers: Vec::new(),

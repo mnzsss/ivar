@@ -95,7 +95,7 @@ fn the_server_instructions_carry_the_memory_section() {
 }
 
 #[test]
-fn memory_lint_returns_the_same_issues_as_the_function_and_the_surface_has_eleven_tools() {
+fn memory_lint_returns_the_same_issues_as_the_function_and_the_surface_has_twelve_tools() {
     let (_guard, root) = crate::test_support::seeded_hall();
     std::fs::create_dir_all(root.join("docs/memory/decision")).unwrap();
     std::fs::write(
@@ -115,5 +115,5 @@ fn memory_lint_returns_the_same_issues_as_the_function_and_the_surface_has_eleve
         ToolSurface::Explore,
         json!({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}),
     );
-    assert_eq!(listed["result"]["tools"].as_array().unwrap().len(), 11);
+    assert_eq!(listed["result"]["tools"].as_array().unwrap().len(), 12);
 }

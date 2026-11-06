@@ -5,7 +5,7 @@ argument-hint: <feature-name>
 
 # Feature Cleanup
 
-`/ivar-feature-cleanup` orchestrates the human-gated end-of-feature cleanup process. It inspects a delivered feature, presents delivery evidence, proposes and updates durable product and update pages under `docs/memory/`, collects human approvals across three gates, writes a durable JSON cleanup record, and performs safe, deterministic local teardown using `ivar feature cleanup`.
+`/ivar-feature-cleanup` orchestrates the human-gated end-of-feature cleanup process. It inspects a delivered feature, presents delivery evidence and the feature's memory review, collects human approvals across two gates, writes a durable JSON cleanup record, and performs safe, deterministic local teardown using `ivar feature cleanup`.
 
 ## Usage
 
@@ -38,11 +38,12 @@ ivar feature cleanup <feature> --record docs/memory/update/<NNN>-<feature>.clean
 
 ## Process Overview & Approval Gates
 
-The cleanup workflow owns three explicit human decisions, recorded independently. Present **one question per turn** with no bundled consent:
+The cleanup workflow owns two explicit human decisions, recorded independently. Present **one question per turn** with no bundled consent:
 
-1. **Delivery Gate** — Approve evidence that every promoted repository is delivered.
-2. **Documentation Gate** — Approve the exact `docs/memory/*` diff, or explicitly approve `not_required` with a human reason.
-3. **Teardown Gate** — Approve the exact local sessions, worktrees, metadata, working documents in the feature directory, and local branches to be removed.
+1. **Delivery Gate** — Approve evidence that every promoted repository is delivered, with the feature's memory review.
+2. **Teardown Gate** — Approve the exact local sessions, worktrees, metadata, working documents in the feature directory, and local branches to be removed.
+
+Pages are written during the feature and confirmed by `memory_review` before delivery; cleanup writes no page.
 
 ## Workflow Steps
 
@@ -59,33 +60,19 @@ Run `ivar feature cleanup <feature> --preview` to gather local state and evidenc
 Present delivery evidence for every promoted repository in manifest order:
 - Show commit reachability from effective base and PR status (if available).
 - Highlight empty features explicitly.
+- Show the feature's memory review from `ivar memory review <feature>`: the pages it wrote (`docs/memory/product/`, `docs/memory/update/`, …), the verdicts and the reason of the last `memory.reviewed` or `memory.review_skipped`.
+- When the preview warns `cleanup.memory_not_reviewed`, say the feature was delivered without a memory review. It never blocks cleanup.
 - Ask the human for explicit delivery approval:
   "Do you approve that feature '<feature>' is delivered across all promoted repositories?"
 - If unmerged commits or missing repos exist as delivery blockers, explain them clearly and stop.
 
-### Step 3: Documentation Gate
+### Step 3: Record Creation & Re-preview
 
-Read the feature plan (`.ivar/features/<feature>/plan.md` or `../../plan.md` from a session), per-repo commits/diffs for promoted repos, and existing pages in `docs/memory/product/`, `docs/memory/update/`, and `docs/repo-relations/`.
+Write the durable cleanup record to `docs/memory/update/<NNN>-<feature>.cleanup.json`. Its number is the maximum of `docs/memory/update/` plus one, counting `.cleanup.json` files, which share the sequence with update pages. Never reuse or renumber identifiers.
 
-Propose the minimum durable documentation:
-- **Product documentation** (`docs/memory/product/NNN-<slug>.md`): Update an existing product topic before creating a duplicate. Describe current durable product behavior.
-- **Update documentation** (`docs/memory/update/NNN-<slug>.md`): Add an update topic only when the delivery matters to future users or operators.
-- **Repository relations**: Delegate changed repository relations to the established `/ivar-relations` contract. Never rewrite relation prose yourself.
-- **Not required**: Allow an explicit `not_required` decision with a human reason (e.g. internal refactor with no user-visible change).
+Re-run `ivar feature cleanup <feature> --preview` right before writing, because hall state or Git refs may have changed, and bind the record to that fingerprint.
 
-Rules for documentation writes:
-- Show the exact documentation diff to the human.
-- Write **nothing** until the documentation gate is explicitly approved.
-- Re-read every target file immediately before writing and stop on concurrent change.
-- Numbers are monotonic within each directory (three digits, e.g. `001`, `002`). The next update number is the maximum of `docs/memory/update/` plus one, counting `.cleanup.json` files, which share the sequence. Product numbers are the maximum of `docs/memory/product/` plus one. Never reuse or renumber identifiers.
-
-### Step 4: Record Creation & Re-preview
-
-Write the durable cleanup record to `docs/memory/update/<NNN>-<feature>.cleanup.json`.
-
-After documentation writes, re-run `ivar feature cleanup <feature> --preview` because hall state or Git refs may have changed, and bind the final record to that new fingerprint.
-
-### Step 5: Teardown Gate
+### Step 4: Teardown Gate
 
 Present the exact teardown set:
 - Local sessions to be stopped/removed.
@@ -98,7 +85,7 @@ State the irreversible safeguard clearly:
 
 Ask for explicit human teardown approval after presenting this set and warning.
 
-### Step 6: Apply Teardown
+### Step 5: Apply Teardown
 
 Update `approvals.teardown.approved` to `true` in the cleanup record and execute:
 
@@ -120,7 +107,7 @@ The durable cleanup record is stored at `docs/memory/update/<NNN>-<feature>.clea
 
 ```json
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "feature": "feature-cleanup",
   "branch": "feature-cleanup",
   "fingerprint": "sha256:…",
@@ -128,15 +115,6 @@ The durable cleanup record is stored at `docs/memory/update/<NNN>-<feature>.clea
     "delivery": {
       "approved": true,
       "at": "2026-08-28T12:00:00Z"
-    },
-    "documentation": {
-      "decision": "written",
-      "paths": [
-        "docs/memory/product/003-feature-cleanup.md",
-        "docs/memory/update/007-feature-cleanup.md"
-      ],
-      "reason": null,
-      "at": "2026-08-28T12:05:00Z"
     },
     "teardown": {
       "approved": true,
@@ -149,14 +127,11 @@ The durable cleanup record is stored at `docs/memory/update/<NNN>-<feature>.clea
 
 ### Field Rules
 
-- `schema_version` is `1`. An unknown version is refused, never migrated.
+- `schema_version` is `2`. Schema 1 records, which carry `approvals.documentation`, are still accepted: there `decision` is `"written"` (non-empty `paths`, null `reason`) or `"not_required"` (non-empty `reason`, empty `paths`), and every `paths` entry is hall-relative and must resolve inside `docs/memory/` or `docs/repo-relations/`. A schema 2 record with `approvals.documentation` is refused. Any other version is refused, never migrated.
 - `feature` must equal the feature being cleaned; `branch` must equal that feature's recorded branch.
 - `fingerprint` references the preview by hash. The preview is **not** inlined, so the record cannot drift from the value the CLI recomputes.
-- `approvals.documentation.decision` is `"written"` or `"not_required"`.
-  - `"written"` requires a non-empty `paths` array and a null `reason`.
-  - `"not_required"` requires a non-empty `reason` string and an empty `paths` array.
-- Every `paths` entry is hall-relative and must resolve inside `docs/memory/` or `docs/repo-relations/`.
 - `at` is an ISO-8601 UTC timestamp.
 - `approvals.delivery.approved` and `approvals.teardown.approved` must both be `true`. `false` is a valid record and a refusal to apply, never a bypass.
 - `outcome` is `null` until apply completes; apply writes the final per-repository and teardown results into it. A record whose `outcome` is already populated describes a finished run and is refused as an authorization for a new one.
 - `outcome.descendants` lists each removed subfeature in teardown order (leaves first). It is omitted for a feature with no subfeatures, so such records are unchanged.
+- The `delivery.cleaned` observation carries `docs`: the schema 1 decision, or for schema 2 `reviewed`, `skipped` or `missing` from the feature's memory review.

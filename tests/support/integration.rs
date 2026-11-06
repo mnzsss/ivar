@@ -62,3 +62,32 @@ pub(crate) fn declare_repos(root: &Utf8Path, repos: &[(&str, &Utf8Path, &str)]) 
     )
     .expect("write ivar.json");
 }
+
+/// Appends a `memory.reviewed` for `feature` to the delivery spool, where
+/// `ivar feature deliver` drains it from.
+pub(crate) fn record_memory_review(root: &Utf8Path, feature: &str) {
+    let dir = root.join(".ivar/spool/memory");
+    std::fs::create_dir_all(&dir).unwrap();
+    let line = serde_json::json!({
+        "event_id": format!("fixture-review-{feature}"),
+        "source_event": "memory.reviewed",
+        "occurred_at": "2026-01-01T00:00:00Z",
+        "session_id": "fixture-session",
+        "native_session_id": "",
+        "provider": "",
+        "ivar_version": "",
+        "feature": feature,
+        "parent_feature": "",
+        "repo": "",
+        "origin": "",
+        "importance": 5,
+        "attempt_id": "",
+        "body": "{\"heads\":{}}",
+    });
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(dir.join("delivery.jsonl"))
+        .unwrap();
+    std::io::Write::write_all(&mut file, format!("{line}\n").as_bytes()).unwrap();
+}

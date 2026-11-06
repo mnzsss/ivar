@@ -327,12 +327,9 @@ fn memory_tool_response(
             "the hall path is not valid UTF-8, so memory tools cannot address it",
         );
     };
-    match crate::action::memory::mcp::call_as(
-        &Layout::at(utf8_root),
-        name,
-        args,
-        resolve_session_key(cwd),
-    ) {
+    let layout = Layout::at(utf8_root);
+    let caller = crate::action::memory::mcp::caller_for(&layout, cwd);
+    match crate::action::memory::mcp::call_as(&layout, name, args, &caller) {
         Ok(text) => json!({
             "jsonrpc": "2.0",
             "id": id,

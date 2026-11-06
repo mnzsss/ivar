@@ -3,17 +3,23 @@ use std::collections::BTreeSet;
 use camino::Utf8Path;
 use serde_json::{Map, Value, json};
 
-use super::{SIMILAR_TITLE_THRESHOLD, confine, to_text};
+use super::{MemoryCaller, SIMILAR_TITLE_THRESHOLD, confine, to_text};
+use crate::action::memory::events::{MemoryEventScope, report_memory_event};
 use crate::action::memory::page_file::{SESSION_PAGES_DIR, publish, render_meta};
 use crate::action::memory::reindex;
 use crate::domain::memory_page::{
     PageIssue, PageKind, PageMeta, Relation, has_number_prefix, is_kebab,
 };
+use crate::domain::observation::SourceEvent;
 use crate::infra::{frontmatter, fs, hash};
 use crate::store::layout::Layout;
 use crate::store::memory::page_source::parse_page;
 
-pub(super) fn write(layout: &Layout, args: &Value) -> Result<String, String> {
+pub(super) fn write(
+    layout: &Layout,
+    args: &Value,
+    caller: &MemoryCaller,
+) -> Result<String, String> {
     let kind_name = str_arg(args, "kind")?;
     let kind =
         PageKind::parse(kind_name).ok_or_else(|| format!("unknown page kind `{kind_name}`"))?;
@@ -54,6 +60,7 @@ pub(super) fn write(layout: &Layout, args: &Value) -> Result<String, String> {
     })?;
     publish(&target.path, &rel, &content, replace)?;
     drop(lock);
+    page_written(layout, caller, &rel, kind, "written", &hash::text(&content));
 
     let indexed = reindex::refresh(layout).is_ok();
     to_text(&json!({
@@ -64,7 +71,11 @@ pub(super) fn write(layout: &Layout, args: &Value) -> Result<String, String> {
     }))
 }
 
-pub(super) fn patch(layout: &Layout, args: &Value) -> Result<String, String> {
+pub(super) fn patch(
+    layout: &Layout,
+    args: &Value,
+    caller: &MemoryCaller,
+) -> Result<String, String> {
     let rel = str_arg(args, "path")?;
     if rel.starts_with(SESSION_PAGES_DIR) {
         return patch_session(layout, rel, args);
@@ -117,6 +128,14 @@ pub(super) fn patch(layout: &Layout, args: &Value) -> Result<String, String> {
     parse_page(rel, &content).map_err(|issues| invalid(rel, &issues))?;
     publish(&target.path, rel, &content, true)?;
     drop(lock);
+    page_written(
+        layout,
+        caller,
+        rel,
+        target.kind,
+        "patched",
+        &hash::text(&content),
+    );
 
     let indexed = reindex::refresh(layout).is_ok();
     to_text(&json!({ "path": rel, "hash": hash::text(&content), "indexed": indexed }))
@@ -161,7 +180,11 @@ fn patch_session(layout: &Layout, rel: &str, args: &Value) -> Result<String, Str
     to_text(&json!({ "path": rel, "hash": hash::text(&content), "indexed": indexed }))
 }
 
-pub(super) fn delete(layout: &Layout, args: &Value) -> Result<String, String> {
+pub(super) fn delete(
+    layout: &Layout,
+    args: &Value,
+    caller: &MemoryCaller,
+) -> Result<String, String> {
     let rel = str_arg(args, "path")?;
     let target = confine::resolve_durable(layout, rel)?;
     if target.kind == PageKind::Update {
@@ -171,8 +194,25 @@ pub(super) fn delete(layout: &Layout, args: &Value) -> Result<String, String> {
     std::fs::remove_file(&target.path)
         .map_err(|error| format!("could not delete `{rel}`: {error}"))?;
     drop(lock);
+    page_written(layout, caller, rel, target.kind, "deleted", "");
     let indexed = reindex::refresh(layout).is_ok();
     to_text(&json!({ "path": rel, "indexed": indexed }))
+}
+
+fn page_written(
+    layout: &Layout,
+    caller: &MemoryCaller,
+    rel: &str,
+    kind: PageKind,
+    action: &str,
+    sha256: &str,
+) {
+    report_memory_event(
+        layout,
+        &MemoryEventScope::from(caller),
+        SourceEvent::MemoryPageWritten,
+        &json!({"path": rel, "kind": kind.as_str(), "action": action, "sha256": sha256}),
+    );
 }
 
 fn refuse_update(action: &str) -> String {

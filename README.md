@@ -170,8 +170,9 @@ deleted 30 days later.
 error.
 
 The same server that serves the code graph serves the memory to your agent. It lists
-`memory_query` and `memory_write_page` beside seven more memory tools, which read, patch,
-delete and lint pages and read captured observations. The tools never commit. See the
+`memory_query` and `memory_write_page` beside eight more memory tools, which read, patch,
+delete, lint and review pages and read captured observations. `ivar feature deliver`
+requires the review (`memory_review`) before it applies. The tools never commit. See the
 [MCP tools](docs/reference/mcp-tools.md).
 Pages cite code as anchors: `memory_query` lists them, and `graph_explore` names the pages anchored to what it returns.
 

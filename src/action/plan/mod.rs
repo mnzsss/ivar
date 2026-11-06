@@ -250,9 +250,17 @@ pub(crate) fn effective_plan_gate(
     layout: &Layout,
     feature: &FeatureName,
 ) -> Result<GateState, Failure> {
+    effective_gate(layout, feature, Gate::Plan)
+}
+
+pub(crate) fn effective_gate(
+    layout: &Layout,
+    feature: &FeatureName,
+    gate: Gate,
+) -> Result<GateState, Failure> {
     let stored = ApprovalState::read(layout, feature)?.unwrap_or_default();
     Ok(reconciled(&stored, layout, feature)?
-        .state(Gate::Plan)
+        .state(gate)
         .unwrap_or(GateState::Pending))
 }
 

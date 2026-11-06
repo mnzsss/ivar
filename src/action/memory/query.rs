@@ -377,7 +377,7 @@ fn search(layout: &Layout, input: &QueryInput) -> Outcome<QueryOutcome> {
             .then_with(|| a.path.cmp(&b.path))
     });
     pages.truncate(limit);
-    let attached = anchors::attach_graph(db.conn(), &layout.graph_db());
+    let attached = anchors::attach_graph(db.conn(), &layout.graph_db()).is_attached();
     for hit in &mut pages {
         hit.anchors = anchors::anchors_for(db.conn(), &hit.path, attached, ANCHORS_PER_HIT)
             .unwrap_or_default();

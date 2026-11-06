@@ -1,4 +1,9 @@
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing
+)]
 
 use super::*;
 use crate::domain::observation::{Importance, Observation};
@@ -61,4 +66,50 @@ fn rows_are_counted_per_source_event() {
             ("session.tool".to_owned(), 2)
         ]
     );
+}
+
+fn scoped(event_id: &str, session_id: &str, feature: &str, at: &str) -> Sanitized<Observation> {
+    let mut o = observation(event_id, "session.tool").into_observation();
+    o.session_id = session_id.to_owned();
+    o.feature = feature.to_owned();
+    o.occurred_at = at.to_owned();
+    o.importance = Importance::session_tool(crate::domain::observation::ToolEffect::Failed);
+    let ctx = SanitizeContext::new(Utf8PathBuf::from("/hall"), Vec::new());
+    Sanitized::sanitize(o, &ctx).unwrap()
+}
+
+#[test]
+fn feature_observations_include_the_feature_its_descendants_and_its_sessions() {
+    let (_dir, mut db) = open();
+    insert_batch(
+        &mut db,
+        &[
+            scoped("discovery", "s1", "", "2026-11-05T10:00:00Z"),
+            scoped("feature", "s1", "login", "2026-11-05T11:00:00Z"),
+            scoped("child", "s2", "login-api", "2026-11-05T12:00:00Z"),
+            scoped("other-session", "s3", "", "2026-11-05T09:00:00Z"),
+            scoped("other-feature", "", "billing", "2026-11-05T08:00:00Z"),
+            scoped("anonymous", "", "", "2026-11-05T07:00:00Z"),
+        ],
+    )
+    .unwrap();
+
+    let rows = feature_observations(&db, &["login".to_owned(), "login-api".to_owned()]).unwrap();
+
+    let ids: Vec<&str> = rows.iter().map(|r| r.session_id.as_str()).collect();
+    assert_eq!(ids, ["s1", "s1", "s2"]);
+    assert_eq!(rows[0].feature, "");
+    assert_eq!(rows[1].feature, "login");
+    assert_eq!(rows[0].importance, 6);
+}
+
+#[test]
+fn feature_observations_of_no_feature_is_empty() {
+    let (_dir, mut db) = open();
+    insert_batch(
+        &mut db,
+        &[scoped("a", "s1", "login", "2026-11-05T10:00:00Z")],
+    )
+    .unwrap();
+    assert!(feature_observations(&db, &[]).unwrap().is_empty());
 }
