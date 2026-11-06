@@ -17,7 +17,9 @@ fn every_selectable_provider_declares_its_capabilities() {
             planning_memory,
             memory_misses,
             memory_review,
+            mcp_client_name,
         } = provider_support(provider);
+        assert!(!mcp_client_name.is_empty(), "{provider}");
         assert_eq!(cleanup_command, Support::Supported, "{provider}");
         assert_eq!(plan_memory_step, Support::Supported, "{provider}");
         assert_eq!(memory_mcp, Support::Supported, "{provider}");
@@ -53,4 +55,38 @@ fn not_supported_carries_its_reason() {
 
     assert_ne!(support, Support::Supported);
     assert!(matches!(support, Support::NotSupported(reason) if reason == "no session-end hook"));
+}
+
+#[test]
+fn client_names_resolve_back_to_a_provider() {
+    assert_eq!(
+        provider_for_client_name("claude-code"),
+        Some(Provider::ClaudeCode)
+    );
+    assert_eq!(
+        provider_for_client_name("opencode"),
+        Some(Provider::OpenCode)
+    );
+    assert_eq!(
+        provider_for_client_name("omp-coding-agent"),
+        Some(Provider::Omp)
+    );
+    assert_eq!(
+        provider_support(Provider::T3).mcp_client_name,
+        "claude-code"
+    );
+    assert_eq!(provider_for_client_name("zed"), None);
+}
+
+#[test]
+fn every_selectable_client_name_resolves_to_a_provider_with_the_same_name() {
+    for provider in Provider::SELECTABLE {
+        let name = provider_support(provider).mcp_client_name;
+        assert_eq!(
+            provider_for_client_name(name)
+                .map(|resolved| provider_support(resolved).mcp_client_name),
+            Some(name),
+            "{provider}"
+        );
+    }
 }

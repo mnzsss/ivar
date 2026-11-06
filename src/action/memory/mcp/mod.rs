@@ -7,6 +7,7 @@ mod tools;
 use camino::Utf8Path;
 use serde_json::{Value, json};
 
+use crate::action::graph::mcp::McpClient;
 use crate::action::graph::session::session_key_for;
 use crate::action::memory::events::MemoryEventScope;
 use crate::action::memory::lint::lint_in;
@@ -55,6 +56,8 @@ pub struct MemoryCaller {
     pub session: Option<String>,
     pub feature: Option<FeatureName>,
     pub parent_feature: Option<FeatureName>,
+    pub provider: String,
+    pub owner_key: String,
 }
 
 impl From<&MemoryCaller> for MemoryEventScope {
@@ -70,7 +73,7 @@ impl From<&MemoryCaller> for MemoryEventScope {
 }
 
 #[must_use]
-pub fn caller_for(layout: &Layout, cwd: &Utf8Path) -> MemoryCaller {
+pub fn caller_for(layout: &Layout, cwd: &Utf8Path, client: Option<&McpClient>) -> MemoryCaller {
     let ambient = std::env::var("IVAR_SESSION_ID").ok();
     let env = SessionEnv::resolve_for_agent(cwd, ambient.as_deref())
         .ok()
@@ -80,10 +83,22 @@ pub fn caller_for(layout: &Layout, cwd: &Utf8Path) -> MemoryCaller {
         .as_ref()
         .and_then(|name| Feature::read(layout, name).ok().flatten())
         .and_then(|feature| feature.parent);
+    let session = session_key_for(env.as_ref(), ambient);
+    let provider = env
+        .as_ref()
+        .map(|env| env.provider.id().to_owned())
+        .or_else(|| client.map(|client| client.provider.clone()))
+        .unwrap_or_else(|| "unknown".to_owned());
+    let owner_key = session
+        .clone()
+        .or_else(|| client.map(McpClient::owner_key))
+        .unwrap_or_else(|| "unknown:mcp".to_owned());
     MemoryCaller {
-        session: session_key_for(env.as_ref(), ambient),
+        session,
         feature,
         parent_feature,
+        provider,
+        owner_key,
     }
 }
 

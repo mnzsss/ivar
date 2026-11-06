@@ -25,6 +25,7 @@ pub struct ProviderSupport {
     pub planning_memory: Support,
     pub memory_misses: Support,
     pub memory_review: Support,
+    pub mcp_client_name: &'static str,
 }
 
 const FULL: ProviderSupport = ProviderSupport {
@@ -38,20 +39,35 @@ const FULL: ProviderSupport = ProviderSupport {
     planning_memory: Support::Supported,
     memory_misses: Support::Supported,
     memory_review: Support::Supported,
+    mcp_client_name: "claude-code",
 };
 
 /// No wildcard arm: a new `Provider` variant fails to compile here.
 #[must_use]
 pub const fn provider_support(provider: Provider) -> ProviderSupport {
     match provider {
-        Provider::ClaudeCode | Provider::Omp | Provider::T3 => FULL,
+        Provider::ClaudeCode | Provider::T3 => FULL,
+        Provider::Omp => ProviderSupport {
+            mcp_client_name: "omp-coding-agent",
+            ..FULL
+        },
         Provider::OpenCode => ProviderSupport {
             session_ended: Support::NotSupported(
                 "OpenCode has no session-end event; session.idle only ends a turn",
             ),
+            mcp_client_name: "opencode",
             ..FULL
         },
     }
+}
+
+/// T3 hosts Claude Code and sends its name, so `claude-code` resolves to
+/// `ClaudeCode`; a session's own state tells the two apart.
+#[must_use]
+pub fn provider_for_client_name(name: &str) -> Option<Provider> {
+    Provider::SELECTABLE
+        .into_iter()
+        .find(|provider| provider_support(*provider).mcp_client_name == name)
 }
 
 #[cfg(test)]

@@ -334,6 +334,8 @@ fn explore_content(db: &GraphDb, root: &std::path::Path, cwd: &camino::Utf8Path)
         .collect()
 }
 
+#[path = "mcp/root/client.rs"]
+mod client;
 #[path = "mcp/root/compat.rs"]
 mod compat;
 #[path = "mcp/root/fanout.rs"]

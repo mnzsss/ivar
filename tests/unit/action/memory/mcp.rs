@@ -198,6 +198,7 @@ fn memory_review_refuses_a_malformed_verdict() {
         session: Some("s1".to_owned()),
         feature: Some(crate::domain::name::FeatureName::new("login").unwrap()),
         parent_feature: None,
+        ..Default::default()
     };
 
     let error = call_as(

@@ -280,6 +280,7 @@ fn confirming_through_the_tool_records_the_review_for_the_callers_feature() {
         session: Some("s1".to_owned()),
         feature: Some(checkout()),
         parent_feature: None,
+        ..Default::default()
     };
 
     let text = crate::action::memory::mcp::call_as(
