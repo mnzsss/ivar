@@ -32,6 +32,7 @@ ivar runs no process of its own between runs. Linux with systemd only.
 | `runtime` | `docker` | `docker`: the container below. `host`: the installed `tool` under your own login, confined by Landlock; needs `tool`, refuses `image`, `command` and `network` |
 | `workdir` | `/workspace` | relative path under the hall's repos, first segment is the repo; required for `access: feature` |
 | `write` | `[]` | `runtime: host` only. Extra writable paths: absolute (`/srv/out`), home-relative (`~/.cache/x`) or hall-relative (`brand/metricas`); no `..`. Each must exist when the run starts |
+| `env` | `{}` | `runtime: host` only. Literal variables for the tool's process, such as `{TMPDIR: /tmp, XDG_CURRENT_DESKTOP: KDE}`. Names match `^[A-Z_][A-Z0-9_]*$`; `PATH`, `HOME`, `GIT_*`, the tool's state variables and names in `secrets` are refused. Values stay in the agent file as written and are not redacted: never put a secret here |
 | `network` | `[]` | bare hostnames the egress proxy allows; everything else fails |
 | `secrets` | `[]` | names (`^[A-Z][A-Z0-9_]*$`) read from `.ivar/secrets/agents.env` |
 | `notify` | — | `http(s)://` URL that receives a JSON run summary, or `telegram:<chat_id>` to message a Telegram chat (see [Telegram](#telegram)) |
@@ -115,6 +116,22 @@ named in the error. An empty path, `..` or `~user` is refused when the agent
 file loads. Anything else you list becomes writable by the agent, including
 config other programs read: keep the list to the directories the run must
 produce.
+
+`env` adds literal variables after ivar's own and before the secrets, so it
+can replace `TMPDIR` or a kept variable such as `LANG`, but never one that
+confines the tool. Use it for what a desktop program needs from your
+session. Chrome decrypts saved logins only when it reaches your keyring,
+which on KDE takes `XDG_CURRENT_DESKTOP`, `DESKTOP_SESSION`,
+`KDE_SESSION_VERSION`, `DBUS_SESSION_BUS_ADDRESS` and `XDG_RUNTIME_DIR`.
+The D-Bus address hands the run your keyring and every other session
+service, so list it only for an agent you trust with them.
+
+Chrome's own sandbox writes `/proc/self/uid_map`, so a host agent that
+drives Chrome needs `/proc` in `write`. Landlock fixes each rule's path when
+the run starts, and Chrome writes from child processes, so nothing narrower
+works. `ivar agent sync` warns `agent.host_write_proc` for such an agent: it
+can also change the `/proc` entries of your other processes that the kernel
+lets your user write, while their memory stays behind ptrace rules.
 
 What it does not isolate: **reads are ambient** and **the network is
 open**. Anything your user can read is exposed, including SSH keys and
