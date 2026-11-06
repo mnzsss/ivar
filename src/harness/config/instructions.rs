@@ -225,6 +225,9 @@ pub fn remove(path: &Utf8Path) -> Result<Change, Error> {
 /// rewritten wholesale — only its managed block is ever replaced — and an
 /// enabled provider's regular alias is preserved byte for byte.
 ///
+/// `hall_is_git` picks the wording of the conflict's follow-up: a hall that is
+/// not in a git work tree has no diff to review.
+///
 /// # Errors
 ///
 /// Returns [`Error`] if the canonical file or any alias cannot be read or
@@ -233,11 +236,12 @@ pub fn reconcile(
     canonical: &Utf8Path,
     block: &str,
     aliases: &[Alias],
+    hall_is_git: bool,
 ) -> Result<Vec<Entry>, Error> {
     let mut entries = Vec::new();
     entries.push(reconcile_canonical(canonical, block)?);
     for alias in aliases {
-        entries.push(reconcile_alias(alias)?);
+        entries.push(reconcile_alias(alias, hall_is_git)?);
     }
     Ok(entries)
 }
@@ -271,7 +275,7 @@ fn reconcile_canonical(path: &Utf8Path, block: &str) -> Result<Entry, Error> {
 
 /// Reconcile one provider alias. See the module doc for the enabled/disabled
 /// rules; the destructive disabled-provider case never touches `HALL.md`.
-fn reconcile_alias(alias: &Alias) -> Result<Entry, Error> {
+fn reconcile_alias(alias: &Alias, hall_is_git: bool) -> Result<Entry, Error> {
     let path = &alias.path;
     let name = path.file_name().unwrap_or("alias").to_owned();
     let target = Utf8Path::new(CANONICAL_FILE);
@@ -290,14 +294,20 @@ fn reconcile_alias(alias: &Alias) -> Result<Entry, Error> {
             change: Change::Unchanged,
             detail: None,
         }),
-        (EntryKind::Regular | EntryKind::NonRegular, true) => Ok(conflict(
-            path,
-            &format!(
-                "`{name}` is a regular file and was preserved; consolidate its \
-                 instructions into `HALL.md`, remove it, run `ivar sync`, and \
-                 review the git diff"
-            ),
-        )),
+        (EntryKind::Regular | EntryKind::NonRegular, true) => {
+            let follow_up = if hall_is_git {
+                "run `ivar sync`, and review the git diff"
+            } else {
+                "then run `ivar sync`"
+            };
+            Ok(conflict(
+                path,
+                &format!(
+                    "`{name}` is a regular file and was preserved; consolidate its \
+                     instructions into `HALL.md`, remove it, {follow_up}"
+                ),
+            ))
+        }
         (EntryKind::Regular | EntryKind::NonRegular, false) => remove_alias_entry(alias),
         (EntryKind::Symlink(current), true) => {
             if current.as_str() == CANONICAL_FILE {

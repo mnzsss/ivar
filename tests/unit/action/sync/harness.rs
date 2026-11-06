@@ -218,9 +218,30 @@ fn sync_repairs_absent_and_wrong_enabled_symlinks() {
     );
 }
 
-#[test]
-fn sync_preserves_an_enabled_regular_alias_and_reports_conflict() {
+#[rstest::rstest]
+#[case::git(
+    true,
+    "consolidate its instructions into `HALL.md`, remove it, run `ivar sync`, and review the git diff"
+)]
+#[case::plain(
+    false,
+    "consolidate its instructions into `HALL.md`, remove it, then run `ivar sync`"
+)]
+fn sync_preserves_an_enabled_regular_alias_and_reports_conflict(
+    #[case] hall_is_git: bool,
+    #[case] follow_up: &str,
+) {
     let (_guard, root) = hall_with_all_providers();
+    if hall_is_git {
+        assert!(
+            std::process::Command::new("git")
+                .args(["init", "-q"])
+                .current_dir(&root)
+                .status()
+                .unwrap()
+                .success()
+        );
+    }
     fs::write_text(&root.join("AGENTS.md"), "legacy, precious\n").unwrap();
     let ctx = Ctx::new(root.clone());
 
@@ -231,13 +252,17 @@ fn sync_preserves_an_enabled_regular_alias_and_reports_conflict() {
         entry(&report.value, "providers", "AGENTS.md alias").change,
         Change::Failed
     );
-    assert!(
-        report
-            .warnings
-            .iter()
-            .any(|w| w.code == "instructions.adoption_required"),
-        "warnings: {:?}",
-        report.warnings
+    let adoption = report
+        .warnings
+        .iter()
+        .find(|w| w.code == "instructions.adoption_required")
+        .unwrap_or_else(|| panic!("warnings: {:?}", report.warnings));
+    assert!(adoption.what.ends_with(follow_up), "{}", adoption.what);
+    assert_eq!(
+        adoption.what.contains("git"),
+        hall_is_git,
+        "{}",
+        adoption.what
     );
     assert_eq!(
         fs::read_text(&root.join("AGENTS.md")).unwrap().unwrap(),

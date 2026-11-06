@@ -856,6 +856,20 @@ pub fn remove_worktree_entry(
     }
 }
 
+/// Whether `path` is inside a git work tree, its own or an enclosing one.
+///
+/// Asks `git rev-parse` rather than looking for `.git`, so a hall nested in a
+/// containing repository counts and a `.git` file (a linked worktree) is not
+/// missed. A missing `git` binary or an unreadable path answers `false`.
+#[must_use]
+pub fn inside_work_tree(path: &Utf8Path) -> bool {
+    let command = exec::git()
+        .args(["rev-parse", "--is-inside-work-tree"])
+        .cwd(path);
+    crate::infra::proc::capture(&command)
+        .is_ok_and(|out| out.success() && out.stdout.trim() == "true")
+}
+
 /// The production [`Git`]: `git2` for reads, the `git` binary for mutations.
 ///
 /// A unit struct with no configuration. Everything that varies — which

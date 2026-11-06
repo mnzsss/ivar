@@ -14,9 +14,9 @@ const LEGACY_FOLDERS: [(&str, &str); 2] = [
 ];
 const UNCOMMITTED_EXAMPLES: usize = 5;
 
-pub(super) fn page_diagnoses(layout: &Layout) -> Vec<Diagnosis> {
+pub(super) fn page_diagnoses(layout: &Layout, hall_is_git: bool) -> Vec<Diagnosis> {
     let mut findings = Vec::new();
-    findings.extend(legacy_docs(layout));
+    findings.extend(legacy_docs(layout, hall_is_git));
     findings.extend(uncommitted(layout));
     findings.extend(index_failed(layout));
     findings.extend(page_issues(layout));
@@ -64,15 +64,16 @@ fn page_issues(layout: &Layout) -> Vec<Diagnosis> {
         .collect()
 }
 
-fn legacy_docs(layout: &Layout) -> Option<Diagnosis> {
+fn legacy_docs(layout: &Layout, hall_is_git: bool) -> Option<Diagnosis> {
+    let mv = if hall_is_git { "git mv" } else { "mv" };
     let moves: Vec<String> = LEGACY_FOLDERS
         .into_iter()
         .filter(|(old, _)| layout.root().join(old).is_dir())
         .map(|(old, new)| {
             if layout.root().join(new).is_dir() {
-                format!("git mv {old}/* {new}/")
+                format!("{mv} {old}/* {new}/")
             } else {
-                format!("git mv {old} {new}")
+                format!("{mv} {old} {new}")
             }
         })
         .collect();

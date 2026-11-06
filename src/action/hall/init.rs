@@ -10,6 +10,7 @@ use serde::Serialize;
 use crate::domain::name::HallName;
 use crate::domain::provider::Provider;
 use crate::error::{Failure, FixAction, Outcome, Report, Warning, WriteHuman};
+use crate::git::inside_work_tree;
 use crate::infra::fs;
 use crate::infra::proc;
 use crate::store::gitignore;
@@ -293,12 +294,6 @@ fn run_git(root: &Utf8Path, args: &[&str]) -> Result<proc::Output, String> {
             .cwd(root),
     )
     .map_err(|error| error.to_string())
-}
-
-/// Whether `root` is inside a git work tree (its own, or an enclosing one).
-fn inside_work_tree(root: &Utf8Path) -> bool {
-    run_git(root, &["rev-parse", "--is-inside-work-tree"])
-        .is_ok_and(|out| out.success() && out.stdout.trim() == "true")
 }
 
 /// The `origin` URL of the repository `root` is in, if it has one.

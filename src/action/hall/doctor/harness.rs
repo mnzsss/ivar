@@ -56,7 +56,11 @@ pub(super) fn diagnose_provider_skills(manifest: &Manifest, layout: &Layout) -> 
 // non-current state is one finding — every applicable one in a single
 // run. `ivar sync` repairs the automatic cases; an enabled regular alias
 // is preserved by design, so its fix is the human adoption checklist.
-pub(super) fn diagnose_instructions(manifest: &Manifest, layout: &Layout) -> Vec<Diagnosis> {
+pub(super) fn diagnose_instructions(
+    manifest: &Manifest,
+    layout: &Layout,
+    hall_is_git: bool,
+) -> Vec<Diagnosis> {
     let mut findings = Vec::new();
     let aliases = crate::action::collect_instruction_aliases(layout, manifest);
     let block = build_block(
@@ -70,7 +74,7 @@ pub(super) fn diagnose_instructions(manifest: &Manifest, layout: &Layout) -> Vec
     match instructions::inspect(&layout.hall_instructions(), &block, &aliases) {
         Ok(inspections) => {
             for inspection in inspections {
-                if let Some(diagnosis) = instruction_diagnosis(&inspection) {
+                if let Some(diagnosis) = instruction_diagnosis(&inspection, hall_is_git) {
                     findings.push(diagnosis);
                 }
             }
@@ -188,7 +192,10 @@ fn skill_diagnosis(
 /// out is the human adoption checklist. A disabled provider's leftover entry
 /// is removed by sync, and the finding says so explicitly, including the
 /// regular-file case.
-fn instruction_diagnosis(inspection: &instructions::Inspection) -> Option<Diagnosis> {
+fn instruction_diagnosis(
+    inspection: &instructions::Inspection,
+    hall_is_git: bool,
+) -> Option<Diagnosis> {
     let name = inspection.path.file_name().unwrap_or("instructions");
     match inspection.integrity {
         instructions::Integrity::Current => None,
@@ -219,8 +226,12 @@ fn instruction_diagnosis(inspection: &instructions::Inspection) -> Option<Diagno
         instructions::Integrity::AliasIsRegular => Some(Diagnosis {
             code: "instructions.alias_regular",
             what: format!("`{name}` is a regular file; ivar preserves it by design"),
-            fix: "Consolidate its instructions into `HALL.md`, remove it, run `ivar sync`, and review the git diff."
-                .to_owned(),
+            fix: if hall_is_git {
+                "Consolidate its instructions into `HALL.md`, remove it, run `ivar sync`, and review the git diff."
+            } else {
+                "Consolidate its instructions into `HALL.md`, remove it, then run `ivar sync`."
+            }
+            .to_owned(),
         }),
         instructions::Integrity::AliasBroken => Some(Diagnosis {
             code: "instructions.alias_broken",

@@ -225,9 +225,30 @@ fn doctor_names_a_missing_enabled_alias() {
     assert!(finding.fix.contains("ivar sync"));
 }
 
-#[test]
-fn doctor_names_an_enabled_regular_alias_with_the_adoption_checklist() {
+#[rstest]
+#[case::git(
+    true,
+    "Consolidate its instructions into `HALL.md`, remove it, run `ivar sync`, and review the git diff."
+)]
+#[case::plain(
+    false,
+    "Consolidate its instructions into `HALL.md`, remove it, then run `ivar sync`."
+)]
+fn doctor_names_an_enabled_regular_alias_with_the_adoption_checklist(
+    #[case] hall_is_git: bool,
+    #[case] expected: &str,
+) {
     let (_guard, root) = utf8_temp_dir();
+    if hall_is_git {
+        assert!(
+            std::process::Command::new("git")
+                .args(["init", "-q"])
+                .current_dir(&root)
+                .status()
+                .unwrap()
+                .success()
+        );
+    }
     let ctx = Ctx::new(root.clone());
     init(&ctx, &fresh_input()).unwrap();
     fs::remove_file(&root.join("CLAUDE.md")).unwrap();
@@ -236,11 +257,8 @@ fn doctor_names_an_enabled_regular_alias_with_the_adoption_checklist() {
     let report = doctor(&ctx).unwrap();
 
     let finding = finding(&report.value, "instructions.alias_regular");
-    assert!(
-        finding.fix.contains("HALL.md") && finding.fix.contains("ivar sync"),
-        "the adoption checklist must name HALL.md and sync: {}",
-        finding.fix
-    );
+    assert_eq!(finding.fix, expected);
+    assert_eq!(finding.fix.contains("git"), hall_is_git, "{}", finding.fix);
 }
 
 #[test]

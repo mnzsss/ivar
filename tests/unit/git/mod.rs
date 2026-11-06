@@ -10,6 +10,36 @@ use crate::error::{Failure, Status};
 use crate::infra::proc;
 use crate::test_support::{empty_repo, git, seeded_repo, utf8_temp_dir};
 
+// -- inside_work_tree -----------------------------------------------------
+
+#[test]
+fn inside_work_tree_is_false_for_a_plain_directory() {
+    let (_guard, dir) = utf8_temp_dir();
+
+    assert!(!inside_work_tree(&dir));
+}
+
+#[test]
+fn inside_work_tree_is_true_at_the_root_and_below_it() {
+    let (_guard, dir) = utf8_temp_dir();
+    let repo = seeded_repo(&dir.join("repo"), "main");
+    let nested = repo.join("docs");
+    std::fs::create_dir_all(&nested).unwrap();
+
+    assert!(inside_work_tree(&repo));
+    assert!(inside_work_tree(&nested));
+}
+
+#[test]
+fn inside_work_tree_is_false_for_a_bare_repository() {
+    let (_guard, dir) = utf8_temp_dir();
+    let origin = seeded_repo(&dir.join("origin"), "main");
+    let bare = dir.join("api.bare");
+    System.clone_bare(origin.as_str(), &bare).unwrap();
+
+    assert!(!inside_work_tree(&bare));
+}
+
 // -- System routes each operation to a backend that answers ---------------
 
 #[test]

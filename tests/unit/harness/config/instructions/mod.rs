@@ -221,7 +221,7 @@ fn an_absent_hall_file_is_created_holding_only_the_managed_block() {
     let canonical = root.join("HALL.md");
     let block = build_block(&hall(), &[repo("api")]);
 
-    let entries = reconcile(&canonical, &block, &[]).unwrap();
+    let entries = reconcile(&canonical, &block, &[], true).unwrap();
 
     assert_eq!(entries.len(), 1);
     assert_eq!(entries[0].path, canonical);
@@ -245,7 +245,7 @@ fn user_bytes_without_markers_survive_byte_for_byte_after_the_prepended_block() 
     fs::write_text(&canonical, user).unwrap();
     let block = build_block(&hall(), &[repo("api")]);
 
-    let entries = reconcile(&canonical, &block, &[]).unwrap();
+    let entries = reconcile(&canonical, &block, &[], true).unwrap();
 
     assert_eq!(entries[0].change, Change::Updated);
     let content = fs::read_text(&canonical).unwrap().unwrap();
@@ -268,7 +268,7 @@ fn an_existing_block_is_replaced_without_touching_bytes_before_or_after() {
     .unwrap();
 
     let second = build_block(&hall(), &[repo("api"), repo("web")]);
-    let entries = reconcile(&canonical, &second, &[]).unwrap();
+    let entries = reconcile(&canonical, &second, &[], true).unwrap();
 
     assert_eq!(entries[0].change, Change::Updated);
     let content = fs::read_text(&canonical).unwrap().unwrap();
@@ -283,10 +283,10 @@ fn a_second_reconcile_of_the_canonical_file_is_unchanged_and_does_not_rewrite() 
     let (_guard, root) = utf8_temp_dir();
     let canonical = root.join("HALL.md");
     let block = build_block(&hall(), &[repo("api")]);
-    reconcile(&canonical, &block, &[]).unwrap();
+    reconcile(&canonical, &block, &[], true).unwrap();
     let after_first = fs::read_bytes(&canonical).unwrap().unwrap();
 
-    let entries = reconcile(&canonical, &block, &[]).unwrap();
+    let entries = reconcile(&canonical, &block, &[], true).unwrap();
 
     assert_eq!(entries[0].change, Change::Unchanged);
     assert_eq!(fs::read_bytes(&canonical).unwrap().unwrap(), after_first);
@@ -299,7 +299,7 @@ fn a_directory_at_the_hall_file_path_is_a_conflict_and_is_not_touched() {
     fs::ensure_dir(&canonical).unwrap();
     let block = build_block(&hall(), &[]);
 
-    let entries = reconcile(&canonical, &block, &[]).unwrap();
+    let entries = reconcile(&canonical, &block, &[], true).unwrap();
 
     assert_eq!(entries[0].change, Change::Conflict);
     assert!(entries[0].detail.is_some());
@@ -322,7 +322,7 @@ fn a_symlink_at_the_hall_file_path_is_a_conflict_and_its_target_is_not_touched()
     fs::create_symlink(&target, &canonical).unwrap();
     let block = build_block(&hall(), &[]);
 
-    let entries = reconcile(&canonical, &block, &[]).unwrap();
+    let entries = reconcile(&canonical, &block, &[], true).unwrap();
 
     assert_eq!(entries[0].change, Change::Conflict);
     assert_eq!(
@@ -341,7 +341,7 @@ fn inspect_sees_a_reconciled_hall_as_current() {
     let block = build_block(&hall(), &[repo("api")]);
     let alias_path = root.join(Provider::ClaudeCode.instruction_file());
     let aliases = [claude_alias(alias_path, true)];
-    reconcile(&canonical, &block, &aliases).unwrap();
+    reconcile(&canonical, &block, &aliases, true).unwrap();
 
     let inspections = inspect(&canonical, &block, &aliases).unwrap();
 
@@ -380,7 +380,7 @@ fn inspect_distinguishes_broken_from_wrong_target_and_disabled_presence() {
     let (_guard, root) = utf8_temp_dir();
     let canonical = root.join("HALL.md");
     let block = build_block(&hall(), &[]);
-    reconcile(&canonical, &block, &[]).unwrap();
+    reconcile(&canonical, &block, &[], true).unwrap();
 
     // Broken: target does not exist.
     let broken = root.join(Provider::ClaudeCode.instruction_file());
@@ -416,7 +416,7 @@ fn inspect_marks_stale_block_and_disabled_presence() {
     let (_guard, root) = utf8_temp_dir();
     let canonical = root.join("HALL.md");
     let stale = build_block(&hall(), &[repo("api")]);
-    reconcile(&canonical, &stale, &[]).unwrap();
+    reconcile(&canonical, &stale, &[], true).unwrap();
     let current = build_block(&hall(), &[repo("api"), repo("web")]);
     let alias_path = root.join(Provider::ClaudeCode.instruction_file());
     fs::write_text(&alias_path, "regular\n").unwrap();
