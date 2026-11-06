@@ -20,6 +20,7 @@ use crate::store::memory::page_source::parse_page;
 use crate::store::memory::retention::{
     SESSION_RETENTION_DAYS, cutoff_before, delete_expired_sessions,
 };
+use crate::store::memory::usage::{self, USAGE_RETENTION_DAYS};
 
 const BATCH: usize = 1000;
 const STATE_FILE: &str = "_sweep.json";
@@ -36,6 +37,7 @@ pub struct SweepState {
 pub struct SweepReport {
     pub deleted: usize,
     pub pages_removed: usize,
+    pub usage_pruned: usize,
     pub busy: bool,
 }
 
@@ -61,7 +63,7 @@ pub fn sweep(layout: &Layout, now_epoch_secs: u64) -> Result<SweepReport, Failur
         Err(error) => return Err(record_failure(layout, &mut state, error.to_string())),
     };
     let cutoff = cutoff_before(now_epoch_secs, SESSION_RETENTION_DAYS);
-    let deleted = delete_all_expired(layout, &cutoff)
+    let (deleted, usage_pruned) = delete_all_expired(layout, &cutoff, now_epoch_secs)
         .map_err(|error| record_failure(layout, &mut state, error))?;
     let pages_removed = expire_session_pages(layout, now_epoch_secs)
         .map_err(|error| record_failure(layout, &mut state, error))?;
@@ -72,6 +74,7 @@ pub fn sweep(layout: &Layout, now_epoch_secs: u64) -> Result<SweepReport, Failur
     Ok(SweepReport {
         deleted,
         pages_removed,
+        usage_pruned,
         busy: false,
     })
 }
@@ -108,9 +111,13 @@ fn write_state(layout: &Layout, state: &SweepState) -> Result<(), Box<dyn std::e
     Ok(())
 }
 
-fn delete_all_expired(layout: &Layout, cutoff: &str) -> Result<usize, String> {
+fn delete_all_expired(
+    layout: &Layout,
+    cutoff: &str,
+    now_epoch_secs: u64,
+) -> Result<(usize, usize), String> {
     if !layout.memory_db().exists() {
-        return Ok(0);
+        return Ok((0, 0));
     }
     let mut db = MemoryDb::open(layout.memory_db().as_std_path()).map_err(|e| e.to_string())?;
     let mut total = 0;
@@ -121,12 +128,15 @@ fn delete_all_expired(layout: &Layout, cutoff: &str) -> Result<usize, String> {
             break;
         }
     }
+    let usage_cutoff =
+        i64::try_from(now_epoch_secs.saturating_sub(USAGE_RETENTION_DAYS * 86_400)).unwrap_or(0);
+    let usage_pruned = usage::prune(db.conn(), usage_cutoff).map_err(|e| e.to_string())?;
     if total > 0 {
         db.conn()
             .query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()))
             .map_err(|e| e.to_string())?;
     }
-    Ok(total)
+    Ok((total, usage_pruned))
 }
 
 /// A page ages from its conversation's marker in `_consolidate.json`, keyed by

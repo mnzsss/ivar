@@ -18,6 +18,7 @@ use crate::store::memory::observations::count_by_source_event;
 use crate::store::memory::pages::count_by_kind;
 use crate::store::memory::retention::{SESSION_RETENTION_DAYS, oldest_session_last_observation};
 use crate::store::memory::spool;
+use crate::store::memory::usage::{self, USAGE_RETENTION_DAYS};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct MemoryStatusOutcome {
@@ -33,6 +34,14 @@ pub struct MemoryStatusOutcome {
     pub retention: RetentionStatus,
     pub pages: PagesStatus,
     pub consolidation: ConsolidationStatus,
+    pub usage: UsageStatus,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct UsageStatus {
+    pub window_days: u64,
+    #[serde(flatten)]
+    pub summary: usage::UsageSummary,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -173,6 +182,12 @@ pub fn status_in(layout: &Layout) -> Outcome<MemoryStatusOutcome> {
             count,
         })
         .collect();
+    let since =
+        i64::try_from(epoch_secs_now().saturating_sub(USAGE_RETENTION_DAYS * 86_400)).unwrap_or(0);
+    let usage = UsageStatus {
+        window_days: USAGE_RETENTION_DAYS,
+        summary: usage::summary(db.conn(), since).unwrap_or_default(),
+    };
     let state = read_state(layout);
     let mut spool = SpoolStatus::read(&layout.memory_spool_dir());
     spool.dropped_total = state.dropped_total;
@@ -203,6 +218,7 @@ pub fn status_in(layout: &Layout) -> Outcome<MemoryStatusOutcome> {
         retention,
         pages,
         consolidation,
+        usage,
     }))
 }
 
@@ -253,6 +269,20 @@ impl WriteHuman for MemoryStatusOutcome {
         if let Some(error) = &self.retention.last_sweep_error {
             writeln!(w, "  last sweep error: {error}")?;
         }
+        let u = &self.usage.summary;
+        writeln!(
+            w,
+            "  queries ({} days): {} cli ({} empty, {:.0}% miss), {} mcp ({} empty, {:.0}% miss); misses: {} followup, {} skipped",
+            self.usage.window_days,
+            u.queries_cli,
+            u.empty_cli,
+            u.miss_rate_cli * 100.0,
+            u.queries_mcp,
+            u.empty_mcp,
+            u.miss_rate_mcp * 100.0,
+            u.followup,
+            u.skipped
+        )?;
         for count in &self.pages.by_kind {
             writeln!(w, "  pages {}: {}", count.kind, count.count)?;
         }

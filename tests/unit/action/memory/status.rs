@@ -259,3 +259,29 @@ fn status_counts_pages_waiting_for_anchors() {
 
     assert_eq!(value.pages.anchors_pending, 1);
 }
+
+#[test]
+fn status_reports_thirty_days_of_queries_and_misses_by_source() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root);
+    let db = MemoryDb::open(layout.memory_db().as_std_path()).unwrap();
+    db.conn()
+        .execute_batch(
+            "INSERT INTO memory_usage (id, ts, source) VALUES (1, unixepoch(), 'cli'), (2, unixepoch(), 'mcp'),
+                                                             (3, unixepoch(), 'hook'), (4, 0, 'cli');
+             INSERT INTO memory_misses (ts, kind, usage_id) VALUES (unixepoch(), 'empty', 2), (unixepoch(), 'followup', 3);",
+        )
+        .unwrap();
+    drop(db);
+
+    let value = status_in(&layout).unwrap().value;
+
+    assert_eq!(value.usage.window_days, 30);
+    let s = &value.usage.summary;
+    assert_eq!((s.queries_cli, s.queries_mcp), (1, 1));
+    assert_eq!(
+        (s.empty, s.empty_cli, s.empty_mcp, s.followup),
+        (1, 0, 1, 1)
+    );
+    assert_eq!((s.miss_rate_cli, s.miss_rate_mcp), (0.0, 1.0));
+}

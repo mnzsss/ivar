@@ -62,6 +62,19 @@ pub struct UsageSummary {
     pub empty: usize,
     pub followup: usize,
     pub skipped: usize,
+    pub empty_cli: usize,
+    pub empty_mcp: usize,
+    pub miss_rate_cli: f64,
+    pub miss_rate_mcp: f64,
+}
+
+#[allow(clippy::cast_precision_loss)]
+fn miss_rate(empty: usize, queries: usize) -> f64 {
+    if queries == 0 {
+        0.0
+    } else {
+        empty as f64 / queries as f64
+    }
 }
 
 /// # Errors
@@ -162,6 +175,21 @@ pub fn summary(conn: &Connection, since_ts: i64) -> rusqlite::Result<UsageSummar
             _ => {}
         }
     }
+    let mut empty_by_source = conn.prepare(
+        "SELECT u.source, count(*) FROM memory_misses m JOIN memory_usage u ON u.id = m.usage_id
+         WHERE m.ts >= ?1 AND m.kind = 'empty' GROUP BY u.source",
+    )?;
+    for row in empty_by_source.query_map([since_ts], |r| {
+        Ok((r.get::<_, String>(0)?, r.get::<_, usize>(1)?))
+    })? {
+        match row? {
+            (source, n) if source == "cli" => out.empty_cli = n,
+            (source, n) if source == "mcp" => out.empty_mcp = n,
+            _ => {}
+        }
+    }
+    out.miss_rate_cli = miss_rate(out.empty_cli, out.queries_cli);
+    out.miss_rate_mcp = miss_rate(out.empty_mcp, out.queries_mcp);
     Ok(out)
 }
 
