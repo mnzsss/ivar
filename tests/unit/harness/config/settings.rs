@@ -357,6 +357,7 @@ fn remove_deletes_a_file_holding_only_ivar_keys_and_hall_approvals() {
 }
 
 const CAPTURE: &str = "ivar memory capture --provider claude-code || true";
+const BRIEF: &str = "ivar memory brief --provider claude-code || true";
 
 fn commands(doc: &serde_json::Value, event: &str) -> Vec<String> {
     doc["hooks"][event]
@@ -385,7 +386,11 @@ fn capture_adds_the_four_events_and_one_session_start_entry() {
     }
     assert_eq!(
         commands(&doc, "SessionStart"),
-        vec!["ivar session env".to_owned(), CAPTURE.to_owned()]
+        vec![
+            "ivar session env".to_owned(),
+            CAPTURE.to_owned(),
+            BRIEF.to_owned()
+        ]
     );
 }
 
@@ -423,9 +428,24 @@ fn turning_capture_off_removes_every_capture_entry_on_the_next_sync() {
     }
     assert_eq!(
         commands(&doc, "SessionStart"),
-        vec!["ivar session env".to_owned()]
+        vec!["ivar session env".to_owned(), BRIEF.to_owned()]
     );
 
     materialise_settings_with(&path, &acme(), &[], true).unwrap();
     assert!(commands(&read_doc(&path), "SessionEnd").contains(&CAPTURE.to_owned()));
+}
+
+#[test]
+fn the_brief_runs_at_session_start_with_capture_off() {
+    let (_guard, dir) = utf8_temp_dir();
+    let path = dir.join("settings.json");
+    materialise_settings_with(&path, &acme(), &[], false).unwrap();
+    let doc = read_doc(&path);
+
+    assert!(commands(&doc, "SessionStart").contains(&BRIEF.to_owned()));
+    assert!(
+        !commands(&doc, "PreToolUse")
+            .iter()
+            .any(|c| c.contains("memory brief"))
+    );
 }

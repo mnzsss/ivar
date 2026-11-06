@@ -17,6 +17,7 @@ fn every_selectable_provider_declares_its_capabilities() {
             planning_memory,
             memory_misses,
             memory_review,
+            memory_brief: _,
             mcp_client_name,
         } = provider_support(provider);
         assert!(!mcp_client_name.is_empty(), "{provider}");
@@ -27,6 +28,21 @@ fn every_selectable_provider_declares_its_capabilities() {
         assert_eq!(memory_misses, Support::Supported, "{provider}");
         assert_eq!(memory_review, Support::Supported, "{provider}");
     }
+}
+
+#[test]
+fn only_opencode_lacks_a_brief_because_its_plugins_cannot_inject_context() {
+    for provider in [Provider::ClaudeCode, Provider::T3, Provider::Omp] {
+        assert_eq!(
+            provider_support(provider).memory_brief,
+            Support::Supported,
+            "{provider}"
+        );
+    }
+    assert!(matches!(
+        provider_support(Provider::OpenCode).memory_brief,
+        Support::NotSupported(reason) if reason.contains("cannot inject context")
+    ));
 }
 
 #[test]

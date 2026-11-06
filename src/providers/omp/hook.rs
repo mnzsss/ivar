@@ -54,10 +54,16 @@ export default function ivarGuard(pi) {
 "#;
 
 pub(crate) fn managed_artifacts() -> Vec<ManagedArtifact> {
-    vec![ManagedArtifact {
-        relative_path: Utf8Path::new(Provider::OMP_HOOKS_DIR).join("pre/ivar.js"),
-        contents: OMP_HOOK,
-    }]
+    vec![
+        ManagedArtifact {
+            relative_path: Utf8Path::new(Provider::OMP_HOOKS_DIR).join("pre/ivar.js"),
+            contents: OMP_HOOK,
+        },
+        ManagedArtifact {
+            relative_path: Utf8Path::new(Provider::OMP_HOOKS_DIR).join("pre/ivar-brief.js"),
+            contents: OMP_BRIEF_HOOK,
+        },
+    ]
 }
 
 pub const OMP_CAPTURE_HOOK: &str = r#"// ivar memory capture hook for OMP
@@ -121,6 +127,40 @@ export default function ivarMemory(pi) {
   });
   pi.on("session_shutdown", async (_event, ctx) => {
     try { send({ event: "ended", session: session(ctx), cwd: cwd(ctx) }); } catch {}
+  });
+}
+"#;
+
+/// Runs `ivar memory brief` on the first `before_agent_start` of the omp
+/// process and returns its stdout as `{ message }`; omp 18.16.0 pushes
+/// `m.message` into the turn's messages as a `{ customType, content, display }`
+/// custom message. omp has no context return at `session_start`, hence the
+/// once-per-process flag.
+pub const OMP_BRIEF_HOOK: &str = r#"// ivar memory brief hook for OMP
+// Materialised by `ivar sync`. Do not edit.
+
+import { execFileSync } from "node:child_process";
+
+let shown = false;
+
+export default function ivarBrief(pi) {
+  pi.on("before_agent_start", async (_event, ctx) => {
+    if (shown) return;
+    shown = true;
+    let out = "";
+    try {
+      out = execFileSync("ivar", ["memory", "brief", "--provider", "omp"], {
+        input: JSON.stringify({ cwd: ctx?.cwd ?? process.cwd() }),
+        encoding: "utf-8",
+        stdio: ["pipe", "pipe", "ignore"],
+        timeout: 2000,
+      });
+    } catch {
+      return;
+    }
+    if (out && out.trim()) {
+      return { message: { customType: "ivar-brief", content: out, display: false } };
+    }
   });
 }
 "#;

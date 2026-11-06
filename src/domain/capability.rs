@@ -25,6 +25,7 @@ pub struct ProviderSupport {
     pub planning_memory: Support,
     pub memory_misses: Support,
     pub memory_review: Support,
+    pub memory_brief: Support,
     pub mcp_client_name: &'static str,
 }
 
@@ -39,6 +40,7 @@ const FULL: ProviderSupport = ProviderSupport {
     planning_memory: Support::Supported,
     memory_misses: Support::Supported,
     memory_review: Support::Supported,
+    memory_brief: Support::Supported,
     mcp_client_name: "claude-code",
 };
 
@@ -54,6 +56,9 @@ pub const fn provider_support(provider: Provider) -> ProviderSupport {
         Provider::OpenCode => ProviderSupport {
             session_ended: Support::NotSupported(
                 "OpenCode has no session-end event; session.idle only ends a turn",
+            ),
+            memory_brief: Support::NotSupported(
+                "OpenCode plugins cannot inject context at session start; the MCP instructions ask for the lists instead",
             ),
             mcp_client_name: "opencode",
             ..FULL
