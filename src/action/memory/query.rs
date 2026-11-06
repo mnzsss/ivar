@@ -1,6 +1,7 @@
 //! `ivar memory query`: pages by reciprocal-rank fusion, observations as fallback.
 
 use std::collections::BTreeMap;
+use std::time::Duration;
 
 use serde::Serialize;
 
@@ -21,6 +22,7 @@ use crate::store::memory::db::MemoryDb;
 use crate::store::memory::observation_search;
 use crate::store::memory::pages::{self, PageFilter, PageHit};
 use crate::store::memory::retention::{SESSION_RETENTION_DAYS, cutoff_before};
+use crate::store::memory::usage::{self, MemoryMiss, MemoryMissKind, QueryRecord};
 
 const MAX_LIMIT: usize = 20;
 const CANDIDATES: usize = 50;
@@ -252,13 +254,91 @@ fn into_query_hit(ranked: Ranked, explain: bool) -> QueryHit {
 /// When no hall is found, a kind or tier is unknown, or the index cannot be read.
 pub fn query(ctx: &Ctx, input: &QueryInput) -> Outcome<QueryOutcome> {
     let layout = discover_hall(ctx)?;
-    query_in(&layout, input)
+    query_in(
+        &layout,
+        input,
+        &QueryOrigin {
+            source: "cli",
+            session: std::env::var("IVAR_SESSION_ID").ok(),
+        },
+    )
+}
+
+#[derive(Debug, Clone)]
+pub struct QueryOrigin {
+    pub source: &'static str,
+    pub session: Option<String>,
 }
 
 /// # Errors
 ///
 /// When a kind or tier is unknown, or the index cannot be read.
-pub fn query_in(layout: &Layout, input: &QueryInput) -> Outcome<QueryOutcome> {
+pub fn query_in(
+    layout: &Layout,
+    input: &QueryInput,
+    origin: &QueryOrigin,
+) -> Outcome<QueryOutcome> {
+    let started = std::time::Instant::now();
+    let outcome = search(layout, input);
+    record_usage(
+        layout,
+        input,
+        origin,
+        outcome.as_ref().ok().map(|report| &report.value),
+        started.elapsed(),
+    );
+    outcome
+}
+
+fn record_usage(
+    layout: &Layout,
+    input: &QueryInput,
+    origin: &QueryOrigin,
+    found: Option<&QueryOutcome>,
+    took: Duration,
+) {
+    let Ok(conn) = rusqlite::Connection::open(layout.memory_db().as_std_path()) else {
+        return;
+    };
+    // A busy database drops the row rather than delaying the answer.
+    if conn.busy_timeout(Duration::from_millis(50)).is_err() {
+        return;
+    }
+    let filters = serde_json::json!({ "kind": input.kinds, "tier": input.tier, "tag": input.tag })
+        .to_string();
+    let (pages, observations) = found.map_or((0, 0), |o| (o.pages.len(), o.observations.len()));
+    let Ok(usage_id) = usage::record_query(
+        &conn,
+        &QueryRecord {
+            source: origin.source.to_owned(),
+            session: origin.session.clone(),
+            query: input.text.clone(),
+            filters: filters.clone(),
+            page_count: pages,
+            observation_count: observations,
+            duration_ms: u64::try_from(took.as_millis()).unwrap_or(u64::MAX),
+            error: found.is_none(),
+        },
+    ) else {
+        return;
+    };
+    if found.is_some() && pages == 0 {
+        let _ = usage::record_miss(
+            &conn,
+            &MemoryMiss {
+                kind: MemoryMissKind::Empty,
+                session: origin.session.clone(),
+                query: Some(input.text.clone()),
+                filters: Some(filters),
+                pattern: None,
+                usage_id: Some(usage_id),
+                fallback: observations > 0,
+            },
+        );
+    }
+}
+
+fn search(layout: &Layout, input: &QueryInput) -> Outcome<QueryOutcome> {
     let kinds = parse_kinds(&input.kinds)?;
     let tier = parse_tier(input.tier.as_deref())?;
     let limit = input.limit.clamp(1, MAX_LIMIT);

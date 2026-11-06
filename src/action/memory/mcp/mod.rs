@@ -7,7 +7,7 @@ mod tools;
 use serde_json::{Value, json};
 
 use crate::action::memory::lint::lint_in;
-use crate::action::memory::query::{QueryInput, query_in};
+use crate::action::memory::query::{QueryInput, QueryOrigin, query_in};
 use crate::action::memory::status::status_in;
 use crate::store::layout::Layout;
 use crate::store::memory::page_source::parse_page;
@@ -45,8 +45,20 @@ pub fn tool_definitions() -> Vec<Value> {
 ///
 /// The message the MCP answer carries as `isError`.
 pub fn call(layout: &Layout, name: &str, args: &Value) -> Result<String, String> {
+    call_as(layout, name, args, None)
+}
+
+/// # Errors
+///
+/// The message the MCP answer carries as `isError`.
+pub fn call_as(
+    layout: &Layout,
+    name: &str,
+    args: &Value,
+    session: Option<String>,
+) -> Result<String, String> {
     match name {
-        "memory_query" => query(layout, args),
+        "memory_query" => query(layout, args, session),
         "memory_status" => to_text(&status_in(layout).map_err(|failure| failure.what)?.value),
         "memory_read_page" => read_page(layout, args),
         "memory_recent" => observations::recent(layout, args),
@@ -67,7 +79,7 @@ fn string_arg(args: &Value, key: &str) -> Option<String> {
     args.get(key).and_then(Value::as_str).map(str::to_owned)
 }
 
-fn query(layout: &Layout, args: &Value) -> Result<String, String> {
+fn query(layout: &Layout, args: &Value, session: Option<String>) -> Result<String, String> {
     let text = string_arg(args, "query").ok_or("`memory_query` needs `query`")?;
     let kinds = args
         .get("kind")
@@ -99,9 +111,16 @@ fn query(layout: &Layout, args: &Value) -> Result<String, String> {
         explain: false,
     };
     to_text(
-        &query_in(layout, &input)
-            .map_err(|failure| failure.what)?
-            .value,
+        &query_in(
+            layout,
+            &input,
+            &QueryOrigin {
+                source: "mcp",
+                session,
+            },
+        )
+        .map_err(|failure| failure.what)?
+        .value,
     )
 }
 

@@ -268,7 +268,16 @@ fn query_in_answers_from_a_layout_without_a_ctx() {
         "# Teardown\nabout teardown\n",
     );
 
-    let outcome = query_in(&layout, &input("teardown")).unwrap().value;
+    let outcome = query_in(
+        &layout,
+        &input("teardown"),
+        &QueryOrigin {
+            source: "cli",
+            session: None,
+        },
+    )
+    .unwrap()
+    .value;
 
     assert_eq!(outcome.pages[0].path, "docs/memory/gotcha/teardown.md");
 }
@@ -355,4 +364,60 @@ fn a_kind_filter_leaves_the_anchors_source_out() {
         1,
         "anchors are listed even when filtered"
     );
+}
+
+fn usage_rows(layout: &Layout) -> Vec<(String, Option<String>, i64)> {
+    let db = crate::store::memory::db::MemoryDb::open(layout.memory_db().as_std_path()).unwrap();
+    let mut stmt = db
+        .conn()
+        .prepare("SELECT source, session, page_count FROM memory_usage ORDER BY id")
+        .unwrap();
+    stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect()
+}
+
+#[test]
+fn every_query_records_usage_and_an_empty_result_records_a_miss() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root.clone());
+    page(&layout, "docs/memory/gotcha/a.md", "# A\nabout teardown\n");
+
+    query_in(
+        &layout,
+        &input("teardown"),
+        &QueryOrigin {
+            source: "mcp",
+            session: Some("s1".into()),
+        },
+    )
+    .unwrap();
+    query_in(
+        &layout,
+        &input("nothingmatches"),
+        &QueryOrigin {
+            source: "cli",
+            session: None,
+        },
+    )
+    .unwrap();
+
+    assert_eq!(
+        usage_rows(&layout),
+        vec![
+            ("mcp".to_owned(), Some("s1".to_owned()), 1),
+            ("cli".to_owned(), None, 0),
+        ]
+    );
+    let db = crate::store::memory::db::MemoryDb::open(layout.memory_db().as_std_path()).unwrap();
+    let (kind, usage_id, fallback): (String, i64, i64) = db
+        .conn()
+        .query_row(
+            "SELECT kind, usage_id, fallback FROM memory_misses",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .unwrap();
+    assert_eq!((kind.as_str(), usage_id, fallback), ("empty", 2, 0));
 }

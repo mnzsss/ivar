@@ -12,3 +12,4 @@ pub mod retention;
 pub mod schema;
 pub mod split;
 pub mod spool;
+pub mod usage;
