@@ -398,3 +398,22 @@ fn a_full_rebuild_drops_the_anchors_of_a_page_deleted_from_disk() {
     assert_eq!(count(&layout, "SELECT count(*) FROM page_anchors"), 0);
     assert_eq!(count(&layout, "SELECT count(*) FROM pages"), 0);
 }
+
+#[test]
+fn the_human_report_names_the_anchored_pages() {
+    let report = ReindexReport {
+        indexed: 2,
+        unchanged: 1,
+        removed: 0,
+        anchored: 3,
+        invalid: Vec::new(),
+    };
+    let mut human = Vec::new();
+
+    report.write_human(&mut human).unwrap();
+
+    assert_eq!(
+        String::from_utf8(human).unwrap(),
+        "Indexed 2, unchanged 1, removed 0, anchored 3\n"
+    );
+}

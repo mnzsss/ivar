@@ -39,8 +39,8 @@ impl WriteHuman for ReindexReport {
     fn write_human(&self, w: &mut impl io::Write) -> io::Result<()> {
         write!(
             w,
-            "Indexed {}, unchanged {}, removed {}",
-            self.indexed, self.unchanged, self.removed
+            "Indexed {}, unchanged {}, removed {}, anchored {}",
+            self.indexed, self.unchanged, self.removed, self.anchored
         )?;
         if !self.invalid.is_empty() {
             write!(w, ", skipped {} invalid", self.invalid.len())?;

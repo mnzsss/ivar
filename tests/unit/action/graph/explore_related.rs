@@ -111,3 +111,29 @@ fn a_missing_memory_database_leaves_the_section_empty() {
         "explore never creates memory.db"
     );
 }
+
+#[test]
+fn related_memory_is_in_the_json_only_when_a_page_is_related() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = graph_with_one_file(dir.path());
+    let empty = explore(&db, dir.path(), "src/sessions.ts", None).unwrap();
+    assert!(
+        serde_json::to_value(&empty)
+            .unwrap()
+            .get("related_memory")
+            .is_none()
+    );
+
+    let file: &[AnchorRow] = &[("api", "src/sessions.ts", None)];
+    memory_with(
+        dir.path(),
+        &[("docs/memory/decision/b.md", "decision", "semantic", file)],
+    );
+    let related = explore(&db, dir.path(), "src/sessions.ts", None).unwrap();
+
+    let json = serde_json::to_value(&related).unwrap();
+    assert_eq!(
+        json["related_memory"][0]["path"],
+        "docs/memory/decision/b.md"
+    );
+}
