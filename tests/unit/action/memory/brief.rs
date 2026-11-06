@@ -49,6 +49,20 @@ fn nothing_to_show_renders_an_empty_string() {
 }
 
 #[test]
+fn a_schema_four_database_renders_empty_and_stays_unmigrated() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root);
+    crate::test_support::memory_db_at_schema_four(&layout.memory_db());
+    assert_eq!(render(&layout, &viewer("claude-code"), NOW).unwrap(), "");
+    assert_eq!(
+        MemoryDb::inspect(layout.memory_db().as_std_path())
+            .unwrap()
+            .schema_version,
+        4
+    );
+}
+
+#[test]
 fn a_missing_database_renders_empty_and_is_not_created() {
     let (_guard, root) = seeded_hall();
     let layout = Layout::at(root);

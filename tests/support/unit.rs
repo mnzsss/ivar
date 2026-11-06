@@ -119,6 +119,28 @@ pub(crate) fn enable_t3_host(root: &Utf8PathBuf, default: crate::domain::provide
     Manifest::write(&layout, &updated).unwrap();
 }
 
+/// Replaces the file at `path` with a hall memory database at schema 4, the
+/// last schema without the handoff and message queues, as an older ivar left it.
+pub(crate) fn memory_db_at_schema_four(path: &Utf8Path) {
+    use crate::store::memory::schema::{
+        APPLICATION_ID, MIGRATION_V1, MIGRATION_V2, MIGRATION_V3, MIGRATION_V4,
+    };
+    for suffix in ["", "-wal", "-shm"] {
+        let _ = std::fs::remove_file(format!("{path}{suffix}"));
+    }
+    let mut conn = rusqlite::Connection::open(path.as_std_path()).unwrap();
+    conn.execute_batch(&format!("PRAGMA application_id = {APPLICATION_ID};"))
+        .unwrap();
+    let tx = conn.transaction().unwrap();
+    for migration in [MIGRATION_V1, MIGRATION_V2, MIGRATION_V3, MIGRATION_V4] {
+        tx.execute_batch(migration).unwrap();
+    }
+    tx.execute("UPDATE memory_schema SET version = 4", [])
+        .unwrap();
+    tx.execute_batch("PRAGMA user_version = 4;").unwrap();
+    tx.commit().unwrap();
+}
+
 /// A canonicalised hall root with a freshly initialised hall named `acme`.
 ///
 /// Shared by every action-layer unit-test module that needs a real hall to

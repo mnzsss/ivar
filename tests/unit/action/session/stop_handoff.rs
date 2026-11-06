@@ -190,3 +190,28 @@ fn stop_without_a_memory_db_neither_warns_nor_creates_one() {
     assert!(!layout.memory_db().as_std_path().exists());
     unguard_worktrees(&root);
 }
+
+#[test]
+fn the_handoff_check_on_a_schema_four_memory_db_is_silent_and_does_not_migrate_it() {
+    let (_guard, root) = hall_with_detached_session();
+    let layout = Layout::at(root.clone());
+    let id = session_id_of(&root);
+    crate::test_support::memory_db_at_schema_four(&layout.memory_db());
+    rusqlite::Connection::open(layout.memory_db().as_std_path())
+        .unwrap()
+        .execute(
+            "INSERT INTO observations (event_id, source_event, occurred_at, session_id, native_session_id, provider, ivar_version, importance, body)
+             VALUES ('e1', 'session.tool', '2026-11-06T00:00:00Z', ?1, 'native', 'claude-code', '0', 2, '{}')",
+            [&id],
+        )
+        .unwrap();
+
+    assert!(handoff_missing(&layout, &id).is_none());
+    assert_eq!(
+        MemoryDb::inspect(layout.memory_db().as_std_path())
+            .unwrap()
+            .schema_version,
+        4
+    );
+    unguard_worktrees(&root);
+}

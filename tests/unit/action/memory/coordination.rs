@@ -505,3 +505,19 @@ fn claiming_and_cancelling_without_a_memory_db_leaves_none_behind() {
     assert_eq!(message_cancel, json!({"cancelled": 0}));
     assert!(!layout.memory_db().as_std_path().exists());
 }
+
+#[test]
+fn listing_handoffs_and_messages_from_a_schema_four_db_is_empty_and_leaves_it_unmigrated() {
+    let (_guard, layout) = hall_with_feature("login");
+    crate::test_support::memory_db_at_schema_four(&layout.memory_db());
+    let caller = session("s-1", "claude-code", Some("login"));
+
+    let handoffs = call(&layout, &caller, "memory_handoff_list", json!({}));
+    let messages = call(&layout, &caller, "memory_message_list", json!({}));
+
+    assert_eq!(handoffs["handoffs"], json!([]));
+    assert_eq!(messages["messages"], json!([]));
+    let inspection =
+        crate::store::memory::db::MemoryDb::inspect(layout.memory_db().as_std_path()).unwrap();
+    assert_eq!(inspection.schema_version, 4);
+}

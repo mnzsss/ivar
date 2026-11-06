@@ -60,6 +60,24 @@ pub fn open_read_only(path: &Path) -> rusqlite::Result<Connection> {
     )
 }
 
+/// The first schema with the `handoffs` and `messages` tables.
+const COORDINATION_SCHEMA_VERSION: i64 = 5;
+
+/// Opens an existing `memory.db` read-only for its handoff and message
+/// queues: `None` when the file is absent or predates them, since a read
+/// never migrates.
+///
+/// # Errors
+///
+/// Returns the `SQLite` error when the file exists but cannot be read.
+pub fn open_coordination_read_only(path: &Path) -> rusqlite::Result<Option<Connection>> {
+    if !path.exists() {
+        return Ok(None);
+    }
+    let conn = open_read_only(path)?;
+    Ok((stored_version(&conn)? >= COORDINATION_SCHEMA_VERSION).then_some(conn))
+}
+
 impl MemoryDb {
     /// Opens or creates the memory database at `path`, migrates it to
     /// [`MEMORY_SCHEMA_VERSION`] and drops objects an older ivar left in it.

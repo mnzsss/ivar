@@ -365,30 +365,15 @@ fn schema_three_migrates_to_four_with_anchor_and_usage_tables() {
 #[test]
 fn schema_four_migrates_to_five_with_coordination_tables_and_keeps_observations() {
     let (_dir, path) = temp_db();
-    {
-        let mut conn = Connection::open(&path).unwrap();
-        conn.execute_batch(&format!("PRAGMA application_id = {APPLICATION_ID};"))
-            .unwrap();
-        let tx = conn.transaction().unwrap();
-        for migration in [
-            crate::store::memory::schema::MIGRATION_V1,
-            crate::store::memory::schema::MIGRATION_V2,
-            crate::store::memory::schema::MIGRATION_V3,
-            crate::store::memory::schema::MIGRATION_V4,
-        ] {
-            tx.execute_batch(migration).unwrap();
-        }
-        tx.execute("UPDATE memory_schema SET version = 4", [])
-            .unwrap();
-        tx.execute_batch("PRAGMA user_version = 4;").unwrap();
-        tx.execute(
+    crate::test_support::memory_db_at_schema_four(camino::Utf8Path::from_path(&path).unwrap());
+    Connection::open(&path)
+        .unwrap()
+        .execute(
             "INSERT INTO observations (event_id, source_event, occurred_at, native_session_id, provider, ivar_version, importance, body)
              VALUES ('e1', 'session.tool', '2026-11-06T00:00:00Z', 'n1', 'claude-code', '0.18.0', 2, '{}')",
             [],
         )
         .unwrap();
-        tx.commit().unwrap();
-    }
 
     let db = MemoryDb::open(&path).unwrap();
 

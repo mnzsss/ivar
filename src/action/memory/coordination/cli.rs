@@ -6,7 +6,9 @@ use serde::Serialize;
 use serde_json::{Value, json};
 
 use super::handoff::{self, render};
-use super::{CoordinationCaller, UNTRUSTED_NOTICE, now_secs, open_existing};
+use super::{
+    CoordinationCaller, UNTRUSTED_NOTICE, now_secs, open_existing, open_existing_read_only,
+};
 use crate::action::memory::events::{MemoryEventScope, report_memory_event};
 use crate::action::{Ctx, discover_hall};
 use crate::domain::coordination::{Owner, Queue, Viewer};
@@ -16,7 +18,6 @@ use crate::domain::observation::SourceEvent;
 use crate::error::{Failure, Outcome, Report, WriteHuman};
 use crate::store::layout::Layout;
 use crate::store::memory::coordination;
-use crate::store::memory::db::open_read_only;
 
 const CLI_OWNER: &str = "cli";
 const SUMMARY_WIDTH: usize = 80;
@@ -130,19 +131,17 @@ pub fn list_from_cli(ctx: &Ctx, feature: Option<&str>, hall: bool) -> Outcome<Ha
         (None, true) => Some(Queue::Hall),
         (None, false) => None,
     };
-    let path = layout.memory_db();
-    let handoffs: Vec<Value> = if path.exists() {
-        let conn = open_read_only(path.as_std_path())
-            .map_err(|error| db_unavailable(error.to_string()))?;
-        coordination::open_handoffs(&conn, now_secs())
-            .map_err(|error| db_unavailable(error.to_string()))?
-            .iter()
-            .filter(|handoff| filter.as_ref().is_none_or(|queue| *queue == handoff.queue))
-            .map(render)
-            .collect()
-    } else {
-        Vec::new()
-    };
+    let handoffs: Vec<Value> =
+        if let Some(conn) = open_existing_read_only(&layout).map_err(db_unavailable)? {
+            coordination::open_handoffs(&conn, now_secs())
+                .map_err(|error| db_unavailable(error.to_string()))?
+                .iter()
+                .filter(|handoff| filter.as_ref().is_none_or(|queue| *queue == handoff.queue))
+                .map(render)
+                .collect()
+        } else {
+            Vec::new()
+        };
     Ok(Report::new(HandoffCliOutput(
         json!({ "handoffs": handoffs, "notice": UNTRUSTED_NOTICE }),
     )))
