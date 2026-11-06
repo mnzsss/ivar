@@ -21,10 +21,13 @@ pub enum SourceEvent {
     DeliveryCleaned,
     DeliveryClosed,
     DeliveryDeleted,
+    MemoryPageWritten,
+    MemoryReviewed,
+    MemoryReviewSkipped,
 }
 
 impl SourceEvent {
-    pub const ALL: [Self; 15] = [
+    pub const ALL: [Self; 18] = [
         Self::SessionStarted,
         Self::SessionPrompted,
         Self::SessionTool,
@@ -40,6 +43,9 @@ impl SourceEvent {
         Self::DeliveryCleaned,
         Self::DeliveryClosed,
         Self::DeliveryDeleted,
+        Self::MemoryPageWritten,
+        Self::MemoryReviewed,
+        Self::MemoryReviewSkipped,
     ];
 
     #[must_use]
@@ -60,6 +66,9 @@ impl SourceEvent {
             Self::DeliveryCleaned => "delivery.cleaned",
             Self::DeliveryClosed => "delivery.closed",
             Self::DeliveryDeleted => "delivery.deleted",
+            Self::MemoryPageWritten => "memory.page_written",
+            Self::MemoryReviewed => "memory.reviewed",
+            Self::MemoryReviewSkipped => "memory.review_skipped",
         }
     }
 
@@ -151,6 +160,21 @@ impl Importance {
     #[must_use]
     pub const fn delivery_routine() -> Self {
         Self(4)
+    }
+
+    #[must_use]
+    pub const fn memory_page_written() -> Self {
+        Self(4)
+    }
+
+    #[must_use]
+    pub const fn memory_reviewed() -> Self {
+        Self(5)
+    }
+
+    #[must_use]
+    pub const fn memory_review_skipped() -> Self {
+        Self(7)
     }
 }
 

@@ -73,3 +73,33 @@ fn debug_of_an_observation_never_prints_the_body() {
     assert!(!printed.contains("secret-body-text"), "{printed}");
     assert!(printed.contains("e1"), "{printed}");
 }
+
+#[test]
+fn memory_events_round_trip_and_carry_their_fixed_importance() {
+    let expected = [
+        (SourceEvent::MemoryPageWritten, "memory.page_written", 4),
+        (SourceEvent::MemoryReviewed, "memory.reviewed", 5),
+        (SourceEvent::MemoryReviewSkipped, "memory.review_skipped", 7),
+    ];
+    let importance = [
+        Importance::memory_page_written(),
+        Importance::memory_reviewed(),
+        Importance::memory_review_skipped(),
+    ];
+    for ((event, name, level), importance) in expected.into_iter().zip(importance) {
+        assert_eq!(event.as_str(), name);
+        assert_eq!(SourceEvent::parse(name), Some(event));
+        assert_eq!(importance.get(), level, "{name}");
+    }
+}
+
+#[test]
+fn all_lists_every_event_once() {
+    let names: std::collections::BTreeSet<&str> = SourceEvent::ALL
+        .iter()
+        .map(|event| event.as_str())
+        .collect();
+    assert_eq!(names.len(), SourceEvent::ALL.len());
+    assert_eq!(SourceEvent::ALL.len(), 18);
+    assert!(names.contains("memory.review_skipped"));
+}
