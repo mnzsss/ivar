@@ -1,6 +1,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use rstest::rstest;
+use std::collections::BTreeMap;
 use std::time::Duration;
 
 use super::*;
@@ -11,6 +12,13 @@ fn base() -> AgentFrontmatter {
         tool: Some("claude".to_owned()),
         ..AgentFrontmatter::default()
     }
+}
+
+fn env_of(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
+    pairs
+        .iter()
+        .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
+        .collect()
 }
 
 #[test]
@@ -84,6 +92,19 @@ fn image_and_command_override_the_tool() {
 #[case::write_escaping("a", AgentFrontmatter { runtime: Runtime::Host, write: vec!["brand/../..".into()], ..base() }, "write")]
 #[case::write_empty("a", AgentFrontmatter { runtime: Runtime::Host, write: vec![String::new()], ..base() }, "write")]
 #[case::write_other_users_home("a", AgentFrontmatter { runtime: Runtime::Host, write: vec!["~root/x".into()], ..base() }, "write")]
+#[case::env_on_docker("a", AgentFrontmatter { env: env_of(&[("TMPDIR", "/tmp")]), ..base() }, "env")]
+#[case::env_lowercase("a", AgentFrontmatter { runtime: Runtime::Host, env: env_of(&[("tmpdir", "/tmp")]), ..base() }, "env")]
+#[case::env_path("a", AgentFrontmatter { runtime: Runtime::Host, env: env_of(&[("PATH", "/x")]), ..base() }, "env")]
+#[case::env_home("a", AgentFrontmatter { runtime: Runtime::Host, env: env_of(&[("HOME", "/x")]), ..base() }, "env")]
+#[case::env_git("a", AgentFrontmatter { runtime: Runtime::Host, env: env_of(&[("GIT_DIR", "/x")]), ..base() }, "env")]
+#[case::env_tool_state("a", AgentFrontmatter { runtime: Runtime::Host, env: env_of(&[("CLAUDE_CONFIG_DIR", "/x")]), ..base() }, "env")]
+#[case::env_codex_home("a", AgentFrontmatter { runtime: Runtime::Host, env: env_of(&[("CODEX_HOME", "/x")]), ..base() }, "env")]
+#[case::env_xdg_data("a", AgentFrontmatter { runtime: Runtime::Host, env: env_of(&[("XDG_DATA_HOME", "/x")]), ..base() }, "env")]
+#[case::env_xdg_state("a", AgentFrontmatter { runtime: Runtime::Host, env: env_of(&[("XDG_STATE_HOME", "/x")]), ..base() }, "env")]
+#[case::env_xdg_config("a", AgentFrontmatter { runtime: Runtime::Host, env: env_of(&[("XDG_CONFIG_HOME", "/x")]), ..base() }, "env")]
+#[case::env_xdg_cache("a", AgentFrontmatter { runtime: Runtime::Host, env: env_of(&[("XDG_CACHE_HOME", "/x")]), ..base() }, "env")]
+#[case::env_opencode_config("a", AgentFrontmatter { runtime: Runtime::Host, env: env_of(&[("OPENCODE_CONFIG_CONTENT", "{}")]), ..base() }, "env")]
+#[case::env_secret("a", AgentFrontmatter { runtime: Runtime::Host, secrets: vec!["TOKEN".into()], env: env_of(&[("TOKEN", "x")]), ..base() }, "env")]
 fn names_the_failing_field(#[case] name: &str, #[case] fm: AgentFrontmatter, #[case] field: &str) {
     let error = AgentSpec::from_parts(name, fm, "").expect_err("invalid");
     assert_eq!(error.field, field, "{}", error.reason);
@@ -226,6 +247,51 @@ fn an_agent_without_write_lists_none() {
         AgentSpec::from_parts("nightly", base(), "")
             .unwrap()
             .write
+            .is_empty()
+    );
+}
+
+#[test]
+fn a_host_agent_carries_its_env() {
+    let pairs = [
+        ("TMPDIR", "/tmp"),
+        ("XDG_CURRENT_DESKTOP", "KDE"),
+        ("_X1", "y"),
+    ];
+    let fm = AgentFrontmatter {
+        runtime: Runtime::Host,
+        env: env_of(&pairs),
+        ..base()
+    };
+    assert_eq!(
+        AgentSpec::from_parts("nightly", fm, "").unwrap().env,
+        env_of(&pairs)
+    );
+}
+
+#[test]
+fn reserved_env_covers_every_variable_a_tool_is_confined_by() {
+    for tool in [Tool::Claude, Tool::Codex, Tool::Opencode] {
+        let names = tool
+            .state_env(Utf8Path::new("/state"))
+            .into_iter()
+            .chain(tool.env())
+            .map(|(name, _)| name);
+        for name in names {
+            assert!(
+                RESERVED_ENV.contains(&name.as_str()),
+                "{name} is not reserved"
+            );
+        }
+    }
+}
+
+#[test]
+fn an_agent_without_env_has_none() {
+    assert!(
+        AgentSpec::from_parts("nightly", base(), "")
+            .unwrap()
+            .env
             .is_empty()
     );
 }
