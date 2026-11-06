@@ -296,3 +296,34 @@ fn confirming_through_the_tool_records_the_review_for_the_callers_feature() {
         ReviewState::Reviewed { .. }
     ));
 }
+
+#[test]
+fn the_human_review_names_each_list_and_the_last_confirmation() {
+    let (_guard, root) = hall_with_promoted(&["api"]);
+    let layout = Layout::at(root.clone());
+    confirm_in(
+        &layout,
+        &scope(),
+        &checkout(),
+        &[],
+        Some("internal refactor".to_owned()),
+    )
+    .unwrap();
+
+    let report =
+        crate::action::memory::review::review(&Ctx::new(root), Some("checkout".to_owned()))
+            .unwrap()
+            .value;
+    let mut out = Vec::new();
+    report.write_human(&mut out).unwrap();
+    let text = String::from_utf8(out).unwrap();
+
+    assert!(text.starts_with("memory review of `checkout`\n"), "{text}");
+    assert!(text.contains("written: none"), "{text}");
+    assert!(
+        text.contains("gap update: no update page was written in `checkout`"),
+        "{text}"
+    );
+    assert!(text.contains("stale: none"), "{text}");
+    assert!(text.contains("last: memory.reviewed at "), "{text}");
+}

@@ -35,6 +35,11 @@ pub enum MemoryCommand {
     Reindex,
     /// Check the pages under docs/memory against the page rules. Exits non-zero when any rule is broken.
     Lint,
+    /// Show what a feature wrote to memory, its gaps and the pages its diff may have made stale, plus the last review. Read-only: confirm with the memory_review MCP tool.
+    Review {
+        /// Feature to review. Defaults to the session's feature.
+        feature: Option<String>,
+    },
     /// Record one session hook event into the capture spool. Always exits 0 and prints nothing.
     Capture {
         /// Provider whose hook payload arrives on stdin; without one nothing is recorded.

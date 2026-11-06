@@ -9,8 +9,9 @@ use serde_json::{Value, json};
 
 use super::drain;
 use super::events::{MemoryEventScope, record_memory_event};
+use crate::action::feature::select::resolve_single_feature;
 use crate::action::feature::{base, relations};
-use crate::action::read_manifest;
+use crate::action::{Ctx, discover_hall, read_manifest};
 use crate::domain::feature::{Feature, Gate, GateState, WorktreeState};
 use crate::domain::memory_review::{
     Gap, ObservationFact, StalePage, Verdict, WrittenPage, gaps, missing_verdicts, stale_pages,
@@ -18,7 +19,7 @@ use crate::domain::memory_review::{
 };
 use crate::domain::name::FeatureName;
 use crate::domain::observation::SourceEvent;
-use crate::error::{Failure, FixAction, Report};
+use crate::error::{Failure, FixAction, Outcome, Report, WriteHuman};
 use crate::git::{self, Git};
 use crate::store::layout::Layout;
 use crate::store::memory::anchors::{anchored_files, attach_graph, broken_anchors, detach_graph};
@@ -53,6 +54,56 @@ pub enum ReviewState {
     Reviewed { heads: BTreeMap<String, String> },
     Skipped,
     Missing,
+}
+
+/// # Errors
+///
+/// Outside a hall, for an unknown feature, or when memory cannot be read.
+pub fn review(ctx: &Ctx, feature: Option<String>) -> Outcome<ReviewReport> {
+    let layout = discover_hall(ctx)?;
+    let name = resolve_single_feature(ctx, feature, "Select a feature to review")?;
+    review_in(&layout, &FeatureName::new(name)?)
+}
+
+impl WriteHuman for ReviewReport {
+    fn write_human(&self, out: &mut impl std::io::Write) -> std::io::Result<()> {
+        writeln!(out, "memory review of `{}`", self.feature)?;
+        if self.written.is_empty() {
+            writeln!(out, "written: none")?;
+        }
+        for page in &self.written {
+            writeln!(
+                out,
+                "written: {} ({:?}, {:?})",
+                page.path, page.action, page.source
+            )?;
+        }
+        for gap in &self.gaps {
+            let kind = serde_json::to_value(gap.kind)
+                .ok()
+                .and_then(|value| value.as_str().map(str::to_owned))
+                .unwrap_or_default();
+            writeln!(out, "gap {kind}: {}", gap.detail)?;
+        }
+        if self.stale.is_empty() {
+            writeln!(out, "stale: none")?;
+        }
+        for page in &self.stale {
+            writeln!(
+                out,
+                "stale: {} ({} reason(s))",
+                page.path,
+                page.reasons.len()
+            )?;
+        }
+        for warning in &self.warnings {
+            writeln!(out, "warning: {warning}")?;
+        }
+        match &self.last {
+            Some(last) => writeln!(out, "last: {} at {}", last.source_event, last.occurred_at),
+            None => writeln!(out, "last: never reviewed"),
+        }
+    }
 }
 
 /// # Errors

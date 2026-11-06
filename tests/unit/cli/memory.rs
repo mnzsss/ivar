@@ -85,3 +85,19 @@ fn memory_lint_parses_with_json() {
     let cli = Cli::try_parse_from(["ivar", "memory", "lint", "--json"]).unwrap();
     assert!(matches!(cli.command, Command::Memory(MemoryCommand::Lint)));
 }
+
+#[test]
+fn memory_review_parses_with_and_without_a_feature() {
+    let named = Cli::try_parse_from(["ivar", "memory", "review", "checkout", "--json"]).unwrap();
+    let Command::Memory(MemoryCommand::Review { feature }) = named.command else {
+        panic!("expected memory review");
+    };
+    assert_eq!(feature.as_deref(), Some("checkout"));
+    assert!(named.json);
+
+    let bare = Cli::try_parse_from(["ivar", "memory", "review"]).unwrap();
+    assert!(matches!(
+        bare.command,
+        Command::Memory(MemoryCommand::Review { feature: None })
+    ));
+}
