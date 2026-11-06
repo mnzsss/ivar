@@ -1,6 +1,8 @@
 //! The whole environment of a `runtime: host` run: built from nothing, so a
 //! credential the parent holds reaches the tool only when it is listed here.
 
+use std::collections::BTreeMap;
+
 use camino::Utf8Path;
 
 use super::tool::Tool;
@@ -14,6 +16,7 @@ fn is_kept(key: &str) -> bool {
 pub fn host_env(
     parent: &[(String, String)],
     tmpdir: &str,
+    extra: &BTreeMap<String, String>,
     secrets: &[(String, String)],
     tool: Tool,
     state: &Utf8Path,
@@ -36,6 +39,8 @@ pub fn host_env(
         ]
         .map(|(k, v)| (k.to_owned(), v.to_owned())),
     );
+    env.retain(|(key, _)| !extra.contains_key(key));
+    env.extend(extra.iter().map(|(k, v)| (k.clone(), v.clone())));
     env.extend(secrets.iter().cloned());
     env.extend(tool.env());
     env.extend(tool.state_env(state));
