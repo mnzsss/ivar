@@ -354,7 +354,7 @@ pub fn related_pages(
     limit: usize,
 ) -> rusqlite::Result<Vec<RelatedPage>> {
     let mut stmt = conn.prepare(
-        "SELECT p.path, p.kind, p.title, p.tier, a.repo, a.path, a.symbol
+        "SELECT p.path, p.kind, p.title, p.tier, a.repo, a.path
            FROM page_anchors a JOIN pages p ON p.path = a.page_path
           WHERE a.page_path LIKE ?1
             AND (p.expires_at IS NULL OR p.expires_at > strftime('%Y-%m-%dT%H:%M:%SZ','now'))",
@@ -369,12 +369,11 @@ pub fn related_pages(
             },
             r.get::<_, String>(3)?,
             (r.get::<_, String>(4)?, r.get::<_, String>(5)?),
-            r.get::<_, Option<String>>(6)?,
         ))
     })?;
     let mut pages: BTreeMap<String, (RelatedPage, f64)> = BTreeMap::new();
     for row in rows {
-        let (page, tier, file, _) = row?;
+        let (page, tier, file) = row?;
         if !files.contains(&file) {
             continue;
         }
