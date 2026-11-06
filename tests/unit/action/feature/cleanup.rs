@@ -351,6 +351,8 @@ mod branches;
 mod events;
 #[path = "cleanup/forge.rs"]
 mod forge;
+#[path = "cleanup/memory_review.rs"]
+mod memory_review;
 #[path = "cleanup/parents.rs"]
 mod parents;
 #[path = "cleanup/preview.rs"]

@@ -141,7 +141,7 @@ fn sample_record() -> CleanupRecord {
                 approved: true,
                 at: "2026-08-28T12:00:00Z".to_owned(),
             },
-            documentation: DocumentationApproval {
+            documentation: Some(DocumentationApproval {
                 decision: DocumentationDecision::Written,
                 paths: vec![
                     Utf8PathBuf::from("docs/memory/product/003-x.md"),
@@ -149,7 +149,7 @@ fn sample_record() -> CleanupRecord {
                 ],
                 reason: None,
                 at: "2026-08-28T12:05:00Z".to_owned(),
-            },
+            }),
             teardown: TeardownApproval {
                 approved: true,
                 at: "2026-08-28T12:10:00Z".to_owned(),
@@ -171,15 +171,15 @@ fn cleanup_record_serde_roundtrip() {
 #[test]
 fn cleanup_record_rejects_unsupported_schema_version() {
     let mut record = sample_record();
-    record.schema_version = 2;
+    record.schema_version = 3;
     let err = record.validate().unwrap_err();
-    assert!(err.contains("unsupported schema_version `2`"));
+    assert!(err.contains("unsupported schema_version `3`"));
 }
 
 #[test]
 fn cleanup_record_documentation_written_rules() {
     let mut record = sample_record();
-    record.approvals.documentation.paths = Vec::new();
+    record.approvals.documentation.as_mut().unwrap().paths = Vec::new();
     assert!(
         record
             .validate()
@@ -188,7 +188,7 @@ fn cleanup_record_documentation_written_rules() {
     );
 
     let mut record = sample_record();
-    record.approvals.documentation.reason = Some("reason".to_owned());
+    record.approvals.documentation.as_mut().unwrap().reason = Some("reason".to_owned());
     assert!(
         record
             .validate()
@@ -200,15 +200,18 @@ fn cleanup_record_documentation_written_rules() {
 #[test]
 fn cleanup_record_documentation_not_required_rules() {
     let mut record = sample_record();
-    record.approvals.documentation.decision = DocumentationDecision::NotRequired;
-    record.approvals.documentation.reason = Some("Internal refactoring".to_owned());
-    record.approvals.documentation.paths = Vec::new();
+    record.approvals.documentation.as_mut().unwrap().decision = DocumentationDecision::NotRequired;
+    record.approvals.documentation.as_mut().unwrap().reason =
+        Some("Internal refactoring".to_owned());
+    record.approvals.documentation.as_mut().unwrap().paths = Vec::new();
     assert!(record.validate().is_ok());
 
     let mut record = sample_record();
-    record.approvals.documentation.decision = DocumentationDecision::NotRequired;
-    record.approvals.documentation.reason = Some("Internal refactoring".to_owned());
-    record.approvals.documentation.paths = vec![Utf8PathBuf::from("docs/memory/product/003-x.md")];
+    record.approvals.documentation.as_mut().unwrap().decision = DocumentationDecision::NotRequired;
+    record.approvals.documentation.as_mut().unwrap().reason =
+        Some("Internal refactoring".to_owned());
+    record.approvals.documentation.as_mut().unwrap().paths =
+        vec![Utf8PathBuf::from("docs/memory/product/003-x.md")];
     assert!(
         record
             .validate()
@@ -217,9 +220,9 @@ fn cleanup_record_documentation_not_required_rules() {
     );
 
     let mut record = sample_record();
-    record.approvals.documentation.decision = DocumentationDecision::NotRequired;
-    record.approvals.documentation.reason = None;
-    record.approvals.documentation.paths = Vec::new();
+    record.approvals.documentation.as_mut().unwrap().decision = DocumentationDecision::NotRequired;
+    record.approvals.documentation.as_mut().unwrap().reason = None;
+    record.approvals.documentation.as_mut().unwrap().paths = Vec::new();
     assert!(
         record
             .validate()
@@ -231,11 +234,13 @@ fn cleanup_record_documentation_not_required_rules() {
 #[test]
 fn cleanup_record_rejects_non_hall_relative_documentation_paths() {
     let mut record = sample_record();
-    record.approvals.documentation.paths = vec![Utf8PathBuf::from("plans/x/plan.md")];
+    record.approvals.documentation.as_mut().unwrap().paths =
+        vec![Utf8PathBuf::from("plans/x/plan.md")];
     assert!(record.validate().unwrap_err().contains("not hall-relative"));
 
     let mut record = sample_record();
-    record.approvals.documentation.paths = vec![Utf8PathBuf::from("docs/../plans/x/plan.md")];
+    record.approvals.documentation.as_mut().unwrap().paths =
+        vec![Utf8PathBuf::from("docs/../plans/x/plan.md")];
     assert!(record.validate().unwrap_err().contains("not hall-relative"));
 }
 

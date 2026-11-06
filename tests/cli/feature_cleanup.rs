@@ -21,6 +21,7 @@ const PR_URL: &str = "https://github.com/acme/pull/1";
 fn preview_with_pr_state(state: &str) -> serde_json::Value {
     let (guard, root) = hall_root();
     setup_deliver_hall(&root);
+    crate::common::record_memory_review(&root, "checkout");
     let fake = FakeGh::install(&root);
     let bare: Utf8PathBuf = root.join(".ivar/repos/api/.bare");
     fake.set_existing_pr(&bare, "checkout", PR_URL, "main", state);
@@ -88,6 +89,7 @@ fn an_open_pull_request_keeps_the_blocker_and_names_the_forge_reason() {
 fn a_parent_and_its_abandoned_subfeature_are_cleaned_up_with_one_record() {
     let (guard, root) = hall_root();
     setup_deliver_hall(&root);
+    crate::common::record_memory_review(&root, "checkout");
     let fake = FakeGh::install(&root);
     let bare: Utf8PathBuf = root.join(".ivar/repos/api/.bare");
     fake.set_existing_pr(&bare, "checkout", PR_URL, "main", "MERGED");
