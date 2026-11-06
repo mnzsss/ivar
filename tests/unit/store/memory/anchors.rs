@@ -244,3 +244,51 @@ fn a_repo_prefixed_path_is_extracted_whole_and_stored_under_its_repo() {
         vec![anchor("ivar", "src/a.rs", None)]
     );
 }
+
+#[test]
+fn anchored_files_lists_each_durable_page_file_pair_once() {
+    let mut f = fixture();
+    f.memory
+        .conn()
+        .execute_batch(
+            "INSERT INTO pages (path, kind, tier, title, size, mtime_ns, content_hash, indexed_at) VALUES
+               ('docs/memory/decision/a.md', 'decision', 'semantic', 'A', 1, 1, 'h', 't'),
+               ('docs/memory/gotcha/b.md', 'gotcha', 'semantic', 'B', 1, 1, 'h', 't'),
+               ('.ivar/memory/session/s.md', 'session', 'episodic', 'S', 1, 1, 'h', 't');",
+        )
+        .unwrap();
+    let tx = f.memory.conn_mut().transaction().unwrap();
+    replace_anchors(
+        &tx,
+        "docs/memory/decision/a.md",
+        &[
+            anchor("ivar", "src/a.rs", None),
+            anchor("ivar", "src/a.rs", Some("open")),
+        ],
+    )
+    .unwrap();
+    replace_anchors(
+        &tx,
+        "docs/memory/gotcha/b.md",
+        &[anchor("web", "src/b.ts", None)],
+    )
+    .unwrap();
+    replace_anchors(
+        &tx,
+        ".ivar/memory/session/s.md",
+        &[anchor("ivar", "src/a.rs", None)],
+    )
+    .unwrap();
+    tx.commit().unwrap();
+
+    let files = [("ivar".to_owned(), "src/a.rs".to_owned())];
+
+    assert_eq!(
+        anchored_files(f.memory.conn(), &files).unwrap(),
+        vec![(
+            "docs/memory/decision/a.md".to_owned(),
+            "ivar".to_owned(),
+            "src/a.rs".to_owned()
+        )]
+    );
+}

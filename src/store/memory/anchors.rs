@@ -410,6 +410,41 @@ pub fn related_pages(
     Ok(out.into_iter().take(limit).map(|(p, _)| p).collect())
 }
 
+/// The `(page_path, repo, path)` of every unexpired durable page anchored to
+/// one of `files`, once per pair, sorted.
+///
+/// # Errors
+///
+/// Returns the `SQLite` error.
+pub fn anchored_files(
+    conn: &Connection,
+    files: &[(String, String)],
+) -> rusqlite::Result<Vec<(String, String, String)>> {
+    let wanted: BTreeSet<&(String, String)> = files.iter().collect();
+    let mut stmt = conn.prepare(
+        "SELECT DISTINCT a.page_path, a.repo, a.path
+           FROM page_anchors a JOIN pages p ON p.path = a.page_path
+          WHERE a.page_path LIKE ?1
+            AND (p.expires_at IS NULL OR p.expires_at > strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+          ORDER BY a.page_path, a.repo, a.path",
+    )?;
+    let rows = stmt.query_map([format!("{MEMORY_DOCS_PREFIX}%")], |r| {
+        Ok((
+            r.get::<_, String>(0)?,
+            r.get::<_, String>(1)?,
+            r.get::<_, String>(2)?,
+        ))
+    })?;
+    let mut out = Vec::new();
+    for row in rows {
+        let (page, repo, path) = row?;
+        if wanted.contains(&(repo.clone(), path.clone())) {
+            out.push((page, repo, path));
+        }
+    }
+    Ok(out)
+}
+
 #[cfg(test)]
 #[path = "../../../tests/unit/store/memory/anchors.rs"]
 mod tests;
