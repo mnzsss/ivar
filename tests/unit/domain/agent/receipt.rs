@@ -201,3 +201,24 @@ fn telegram_text_omits_a_zero_or_unreadable_duration() {
     assert!(timed(instant, instant, None).ends_with("\nh · manual · r1"));
     assert!(timed("t", instant, None).ends_with("\nh · manual · r1"));
 }
+
+#[test]
+fn the_webhook_summary_names_the_scheduled_time_only_for_an_agent_task() {
+    let mut receipt = AgentRunReceipt::skipped(
+        "r".into(),
+        "recheck".into(),
+        Trigger::Schedule,
+        "2026-11-08T12:00:03.000000000Z".into(),
+    );
+    let plain = serde_json::to_value(receipt.notify_summary("h")).unwrap();
+    assert!(plain.get("scheduled_at").is_none());
+
+    receipt.scheduled_at = Some("2026-11-08T09:00".into());
+    let task = serde_json::to_value(receipt.notify_summary("h")).unwrap();
+    assert_eq!(task["scheduled_at"], "2026-11-08T09:00");
+    assert_eq!(task["started_at"], "2026-11-08T12:00:03.000000000Z");
+
+    let stored: AgentRunReceipt =
+        serde_json::from_str(&serde_json::to_string(&receipt).unwrap()).unwrap();
+    assert_eq!(stored, receipt);
+}

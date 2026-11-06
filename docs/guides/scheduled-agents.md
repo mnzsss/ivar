@@ -24,7 +24,8 @@ ivar runs no process of its own between runs. Linux with systemd only.
 
 | Field | Default | Rule |
 | --- | --- | --- |
-| `schedule` | required | 5-field cron, or `@hourly`, `@daily`, `@weekly`, `@monthly`, `@yearly`; refused when day-of-month and day-of-week are both set |
+| `schedule` | required, unless `at` is set | 5-field cron, or `@hourly`, `@daily`, `@weekly`, `@monthly`, `@yearly`; refused when day-of-month and day-of-week are both set |
+| `at` | — | makes the file an [Agent Task](#agent-tasks): one run at an absolute time. Replaces `schedule` (refused together) and refuses `catchup` |
 | `tool` | — | `codex`, `claude` or `opencode`; required unless `image` is set |
 | `model` | tool default | passed to the tool unchanged |
 | `image` + `command` | — | run your own image and argv instead of `tool` |
@@ -37,15 +38,90 @@ ivar runs no process of its own between runs. Linux with systemd only.
 | `secrets` | `[]` | names (`^[A-Z][A-Z0-9_]*$`) read from `.ivar/secrets/agents.env` |
 | `notify` | — | `http(s)://` URL that receives a JSON run summary, or `telegram:<chat_id>` to message a Telegram chat (see [Telegram](#telegram)) |
 | `timeout` | `30m` | `90s`, `45m`, `2h`; at most `24h` |
-| `catchup` | `false` | `true`: when the machine was off or asleep at the scheduled time, run once as soon as the timer is active again, however many runs were missed. Sets `Persistent=true` on the timer; run `ivar agent sync` after changing it |
+| `catchup` | `false` | recurring agents only. `true`: when the machine was off or asleep at the scheduled time, run once as soon as the timer is active again, however many runs were missed. Sets `Persistent=true` on the timer; run `ivar agent sync` after changing it |
+
+## Agent Tasks
+
+An Agent Task is an agent file with `at:` instead of `schedule:`. It runs once,
+from its timer, at an absolute time, and then moves to `agents/done/`. Use it
+for a deferred check: "look at this again in two days". It is unrelated to the
+tasks in a feature plan.
+
+`agents/recheck-prices.md`:
+
+    ---
+    at: 2026-11-08T09:00
+    tool: claude
+    network: [api.anthropic.com]
+    notify: telegram:-1001234567890
+    ---
+    Check whether the vendor changed the price of the Pro plan. Report only the change.
+
+`at` is an ISO 8601 date and time with minute precision, with no seconds:
+
+- `2026-11-08T09:00` is local time on the machine that runs the timer.
+- `2026-11-08T09:00-03:00` (or `…Z`) carries its own offset, so it names the same
+  instant everywhere.
+- Relative values such as `2d` are refused: work out the date and write it.
+
+Every other field works as in a recurring agent (`access`, `runtime`, `network`,
+`secrets`, `notify`, `timeout`, `workdir`). `schedule` and `catchup` cannot be
+combined with `at`.
+
+### What `ivar agent sync` does
+
+- It writes a one-shot systemd timer with `OnCalendar=` set to the resolved time and
+  `Persistent=true` always, so a machine that was off or asleep at that time runs the
+  task when it comes back; this is the recovery after downtime, and needs no `catchup`.
+- It ignores `agents/done/` as a source of agents.
+- It removes the timer and service of every concluded task, which is how a finished
+  task's unit goes away.
+- When `at` is already in the past, it starts the task right away as a timer run and
+  says so (`fired now`). It does the same for a task that is still pending after its
+  timer elapsed, for example one that ended `skipped`. A time that falls in a clock
+  change and that `date` cannot place is not fired by guesswork; fix the `at`.
+
+### Rehearsal versus timer run
+
+Only a run fired by the timer concludes a task, whatever its outcome except `skipped`:
+`succeeded`, `failed`, `blocked` and `timed_out` all conclude it. A `skipped` run (the
+previous run was still going) never ran, so the task stays pending.
+
+`ivar agent run <name>` is a rehearsal. It runs the same path, writes a receipt and
+notifies, but the task stays pending and its timer is untouched. A rehearsal's receipt
+carries `trigger: manual`.
+
+There is no automatic retry. A task that `failed` is concluded; copy it back from
+`agents/done/` to `agents/` with a new `at` to run it again.
+
+### Conclusion
+
+When a timer run concludes a task:
+
+- The file moves to `agents/done/<name>.<at as YYYY-MM-DDTHHMM>.md`, for example
+  `agents/done/recheck-prices.2026-11-08T0900.md`. If that name exists, the run id is
+  appended (`<name>.<at>.<run-id>.md`). An existing file is never overwritten. The time
+  in the name is the `at` as written, with no offset.
+- The receipt and the `notify` message show the scheduled time and the real one
+  (`scheduled 2026-11-08T09:00 · ran 2026-11-08T12:00:03…Z`). The receipt keeps the
+  scheduled time in `scheduled_at`, and a webhook summary carries it too.
+- An `agent_task.concluded` observation goes through the memory spool, like the
+  delivery events, and reaches `memory.db` on the next drain. Its body holds the task
+  `name`, `at`, `ran_at`, `outcome`, `run_id` and the `output_tail`. It is a plain
+  event with no prompt origin, so no session treats it as something the user said.
+- If the file cannot be moved, the receipt is still written and the command warns with
+  `agent.task_not_concluded`; the task stays pending and no observation is recorded.
+
+`ivar agent status` lists each pending task with its time and the resolved
+`OnCalendar` value. Concluded tasks are not listed.
 
 ## Commands
 
 | Command | Does |
 | --- | --- |
 | `ivar agent sync` | installs, updates and removes the systemd user timers for `agents/*.md` |
-| `ivar agent status` | schedule, next run, last outcome and timer state per agent |
-| `ivar agent run <name>` | runs now, through the same path the timer uses |
+| `ivar agent status` | schedule (or the pending `at` of a task), next run, last outcome and timer state per agent |
+| `ivar agent run <name>` | runs now, through the same path the timer uses; for an Agent Task it is a rehearsal and the task stays pending |
 | `ivar agent logs <name> [--run <id>]` | output of the latest or given run |
 | `ivar agent feedback <run-id> --rating up [--comment <text>]` | records your verdict on the run; `--rating` is `up` or `down` |
 | `ivar agent notify telegram setup` | asks for the bot token, finds the chat, sends a test message and sets `notify` on the agents you pick |
@@ -148,7 +224,9 @@ for an agent you would not trust with your home directory.
 `succeeded`, `failed`, `blocked` (the tool asked for input, and the run is
 stopped at once; or the run declared it, see below), `skipped` (the previous
 run was still going), `timed_out`. Receipts live in
-`.ivar/agents/runs/<agent>/<run-id>.json`.
+`.ivar/agents/runs/<agent>/<run-id>.json`. For an Agent Task, every outcome
+except `skipped` concludes it when the timer fired the run; see
+[Agent Tasks](#agent-tasks).
 
 ### Declaring an outcome
 
@@ -200,4 +278,6 @@ For `runtime: host` agents it checks instead that the tool is on `PATH`
 and its receipt is `failed`. Docker is not checked when no agent uses it.
 
 An agent file that fails to load when its timer fires writes no receipt;
-its error is only in the systemd journal: `journalctl --user -u <unit>`.
+its error is only in the systemd journal: `journalctl --user -u <unit>`. An
+Agent Task in that state stays pending, and its timer has already elapsed:
+fix the file and run `ivar agent sync`, which fires it.

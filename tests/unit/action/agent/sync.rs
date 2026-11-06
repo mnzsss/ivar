@@ -14,6 +14,31 @@ fn rootless() -> Option<bool> {
     Some(true)
 }
 
+/// 2026-11-06T12:00:00Z, the moment every sync test runs at.
+const NOW: i64 = 1_793_966_400;
+
+/// A machine whose local time is UTC.
+fn utc_wall(wall: &str) -> Option<i64> {
+    let (date, time) = wall.split_once(' ')?;
+    let [y, mo, d] = date
+        .split('-')
+        .map(|n| n.parse::<i64>().ok())
+        .collect::<Option<Vec<_>>>()?[..]
+    else {
+        return None;
+    };
+    let [h, mi] = time
+        .split(':')
+        .map(|n| n.parse::<i64>().ok())
+        .collect::<Option<Vec<_>>>()?[..]
+    else {
+        return None;
+    };
+    Some(crate::domain::session::epoch_secs_from_civil(
+        y, mo, d, h, mi,
+    ))
+}
+
 fn env(unit_dir: Utf8PathBuf) -> SyncEnv<'static> {
     SyncEnv {
         unit_dir,
@@ -27,6 +52,10 @@ fn env(unit_dir: Utf8PathBuf) -> SyncEnv<'static> {
             docker_rootless: &rootless,
             tool_on_path: &|_| true,
             landlock: &yes,
+        },
+        clock: Clock {
+            now_secs: NOW,
+            local_epoch_secs: &utc_wall,
         },
     }
 }
@@ -181,4 +210,177 @@ fn a_host_agent_that_writes_proc_syncs_with_a_warning() {
     };
     assert!(warning.what.contains("`chrome`"));
     assert!(warning.what.contains("ptrace"));
+}
+
+fn task(root: &Utf8PathBuf, name: &str, at: &str) {
+    let dir = root.join("agents");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join(format!("{name}.md")),
+        format!("---\nat: {at}\ntool: claude\n---\nLook again.\n"),
+    )
+    .unwrap();
+}
+
+fn timer_of(units: &Utf8PathBuf, root: &Utf8PathBuf, name: &str) -> String {
+    let hash = hall_hash(&Layout::at(root.clone()));
+    std::fs::read_to_string(units.join(format!("ivar-agent-{hash}-{name}.timer"))).unwrap()
+}
+
+#[test]
+fn a_future_task_gets_a_one_shot_persistent_timer_and_waits() {
+    let (_guard, root) = seeded_hall();
+    let units = root.join("units");
+    let fake = FakeSystemctl::install(&root);
+    let _r = fake_systemctl_on_this_thread(&fake);
+    task(&root, "local", "2026-11-08T09:00");
+    task(&root, "offset", "2026-11-08T09:00-03:00");
+
+    let outcome = sync_with(&Ctx::new(root.clone()), &env(units.clone()))
+        .unwrap()
+        .value;
+    assert_eq!(outcome.created, ["local", "offset"]);
+    assert!(outcome.fired.is_empty());
+
+    let local = timer_of(&units, &root, "local");
+    assert!(
+        local.contains("OnCalendar=2026-11-08 09:00:00\n"),
+        "{local}"
+    );
+    assert!(local.contains("Persistent=true\n"), "{local}");
+    let offset = timer_of(&units, &root, "offset");
+    assert!(
+        offset.contains("OnCalendar=2026-11-08 12:00:00 UTC\n"),
+        "{offset}"
+    );
+    assert!(offset.contains("Persistent=true\n"), "{offset}");
+    assert!(!fake.log().contains("start"), "{}", fake.log());
+}
+
+#[test]
+fn a_past_task_fires_immediately_as_a_timer_run_and_says_so() {
+    let (_guard, root) = seeded_hall();
+    let units = root.join("units");
+    let fake = FakeSystemctl::install(&root);
+    let _r = fake_systemctl_on_this_thread(&fake);
+    let hash = hall_hash(&Layout::at(root.clone()));
+    task(&root, "overdue", "2026-11-05T09:00");
+    task(&root, "overdue-offset", "2026-11-06T08:00-03:00");
+    task(&root, "later", "2026-11-06T12:01");
+
+    let report = sync_with(&Ctx::new(root.clone()), &env(units.clone())).unwrap();
+    let outcome = report.value;
+    assert_eq!(outcome.fired, ["overdue-offset", "overdue"]);
+    let log = fake.log();
+    assert!(log.contains(&format!(
+        "--user start --no-block ivar-agent-{hash}-overdue.service"
+    )));
+    assert!(!log.contains("later.service"), "{log}");
+    let service =
+        std::fs::read_to_string(units.join(format!("ivar-agent-{hash}-overdue.service"))).unwrap();
+    assert!(
+        service.contains("agent run overdue --trigger schedule"),
+        "{service}"
+    );
+    let mut human = Vec::new();
+    outcome.write_human(&mut human).unwrap();
+    let human = String::from_utf8(human).unwrap();
+    assert!(human.contains("fired now"), "{human}");
+    assert!(human.contains("overdue-offset, overdue"), "{human}");
+}
+
+#[test]
+fn a_task_due_exactly_now_is_fired() {
+    let (_guard, root) = seeded_hall();
+    let fake = FakeSystemctl::install(&root);
+    let _r = fake_systemctl_on_this_thread(&fake);
+    task(&root, "now", "2026-11-06T12:00");
+    let outcome = sync_with(&Ctx::new(root.clone()), &env(root.join("units")))
+        .unwrap()
+        .value;
+    assert_eq!(outcome.fired, ["now"]);
+}
+
+#[test]
+fn done_tasks_are_no_source_and_their_timers_are_removed() {
+    let (_guard, root) = seeded_hall();
+    let units = root.join("units");
+    let fake = FakeSystemctl::install(&root);
+    let _r = fake_systemctl_on_this_thread(&fake);
+    let ctx = Ctx::new(root.clone());
+    let hash = hall_hash(&Layout::at(root.clone()));
+    task(&root, "recheck", "2026-11-08T09:00");
+    agent(&root, "keep", "@daily");
+    sync_with(&ctx, &env(units.clone())).unwrap();
+
+    let done = root.join("agents/done");
+    std::fs::create_dir_all(&done).unwrap();
+    std::fs::rename(
+        root.join("agents/recheck.md"),
+        done.join("recheck.2026-11-08T0900.md"),
+    )
+    .unwrap();
+    let second = sync_with(&ctx, &env(units.clone())).unwrap().value;
+
+    assert_eq!(second.removed, ["recheck"]);
+    assert_eq!(second.unchanged, ["keep"]);
+    assert!(second.fired.is_empty());
+    assert!(
+        !units
+            .join(format!("ivar-agent-{hash}-recheck.timer"))
+            .exists()
+    );
+    assert!(
+        !units
+            .join(format!("ivar-agent-{hash}-recheck.service"))
+            .exists()
+    );
+    assert!(fake.log().contains(&format!(
+        "--user disable --now ivar-agent-{hash}-recheck.timer"
+    )));
+}
+
+#[test]
+fn a_file_in_agents_done_that_would_not_validate_is_ignored() {
+    let (_guard, root) = seeded_hall();
+    let fake = FakeSystemctl::install(&root);
+    let _r = fake_systemctl_on_this_thread(&fake);
+    agent(&root, "keep", "@daily");
+    std::fs::create_dir_all(root.join("agents/done")).unwrap();
+    std::fs::write(root.join("agents/done/broken.md"), "not frontmatter").unwrap();
+    let outcome = sync_with(&Ctx::new(root.clone()), &env(root.join("units")))
+        .unwrap()
+        .value;
+    assert_eq!(outcome.created, ["keep"]);
+}
+
+#[test]
+fn an_unplaceable_local_time_is_not_fired_by_guesswork() {
+    let (_guard, root) = seeded_hall();
+    let fake = FakeSystemctl::install(&root);
+    let _r = fake_systemctl_on_this_thread(&fake);
+    task(&root, "gap", "2026-03-08T02:30");
+    let mut e = env(root.join("units"));
+    e.clock.local_epoch_secs = &|_| None;
+    let outcome = sync_with(&Ctx::new(root.clone()), &e).unwrap().value;
+    assert!(outcome.fired.is_empty());
+}
+
+#[test]
+fn a_due_task_whose_run_is_still_going_is_not_started_again() {
+    let (_guard, root) = seeded_hall();
+    let fake = FakeSystemctl::install(&root);
+    let _r = fake_systemctl_on_this_thread(&fake);
+    task(&root, "busy", "2026-11-05T09:00");
+    task(&root, "idle", "2026-11-05T09:00");
+    let _held = crate::infra::fs::try_lock_exclusive(&Layout::at(root.clone()).agent_lock("busy"))
+        .unwrap()
+        .unwrap();
+
+    let outcome = sync_with(&Ctx::new(root.clone()), &env(root.join("units")))
+        .unwrap()
+        .value;
+
+    assert_eq!(outcome.fired, ["idle"]);
+    assert!(!fake.log().contains("busy.service"), "{}", fake.log());
 }

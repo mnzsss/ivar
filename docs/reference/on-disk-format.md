@@ -32,7 +32,8 @@ half-understood state file is worse than no state file.
   .ivar/skills-local/           local        personal skills, plus disabled.json (skills you turned off)
   .ivar/setups/<repo>.sh        committed    per-repo worktree bootstrap
   .ivar/setups/<repo>.session.sh committed   per-repo session hook
-  agents/<name>.md              committed    scheduled agent definitions
+  agents/<name>.md              committed    scheduled agent definitions (recurring, or an Agent Task with `at:`)
+  agents/done/<name>.<at>.md    committed    concluded Agent Tasks, moved here by `ivar` (never overwritten)
   .ivar/agents/                 local        agent run receipts, run locks and host agents' state
   .ivar/agents/state/<agent>/<tool>/ local   a host agent's private copy of the tool's login, mode 700
   .ivar/secrets/agents.env      local        agent secrets, NAME=value, mode 600
@@ -154,7 +155,8 @@ The migration is local, restartable, and never changes a repository or remote.
 ## Agent run receipts (`.ivar/agents/runs/<agent>/<run-id>.json`)
 
 Local, `Policy::Local`, `version: 1`. Fields: `run_id`, `agent`, `trigger`
-(`schedule`|`manual`), `started_at`, `ended_at`, `outcome`, `exit_code`,
+(`schedule`|`manual`), `started_at`, `ended_at`, `scheduled_at` (an Agent Task's
+`at`), `outcome`, `exit_code`,
 `output` (secrets redacted), `diff`, `cost_usd`, `delivery_fingerprint`,
 `delivery_error`, `notify_error`, `feedback` (`rating`, `comment`,
 `recorded_at`). Absent optional fields are omitted. See

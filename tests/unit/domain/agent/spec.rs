@@ -28,7 +28,7 @@ fn a_minimal_agent_defaults_to_read_access_and_thirty_minutes() {
     assert_eq!(spec.timeout, DEFAULT_TIMEOUT);
     assert!(!spec.catchup);
     assert_eq!(
-        spec.schedule.on_calendar(),
+        spec.schedule().unwrap().on_calendar(),
         "Mon,Tue,Wed,Thu,Fri *-*-* 09:00:00"
     );
     assert_eq!(
@@ -293,5 +293,73 @@ fn an_agent_without_env_has_none() {
             .unwrap()
             .env
             .is_empty()
+    );
+}
+
+fn task() -> AgentFrontmatter {
+    AgentFrontmatter {
+        schedule: None,
+        at: Some("2026-11-08T09:00".to_owned()),
+        ..base()
+    }
+}
+
+#[test]
+fn an_agent_task_takes_a_local_or_offset_minute() {
+    let local = AgentSpec::from_parts("recheck", task(), "Look again.\n").unwrap();
+    assert!(local.is_task());
+    assert!(local.schedule().is_none());
+    assert_eq!(local.at().unwrap().to_string(), "2026-11-08T09:00");
+    let offset = AgentFrontmatter {
+        at: Some("2026-11-08T09:00-03:00".to_owned()),
+        ..task()
+    };
+    let spec = AgentSpec::from_parts("recheck", offset, "").unwrap();
+    assert_eq!(spec.at().unwrap().on_calendar(), "2026-11-08 12:00:00 UTC");
+    assert!(
+        !AgentSpec::from_parts("nightly", base(), "")
+            .unwrap()
+            .is_task()
+    );
+}
+
+#[test]
+fn an_agent_task_refuses_relative_times_and_the_wrong_companions() {
+    let relative = AgentFrontmatter {
+        at: Some("2d".to_owned()),
+        ..task()
+    };
+    let error = AgentSpec::from_parts("recheck", relative, "").unwrap_err();
+    assert_eq!(error.field, "at");
+    assert!(error.reason.contains("relative"), "{}", error.reason);
+
+    let both = AgentFrontmatter {
+        schedule: Some("@daily".to_owned()),
+        ..task()
+    };
+    assert_eq!(
+        AgentSpec::from_parts("recheck", both, "")
+            .unwrap_err()
+            .field,
+        "at"
+    );
+
+    let catchup = AgentFrontmatter {
+        catchup: true,
+        ..task()
+    };
+    assert_eq!(
+        AgentSpec::from_parts("recheck", catchup, "")
+            .unwrap_err()
+            .field,
+        "catchup"
+    );
+
+    let neither = AgentFrontmatter { at: None, ..task() };
+    assert_eq!(
+        AgentSpec::from_parts("recheck", neither, "")
+            .unwrap_err()
+            .field,
+        "schedule"
     );
 }

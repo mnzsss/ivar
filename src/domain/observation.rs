@@ -30,10 +30,11 @@ pub enum SourceEvent {
     HandoffExpired,
     MessageSent,
     MessagePopped,
+    AgentTaskConcluded,
 }
 
 impl SourceEvent {
-    pub const ALL: [Self; 24] = [
+    pub const ALL: [Self; 25] = [
         Self::SessionStarted,
         Self::SessionPrompted,
         Self::SessionTool,
@@ -58,6 +59,7 @@ impl SourceEvent {
         Self::HandoffExpired,
         Self::MessageSent,
         Self::MessagePopped,
+        Self::AgentTaskConcluded,
     ];
 
     #[must_use]
@@ -87,6 +89,7 @@ impl SourceEvent {
             Self::HandoffExpired => "handoff.expired",
             Self::MessageSent => "message.sent",
             Self::MessagePopped => "message.popped",
+            Self::AgentTaskConcluded => "agent_task.concluded",
         }
     }
 
@@ -224,6 +227,12 @@ impl Importance {
     pub const fn message_popped() -> Self {
         Self(4)
     }
+
+    /// A task that did not succeed outranks one that did, like a delivery failure.
+    #[must_use]
+    pub const fn agent_task_concluded(succeeded: bool) -> Self {
+        if succeeded { Self(4) } else { Self(7) }
+    }
 }
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -306,6 +315,12 @@ pub fn merged_event_id(repo: &str, url: &str, merge_commit: &str) -> String {
     digest(&format!(
         "delivery.merged\u{1f}{repo}\u{1f}{url}\u{1f}{merge_commit}"
     ))
+}
+
+/// One row per concluded run, so a replayed spool line inserts nothing twice.
+#[must_use]
+pub fn agent_task_event_id(agent: &str, run_id: &str) -> String {
+    digest(&format!("agent_task.concluded\u{1f}{agent}\u{1f}{run_id}"))
 }
 
 #[cfg(test)]

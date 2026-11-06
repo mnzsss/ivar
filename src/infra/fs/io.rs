@@ -198,6 +198,28 @@ pub fn rename(from: &Utf8Path, to: &Utf8Path) -> Result<(), Error> {
     })
 }
 
+/// Move the file `from` to `to`, failing when `to` already exists.
+///
+/// `rename(2)` replaces an existing destination, so this links `from` at `to`
+/// first (which is atomic and refuses to replace) and only then removes `from`.
+/// Both paths must be on one filesystem.
+///
+/// # Errors
+///
+/// Returns [`Error`] if `to` exists or `from` cannot be linked or removed.
+pub fn rename_no_replace(from: &Utf8Path, to: &Utf8Path) -> Result<(), Error> {
+    fs_err::hard_link(from.as_std_path(), to.as_std_path()).map_err(|source| Error::Rename {
+        from: from.to_owned(),
+        to: to.to_owned(),
+        source,
+    })?;
+    fs_err::remove_file(from.as_std_path()).map_err(|source| Error::Rename {
+        from: from.to_owned(),
+        to: to.to_owned(),
+        source,
+    })
+}
+
 /// List the entries of a directory, sorted, so callers get a deterministic
 /// order regardless of what the OS handed back.
 /// # Errors

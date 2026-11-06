@@ -62,6 +62,16 @@ pub fn enable_now(unit: &str) -> Result<(), Failure> {
     run(&["enable", "--now", unit])
 }
 
+/// Queues a start and returns without waiting for the unit to finish, which
+/// for a oneshot service would be the whole agent run.
+///
+/// # Errors
+///
+/// `systemd.command_failed` when the start cannot be queued.
+pub fn start_no_block(unit: &str) -> Result<(), Failure> {
+    run(&["start", "--no-block", unit])
+}
+
 /// # Errors
 ///
 /// `systemd.command_failed` when the unit cannot be disabled and stopped.

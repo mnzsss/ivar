@@ -90,3 +90,30 @@ fn a_real_hall_and_agent_name_keep_the_whole_prompt() {
         "{prompt}"
     );
 }
+
+#[test]
+fn an_agent_task_card_carries_the_scheduled_and_the_real_time() {
+    let mut task = receipt("found nothing");
+    task.trigger = Trigger::Schedule;
+    task.started_at = "2026-11-08T12:00:03.000000000Z".into();
+    task.scheduled_at = Some("2026-11-08T09:00-03:00".into());
+
+    let html = task.notify_summary("valhalla-hall").telegram_html();
+    assert!(
+        html.contains(
+            "\n<i>scheduled 2026-11-08T09:00-03:00 · ran 2026-11-08T12:00:03.000000000Z</i>"
+        ),
+        "{html}"
+    );
+    let text = task.notify_summary("valhalla-hall").telegram_text();
+    assert!(
+        text.contains("\nscheduled 2026-11-08T09:00-03:00 · ran 2026-11-08T12:00:03.000000000Z"),
+        "{text}"
+    );
+    assert!(
+        !receipt("x")
+            .notify_summary("h")
+            .telegram_text()
+            .contains("scheduled")
+    );
+}

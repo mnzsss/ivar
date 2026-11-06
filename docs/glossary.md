@@ -267,6 +267,14 @@ keystroke reaches the focused shell.
 **Agent** — a file in `agents/` that ivar schedules as a systemd user timer and
 runs in a container. See [Scheduled agents](guides/scheduled-agents.md).
 
+**Recurring agent** — an agent with `schedule:`: its timer fires on every match
+of the cron expression, and its file stays in `agents/`.
+
+**Agent Task** — an agent with `at:` instead of `schedule:`: it runs once, from its
+timer, at an absolute time, and then its file moves to `agents/done/`. It serves
+deferred checks. Unrelated to the tasks of a feature plan. See
+[Agent Tasks](guides/scheduled-agents.md#agent-tasks).
+
 **Agent run** — one execution of an agent; not a Session.
 
 **Agent run receipt** — the JSON record of one agent run, under

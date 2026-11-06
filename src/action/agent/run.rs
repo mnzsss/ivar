@@ -5,6 +5,7 @@ use std::io;
 use camino::{Utf8Path, Utf8PathBuf};
 use uuid::Uuid;
 
+use super::conclude;
 use super::feature_access::{self, Delivered};
 use super::notify;
 use crate::action::{Ctx, discover_hall, read_manifest};
@@ -17,7 +18,7 @@ use crate::domain::agent::receipt::{
 };
 use crate::domain::agent::spec::{Access, AgentSpec, Launch, Runtime};
 use crate::domain::session::rfc3339_now;
-use crate::error::{Failure, Outcome, Report, WriteHuman};
+use crate::error::{Failure, Outcome, Report, Warning, WriteHuman};
 use crate::infra::proc::{self, Finished};
 use crate::infra::{docker, fs};
 use crate::store;
@@ -188,15 +189,27 @@ fn completed(
     receipt
 }
 
-/// The single point that records a run.
+/// The single point that records a run, and concludes an Agent Task's.
 pub(crate) fn finish(
     layout: &Layout,
     spec: &AgentSpec,
     mut receipt: AgentRunReceipt,
 ) -> Outcome<AgentRunReceipt> {
+    receipt.scheduled_at = spec.at().map(|at| at.to_string());
     notify::deliver(layout, spec, &mut receipt);
     store::agent::write_receipt(layout, &receipt)?;
-    Ok(Report::new(receipt))
+    let mut report = Report::new(receipt);
+    if conclude::concludes(spec, &report.value) {
+        match conclude::move_to_done(layout, spec, &report.value.run_id) {
+            Ok(_) => conclude::report_concluded(layout, spec, &report.value),
+            Err(failure) => report.warn(Warning::new(
+                "agent.task_not_concluded",
+                &spec.name,
+                failure.what,
+            )),
+        }
+    }
+    Ok(report)
 }
 
 fn workspace_for(

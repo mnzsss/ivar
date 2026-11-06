@@ -43,3 +43,12 @@ fn ownership_needs_this_halls_exact_marker() {
         "ivar-agent-1a2b3c4d-nightly"
     );
 }
+
+#[test]
+fn a_task_timer_is_one_shot_and_always_persistent() {
+    let timer = render_once_timer("abcd1234", "recheck", "2026-11-08 12:00:00 UTC");
+    assert!(timer.contains("OnCalendar=2026-11-08 12:00:00 UTC\n"));
+    assert!(timer.contains("Persistent=true\n"));
+    assert!(timer.contains("Unit=ivar-agent-abcd1234-recheck.service\n"));
+    assert!(owned_by(&timer, "abcd1234"));
+}
