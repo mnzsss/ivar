@@ -4,7 +4,7 @@ use serde_json::{Value, json};
 
 use super::{
     CoordinationCaller, UNTRUSTED_NOTICE, address_json, clean_field, now_secs, open_db,
-    open_existing_read_only, parse_address, queue_json, resolve_queue, ttl_days,
+    open_existing, open_existing_read_only, parse_address, queue_json, resolve_queue, ttl_days,
 };
 use crate::action::memory::events::report_memory_event;
 use crate::domain::coordination::{Message, MessageState, NewMessage};
@@ -120,7 +120,9 @@ pub fn list(layout: &Layout, caller: &CoordinationCaller, args: &Value) -> Resul
 /// When the memory database cannot be opened, read or updated.
 pub fn pop(layout: &Layout, caller: &CoordinationCaller, args: &Value) -> Result<Value, String> {
     let now = now_secs();
-    let db = open_db(layout)?;
+    let Some(db) = open_existing(layout)? else {
+        return Ok(json!({ "status": "none_pending" }));
+    };
     let target = match args.get("message_id").and_then(Value::as_str) {
         Some(id) => {
             match coordination::get_message(db.conn(), id).map_err(|error| error.to_string())? {
@@ -172,8 +174,11 @@ pub fn pop(layout: &Layout, caller: &CoordinationCaller, args: &Value) -> Result
 ///
 /// When the memory database cannot be opened or updated.
 pub fn cancel(layout: &Layout, caller: &CoordinationCaller, args: &Value) -> Result<Value, String> {
+    let Some(db) = open_existing(layout)? else {
+        return Ok(json!({ "cancelled": 0 }));
+    };
     let cancelled = coordination::cancel_messages(
-        open_db(layout)?.conn(),
+        db.conn(),
         &caller.owner.key,
         args.get("message_id").and_then(Value::as_str),
         now_secs(),

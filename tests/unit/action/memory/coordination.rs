@@ -478,3 +478,30 @@ fn listing_handoffs_and_messages_without_a_memory_db_leaves_none_behind() {
     assert_eq!(messages["messages"], json!([]));
     assert!(!layout.memory_db().as_std_path().exists());
 }
+
+#[test]
+fn claiming_and_cancelling_without_a_memory_db_leaves_none_behind() {
+    let (_guard, layout) = hall_with_feature("login");
+    let _ = std::fs::remove_file(layout.memory_db().as_std_path());
+    let caller = session("s-1", "claude-code", Some("login"));
+
+    let accepted = call(&layout, &caller, "memory_handoff_accept", json!({}));
+    let popped = call(&layout, &caller, "memory_message_pop", json!({}));
+    let handoff_cancel = call_as(
+        &layout,
+        "memory_handoff_cancel",
+        &json!({"handoff_id": "nope"}),
+        &caller,
+    )
+    .unwrap_err();
+    let message_cancel = call(&layout, &caller, "memory_message_cancel", json!({}));
+
+    assert_eq!(accepted["status"], "none_pending");
+    assert_eq!(popped["status"], "none_pending");
+    assert_eq!(
+        handoff_cancel,
+        "handoff `nope` is not open, does not exist, or is not yours"
+    );
+    assert_eq!(message_cancel, json!({"cancelled": 0}));
+    assert!(!layout.memory_db().as_std_path().exists());
+}

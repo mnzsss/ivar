@@ -105,3 +105,15 @@ fn listing_an_unknown_feature_is_refused_like_the_mcp_list() {
         failure.what
     );
 }
+
+#[test]
+fn cancelling_without_a_memory_db_reports_no_open_handoff_and_does_not_create_it() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root.clone());
+    let _ = std::fs::remove_file(layout.memory_db().as_std_path());
+
+    let failure = cancel_from_cli(&Ctx::new(root), "nope").unwrap_err();
+
+    assert_eq!(failure.code, "memory.handoff_not_open");
+    assert!(!layout.memory_db().exists());
+}

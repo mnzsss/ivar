@@ -149,6 +149,19 @@ pub fn open_db(layout: &Layout) -> Result<MemoryDb, String> {
     MemoryDb::open(layout.memory_db().as_std_path()).map_err(|error| error.to_string())
 }
 
+/// The hall memory database, or `None` when it does not exist; never creates it.
+///
+/// # Errors
+///
+/// When the database exists but cannot be opened.
+pub fn open_existing(layout: &Layout) -> Result<Option<MemoryDb>, String> {
+    if layout.memory_db().exists() {
+        open_db(layout).map(Some)
+    } else {
+        Ok(None)
+    }
+}
+
 /// The hall memory database opened read-only, or `None` when it does not
 /// exist; never creates it.
 ///

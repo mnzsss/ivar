@@ -4,7 +4,7 @@ use serde_json::{Value, json};
 
 use super::{
     CoordinationCaller, UNTRUSTED_NOTICE, address_json, clean_field, clean_list, now_secs, open_db,
-    open_existing_read_only, parse_address, queue_json, resolve_queue, ttl_days,
+    open_existing, open_existing_read_only, parse_address, queue_json, resolve_queue, ttl_days,
 };
 use crate::action::memory::events::report_memory_event;
 use crate::domain::coordination::{Handoff, HandoffState, NewHandoff, Queue, Viewer};
@@ -123,7 +123,9 @@ pub fn begin(layout: &Layout, caller: &CoordinationCaller, args: &Value) -> Resu
 /// When the memory database cannot be opened, read or updated.
 pub fn accept(layout: &Layout, caller: &CoordinationCaller, args: &Value) -> Result<Value, String> {
     let now = now_secs();
-    let db = open_db(layout)?;
+    let Some(db) = open_existing(layout)? else {
+        return Ok(json!({ "status": "none_pending" }));
+    };
     let target = match args.get("handoff_id").and_then(Value::as_str) {
         Some(id) => match coordination::get_handoff(db.conn(), id)
             .map_err(|error| error.to_string())?
@@ -177,13 +179,13 @@ pub fn cancel(layout: &Layout, caller: &CoordinationCaller, args: &Value) -> Res
         .get("handoff_id")
         .and_then(Value::as_str)
         .ok_or("`handoff_id` is required")?;
-    let cancelled = coordination::cancel_handoff(
-        open_db(layout)?.conn(),
-        id,
-        Some(&caller.owner.key),
-        now_secs(),
-    )
-    .map_err(|error| error.to_string())?;
+    let cancelled = match open_existing(layout)? {
+        Some(db) => {
+            coordination::cancel_handoff(db.conn(), id, Some(&caller.owner.key), now_secs())
+                .map_err(|error| error.to_string())?
+        }
+        None => false,
+    };
     if !cancelled {
         return Err(format!(
             "handoff `{id}` is not open, does not exist, or is not yours"

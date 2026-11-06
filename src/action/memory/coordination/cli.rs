@@ -6,7 +6,7 @@ use serde::Serialize;
 use serde_json::{Value, json};
 
 use super::handoff::{self, render};
-use super::{CoordinationCaller, UNTRUSTED_NOTICE, now_secs, open_db};
+use super::{CoordinationCaller, UNTRUSTED_NOTICE, now_secs, open_existing};
 use crate::action::memory::events::{MemoryEventScope, report_memory_event};
 use crate::action::{Ctx, discover_hall};
 use crate::domain::coordination::{Owner, Queue, Viewer};
@@ -153,10 +153,12 @@ pub fn list_from_cli(ctx: &Ctx, feature: Option<&str>, hall: bool) -> Outcome<Ha
 /// When the hall cannot be found, the memory database cannot be written, or no open handoff has this id.
 pub fn cancel_from_cli(ctx: &Ctx, id: &str) -> Outcome<HandoffCliOutput> {
     let layout = discover_hall(ctx)?;
-    let db = open_db(&layout).map_err(db_unavailable)?;
-    if !coordination::cancel_handoff(db.conn(), id, None, now_secs())
-        .map_err(|error| db_unavailable(error.to_string()))?
-    {
+    let cancelled = match open_existing(&layout).map_err(db_unavailable)? {
+        Some(db) => coordination::cancel_handoff(db.conn(), id, None, now_secs())
+            .map_err(|error| db_unavailable(error.to_string()))?,
+        None => false,
+    };
+    if !cancelled {
         return Err(Failure::blocked(
             "memory.handoff_not_open",
             format!("no open handoff `{id}`"),
