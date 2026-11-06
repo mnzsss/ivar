@@ -459,17 +459,23 @@ fn the_heads_survive_a_review_body_cut_at_the_sanitize_limit() {
         &layout,
         &scope(),
         SourceEvent::MemoryReviewed,
-        &json!({"heads": {"api": "abc123"}, "gaps": ["update"], "written": written}),
+        &json!({"heads": {"api": "abc123"}, "gaps": ["update"], "stale": ["docs/memory/decision/s.md"], "written": written}),
     )
     .unwrap();
     crate::action::memory::drain::drain(&layout).unwrap();
 
+    let heads: std::collections::BTreeMap<String, String> =
+        [("api".to_owned(), "abc123".to_owned())]
+            .into_iter()
+            .collect();
     assert_eq!(
         review_state(&layout, &checkout()).unwrap(),
         ReviewState::Reviewed {
-            heads: [("api".to_owned(), "abc123".to_owned())]
-                .into_iter()
-                .collect()
+            heads: heads.clone()
         }
     );
+    let last = review_in(&layout, &checkout()).unwrap().value.last.unwrap();
+    assert_eq!(last.heads, heads);
+    assert!(last.written.is_empty(), "{last:?}");
+    assert!(last.stale.is_empty(), "{last:?}");
 }
