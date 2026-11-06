@@ -7,6 +7,7 @@ use crate::action::{Ctx, discover_hall};
 use crate::domain::memory_page::PageIssueCode;
 use crate::error::{Outcome, Report, WriteHuman};
 use crate::store::layout::Layout;
+use crate::store::memory::anchors;
 use crate::store::memory::page_source::{parse_page, validate_page};
 
 #[derive(Debug, Clone, Serialize)]
@@ -25,7 +26,7 @@ pub struct LintOutcome {
 impl LintOutcome {
     #[must_use]
     pub fn has_errors(&self) -> bool {
-        !self.issues.is_empty()
+        self.issues.iter().any(|issue| issue.severity == "error")
     }
 }
 
@@ -72,6 +73,7 @@ pub fn lint_in(layout: &Layout) -> Vec<LintIssue> {
             found.extend(broken_links(layout, &file.rel, &page.body));
         }
     }
+    found.extend(broken_anchor_warnings(layout));
     found
 }
 
@@ -83,6 +85,44 @@ pub fn lint(ctx: &Ctx) -> Outcome<LintOutcome> {
     Ok(Report::new(LintOutcome {
         issues: lint_in(&layout),
     }))
+}
+
+fn broken_anchor_warnings(layout: &Layout) -> Vec<LintIssue> {
+    if !layout.graph_db().exists() || !layout.memory_db().exists() {
+        return Vec::new();
+    }
+    let _ = crate::action::memory::reindex::refresh_if_free(layout);
+    let Ok(conn) = rusqlite::Connection::open_with_flags(
+        layout.memory_db().as_std_path(),
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY
+            | rusqlite::OpenFlags::SQLITE_OPEN_URI
+            | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    ) else {
+        return Vec::new();
+    };
+    if !anchors::attach_graph(&conn, &layout.graph_db()) {
+        return Vec::new();
+    }
+    let broken = anchors::broken_anchors(&conn).unwrap_or_default();
+    anchors::detach_graph(&conn);
+    broken
+        .into_iter()
+        .map(|(page, anchor)| LintIssue {
+            path: page,
+            code: "lint.anchor_broken",
+            severity: "warning",
+            message: match anchor.symbol {
+                Some(symbol) => format!(
+                    "cites `{symbol}` in {}:{}, which the graph no longer has",
+                    anchor.repo, anchor.path
+                ),
+                None => format!(
+                    "cites {}:{}, which the graph no longer has",
+                    anchor.repo, anchor.path
+                ),
+            },
+        })
+        .collect()
 }
 
 fn broken_links(layout: &Layout, rel: &str, body: &str) -> Vec<LintIssue> {
