@@ -4,7 +4,7 @@ use serde_json::{Value, json};
 
 use super::{
     CoordinationCaller, UNTRUSTED_NOTICE, address_json, clean_field, clean_list, now_secs, open_db,
-    parse_address, queue_json, resolve_queue, ttl_days,
+    open_existing_read_only, parse_address, queue_json, resolve_queue, ttl_days,
 };
 use crate::action::memory::events::report_memory_event;
 use crate::domain::coordination::{Handoff, HandoffState, NewHandoff, Queue, Viewer};
@@ -26,8 +26,10 @@ pub fn visible_open(
     filter: Option<&Queue>,
     now: i64,
 ) -> Result<Vec<Handoff>, String> {
-    let db = open_db(layout)?;
-    Ok(coordination::open_handoffs(db.conn(), now)
+    let Some(conn) = open_existing_read_only(layout)? else {
+        return Ok(Vec::new());
+    };
+    Ok(coordination::open_handoffs(&conn, now)
         .map_err(|error| error.to_string())?
         .into_iter()
         .filter(|handoff| viewer.sees(&handoff.queue, handoff.address.as_ref()))

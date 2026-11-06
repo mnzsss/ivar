@@ -169,3 +169,24 @@ fn stop_all_warns_once_for_each_active_session_without_a_handoff() {
     assert_eq!(warned, expected);
     unguard_worktrees(&root);
 }
+
+#[test]
+fn stop_without_a_memory_db_neither_warns_nor_creates_one() {
+    let (_guard, root) = hall_with_detached_session();
+    let ctx = Ctx::new(root.clone());
+    let layout = Layout::at(root.clone());
+    let _ = std::fs::remove_file(layout.memory_db().as_std_path());
+
+    let report = stop(
+        &ctx,
+        &StopInput {
+            session: Some(session_id_of(&root)),
+            all: false,
+        },
+    )
+    .unwrap();
+
+    assert!(!codes(&report.warnings).contains(&"session.handoff_missing"));
+    assert!(!layout.memory_db().as_std_path().exists());
+    unguard_worktrees(&root);
+}

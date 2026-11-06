@@ -464,3 +464,17 @@ fn ttl_days_reads_the_manifest_and_falls_back_to_seven() {
     std::fs::write(&path, serde_json::to_string_pretty(&manifest).unwrap()).unwrap();
     assert_eq!(super::ttl_days(&layout), 2);
 }
+
+#[test]
+fn listing_handoffs_and_messages_without_a_memory_db_leaves_none_behind() {
+    let (_guard, layout) = hall_with_feature("login");
+    let _ = std::fs::remove_file(layout.memory_db().as_std_path());
+    let caller = session("s-1", "claude-code", Some("login"));
+
+    let handoffs = call(&layout, &caller, "memory_handoff_list", json!({}));
+    let messages = call(&layout, &caller, "memory_message_list", json!({}));
+
+    assert_eq!(handoffs["handoffs"], json!([]));
+    assert_eq!(messages["messages"], json!([]));
+    assert!(!layout.memory_db().as_std_path().exists());
+}

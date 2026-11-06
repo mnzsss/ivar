@@ -1,5 +1,7 @@
 //! Writing and counting rows of the `observations` table.
 
+use rusqlite::Connection;
+
 use super::db::MemoryDb;
 use crate::domain::observation::Observation;
 use crate::domain::sanitize::Sanitized;
@@ -136,8 +138,8 @@ pub fn session_observations(
 /// # Errors
 ///
 /// Returns the `SQLite` error when the query fails.
-pub fn session_has_activity(db: &MemoryDb, session: &str) -> rusqlite::Result<bool> {
-    db.conn().query_row(
+pub fn session_has_activity(conn: &Connection, session: &str) -> rusqlite::Result<bool> {
+    conn.query_row(
         "SELECT EXISTS(SELECT 1 FROM observations
            WHERE (session_id = ?1 OR native_session_id = ?1)
              AND source_event IN ('session.prompted', 'session.tool'))",

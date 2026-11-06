@@ -4,7 +4,7 @@ use serde_json::{Value, json};
 
 use super::{
     CoordinationCaller, UNTRUSTED_NOTICE, address_json, clean_field, now_secs, open_db,
-    parse_address, queue_json, resolve_queue, ttl_days,
+    open_existing_read_only, parse_address, queue_json, resolve_queue, ttl_days,
 };
 use crate::action::memory::events::report_memory_event;
 use crate::domain::coordination::{Message, MessageState, NewMessage};
@@ -33,7 +33,10 @@ fn visible(caller: &CoordinationCaller, message: &Message) -> bool {
 }
 
 fn pending(layout: &Layout, now: i64) -> Result<Vec<Message>, String> {
-    coordination::pending_messages(open_db(layout)?.conn(), now).map_err(|error| error.to_string())
+    let Some(conn) = open_existing_read_only(layout)? else {
+        return Ok(Vec::new());
+    };
+    coordination::pending_messages(&conn, now).map_err(|error| error.to_string())
 }
 
 /// # Errors

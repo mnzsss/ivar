@@ -118,9 +118,9 @@ fn feature_observations_of_no_feature_is_empty() {
 fn a_session_has_activity_only_with_a_prompt_or_a_tool() {
     let (_dir, mut db) = open();
     insert_batch(&mut db, &[observation("e1", "session.started")]).unwrap();
-    assert!(!session_has_activity(&db, "n1").unwrap());
+    assert!(!session_has_activity(db.conn(), "n1").unwrap());
 
     insert_batch(&mut db, &[observation("e2", "session.tool")]).unwrap();
-    assert!(session_has_activity(&db, "n1").unwrap());
-    assert!(!session_has_activity(&db, "other").unwrap());
+    assert!(session_has_activity(db.conn(), "n1").unwrap());
+    assert!(!session_has_activity(db.conn(), "other").unwrap());
 }
