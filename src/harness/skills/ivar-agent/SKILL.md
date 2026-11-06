@@ -34,7 +34,8 @@ before the answer.
 ## When an agent is the wrong tool
 
 - The work happens once, or needs the user's decision halfway: an unattended run
-  that asks for input ends as `blocked`.
+  that asks for input ends as `blocked`, and so does one whose last line is
+  `BLOCKED: <reason>`.
 - The trigger is an event, not a time. Agents run on a cron schedule only; the
   nearest fit is a frequent schedule that checks and exits when nothing changed.
 - The machine has no systemd user instance (Linux only).
@@ -73,7 +74,11 @@ you picked:
 
 Write the prompt for a reader with no context: it names the repo, says what to
 look at, what to produce and where, and what "nothing to report" looks like. It
-cannot ask questions.
+cannot ask questions. Tell it to end its output with a final line
+`BLOCKED: <reason>` when it could not do the work, or `FAILED: <reason>` when
+it hit an error; the run is then recorded as `blocked` or `failed` instead of
+`succeeded`. The line must start with that plain, upper-case text (no markdown
+such as `**BLOCKED:**`) and be the last non-empty line of the output.
 
 Then:
 
