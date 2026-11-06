@@ -203,3 +203,49 @@ fn an_empty_or_oversized_body_is_refused() {
     assert!(send(&layout, &sender, &json!({"body": huge})).is_err());
     assert!(list(&layout, &sender, &json!({"box": "nope"})).is_err());
 }
+
+#[test]
+fn every_advertised_memory_tool_is_routed_to_the_memory_dispatcher() {
+    for tool in crate::action::memory::mcp::tool_definitions() {
+        let name = tool["name"].as_str().unwrap();
+        assert!(crate::action::memory::mcp::is_memory_tool(name), "{name}");
+    }
+}
+
+#[test]
+fn the_serve_loop_sends_and_lists_a_message_through_the_memory_tools() {
+    let (_guard, root) = seeded_hall();
+    let db = crate::store::graph::db::GraphDb::open_in_memory().unwrap();
+    let call = |id: u32, name: &str, arguments: Value| {
+        json!({"jsonrpc": "2.0", "id": id, "method": "tools/call", "params": {"name": name, "arguments": arguments}})
+    };
+    let input = format!(
+        "{}\n{}\n{}\n",
+        json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"clientInfo": {"name": "opencode"}}}),
+        call(2, "memory_message_send", json!({"body": "hi", "hall": true})),
+        call(3, "memory_message_list", json!({"hall": true})),
+    );
+    let mut out = Vec::new();
+
+    crate::action::graph::mcp::run_mcp_server(
+        &db,
+        Some(root.as_std_path()),
+        std::io::Cursor::new(input),
+        &mut out,
+        |_| Ok(json!({"status": "ok"})),
+    )
+    .unwrap();
+
+    let answers: Vec<Value> = String::from_utf8(out)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    for answer in &answers[1..] {
+        assert_ne!(answer["result"]["isError"], true, "{answer}");
+    }
+    let listed: Value =
+        serde_json::from_str(answers[2]["result"]["content"][0]["text"].as_str().unwrap())
+            .unwrap();
+    assert_eq!(listed["messages"][0]["body"], "hi", "{listed}");
+}

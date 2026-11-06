@@ -5,6 +5,8 @@ mod observations;
 mod pages;
 mod tools;
 
+use std::sync::OnceLock;
+
 use camino::Utf8Path;
 use serde_json::{Value, json};
 
@@ -29,26 +31,18 @@ const DEFAULT_LIMIT: usize = 10;
 const MAX_PAGE_BYTES: u64 = 256 * 1024;
 const SIMILAR_TITLE_THRESHOLD: f64 = 0.8;
 
-pub const TOOL_NAMES: &[&str] = &[
-    "memory_query",
-    "memory_status",
-    "memory_read_page",
-    "memory_recent",
-    "memory_read_session_observations",
-    "memory_write_page",
-    "memory_patch_page",
-    "memory_delete_page",
-    "memory_lint",
-    "memory_review",
-    "memory_handoff_begin",
-    "memory_handoff_list",
-    "memory_handoff_accept",
-    "memory_handoff_cancel",
-];
-
 #[must_use]
 pub fn is_memory_tool(name: &str) -> bool {
-    TOOL_NAMES.contains(&name)
+    static NAMES: OnceLock<Vec<String>> = OnceLock::new();
+    NAMES
+        .get_or_init(|| {
+            tool_definitions()
+                .iter()
+                .filter_map(|tool| tool.get("name").and_then(Value::as_str).map(str::to_owned))
+                .collect()
+        })
+        .iter()
+        .any(|known| known == name)
 }
 
 #[must_use]
