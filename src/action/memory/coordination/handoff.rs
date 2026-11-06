@@ -142,8 +142,14 @@ pub fn accept(layout: &Layout, caller: &CoordinationCaller, args: &Value) -> Res
     let Some(handoff) = target else {
         return Ok(json!({ "status": "none_pending" }));
     };
-    if !coordination::claim_handoff(db.conn(), &handoff.id, &caller.owner.key, now)
-        .map_err(|error| error.to_string())?
+    if !coordination::claim_handoff(
+        db.conn(),
+        &handoff.id,
+        &caller.owner.key,
+        &caller.viewer,
+        now,
+    )
+    .map_err(|error| error.to_string())?
     {
         return Ok(json!({ "status": "already_claimed" }));
     }

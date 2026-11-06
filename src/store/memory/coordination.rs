@@ -1,12 +1,15 @@
 //! `handoffs` and `messages`: the coordination queues in `memory.db`.
 //!
-//! Every claim is one conditional `UPDATE` checked with `changes() == 1`.
-//! Visibility is not decided here; callers filter rows with `Viewer::sees`.
+//! Every claim is one conditional `UPDATE` checked with `changes() == 1`,
+//! and repeats the address check so a row is never claimed by a viewer it is
+//! not addressed to. Queue visibility is not decided here; callers filter
+//! rows with `Viewer::sees`.
 
-use rusqlite::{Connection, OptionalExtension, Row, params};
+use rusqlite::{Connection, OptionalExtension, Row, named_params, params};
 
 use crate::domain::coordination::{
     Address, Handoff, HandoffState, Message, MessageState, NewHandoff, NewMessage, Owner, Queue,
+    Viewer,
 };
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -18,6 +21,10 @@ pub struct Expired {
 const HANDOFF_COLUMNS: &str = "id, queue, to_kind, to_value, owner_key, owner_provider, summary,
     pending_tasks, open_decisions, modified_files, state, created_at, expires_at,
     accepted_by, accepted_at";
+
+const ADDRESSED_TO_VIEWER: &str = "(to_kind = ''
+    OR (to_kind = 'provider' AND to_value = :provider)
+    OR (to_kind = 'session' AND to_value = :session))";
 
 const MESSAGE_COLUMNS: &str = "id, queue, to_kind, to_value, sender_key, sender_provider, subject,
     body, state, created_at, expires_at, popped_by, popped_at";
@@ -186,11 +193,25 @@ pub fn get_handoff(conn: &Connection, id: &str) -> rusqlite::Result<Option<Hando
 
 /// # Errors
 /// Returns the `SQLite` error.
-pub fn claim_handoff(conn: &Connection, id: &str, by: &str, now: i64) -> rusqlite::Result<bool> {
+pub fn claim_handoff(
+    conn: &Connection,
+    id: &str,
+    by: &str,
+    viewer: &Viewer,
+    now: i64,
+) -> rusqlite::Result<bool> {
     let changed = conn.execute(
-        "UPDATE handoffs SET state = 'accepted', accepted_by = ?2, accepted_at = ?3
-          WHERE id = ?1 AND state = 'open' AND expires_at > ?3",
-        params![id, by, now],
+        &format!(
+            "UPDATE handoffs SET state = 'accepted', accepted_by = :by, accepted_at = :now
+              WHERE id = :id AND state = 'open' AND expires_at > :now AND {ADDRESSED_TO_VIEWER}"
+        ),
+        named_params! {
+            ":id": id,
+            ":by": by,
+            ":now": now,
+            ":provider": viewer.provider,
+            ":session": viewer.session_key,
+        },
     )?;
     Ok(changed == 1)
 }
@@ -275,11 +296,25 @@ pub fn get_message(conn: &Connection, id: &str) -> rusqlite::Result<Option<Messa
 
 /// # Errors
 /// Returns the `SQLite` error.
-pub fn pop_message(conn: &Connection, id: &str, by: &str, now: i64) -> rusqlite::Result<bool> {
+pub fn pop_message(
+    conn: &Connection,
+    id: &str,
+    by: &str,
+    viewer: &Viewer,
+    now: i64,
+) -> rusqlite::Result<bool> {
     let changed = conn.execute(
-        "UPDATE messages SET state = 'popped', popped_by = ?2, popped_at = ?3
-          WHERE id = ?1 AND state = 'pending' AND expires_at > ?3",
-        params![id, by, now],
+        &format!(
+            "UPDATE messages SET state = 'popped', popped_by = :by, popped_at = :now
+              WHERE id = :id AND state = 'pending' AND expires_at > :now AND {ADDRESSED_TO_VIEWER}"
+        ),
+        named_params! {
+            ":id": id,
+            ":by": by,
+            ":now": now,
+            ":provider": viewer.provider,
+            ":session": viewer.session_key,
+        },
     )?;
     Ok(changed == 1)
 }

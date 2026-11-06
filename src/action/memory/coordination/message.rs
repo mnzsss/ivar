@@ -140,8 +140,14 @@ pub fn pop(layout: &Layout, caller: &CoordinationCaller, args: &Value) -> Result
     let Some(message) = target else {
         return Ok(json!({ "status": "none_pending" }));
     };
-    if !coordination::pop_message(db.conn(), &message.id, &caller.owner.key, now)
-        .map_err(|error| error.to_string())?
+    if !coordination::pop_message(
+        db.conn(),
+        &message.id,
+        &caller.owner.key,
+        &caller.viewer,
+        now,
+    )
+    .map_err(|error| error.to_string())?
     {
         return Ok(json!({ "status": "already_claimed" }));
     }

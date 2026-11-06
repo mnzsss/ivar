@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::domain::coordination::{
-    Address, HandoffState, MessageState, NewHandoff, NewMessage, Owner, Queue,
+    Address, HandoffState, MessageState, NewHandoff, NewMessage, Owner, Queue, Viewer,
 };
 use crate::domain::name::FeatureName;
 use crate::store::memory::db::MemoryDb;
@@ -18,6 +18,14 @@ fn owner(key: &str) -> Owner {
     Owner {
         key: key.to_owned(),
         provider: "claude-code".to_owned(),
+    }
+}
+
+fn omp(session: &str) -> Viewer {
+    Viewer {
+        session_key: Some(session.to_owned()),
+        provider: "omp".to_owned(),
+        feature: None,
     }
 }
 
@@ -75,14 +83,14 @@ fn a_handoff_is_claimed_once_even_from_two_connections() {
     insert_handoff(db.conn(), &handoff("h1", 10, 1_000)).unwrap();
     let other = rusqlite::Connection::open(&path).unwrap();
 
-    assert!(claim_handoff(db.conn(), "h1", "s2", 50).unwrap());
-    assert!(!claim_handoff(&other, "h1", "s3", 51).unwrap());
+    assert!(claim_handoff(db.conn(), "h1", "s2", &omp("s2"), 50).unwrap());
+    assert!(!claim_handoff(&other, "h1", "s3", &omp("s3"), 51).unwrap());
 
     let claimed = get_handoff(db.conn(), "h1").unwrap().unwrap();
     assert_eq!(claimed.state, HandoffState::Accepted);
     assert_eq!(claimed.accepted_by.as_deref(), Some("s2"));
     assert_eq!(claimed.accepted_at, Some(50));
-    assert!(!claim_handoff(db.conn(), "h1", "s2", 52).unwrap());
+    assert!(!claim_handoff(db.conn(), "h1", "s2", &omp("s2"), 52).unwrap());
 }
 
 #[test]
@@ -90,7 +98,7 @@ fn an_expired_handoff_cannot_be_claimed() {
     let (_dir, _path, db) = open();
     insert_handoff(db.conn(), &handoff("h1", 10, 40)).unwrap();
 
-    assert!(!claim_handoff(db.conn(), "h1", "s2", 50).unwrap());
+    assert!(!claim_handoff(db.conn(), "h1", "s2", &omp("s2"), 50).unwrap());
 }
 
 #[test]
@@ -123,8 +131,8 @@ fn a_message_pops_once_and_the_sender_cancels_the_rest() {
         .map(|m| m.id)
         .collect();
     assert_eq!(pending, ["m1", "m2", "m3"]);
-    assert!(pop_message(db.conn(), "m1", "s2", 50).unwrap());
-    assert!(!pop_message(db.conn(), "m1", "s3", 51).unwrap());
+    assert!(pop_message(db.conn(), "m1", "s2", &omp("s2"), 50).unwrap());
+    assert!(!pop_message(db.conn(), "m1", "s3", &omp("s3"), 51).unwrap());
     assert_eq!(
         get_message(db.conn(), "m1").unwrap().unwrap().state,
         MessageState::Popped
@@ -170,4 +178,26 @@ fn a_row_addressed_to_a_blank_value_is_not_read_back() {
 
     assert!(get_handoff(db.conn(), "h1").unwrap().is_none());
     assert!(open_handoffs(db.conn(), 50).unwrap().is_empty());
+}
+
+#[test]
+fn a_claim_by_a_viewer_the_row_is_not_addressed_to_changes_nothing() {
+    let (_dir, _path, db) = open();
+    insert_handoff(db.conn(), &handoff("h1", 10, 1_000)).unwrap();
+    let mut addressed = message("m1", 10);
+    addressed.address = Some(Address::Session("s2".to_owned()));
+    insert_message(db.conn(), &addressed).unwrap();
+    let claude = Viewer {
+        provider: "claude-code".to_owned(),
+        ..omp("s9")
+    };
+
+    assert!(!claim_handoff(db.conn(), "h1", "s9", &claude, 50).unwrap());
+    assert!(!pop_message(db.conn(), "m1", "s3", &omp("s3"), 50).unwrap());
+    assert_eq!(
+        get_handoff(db.conn(), "h1").unwrap().unwrap().state,
+        HandoffState::Open
+    );
+    assert!(claim_handoff(db.conn(), "h1", "s9", &omp("s9"), 50).unwrap());
+    assert!(pop_message(db.conn(), "m1", "s2", &omp("s2"), 50).unwrap());
 }
