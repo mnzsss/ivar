@@ -35,7 +35,7 @@
 //! fetch is the part that waits on a remote, and the two local steps around it
 //! would flash past unread.
 
-mod diagnosis;
+pub(crate) mod diagnosis;
 
 use std::io;
 

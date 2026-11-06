@@ -89,6 +89,47 @@ fn adding_a_worktree_over_an_occupied_path_is_refused_by_git() {
     assert!(matches!(error, Error::Refused { .. }));
 }
 
+// -- worktree removal ----------------------------------------------------------
+
+/// ivar clears the write bits on a default-branch checkout's root. git then
+/// unregisters the worktree but cannot delete its entries, which leaves an
+/// unregistered directory behind. Removal has to lift the guard itself.
+#[test]
+fn remove_worktree_removes_a_checkout_whose_root_is_read_only() {
+    let (_guard, dir) = utf8_temp_dir();
+    let origin = seeded_repo(&dir.join("origin"), "main");
+    let bare = dir.join("api.bare");
+    clone_bare(origin.as_str(), &bare).unwrap();
+    let worktree = dir.join("api/main");
+    add_worktree(&bare, &worktree, "main").unwrap();
+    fs::clear_write_bits(&worktree).unwrap();
+    assert_eq!(fs::unix_mode(&worktree).unwrap().unwrap() & 0o222, 0);
+
+    remove_worktree(&bare, &worktree).unwrap();
+
+    assert!(!worktree.exists(), "the checkout's files were left behind");
+    assert!(
+        list_worktrees(&bare)
+            .unwrap()
+            .iter()
+            .all(|entry| entry.path != worktree)
+    );
+}
+
+#[test]
+fn remove_worktree_of_a_writable_checkout_leaves_nothing_behind() {
+    let (_guard, dir) = utf8_temp_dir();
+    let origin = seeded_repo(&dir.join("origin"), "main");
+    let bare = dir.join("api.bare");
+    clone_bare(origin.as_str(), &bare).unwrap();
+    let worktree = dir.join("api/main");
+    add_worktree(&bare, &worktree, "main").unwrap();
+
+    remove_worktree(&bare, &worktree).unwrap();
+
+    assert!(!worktree.exists());
+}
+
 // -- branch rename and worktree move ------------------------------------------
 //
 // `feature rename`'s two local mutations: relabel the branch, relocate the

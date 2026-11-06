@@ -31,6 +31,30 @@ fn delete_removes_worktrees_the_feature_dir_and_working_docs() {
     assert!(!fs::exists(&root.join(".ivar/repos/api/checkout")).unwrap());
 }
 
+/// The read-only guard clears the write bits on a checkout's root, and git
+/// cannot delete the entries of a directory it cannot write to. A feature
+/// whose checkout carries the guard must still tear down completely.
+#[test]
+fn delete_removes_a_worktree_whose_root_is_read_only() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let ctx = Ctx::new(root.clone());
+    let worktree = root.join(".ivar/repos/api/checkout");
+    fs::chmod(&worktree, 0o555).unwrap();
+
+    let report = delete(&ctx, delete_input("checkout")).unwrap();
+
+    assert!(report.is_clean(), "{:?}", report.warnings);
+    assert!(report.value.worktrees[0].removed);
+    assert!(!fs::exists(&worktree).unwrap(), "files left behind");
+    let listed =
+        crate::git::Git::list_worktrees(&crate::git::System, &root.join(".ivar/repos/api/.bare"))
+            .unwrap();
+    assert!(
+        listed.iter().all(|entry| entry.path != worktree),
+        "still registered: {listed:?}"
+    );
+}
+
 #[test]
 fn delete_leaves_no_empty_parent_behind_a_slashed_branch() {
     let (_guard, root) = hall_with_promoted_feature_on(Some("feat/checkout"));

@@ -8,14 +8,16 @@ use crate::error::{Failure, FixAction, Warning};
 use crate::git::{self, TargetState};
 use crate::infra::fs;
 use crate::store::layout::Layout;
-use crate::store::manifest::Repo;
+use crate::store::manifest::{Manifest, Repo};
 
+use super::retire::retire_stale_default_checkouts;
 use super::setup::run_setup_script;
 use super::{Change, Entry, record_failure};
 
 pub(crate) fn sync_repo(
     git: &impl git::Git,
     layout: &Layout,
+    manifest: &Manifest,
     repo: &Repo,
     force_setup: bool,
     entries: &mut Vec<Entry>,
@@ -44,6 +46,10 @@ pub(crate) fn sync_repo(
             return record_failure(entries, warnings, &surface, "worktree", failure);
         }
     }
+
+    // Once the new default exists, so a failure above never leaves the repo
+    // with no default checkout.
+    retire_stale_default_checkouts(git, layout, manifest, repo, entries, warnings);
 
     match run_setup_script(git, layout, repo, &worktree, &surface, force_setup) {
         // No script for this repo. Silence rather than a "nothing to do" line —

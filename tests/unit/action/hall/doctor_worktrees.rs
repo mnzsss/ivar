@@ -228,3 +228,129 @@ fn doctor_names_a_missing_bare_clone_and_its_fix() {
     let finding = finding(&report.value, "repo.bare_missing");
     assert!(finding.fix.contains("ivar sync"));
 }
+
+fn unregistered_findings(report: &DoctorOutcome) -> Vec<&Diagnosis> {
+    report
+        .findings
+        .iter()
+        .filter(|finding| finding.code == "repo.worktree_unregistered")
+        .collect()
+}
+
+#[test]
+fn doctor_tells_the_user_to_lift_the_guard_on_a_read_only_orphan() {
+    let (_guard, root, bare) = synced_hall_with_bare();
+    let git = crate::git::System;
+    let stray = root.join(".ivar/repos/api/stray");
+    crate::git::Git::create_branch(&git, &bare, "fix/stray", "main").unwrap();
+    crate::git::Git::add_worktree(&git, &bare, &stray, "fix/stray").unwrap();
+    crate::infra::fs::clear_write_bits(&stray).unwrap();
+
+    let report = doctor(&Ctx::new(root)).unwrap();
+
+    let orphans = orphan_findings(&report.value);
+    assert_eq!(orphans.len(), 1, "{orphans:?}");
+    let chmod = format!("chmod u+w {stray} && git --git-dir {bare} worktree remove {stray}");
+    assert!(orphans[0].fix.contains(&chmod), "{}", orphans[0].fix);
+}
+
+#[test]
+fn doctor_does_not_mention_chmod_for_a_writable_orphan() {
+    let (_guard, root, bare) = synced_hall_with_bare();
+    let git = crate::git::System;
+    let stray = root.join(".ivar/repos/api/stray");
+    crate::git::Git::create_branch(&git, &bare, "fix/stray", "main").unwrap();
+    crate::git::Git::add_worktree(&git, &bare, &stray, "fix/stray").unwrap();
+
+    let report = doctor(&Ctx::new(root)).unwrap();
+
+    assert!(
+        !finding(&report.value, "repo.worktree_orphaned")
+            .fix
+            .contains("chmod")
+    );
+}
+
+/// The failure this finding exists for: git removing a guarded checkout
+/// unregisters it, then cannot delete the files.
+#[test]
+fn doctor_names_the_directory_a_failed_worktree_remove_left_behind() {
+    let (_guard, root, bare) = synced_hall_with_bare();
+    let git = crate::git::System;
+    let stray = root.join(".ivar/repos/api/stray");
+    crate::git::Git::create_branch(&git, &bare, "fix/stray", "main").unwrap();
+    crate::git::Git::add_worktree(&git, &bare, &stray, "fix/stray").unwrap();
+    crate::infra::fs::clear_write_bits(&stray).unwrap();
+    let removal = std::process::Command::new("git")
+        .args(["--git-dir", bare.as_str(), "worktree", "remove", "--force"])
+        .arg(stray.as_str())
+        .output()
+        .unwrap();
+    // Running as root, permission bits do not stop git; there is nothing to reproduce.
+    if removal.status.success() {
+        return;
+    }
+    assert!(stray.join(".git").exists());
+
+    let report = doctor(&Ctx::new(root)).unwrap();
+
+    assert!(orphan_findings(&report.value).is_empty());
+    let unregistered = unregistered_findings(&report.value);
+    assert_eq!(unregistered.len(), 1, "{unregistered:?}");
+    assert!(unregistered[0].what.contains("stray"));
+    assert!(unregistered[0].fix.contains(&format!("chmod u+w {stray}")));
+    assert!(unregistered[0].fix.contains(&format!("rm -rf {stray}")));
+    assert!(!unregistered[0].fix.contains("worktree remove"));
+}
+
+#[test]
+fn doctor_names_an_unregistered_checkout_under_a_branch_prefix() {
+    let (_guard, root, _bare) = synced_hall_with_bare();
+    let leftover = root.join(".ivar/repos/api/fix/leftover");
+    std::fs::create_dir_all(&leftover).unwrap();
+    std::fs::write(leftover.join(".git"), "gitdir: /nowhere\n").unwrap();
+
+    let report = doctor(&Ctx::new(root)).unwrap();
+
+    let unregistered = unregistered_findings(&report.value);
+    assert_eq!(unregistered.len(), 1, "{unregistered:?}");
+    assert!(unregistered[0].what.contains("fix/leftover"));
+    assert!(!unregistered[0].fix.contains("chmod"));
+}
+
+#[test]
+fn doctor_does_not_flag_registered_checkouts_or_branch_prefixes_as_unregistered() {
+    let (_guard, root, bare) = synced_hall_with_bare();
+    let ctx = Ctx::new(root.clone());
+    feature_create(
+        &ctx,
+        CreateInput {
+            name: "checkout".to_owned(),
+            branch: Some("feat/checkout".to_owned()),
+            base: None,
+            parent: None,
+            via: None,
+            strategy: None,
+        },
+    )
+    .unwrap();
+    let git = crate::git::System;
+    crate::git::Git::create_branch(&git, &bare, "feat/checkout", "main").unwrap();
+    crate::git::Git::add_worktree(
+        &git,
+        &bare,
+        &root.join(".ivar/repos/api/feat/checkout"),
+        "feat/checkout",
+    )
+    .unwrap();
+    // A prefix directory that holds no checkout, and the bare itself.
+    std::fs::create_dir_all(root.join(".ivar/repos/api/empty/prefix")).unwrap();
+
+    let report = doctor(&ctx).unwrap();
+
+    assert!(
+        unregistered_findings(&report.value).is_empty(),
+        "{:?}",
+        report.value.findings
+    );
+}

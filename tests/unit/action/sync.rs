@@ -121,6 +121,8 @@ mod protection;
 mod reporting;
 #[path = "sync/repos.rs"]
 mod repos;
+#[path = "sync/retire.rs"]
+mod retire;
 #[path = "sync/settings.rs"]
 mod settings;
 #[path = "sync/setup.rs"]
