@@ -492,3 +492,62 @@ fn a_busy_sweep_expires_nothing() {
         vec![("h-due".to_owned(), "open".to_owned())]
     );
 }
+
+fn plant_fingerprint(layout: &Layout, label: &str, days_ago: u64) {
+    let db = MemoryDb::open(layout.memory_db().as_std_path()).unwrap();
+    db.conn()
+        .execute(
+            "INSERT INTO request_fingerprints (observation_id, day, normalized, created_at)
+             VALUES (1, substr(?1, 1, 10), ?2, ?1)",
+            rusqlite::params![at(days_ago), label],
+        )
+        .unwrap();
+}
+
+fn fingerprint_labels(layout: &Layout) -> Vec<String> {
+    let db = MemoryDb::open(layout.memory_db().as_std_path()).unwrap();
+    let mut stmt = db
+        .conn()
+        .prepare("SELECT normalized FROM request_fingerprints ORDER BY id")
+        .unwrap();
+    stmt.query_map([], |row| row.get(0))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect()
+}
+
+#[test]
+fn fingerprints_older_than_ninety_days_are_removed_and_younger_ones_stay() {
+    let (_guard, root) = crate::test_support::seeded_hall();
+    let layout = Layout::at(root);
+    plant(&layout, &[]);
+    for (label, days_ago) in [
+        ("old", 91),
+        ("older", 400),
+        ("edge", 90),
+        ("young", 89),
+        ("today", 0),
+    ] {
+        plant_fingerprint(&layout, label, days_ago);
+    }
+
+    let report = sweep(&layout, NOW).unwrap();
+
+    assert_eq!(report.fingerprints_pruned, 2);
+    assert_eq!(fingerprint_labels(&layout), ["edge", "young", "today"]);
+    assert_eq!(report.deleted, 0, "observation retention is unchanged");
+}
+
+#[test]
+fn a_fingerprint_outlives_the_observation_it_came_from() {
+    let (_guard, root) = crate::test_support::seeded_hall();
+    let layout = Layout::at(root);
+    plant(&layout, &[("session.prompted", "gone", "n1", 40)]);
+    plant_fingerprint(&layout, "kept", 40);
+
+    let report = sweep(&layout, NOW).unwrap();
+
+    assert_eq!(report.deleted, 1);
+    assert!(remaining(&layout).is_empty());
+    assert_eq!(fingerprint_labels(&layout), ["kept"]);
+}

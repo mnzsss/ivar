@@ -51,6 +51,13 @@ running leader never sweeps, `ivar doctor` reports `memory.retention_overdue` af
 37 days, and a broken graph database stops the loop. `delivery.*`, `handoff.*` and
 `message.*` observations are kept; `ivar memory clean` deletes the whole database.
 
+The same sweep deletes request fingerprints of prompts more than 90 days old. They outlive
+the 30-day observations on purpose, so repetition can be seen over a longer window, but
+only the 90 days. A fingerprint carries no version: when the normalization rules change,
+the new rules apply to prompts captured from then on and to a migration's backfill of the
+observations still retained (the last 30 days), and every older fingerprint keeps the form
+it was written in. Until those age out, the same request can have two forms.
+
 The same sweep marks handoffs and messages past `memory.handoff_ttl_days` as expired, and
 deletes accepted, popped, cancelled and expired rows 30 days after they ended. The read
 tools skip an expired row on their own, so a late sweep only delays the deletion.

@@ -5,6 +5,7 @@ pub mod anchors;
 pub mod conversations;
 pub mod coordination;
 pub mod db;
+pub mod fingerprints;
 pub mod observation_search;
 pub mod observations;
 pub mod page_source;

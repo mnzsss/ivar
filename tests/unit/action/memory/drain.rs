@@ -1,4 +1,9 @@
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing
+)]
 
 use super::*;
 use crate::store::layout::Layout;
@@ -283,4 +288,103 @@ fn an_acknowledgement_left_by_a_crash_is_folded_into_the_next_drain() {
     assert_eq!(read_state(&layout).dropped_total, 3);
     assert!(!dir.join("s1.dropped.17.ack").exists());
     assert!(!dir.join("s1.dropped").exists());
+}
+
+fn line_with(event_id: &str, source_event: &str, origin: &str, body: &str) -> String {
+    let mut value: serde_json::Value = serde_json::from_str(&line(event_id, body)).unwrap();
+    value["source_event"] = source_event.into();
+    value["origin"] = origin.into();
+    value["feature"] = "login".into();
+    value.to_string()
+}
+
+fn fingerprints(layout: &Layout) -> Vec<(String, String, String, String)> {
+    let db = MemoryDb::open(layout.memory_db().as_std_path()).unwrap();
+    let mut stmt = db
+        .conn()
+        .prepare(
+            "SELECT o.event_id, f.feature, f.day, f.normalized
+               FROM request_fingerprints f JOIN observations o ON o.id = f.observation_id
+              ORDER BY f.id",
+        )
+        .unwrap();
+    stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect()
+}
+
+#[test]
+fn a_user_prompt_gets_one_fingerprint_and_a_harness_prompt_none() {
+    let (_guard, root) = crate::test_support::seeded_hall();
+    let layout = Layout::at(root);
+    std::fs::create_dir_all(layout.memory_spool_dir()).unwrap();
+    std::fs::write(
+        layout.memory_spool_dir().join("s1.jsonl"),
+        [
+            line_with(
+                "a",
+                "session.prompted",
+                "user",
+                "Please fix issue MNZS-458 in /srv/a.rs",
+            ),
+            line_with(
+                "b",
+                "session.prompted",
+                "harness",
+                "<system-reminder>x</system-reminder>",
+            ),
+            line_with("c", "session.tool", "", "{}"),
+            line_with("d", "session.started", "", "{}"),
+        ]
+        .join("\n")
+            + "\n",
+    )
+    .unwrap();
+
+    drain(&layout).unwrap();
+
+    assert_eq!(
+        fingerprints(&layout),
+        vec![(
+            "a".to_owned(),
+            "login".to_owned(),
+            "2026-11-04".to_owned(),
+            "fix issue <id> <path>".to_owned()
+        )]
+    );
+}
+
+#[test]
+fn replaying_a_user_prompt_does_not_fingerprint_it_twice() {
+    let (_guard, root) = crate::test_support::seeded_hall();
+    let layout = Layout::at(root);
+    std::fs::create_dir_all(layout.memory_spool_dir()).unwrap();
+    let spool = layout.memory_spool_dir().join("s1.jsonl");
+    std::fs::write(&spool, format!("{}\n", line("a", "run the tests"))).unwrap();
+    drain(&layout).unwrap();
+    std::fs::write(&spool, format!("{}\n", line("a", "run the tests"))).unwrap();
+    drain(&layout).unwrap();
+
+    assert_eq!(fingerprints(&layout).len(), 1);
+}
+
+#[test]
+fn a_prompt_sanitized_before_the_drain_carries_no_secret_into_its_fingerprint() {
+    let (_guard, root) = crate::test_support::seeded_hall();
+    let layout = Layout::at(root);
+    std::fs::create_dir_all(layout.memory_spool_dir()).unwrap();
+    std::fs::write(
+        layout.memory_spool_dir().join("s1.jsonl"),
+        format!(
+            "{}\n",
+            line("a", "deploy with sk-abcdefghijklmnopqrstuvwxyz0123456789")
+        ),
+    )
+    .unwrap();
+
+    drain(&layout).unwrap();
+
+    let stored = fingerprints(&layout);
+    assert!(!stored[0].3.contains("abcdefghijklmnop"), "{stored:?}");
 }

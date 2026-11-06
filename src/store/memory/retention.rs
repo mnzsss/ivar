@@ -1,5 +1,6 @@
 //! Retention of `session.*` observations. A session is kept or deleted whole,
 //! judged by its newest observation; every other event name is never touched.
+//! Request fingerprints are kept by date, 90 days.
 
 use std::path::Path;
 
@@ -15,6 +16,8 @@ pub const SESSION_EVENTS: [&str; 4] = [
     "session.ended",
 ];
 pub const SESSION_RETENTION_DAYS: u64 = 30;
+/// Request fingerprints outlive the observations they came from.
+pub const FINGERPRINT_RETENTION_DAYS: u64 = 90;
 
 fn session_events_in_list() -> String {
     SESSION_EVENTS
@@ -89,6 +92,28 @@ pub fn delete_expired_sessions(
 ) -> rusqlite::Result<usize> {
     db.conn()
         .execute(&delete_batch_sql(), rusqlite::params![cutoff, batch])
+}
+
+/// The UTC date (`YYYY-MM-DD`) `days` before `now_epoch_secs`: fingerprints
+/// with an earlier `day` are expired.
+#[must_use]
+pub fn cutoff_day_before(now_epoch_secs: u64, days: u64) -> String {
+    cutoff_before(now_epoch_secs, days)
+        .chars()
+        .take(10)
+        .collect()
+}
+
+/// Deletes the fingerprints of prompts made before the UTC date `cutoff_day`.
+///
+/// # Errors
+///
+/// When `SQLite` fails.
+pub fn delete_expired_fingerprints(db: &MemoryDb, cutoff_day: &str) -> rusqlite::Result<usize> {
+    db.conn().execute(
+        "DELETE FROM request_fingerprints WHERE day < ?1",
+        [cutoff_day],
+    )
 }
 
 #[must_use]

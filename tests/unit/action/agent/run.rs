@@ -89,6 +89,53 @@ fn a_successful_run_is_recorded_scrubbed_and_cleaned_up() {
     assert!(!root.join(".ivar/agents/tmp").join(&receipt.run_id).exists());
 }
 
+/// The memory spool is where a hook drops a prompt for the drain, and a drained
+/// `User` prompt becomes a request fingerprint. A scheduled-agent run must never
+/// reach it, so what it types can never look like a user's repetition. If this
+/// test fails, a run can reach the spool and prompts need an origin marker.
+#[test]
+fn a_container_run_never_mounts_the_memory_spool_or_a_directory_holding_it() {
+    let (_guard, root) = hall_with_agent("tool: claude\n");
+    let spool = Layout::at(root.clone()).memory_spool_dir();
+    std::fs::create_dir_all(&spool).unwrap();
+    let fake = FakeDocker::install(&root);
+    let _r = redirect_on_this_thread("docker", fake_docker_command(&fake));
+
+    let receipt = run_manual(&root);
+
+    assert_eq!(receipt.outcome, AgentRunOutcome::Succeeded);
+    let log = fake.log();
+    assert!(log.contains("claude -p"), "the run did not launch: {log}");
+    let mut words = log.split_whitespace();
+    while let Some(word) = words.next() {
+        if word == "-v" || word == "--volume" || word == "--mount" {
+            let source = words.next().unwrap_or_default();
+            let source = Utf8PathBuf::from(source.split(':').next().unwrap_or_default());
+            assert!(
+                !spool.starts_with(&source) && !source.starts_with(&spool),
+                "{source} exposes the memory spool"
+            );
+        }
+    }
+    assert!(!log.contains(spool.as_str()), "{log}");
+}
+
+#[test]
+fn a_container_workspace_mounts_only_repo_worktrees() {
+    let (_guard, root) = hall_with_agent("tool: claude\n");
+    let layout = Layout::at(root);
+    let manifest = read_manifest(&layout).unwrap();
+    let spec = crate::store::agent::load(&layout, "nightly").unwrap();
+
+    let ws = read_workspace(&layout, &manifest, &spec);
+
+    for mount in &ws.mounts {
+        let source = Utf8PathBuf::from(&mount.source);
+        assert!(source.starts_with(layout.root().join(".ivar/repos")));
+        assert!(!layout.memory_spool_dir().starts_with(&source));
+    }
+}
+
 #[test]
 fn no_usage_line_leaves_cost_empty() {
     let (_guard, root) = hall_with_agent("tool: claude\n");

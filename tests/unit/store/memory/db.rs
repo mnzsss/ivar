@@ -377,7 +377,7 @@ fn schema_four_migrates_to_five_with_coordination_tables_and_keeps_observations(
 
     let db = MemoryDb::open(&path).unwrap();
 
-    assert_eq!(db.schema_version().unwrap(), 5);
+    assert_eq!(db.schema_version().unwrap(), MEMORY_SCHEMA_VERSION);
     let kept: i64 = db
         .conn()
         .query_row("SELECT count(*) FROM observations", [], |r| r.get(0))
@@ -418,4 +418,127 @@ fn schema_four_migrates_to_five_with_coordination_tables_and_keeps_observations(
     assert_eq!(message_state, "pending");
     drop(db);
     assert_eq!(object_names(&path), memory_objects());
+}
+
+#[test]
+fn an_older_database_gets_a_fingerprint_for_each_retained_user_prompt() {
+    let (_dir, path) = temp_db();
+    crate::test_support::memory_db_at_schema_four(camino::Utf8Path::from_path(&path).unwrap());
+    let plant = Connection::open(&path).unwrap();
+    for (event, source, origin, session, feature, at, body) in [
+        (
+            "e1",
+            "session.prompted",
+            "user",
+            "s1",
+            "login",
+            "2026-11-04T23:59:59.000000000Z",
+            "Corrija o login em /srv/app/src/a.rs #12",
+        ),
+        (
+            "e2",
+            "session.prompted",
+            "user",
+            "s2",
+            "",
+            "2026-11-05T00:00:01.000000000Z",
+            "Fix the login",
+        ),
+        (
+            "e3",
+            "session.prompted",
+            "harness",
+            "s1",
+            "login",
+            "2026-11-05T10:00:00.000000000Z",
+            "<system-reminder>x</system-reminder>",
+        ),
+        (
+            "e4",
+            "session.prompted",
+            "",
+            "s1",
+            "login",
+            "2026-11-05T11:00:00.000000000Z",
+            "legacy row without an origin",
+        ),
+        (
+            "e5",
+            "session.tool",
+            "",
+            "s1",
+            "login",
+            "2026-11-05T12:00:00.000000000Z",
+            "{}",
+        ),
+    ] {
+        plant
+            .execute(
+                "INSERT INTO observations
+                   (event_id, source_event, occurred_at, session_id, native_session_id, provider,
+                    ivar_version, feature, origin, importance, body)
+                 VALUES (?1, ?2, ?6, ?3, 'n1', 'claude-code', '0.18.0', ?4, ?5, 5, ?7)",
+                rusqlite::params![event, source, session, feature, origin, at, body],
+            )
+            .unwrap();
+    }
+    drop(plant);
+
+    let db = MemoryDb::open(&path).unwrap();
+
+    assert_eq!(db.schema_version().unwrap(), MEMORY_SCHEMA_VERSION);
+    let mut stmt = db
+        .conn()
+        .prepare(
+            "SELECT f.session_id, f.feature, f.day, f.normalized, o.event_id
+               FROM request_fingerprints f JOIN observations o ON o.id = f.observation_id
+              ORDER BY f.id",
+        )
+        .unwrap();
+    let rows: Vec<(String, String, String, String, String)> = stmt
+        .query_map([], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))
+        })
+        .unwrap()
+        .map(Result::unwrap)
+        .collect();
+    drop(stmt);
+    let owned = |v: &[&str]| v.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>();
+    let flat: Vec<Vec<String>> = rows
+        .iter()
+        .map(|(a, b, c, d, e)| owned(&[a, b, c, d, e]))
+        .collect();
+    assert_eq!(
+        flat,
+        vec![
+            owned(&[
+                "s1",
+                "login",
+                "2026-11-04",
+                "corrija login <path> #<n>",
+                "e1"
+            ]),
+            owned(&["s2", "", "2026-11-05", "fix login", "e2"]),
+        ]
+    );
+    let found: i64 = db
+        .conn()
+        .query_row(
+            "SELECT count(*) FROM request_fingerprints_fts WHERE request_fingerprints_fts MATCH 'corrija'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(found, 1);
+    drop(db);
+    assert_eq!(object_names(&path), memory_objects());
+
+    drop(MemoryDb::open(&path).unwrap());
+    let again: i64 = Connection::open(&path)
+        .unwrap()
+        .query_row("SELECT count(*) FROM request_fingerprints", [], |r| {
+            r.get(0)
+        })
+        .unwrap();
+    assert_eq!(again, 2, "reopening does not backfill twice");
 }

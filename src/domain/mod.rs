@@ -16,6 +16,7 @@ pub mod delivery_event;
 pub mod discovery;
 pub mod feature;
 pub mod feedback;
+pub mod fingerprint;
 pub mod graph;
 pub mod guard;
 pub mod health;

@@ -2,11 +2,13 @@
 
 use rusqlite::Transaction;
 
+use super::fingerprints;
+
 /// `PRAGMA application_id` of a hall memory database: ASCII `ivm1`.
 pub const APPLICATION_ID: i32 = 0x6976_6d31;
 
 /// The memory schema this binary migrates to.
-pub const MEMORY_SCHEMA_VERSION: i64 = 5;
+pub const MEMORY_SCHEMA_VERSION: i64 = 6;
 
 /// Every schema object a memory database up to [`MEMORY_SCHEMA_VERSION`]
 /// owns. Anything else in the file was put there by another program.
@@ -49,6 +51,16 @@ pub(crate) const MEMORY_OBJECTS: &[&str] = &[
     "messages",
     "messages_state_queue",
     "messages_sender",
+    "request_fingerprints",
+    "request_fingerprints_day",
+    "request_fingerprints_observation",
+    "request_fingerprints_fts",
+    "request_fingerprints_fts_data",
+    "request_fingerprints_fts_idx",
+    "request_fingerprints_fts_docsize",
+    "request_fingerprints_fts_config",
+    "request_fingerprints_fts_insert",
+    "request_fingerprints_fts_delete",
 ];
 
 pub(crate) const OBSERVATIONS_TABLE: &str = "observations";
@@ -207,6 +219,34 @@ CREATE INDEX messages_state_queue ON messages (state, queue, expires_at);
 CREATE INDEX messages_sender ON messages (sender_key);
 ";
 
+// A fingerprint outlives its observation: the sweep keeps it 90 days against 30
+// for `session.*` observations, so `observation_id` is a plain column, not a
+// foreign key, and is not unique (a rowid freed by the sweep can come back).
+// `day` is the UTC date of the prompt. The rows are written by the drain and,
+// for the prompts already stored, by `backfill_fingerprints` right after this
+// script.
+pub(crate) const MIGRATION_V6: &str = "
+CREATE TABLE request_fingerprints (
+    id             INTEGER PRIMARY KEY,
+    observation_id INTEGER NOT NULL,
+    session_id     TEXT NOT NULL DEFAULT '',
+    feature        TEXT NOT NULL DEFAULT '',
+    day            TEXT NOT NULL,
+    normalized     TEXT NOT NULL,
+    created_at     TEXT NOT NULL
+);
+CREATE INDEX request_fingerprints_day ON request_fingerprints (day);
+CREATE INDEX request_fingerprints_observation ON request_fingerprints (observation_id);
+CREATE VIRTUAL TABLE request_fingerprints_fts USING fts5(normalized, content = 'request_fingerprints', content_rowid = 'id');
+CREATE TRIGGER request_fingerprints_fts_insert AFTER INSERT ON request_fingerprints BEGIN
+    INSERT INTO request_fingerprints_fts (rowid, normalized) VALUES (new.id, new.normalized);
+END;
+CREATE TRIGGER request_fingerprints_fts_delete AFTER DELETE ON request_fingerprints BEGIN
+    INSERT INTO request_fingerprints_fts (request_fingerprints_fts, rowid, normalized)
+    VALUES ('delete', old.id, old.normalized);
+END;
+";
+
 pub(crate) fn migrate(tx: &Transaction<'_>, from: i64) -> rusqlite::Result<()> {
     if from < 1 {
         tx.execute_batch(MIGRATION_V1)?;
@@ -222,6 +262,10 @@ pub(crate) fn migrate(tx: &Transaction<'_>, from: i64) -> rusqlite::Result<()> {
     }
     if from < 5 {
         tx.execute_batch(MIGRATION_V5)?;
+    }
+    if from < 6 {
+        tx.execute_batch(MIGRATION_V6)?;
+        fingerprints::backfill(tx)?;
     }
     tx.execute(
         "UPDATE memory_schema SET version = ?1",
