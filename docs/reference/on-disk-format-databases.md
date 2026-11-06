@@ -174,7 +174,8 @@ after 30 days, and `ivar memory clean` deletes the whole database.
 
 Schema 6 adds one normalized fingerprint for every `session.prompted` observation whose
 `origin` is `user`, so repetition stays visible after the 30-day observation retention. A
-`harness` prompt never has one. Nothing reads the table yet.
+`harness` prompt never has one. `ivar automation scan` reads the table, read-only, and groups its
+rows.
 
 | Table or column | Meaning |
 | --- | --- |

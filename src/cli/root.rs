@@ -142,6 +142,9 @@ pub enum Command {
     /// Record bugs, proposals, and submit issues.
     #[command(subcommand)]
     Feedback(super::feedback::FeedbackCommand),
+    /// Find the requests users keep repeating, as candidates to automate.
+    #[command(subcommand)]
+    Automation(super::automation::AutomationCommand),
     /// Schedule and run unattended agents in containers.
     #[command(subcommand)]
     Agent(super::agent::AgentCommand),

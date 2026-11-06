@@ -182,11 +182,24 @@ pub fn feature_observations(
     db: &MemoryDb,
     features: &[String],
 ) -> rusqlite::Result<Vec<FeatureObservation>> {
+    feature_observations_on(db.conn(), features)
+}
+
+/// [`feature_observations`] on a bare connection, for a read that opened the
+/// database read-only.
+///
+/// # Errors
+///
+/// Returns the `SQLite` error when the query fails.
+pub fn feature_observations_on(
+    conn: &Connection,
+    features: &[String],
+) -> rusqlite::Result<Vec<FeatureObservation>> {
     if features.is_empty() {
         return Ok(Vec::new());
     }
     let list = serde_json::to_string(features).unwrap_or_else(|_| "[]".to_owned());
-    let mut stmt = db.conn().prepare(
+    let mut stmt = conn.prepare(
         "WITH wanted(name) AS (SELECT value FROM json_each(?1)),
               sessions(id) AS (
                 SELECT DISTINCT session_id FROM observations

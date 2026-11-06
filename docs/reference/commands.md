@@ -70,6 +70,7 @@ Multi-repo worktrees for coding agents: one feature across repos, on one branch,
 | [`ivar graph`](commands/graph.md) | Query and index the codebase dependency graph |
 | [`ivar memory`](commands/memory.md) | Inspect, query and maintain the hall memory: pages, handoffs and the session hooks |
 | [`ivar feedback`](commands/feedback.md) | Record bugs, proposals, and submit issues |
+| [`ivar automation`](commands/automation.md) | Find the requests users keep repeating, as candidates to automate |
 | [`ivar agent`](commands/agent.md) | Schedule and run unattended agents in containers |
 | [`ivar guard`](commands/guard.md) | Guard: evaluate a tool request against the session's writable set |
 | [`ivar upgrade`](commands/upgrade.md) | Upgrade ivar through the channel that installed it |
@@ -233,6 +234,13 @@ Script findings of `ivar doctor` (a warning-level finding, never an error):
 | `script.duplicate_field` | the header repeats `description`, `usage` or `env` | keep one line per field |
 | `script.bad_env_name` | `# env:` lists something that is not an environment variable name | list names separated by commas |
 | `script.unreadable` | the file is not readable UTF-8 text | make it readable text |
+
+**`ivar automation scan` lists recurring requests as candidates.** A group of similar
+prompts from at least 3 sessions on 2 days of the last 90 (see
+[Recurring request](../glossary.md#health-and-state)); `--feature` cuts it to a feature
+and its descendants. Samples are untrusted memory text, evidence only. It drains the
+spool first; `--no-drain` writes nothing, so it works with a read-only `.ivar/`, and
+it never migrates `memory.db` (an older schema exits 2, naming `ivar memory status`).
 
 **`ivar session start` is the one verb that takes over your terminal.** It opens
 a TUI. Everything else prints and exits.

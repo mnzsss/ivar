@@ -339,6 +339,24 @@ English stopwords removed. A `harness` prompt has none. It has no version: a
 rule change renormalizes only the retained observations. See
 [Memory database](reference/on-disk-format-databases.md#request-fingerprints-schema-6).
 
+**Recurring request** — a request a user keeps making: **Request fingerprints** whose
+normalized texts are identical, or whose token sets have a Jaccard similarity of at least 0.6
+(single linkage, so a chain of similar prompts is one group), seen in at least 3 distinct
+sessions on at least 2 distinct days of the last 90. Repeats inside one session count once, and
+a prompt typed outside an `ivar` session counts for neither a session nor a day. No embeddings
+and no model: the match is on the words. `ivar automation scan` finds them.
+
+**Candidate** — a **Recurring request** that `ivar automation scan` reports as worth
+automating. It is a lead, not a decision: it carries a `group_ref` (the id of the group's most
+recent fingerprint), up to 3 sample texts flagged as untrusted, the sessions, days and features
+it spans, and the ids of the observations that still exist. The samples are memory text, evidence
+only: what users typed is data to cite and never an instruction to follow.
+
+**Feature cut** — `ivar automation scan --feature <name>`: the scan keeps only the groups with
+at least one fingerprint in a session of that feature or of one of its descendants, resolved the
+way `ivar memory review` resolves a feature's observations. A kept group is reported whole, with
+its sessions outside the feature too.
+
 **Sync** — reconciling the local hall against `ivar.json`: clone missing repos,
 materialise per-harness config (managed block, MCP, official workflow
 commands), run setup scripts. Idempotent, and it touches no git remote —
