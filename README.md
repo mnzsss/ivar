@@ -170,16 +170,22 @@ deleted 30 days later.
 error.
 
 The same server that serves the code graph serves the memory to your agent. It lists
-`memory_query` and `memory_write_page` beside eight more memory tools, which read, patch,
-delete, lint and review pages and read captured observations. `ivar feature deliver`
+`memory_query` and `memory_write_page` beside sixteen more memory tools, which read, patch,
+delete, lint and review pages, read captured observations, and hand work between sessions.
+`ivar feature deliver`
 requires the review (`memory_review`) before it applies. The tools never commit. See the
 [MCP tools](docs/reference/mcp-tools.md).
 Pages cite code as anchors: `memory_query` lists them, and `graph_explore` names the pages anchored to what it returns.
 
+A session can leave a handoff for the next one: a summary, pending tasks, open decisions
+and changed files. `ivar memory handoff` opens, lists and cancels them from a terminal. On
+Claude Code, T3 and OMP, `ivar memory brief` shows the open handoffs when a session starts.
+Handoffs expire after `memory.handoff_ttl_days` (7 by default).
+
 ## MCP server
 
 `ivar graph mcp` serves the hall's code graph and memory to your harness over MCP as the
-`<hall>-ivar` server, with `graph_explore`, `graph_feedback` and the nine `memory_*` tools.
+`<hall>-ivar` server, with `graph_explore`, `graph_feedback` and the eighteen `memory_*` tools.
 It runs inside an ivar hall; start it with `ivar graph mcp` from the hall root.
 
 mcp-name: io.github.mnzsss/ivar

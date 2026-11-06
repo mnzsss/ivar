@@ -112,16 +112,22 @@ for how each canonical value materialises at each provider boundary.
 
 ### `ivar.json` `memory` key
 
-`memory` is an optional object with one field, `capture`. It adds no `ivar.json`
-version: a hall that never sets it stays at its current version and keeps capturing.
+`memory` is an optional object with two optional fields:
+
+- `capture`, on unless set to `false`;
+- `handoff_ttl_days`, the days an open handoff or a pending message stays visible. It
+  must be 1 or more, and defaults to 7.
+
+It adds no `ivar.json` version: a hall that never sets it stays at its current version,
+keeps capturing and keeps the 7-day expiry.
 
 ```json
-{ "memory": { "capture": false } }
+{ "memory": { "capture": false, "handoff_ttl_days": 3 } }
 ```
 
-An `ivar` older than the key rejects the whole file as having an unknown field, so
-a hall that sets it needs every teammate on a release that knows it. Turning
-capture back on removes the key.
+An `ivar` older than a field rejects the whole file as having an unknown field, so
+a hall that sets it needs every teammate on a release that knows it. When both fields
+are back at their defaults, the key is removed.
 
 The hall memory database has its own schema version, `memory_schema.version`, which is
 5 today; see [Memory database](on-disk-format-databases.md#memory-database-ivarmemorydb).

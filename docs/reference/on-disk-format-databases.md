@@ -162,8 +162,9 @@ arrays of strings. Times are Unix seconds.
 | `handoffs` | one row per handoff: `id`, `queue`, `to_kind`, `to_value`, `owner_key`, `owner_provider`, `summary`, `pending_tasks`, `open_decisions`, `modified_files`, `state`, `created_at`, `expires_at`, `accepted_by`, `accepted_at`. `state` goes from `open` to `accepted`, `cancelled` or `expired`. A terminal row is deleted 30 days after `accepted_at`, or after `expires_at` when it was never accepted. Indexes `handoffs_state_queue`, `handoffs_owner` |
 | `messages` | one row per message: `id`, `queue`, `to_kind`, `to_value`, `sender_key`, `sender_provider`, `subject`, `body`, `state`, `created_at`, `expires_at`, `popped_by`, `popped_at`. `state` goes from `pending` to `popped`, `cancelled` or `expired`. A terminal row is deleted 30 days after `popped_at`, or after `expires_at` when it was never popped. Indexes `messages_state_queue`, `messages_sender` |
 
-These tables are primary data, not a cache: no reindex rebuilds them, `ivar graph clean`
-never touches them, and only `ivar memory clean` deletes them.
+These tables are primary data, not a cache: no reindex rebuilds them and `ivar graph clean`
+never touches them. The memory sweep of the `ivar graph mcp` leader deletes terminal rows
+after 30 days, and `ivar memory clean` deletes the whole database.
 
 ### Moving a legacy graph
 

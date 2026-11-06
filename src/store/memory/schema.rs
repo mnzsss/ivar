@@ -163,7 +163,8 @@ CREATE TABLE memory_misses (
 CREATE INDEX memory_misses_session_ts ON memory_misses (session, ts);
 ";
 
-// Coordination rows are primary data: only `ivar memory clean` removes them.
+// Coordination rows are primary data: no reindex rebuilds them. The sweep prunes
+// terminal rows after 30 days, and `ivar memory clean` removes the whole file.
 // `queue` is a feature name, or '' for the hall queue.
 pub(crate) const MIGRATION_V5: &str = "
 CREATE TABLE handoffs (
