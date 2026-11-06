@@ -365,3 +365,22 @@ fn an_unplaceable_local_time_is_not_fired_by_guesswork() {
     let outcome = sync_with(&Ctx::new(root.clone()), &e).unwrap().value;
     assert!(outcome.fired.is_empty());
 }
+
+#[test]
+fn a_due_task_whose_run_is_still_going_is_not_started_again() {
+    let (_guard, root) = seeded_hall();
+    let fake = FakeSystemctl::install(&root);
+    let _r = fake_systemctl_on_this_thread(&fake);
+    task(&root, "busy", "2026-11-05T09:00");
+    task(&root, "idle", "2026-11-05T09:00");
+    let _held = crate::infra::fs::try_lock_exclusive(&Layout::at(root.clone()).agent_lock("busy"))
+        .unwrap()
+        .unwrap();
+
+    let outcome = sync_with(&Ctx::new(root.clone()), &env(root.join("units")))
+        .unwrap()
+        .value;
+
+    assert_eq!(outcome.fired, ["idle"]);
+    assert!(!fake.log().contains("busy.service"), "{}", fake.log());
+}

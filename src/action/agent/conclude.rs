@@ -1,7 +1,7 @@
 //! Concluding an Agent Task: its file moves to `agents/done/` and an
 //! `agent_task.concluded` observation goes to the delivery spool.
 
-use std::io::Write;
+use std::io::{self, Write};
 
 use camino::Utf8PathBuf;
 use serde_json::{Value, json};
@@ -40,37 +40,35 @@ pub(crate) fn move_to_done(
     spec: &AgentSpec,
     run_id: &str,
 ) -> Result<Utf8PathBuf, Failure> {
-    let Some(at) = spec.at else {
-        return Err(not_concluded(spec, "it has no `at`"));
+    let Some(at) = spec.at() else {
+        return Err(not_concluded("it has no `at`"));
     };
     let done = layout.agents_done_dir();
+    let from = layout.agent_file(&spec.name);
     let stem = format!("{}.{}", spec.name, at.file_stamp());
-    let mut target = done.join(format!("{stem}.md"));
-    let moved = (|| -> Result<(), Failure> {
+    let moved = (|| -> Result<Utf8PathBuf, Failure> {
         fs::ensure_dir(&done)?;
-        if fs::exists(&target)? {
-            target = done.join(format!("{stem}.{run_id}.md"));
-            if fs::exists(&target)? {
-                return Err(Failure::failed(
-                    "agent.task_not_concluded",
-                    format!("{target} already exists and is never overwritten"),
-                ));
-            }
+        // The link inside `rename_no_replace` refuses an existing name, so a
+        // concurrent run cannot slip a file in between a check and the move.
+        let first = done.join(format!("{stem}.md"));
+        match fs::rename_no_replace(&from, &first) {
+            Ok(()) => return Ok(first),
+            Err(fs::Error::Rename { ref source, .. })
+                if source.kind() == io::ErrorKind::AlreadyExists => {}
+            Err(error) => return Err(error.into()),
         }
-        Ok(fs::rename(&layout.agent_file(&spec.name), &target)?)
+        let second = done.join(format!("{stem}.{run_id}.md"));
+        fs::rename_no_replace(&from, &second)?;
+        Ok(second)
     })();
-    moved
-        .map(|()| target)
-        .map_err(|failure| not_concluded(spec, &failure.what))
+    moved.map_err(|failure| not_concluded(&failure.what))
 }
 
-fn not_concluded(spec: &AgentSpec, reason: &str) -> Failure {
+/// The Agent Task's name is the subject of the warning built from this, so it is not repeated here.
+fn not_concluded(reason: &str) -> Failure {
     Failure::failed(
         "agent.task_not_concluded",
-        format!(
-            "Agent Task `{}` ran but its file was not moved to agents/done/: {reason}",
-            spec.name
-        ),
+        format!("the Agent Task ran but its file was not moved to agents/done/: {reason}"),
     )
 }
 
@@ -86,7 +84,7 @@ fn tail_of(output: &str, chars: usize) -> &str {
 
 /// `{name, at, ran_at, outcome, run_id, output_tail}`, the tail cut from its front until it fits.
 fn body(spec: &AgentSpec, receipt: &AgentRunReceipt) -> String {
-    let at = spec.at.map(|at| at.to_string()).unwrap_or_default();
+    let at = spec.at().map(|at| at.to_string()).unwrap_or_default();
     let mut chars = receipt.output.chars().count().min(2000);
     loop {
         let body: Value = json!({

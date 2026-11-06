@@ -23,7 +23,8 @@ pub use guard::{LiftedGuard, chmod, clear_write_bits, restore_write_bits, unix_m
 pub use io::{
     canonicalize, create_new_text, ensure_dir, exists, is_dir, is_file, is_real_dir,
     prune_empty_parents, read_bytes, read_dir, read_text, remove_empty_dir, remove_file,
-    remove_path, rename, stat, write_atomic, write_bytes, write_sensitive_atomic, write_text,
+    remove_path, rename, rename_no_replace, stat, write_atomic, write_bytes,
+    write_sensitive_atomic, write_text,
 };
 pub use lock::{lock_exclusive, try_lock_exclusive};
 pub use symlink::{

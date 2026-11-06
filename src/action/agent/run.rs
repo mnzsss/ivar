@@ -195,7 +195,7 @@ pub(crate) fn finish(
     spec: &AgentSpec,
     mut receipt: AgentRunReceipt,
 ) -> Outcome<AgentRunReceipt> {
-    receipt.scheduled_at = spec.at.map(|at| at.to_string());
+    receipt.scheduled_at = spec.at().map(|at| at.to_string());
     notify::deliver(layout, spec, &mut receipt);
     store::agent::write_receipt(layout, &receipt)?;
     let mut report = Report::new(receipt);

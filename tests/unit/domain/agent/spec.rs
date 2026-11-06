@@ -28,7 +28,7 @@ fn a_minimal_agent_defaults_to_read_access_and_thirty_minutes() {
     assert_eq!(spec.timeout, DEFAULT_TIMEOUT);
     assert!(!spec.catchup);
     assert_eq!(
-        spec.schedule.as_ref().unwrap().on_calendar(),
+        spec.schedule().unwrap().on_calendar(),
         "Mon,Tue,Wed,Thu,Fri *-*-* 09:00:00"
     );
     assert_eq!(
@@ -308,14 +308,14 @@ fn task() -> AgentFrontmatter {
 fn an_agent_task_takes_a_local_or_offset_minute() {
     let local = AgentSpec::from_parts("recheck", task(), "Look again.\n").unwrap();
     assert!(local.is_task());
-    assert!(local.schedule.is_none());
-    assert_eq!(local.at.unwrap().to_string(), "2026-11-08T09:00");
+    assert!(local.schedule().is_none());
+    assert_eq!(local.at().unwrap().to_string(), "2026-11-08T09:00");
     let offset = AgentFrontmatter {
         at: Some("2026-11-08T09:00-03:00".to_owned()),
         ..task()
     };
     let spec = AgentSpec::from_parts("recheck", offset, "").unwrap();
-    assert_eq!(spec.at.unwrap().on_calendar(), "2026-11-08 12:00:00 UTC");
+    assert_eq!(spec.at().unwrap().on_calendar(), "2026-11-08 12:00:00 UTC");
     assert!(
         !AgentSpec::from_parts("nightly", base(), "")
             .unwrap()

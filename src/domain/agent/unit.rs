@@ -1,7 +1,7 @@
 //! The systemd user units ivar writes for a scheduled agent or an Agent Task,
 //! and how it recognises its own units again.
 
-use super::spec::AgentSpec;
+use super::spec::{AgentSpec, Timing};
 
 /// The `[Unit]` key that marks a unit as written by a given hall.
 pub const OWNED_KEY: &str = "X-Ivar-Owned";
@@ -63,12 +63,11 @@ pub fn render_once_timer(hall_hash: &str, agent: &str, on_calendar: &str) -> Str
 /// The timer a spec needs: one-shot for an Agent Task, recurring otherwise.
 #[must_use]
 pub fn render_spec_timer(hall_hash: &str, spec: &AgentSpec) -> String {
-    match (&spec.at, &spec.schedule) {
-        (Some(at), _) => render_once_timer(hall_hash, &spec.name, &at.on_calendar()),
-        (None, Some(schedule)) => {
+    match &spec.timing {
+        Timing::Once(at) => render_once_timer(hall_hash, &spec.name, &at.on_calendar()),
+        Timing::Recurring(schedule) => {
             render_timer(hall_hash, &spec.name, schedule.on_calendar(), spec.catchup)
         }
-        (None, None) => String::new(),
     }
 }
 

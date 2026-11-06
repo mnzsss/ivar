@@ -9,6 +9,7 @@ use super::hall_hash;
 use super::sync::current_ivar_bin;
 use crate::action::{Ctx, discover_hall};
 use crate::domain::agent::receipt::AgentRunOutcome;
+use crate::domain::agent::spec::Timing;
 use crate::domain::agent::unit::{exec_binary, render_service, render_spec_timer, unit_stem};
 use crate::error::{Outcome, Report, WriteHuman};
 use crate::infra::{fs, systemd, table};
@@ -152,13 +153,12 @@ pub fn status_in(ctx: &Ctx, unit_dir: &Utf8Path, ivar_bin: &Utf8Path) -> Outcome
                 if matches!(status.sync, UnitSync::InSync | UnitSync::Stale) {
                     status.next_run = systemd::next_elapse(&format!("{stem}.timer"));
                 }
-                status.schedule = spec.schedule.as_ref().map(|s| s.as_str().to_owned());
-                status.at = spec.at.map(|at| at.to_string());
-                status.on_calendar = spec
-                    .schedule
-                    .as_ref()
-                    .map(|s| s.on_calendar().to_owned())
-                    .or_else(|| spec.at.map(|at| at.on_calendar()));
+                status.schedule = spec.schedule().map(|s| s.as_str().to_owned());
+                status.at = spec.at().map(|at| at.to_string());
+                status.on_calendar = Some(match &spec.timing {
+                    Timing::Recurring(cron) => cron.on_calendar().to_owned(),
+                    Timing::Once(at) => at.on_calendar(),
+                });
             }
         }
         agents.push(status);

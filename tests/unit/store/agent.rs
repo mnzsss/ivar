@@ -218,11 +218,11 @@ fn an_agent_task_file_parses_with_an_unquoted_at() {
     );
     write_agent(&layout, "later", "---\nat: 2d\ntool: claude\n---\n");
     assert_eq!(
-        load(&layout, "local").unwrap().at.unwrap().to_string(),
+        load(&layout, "local").unwrap().at().unwrap().to_string(),
         "2026-11-08T09:00"
     );
     assert_eq!(
-        load(&layout, "offset").unwrap().at.unwrap().to_string(),
+        load(&layout, "offset").unwrap().at().unwrap().to_string(),
         "2026-11-08T09:00-03:00"
     );
     let failure = load(&layout, "later").unwrap_err();

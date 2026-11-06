@@ -16,6 +16,7 @@ use crate::domain::agent::unit::{
 use crate::error::{Failure, Outcome, Report, Warning, WriteHuman};
 use crate::infra::{clock, fs, systemd};
 use crate::store;
+use crate::store::layout::Layout;
 
 /// What time it is and how this machine reads a time without an offset,
 /// injectable so tests never depend on the clock or the time zone.
@@ -208,7 +209,7 @@ pub fn sync_with(ctx: &Ctx, env: &SyncEnv<'_>) -> Outcome<SyncOutcome> {
         systemd::enable_now(&format!("{}.timer", unit_stem(&hash, name)))?;
     }
     outcome.removed.sort();
-    outcome.fired = fire_due_tasks(&specs, &hash, &env.clock)?;
+    outcome.fired = fire_due_tasks(&layout, &specs, &hash, &env.clock)?;
     let mut warnings =
         requirements::as_warnings(&requirements::diagnose_agents(&specs, &env.probes));
     warnings.extend(specs.iter().filter(|s| s.runtime == Runtime::Host).map(|s| {
@@ -228,23 +229,31 @@ pub fn sync_with(ctx: &Ctx, env: &SyncEnv<'_>) -> Outcome<SyncOutcome> {
 /// Starts every Agent Task whose `at` is not in the future: its timer has no
 /// elapse left to wait for, and a persistent timer only catches up on a stamp
 /// it already has.
+///
+/// A task whose run is still going (it holds the agent lock) is left alone:
+/// starting it again would only record a `skipped` run and notify about it.
 fn fire_due_tasks(
+    layout: &Layout,
     specs: &[AgentSpec],
     hash: &str,
     clock: &Clock<'_>,
 ) -> Result<Vec<String>, Failure> {
     let mut fired = Vec::new();
     for spec in specs {
-        let due = spec.at.is_some_and(|at| {
+        let due = spec.at().is_some_and(|at| {
             at.epoch_secs(clock.local_epoch_secs)
                 .is_some_and(|secs| secs <= clock.now_secs)
         });
-        if due {
+        if due && !is_running(layout, &spec.name)? {
             systemd::start_no_block(&format!("{}.service", unit_stem(hash, &spec.name)))?;
             fired.push(spec.name.clone());
         }
     }
     Ok(fired)
+}
+
+fn is_running(layout: &Layout, name: &str) -> Result<bool, Failure> {
+    Ok(fs::try_lock_exclusive(&layout.agent_lock(name))?.is_none())
 }
 
 fn proc_write_warnings(specs: &[AgentSpec]) -> Vec<Warning> {
