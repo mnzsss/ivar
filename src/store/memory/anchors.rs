@@ -10,6 +10,7 @@ use crate::domain::memory_anchor::{
 };
 use crate::domain::memory_page::Tier;
 use crate::domain::memory_rank::tier_multiplier;
+use crate::domain::memory_review::is_durable_page;
 
 const BASE_REPO: &str = "instr(f.repo, '/') = 0";
 
@@ -438,7 +439,7 @@ pub fn anchored_files(
     let mut out = Vec::new();
     for row in rows {
         let (page, repo, path) = row?;
-        if wanted.contains(&(repo.clone(), path.clone())) {
+        if is_durable_page(&page) && wanted.contains(&(repo.clone(), path.clone())) {
             out.push((page, repo, path));
         }
     }

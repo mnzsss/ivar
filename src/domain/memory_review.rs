@@ -52,6 +52,17 @@ pub enum GapKind {
     AnalysisWithoutQuery,
 }
 
+impl GapKind {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Gotcha => "gotcha",
+            Self::Update => "update",
+            Self::AnalysisWithoutQuery => "analysis_without_query",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Gap {
     pub kind: GapKind,
@@ -90,6 +101,11 @@ fn page_target(rel: &str) -> Option<(String, String)> {
     let kind = PageKind::parse(kind).filter(|kind| kind.is_durable())?;
     (!file.contains('/') && file.ends_with(".md"))
         .then(|| (rel.to_owned(), kind.as_str().to_owned()))
+}
+
+#[must_use]
+pub fn is_durable_page(rel: &str) -> bool {
+    page_target(rel).is_some()
 }
 
 fn hall_relative<'a>(path: &'a str, hall_root: &str) -> Option<&'a str> {

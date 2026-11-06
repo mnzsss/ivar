@@ -175,7 +175,10 @@ fn confirming_needs_a_verdict_per_stale_page_then_records_the_heads() {
     .value;
 
     let head = git_stdout(&api, &["rev-parse", "HEAD"]).trim().to_owned();
-    assert_eq!(report.last.unwrap().source_event, "memory.reviewed");
+    let last = report.last.unwrap();
+    assert_eq!(last.source_event, "memory.reviewed");
+    assert_eq!(last.stale, ["docs/memory/decision/a.md"]);
+    assert!(last.written.is_empty(), "{last:?}");
     assert_eq!(
         review_state(&layout, &checkout()).unwrap(),
         ReviewState::Reviewed {
@@ -326,4 +329,94 @@ fn the_human_review_names_each_list_and_the_last_confirmation() {
     );
     assert!(text.contains("stale: none"), "{text}");
     assert!(text.contains("last: memory.reviewed at "), "{text}");
+}
+
+#[test]
+fn a_diff_that_cannot_be_read_is_a_warning_and_refuses_the_confirmation() {
+    let (_guard, root) = hall_with_promoted(&["api"]);
+    let layout = Layout::at(root);
+    std::fs::remove_dir_all(layout.repo_worktree(
+        &RepoName::new("api").unwrap(),
+        &BranchName::new("checkout").unwrap(),
+    ))
+    .unwrap();
+
+    let report = review_in(&layout, &checkout()).unwrap().value;
+
+    assert!(
+        report
+            .warnings
+            .iter()
+            .any(|w| w.starts_with("the diff of `api` could not be read")),
+        "{:?}",
+        report.warnings
+    );
+    let refused = confirm_in(
+        &layout,
+        &scope(),
+        &checkout(),
+        &[],
+        Some("internal".to_owned()),
+    )
+    .unwrap_err();
+    assert_eq!(refused.code, "memory.review_unreadable");
+}
+
+#[test]
+fn every_broken_anchor_of_a_durable_page_is_stale_wherever_its_file_is() {
+    let (_guard, root) = hall_with_promoted(&["api"]);
+    let layout = Layout::at(root);
+    anchored_page(&layout, "docs/memory/decision/a.md", "api", "src/gone.rs");
+    anchored_page(&layout, "docs/memory/session/s.md", "api", "src/gone.rs");
+    rusqlite::Connection::open(layout.graph_db().as_std_path())
+        .unwrap()
+        .execute_batch(
+            "CREATE TABLE files (id INTEGER PRIMARY KEY, repo TEXT, path TEXT);
+             CREATE TABLE symbols (file_id INTEGER, name TEXT);",
+        )
+        .unwrap();
+
+    let report = review_in(&layout, &checkout()).unwrap().value;
+
+    let stale: Vec<&str> = report.stale.iter().map(|p| p.path.as_str()).collect();
+    assert_eq!(
+        stale,
+        ["docs/memory/decision/a.md"],
+        "{:?}",
+        report.warnings
+    );
+    assert_eq!(
+        report.stale[0].reasons,
+        [StaleReason::BrokenAnchor {
+            repo: "api".to_owned(),
+            path: "src/gone.rs".to_owned(),
+            symbol: None
+        }]
+    );
+}
+
+#[test]
+fn the_heads_survive_a_review_body_cut_at_the_sanitize_limit() {
+    let (_guard, root) = hall_with_promoted(&["api"]);
+    let layout = Layout::at(root);
+    let written: Vec<String> = (0..50)
+        .map(|n| format!("docs/memory/decision/a-long-and-realistic-decision-page-about-the-memory-review-gate-{n}.md"))
+        .collect();
+    record_memory_event(
+        &layout,
+        &scope(),
+        SourceEvent::MemoryReviewed,
+        json!({"heads": {"api": "abc123"}, "gaps": ["update"], "written": written}),
+    )
+    .unwrap();
+    crate::action::memory::drain::drain(&layout).unwrap();
+
+    assert_eq!(
+        review_state(&layout, &checkout()).unwrap(),
+        ReviewState::Reviewed {
+            heads: [("api".to_owned(), "abc123".to_owned())]
+                .into_iter()
+                .collect()
+        }
+    );
 }

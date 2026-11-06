@@ -151,7 +151,10 @@ The tools are in [MCP tools](mcp-tools.md).
   quotes a `docs/memory/` path in its content can count as that page.
 - A stale page is found only through its anchors. A page that cites the changed code in
   prose without an anchor is not listed.
-- `memory.reviewed` keeps at most 50 verdicts in its body.
+- `memory.reviewed` keeps at most 50 verdicts, 50 written and 50 stale paths in its
+  body. A body past 4 KiB is cut and `last` loses its lists, but the heads survive.
+- A broken anchor counts wherever its file is, so a page broken before the feature
+  is listed too and needs a verdict.
 
 ## Older `ivar`
 

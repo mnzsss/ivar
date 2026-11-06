@@ -151,6 +151,12 @@ fn stored_anchors_are_read_matched_and_reported_broken() {
         &[anchor("ivar", "src/a.rs", None)],
     )
     .unwrap();
+    replace_anchors(
+        &tx,
+        "docs/memory/session/t.md",
+        &[anchor("ivar", "src/a.rs", None)],
+    )
+    .unwrap();
     set_pending(&tx, ".ivar/memory/session/s.md", true).unwrap();
     assert_eq!(
         pending_paths(&tx).unwrap(),
@@ -254,7 +260,8 @@ fn anchored_files_lists_each_durable_page_file_pair_once() {
             "INSERT INTO pages (path, kind, tier, title, size, mtime_ns, content_hash, indexed_at) VALUES
                ('docs/memory/decision/a.md', 'decision', 'semantic', 'A', 1, 1, 'h', 't'),
                ('docs/memory/gotcha/b.md', 'gotcha', 'semantic', 'B', 1, 1, 'h', 't'),
-               ('.ivar/memory/session/s.md', 'session', 'episodic', 'S', 1, 1, 'h', 't');",
+               ('.ivar/memory/session/s.md', 'session', 'episodic', 'S', 1, 1, 'h', 't'),
+               ('docs/memory/session/t.md', 'session', 'episodic', 'T', 1, 1, 'h', 't');",
         )
         .unwrap();
     let tx = f.memory.conn_mut().transaction().unwrap();
@@ -276,6 +283,12 @@ fn anchored_files_lists_each_durable_page_file_pair_once() {
     replace_anchors(
         &tx,
         ".ivar/memory/session/s.md",
+        &[anchor("ivar", "src/a.rs", None)],
+    )
+    .unwrap();
+    replace_anchors(
+        &tx,
+        "docs/memory/session/t.md",
         &[anchor("ivar", "src/a.rs", None)],
     )
     .unwrap();

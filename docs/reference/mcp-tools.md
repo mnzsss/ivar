@@ -110,9 +110,12 @@ descendants' sessions. `written` joins `memory.page_written`, which the three wr
 tools record, with captured write tools under `docs/memory/<kind>/`. `gaps` are a
 failed tool without a `gotcha`, no `update` page, and an Analysis approved without a
 `memory_query`. None blocks the confirmation. `stale` lists durable pages anchored to a
-file the feature's diff changed, and pages with a broken anchor in those files. Without
-`graph.db` the broken anchors are left out, with a warning. `ivar memory review` prints
-the same report, read-only.
+file the feature's diff changed, and pages with a broken anchor. Without `graph.db` the
+broken anchors are left out, with a warning. When `memory.db`, the manifest, a repo's
+diff or the anchors cannot be read, the read still answers with a warning, but the
+confirmation is refused with `memory.review_unreadable`. `memory.reviewed` records the
+heads, the verdicts, `not_required`, the written and stale page paths and the gap kinds,
+and `last` returns them. `ivar memory review` prints the same report, read-only.
 
 ## Lint
 

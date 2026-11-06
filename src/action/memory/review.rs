@@ -14,8 +14,8 @@ use crate::action::feature::{base, relations};
 use crate::action::{Ctx, discover_hall, read_manifest};
 use crate::domain::feature::{Feature, Gate, GateState, WorktreeState};
 use crate::domain::memory_review::{
-    Gap, ObservationFact, StalePage, Verdict, WrittenPage, gaps, missing_verdicts, stale_pages,
-    written_pages,
+    Gap, ObservationFact, StalePage, Verdict, WrittenPage, gaps, is_durable_page, missing_verdicts,
+    stale_pages, written_pages,
 };
 use crate::domain::name::FeatureName;
 use crate::domain::observation::SourceEvent;
@@ -26,8 +26,7 @@ use crate::store::memory::anchors::{anchored_files, attach_graph, broken_anchors
 use crate::store::memory::db::MemoryDb;
 use crate::store::memory::observations::{FeatureObservation, feature_observations};
 
-const MAX_RECORDED_VERDICTS: usize = 50;
-const MEMORY_UNREADABLE: &str = "memory could not be read";
+const MAX_RECORDED_ENTRIES: usize = 50;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ReviewReport {
@@ -37,6 +36,8 @@ pub struct ReviewReport {
     pub stale: Vec<StalePage>,
     pub warnings: Vec<String>,
     pub last: Option<ReviewRecord>,
+    #[serde(skip)]
+    incomplete: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -47,6 +48,8 @@ pub struct ReviewRecord {
     pub not_required: Option<String>,
     pub reason: Option<String>,
     pub heads: BTreeMap<String, String>,
+    pub written: Vec<String>,
+    pub stale: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -79,11 +82,7 @@ impl WriteHuman for ReviewReport {
             )?;
         }
         for gap in &self.gaps {
-            let kind = serde_json::to_value(gap.kind)
-                .ok()
-                .and_then(|value| value.as_str().map(str::to_owned))
-                .unwrap_or_default();
-            writeln!(out, "gap {kind}: {}", gap.detail)?;
+            writeln!(out, "gap {}: {}", gap.kind.as_str(), gap.detail)?;
         }
         if self.stale.is_empty() {
             writeln!(out, "stale: none")?;
@@ -108,25 +107,25 @@ impl WriteHuman for ReviewReport {
 
 /// # Errors
 ///
-/// When the feature does not exist. An unreadable memory database is a
-/// warning with empty lists, never an error.
+/// When the feature does not exist. Unreadable state is a warning with
+/// empty or partial lists, never an error.
 pub fn review_in(layout: &Layout, name: &FeatureName) -> Result<Report<ReviewReport>, Failure> {
     let feature = relations::read_feature(layout, name)?;
-    let mut warnings = Vec::new();
+    let mut notes = Notes::default();
     if let Err(failure) = drain::drain(layout) {
-        warnings.push(format!(
+        notes.warn(format!(
             "the capture spool could not be drained: {}",
             failure.what
         ));
     }
-    let rows = observations(layout, &feature, &mut warnings)?;
+    let rows = observations(layout, &feature, &mut notes)?;
     let facts: Vec<ObservationFact> = rows.iter().map(fact).collect();
     let written = written_pages(&facts, layout.root().as_str());
     let analysis_approved =
         crate::action::plan::effective_gate(layout, name, Gate::Analysis)? == GateState::Approved;
     let gaps = gaps(&facts, &written, name.as_str(), analysis_approved);
-    let changed = changed_files(layout, &feature, &mut warnings);
-    let (anchored, broken) = anchor_matches(layout, &changed, &mut warnings);
+    let changed = changed_files(layout, &feature, &mut notes);
+    let (anchored, broken) = anchor_matches(layout, &changed, &mut notes);
     let stale = stale_pages(&anchored, &broken, &written);
     Ok(Report::new(ReviewReport {
         feature: name.to_string(),
@@ -134,7 +133,8 @@ pub fn review_in(layout: &Layout, name: &FeatureName) -> Result<Report<ReviewRep
         gaps,
         stale,
         last: last_record(&rows, name),
-        warnings,
+        warnings: notes.warnings,
+        incomplete: notes.incomplete,
     }))
 }
 
@@ -142,7 +142,8 @@ pub fn review_in(layout: &Layout, name: &FeatureName) -> Result<Report<ReviewRep
 ///
 /// `memory.review_missing_verdicts` when a stale page has no verdict;
 /// `memory.review_not_recorded` when the observation cannot be spooled;
-/// `memory.review_unreadable` when memory cannot be read, so nothing is attested.
+/// `memory.review_unreadable` when memory, the manifest, a diff or the anchors
+/// cannot be read, so nothing is attested.
 pub fn confirm_in(
     layout: &Layout,
     scope: &MemoryEventScope,
@@ -151,14 +152,13 @@ pub fn confirm_in(
     not_required: Option<String>,
 ) -> Result<Report<ReviewReport>, Failure> {
     let review = review_in(layout, name)?.value;
-    if review
-        .warnings
-        .iter()
-        .any(|warning| warning.starts_with(MEMORY_UNREADABLE))
-    {
+    if review.incomplete {
         return Err(Failure::failed(
             "memory.review_unreadable",
-            format!("the memory of `{name}` cannot be read, so there is no review to confirm"),
+            format!(
+                "the review of `{name}` is incomplete ({}), so there is no review to confirm",
+                review.warnings.join("; ")
+            ),
         )
         .fix(FixAction::safe(
             "memory.inspect_db",
@@ -179,11 +179,11 @@ pub fn confirm_in(
     let feature = relations::read_feature(layout, name)?;
     let body = json!({
         "heads": feature_heads(layout, &feature),
-        "verdicts": verdicts.iter().take(MAX_RECORDED_VERDICTS).collect::<Vec<_>>(),
+        "verdicts": verdicts.iter().take(MAX_RECORDED_ENTRIES).collect::<Vec<_>>(),
         "not_required": Value::from(not_required),
-        "written": review.written.len(),
+        "written": review.written.iter().take(MAX_RECORDED_ENTRIES).map(|page| &page.path).collect::<Vec<_>>(),
         "gaps": review.gaps.iter().map(|gap| gap.kind).collect::<Vec<_>>(),
-        "stale": review.stale.len(),
+        "stale": review.stale.iter().take(MAX_RECORDED_ENTRIES).map(|page| &page.path).collect::<Vec<_>>(),
     });
     let scope = MemoryEventScope {
         feature: name.to_string(),
@@ -230,6 +230,23 @@ pub fn feature_heads(layout: &Layout, feature: &Feature) -> BTreeMap<String, Str
         .collect()
 }
 
+#[derive(Default)]
+struct Notes {
+    warnings: Vec<String>,
+    incomplete: bool,
+}
+
+impl Notes {
+    fn warn(&mut self, warning: String) {
+        self.warnings.push(warning);
+    }
+
+    fn unread(&mut self, warning: String) {
+        self.incomplete = true;
+        self.warnings.push(warning);
+    }
+}
+
 fn open(layout: &Layout) -> Result<MemoryDb, Failure> {
     MemoryDb::open(layout.memory_db().as_std_path())
         .map_err(|error| Failure::failed("memory.review_unreadable", error.to_string()))
@@ -242,10 +259,10 @@ fn unreadable(error: &rusqlite::Error) -> Failure {
 fn observations(
     layout: &Layout,
     feature: &Feature,
-    warnings: &mut Vec<String>,
+    notes: &mut Notes,
 ) -> Result<Vec<FeatureObservation>, Failure> {
     if !layout.memory_db().exists() {
-        warnings.push("memory.db does not exist yet: nothing was captured".to_owned());
+        notes.warn("memory.db does not exist yet: nothing was captured".to_owned());
         return Ok(Vec::new());
     }
     let mut names = vec![feature.name.to_string()];
@@ -257,7 +274,7 @@ fn observations(
     let rows = open(layout)
         .and_then(|db| feature_observations(&db, &names).map_err(|error| unreadable(&error)));
     Ok(rows.unwrap_or_else(|failure| {
-        warnings.push(format!("{MEMORY_UNREADABLE}: {}", failure.what));
+        notes.unread(format!("memory could not be read: {}", failure.what));
         Vec::new()
     }))
 }
@@ -281,7 +298,7 @@ fn last_record(rows: &[FeatureObservation], name: &FeatureName) -> Option<Review
     };
     let row =
         latest(SourceEvent::MemoryReviewed).or_else(|| latest(SourceEvent::MemoryReviewSkipped))?;
-    let body: Value = serde_json::from_str(&row.body).unwrap_or(Value::Null);
+    let body: Value = serde_json::from_str(&row.body).unwrap_or_else(|_| cut_body_heads(&row.body));
     Some(ReviewRecord {
         source_event: row.source_event.clone(),
         occurred_at: row.occurred_at.clone(),
@@ -289,7 +306,23 @@ fn last_record(rows: &[FeatureObservation], name: &FeatureName) -> Option<Review
         not_required: field(&body, "not_required"),
         reason: field(&body, "reason"),
         heads: field(&body, "heads"),
+        written: field(&body, "written"),
+        stale: field(&body, "stale"),
     })
+}
+
+/// A body cut by the sanitize limit is no longer JSON. serde_json writes keys
+/// sorted, so `heads` follows only the short `gaps` list and survives the cut.
+fn cut_body_heads(raw: &str) -> Value {
+    const KEY: &str = "\"heads\":";
+    let Some(start) = raw.find(KEY).map(|at| at + KEY.len()) else {
+        return Value::Null;
+    };
+    let object = &raw[start..];
+    object
+        .find('}')
+        .and_then(|end| serde_json::from_str::<Value>(&object[..=end]).ok())
+        .map_or(Value::Null, |heads| json!({ "heads": heads }))
 }
 
 fn field<T: serde::de::DeserializeOwned + Default>(body: &Value, key: &str) -> T {
@@ -299,15 +332,11 @@ fn field<T: serde::de::DeserializeOwned + Default>(body: &Value, key: &str) -> T
         .unwrap_or_default()
 }
 
-fn changed_files(
-    layout: &Layout,
-    feature: &Feature,
-    warnings: &mut Vec<String>,
-) -> Vec<(String, String)> {
+fn changed_files(layout: &Layout, feature: &Feature, notes: &mut Notes) -> Vec<(String, String)> {
     let manifest = match read_manifest(layout) {
         Ok(manifest) => manifest,
         Err(failure) => {
-            warnings.push(format!("the manifest could not be read: {}", failure.what));
+            notes.unread(format!("the manifest could not be read: {}", failure.what));
             return Vec::new();
         }
     };
@@ -344,7 +373,7 @@ fn changed_files(
                     .chain(diff.deleted)
                     .map(|path| (repo.to_string(), path.to_string())),
             ),
-            Err(error) => warnings.push(format!("the diff of `{repo}` could not be read: {error}")),
+            Err(error) => notes.unread(format!("the diff of `{repo}` could not be read: {error}")),
         }
     }
     files
@@ -353,39 +382,33 @@ fn changed_files(
 type Anchored = Vec<(String, String, String)>;
 type Broken = Vec<(String, String, String, Option<String>)>;
 
-/// Broken anchors count only on files the feature changed: an anchor broken
-/// on the default branch before the feature is not this review's concern.
+/// Every broken anchor of a durable page counts, wherever its file is.
 fn anchor_matches(
     layout: &Layout,
     changed: &[(String, String)],
-    warnings: &mut Vec<String>,
+    notes: &mut Notes,
 ) -> (Anchored, Broken) {
     let Ok(db) = open(layout) else {
+        notes.incomplete = true;
         return (Vec::new(), Vec::new());
     };
     let anchored = anchored_files(db.conn(), changed).unwrap_or_else(|error| {
-        warnings.push(format!("the anchors could not be read: {error}"));
+        notes.unread(format!("the anchors could not be read: {error}"));
         Vec::new()
     });
     if !attach_graph(db.conn(), &layout.graph_db()) {
-        warnings
-            .push("graph.db is missing or unreadable: broken anchors were not checked".to_owned());
+        notes.warn("graph.db is missing or unreadable: broken anchors were not checked".to_owned());
         return (anchored, Vec::new());
     }
     let broken = broken_anchors(db.conn())
         .map(|rows| {
             rows.into_iter()
-                .filter(|(page, anchor)| {
-                    page.starts_with("docs/memory/")
-                        && changed
-                            .iter()
-                            .any(|(repo, path)| *repo == anchor.repo && *path == anchor.path)
-                })
+                .filter(|(page, _)| is_durable_page(page))
                 .map(|(page, anchor)| (page, anchor.repo, anchor.path, anchor.symbol))
                 .collect()
         })
         .unwrap_or_else(|error| {
-            warnings.push(format!("broken anchors could not be read: {error}"));
+            notes.unread(format!("broken anchors could not be read: {error}"));
             Vec::new()
         });
     detach_graph(db.conn());
