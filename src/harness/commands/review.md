@@ -137,7 +137,9 @@ workflow writes no file.
    worst one it raised. Never name a single worst finding across both — that is
    the ranking the split exists to prevent.
 
-8. **Check the change against affected consumers and hall relations.**
+8. **Ask about follow-ups.** After the report, always ask whether the findings land in this same feature: **(a) Fix them now**, **(b) Fix the ones I pick**, **(c) Leave them for later**. Then record the answer with `memory_write_page` as a `decision` (`tags: [follow-ups]`, title "Follow-ups in <feature or PR>: <choice>"). When three `follow-ups` decisions agree, write or patch the `procedure` "Follow-up preference". Memory being unavailable never blocks the review.
+
+9. **Check the change against affected consumers and hall relations.**
    - Query `ivar graph affected <files...>` against changed files to identify reverse-dependent callers and tests across repositories. Compare affected consumers with the diff to spot missed consumers or broken call sites in review scope. Graph evidence is advisory: if graph results are unavailable, empty, or unmodeled, fall back to direct source grep and diff inspection.
    - Compare what the diff does against the relation context in `HALL.md`, and offer `/ivar-relations` only for concrete evidence in the diff that the prose contradicts, extends, or obsoletes. Deferring it blocks nothing. This step never writes `HALL.md`; `/ivar-relations` is the only writer of the relation region.
 ## The smell baseline

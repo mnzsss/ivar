@@ -3,6 +3,7 @@ const PLAN: &str = include_str!("../../../src/harness/skills/ivar-plan/SKILL.md"
 const TASK_TEMPLATE: &str =
     include_str!("../../../src/harness/skills/ivar-plan/references/task-template.md");
 const EXECUTE: &str = include_str!("../../../src/harness/skills/ivar-execute/SKILL.md");
+const REVIEW: &str = include_str!("../../../src/harness/commands/review.md");
 const SUBAGENT: &str =
     include_str!("../../../src/harness/skills/ivar-execute/references/subagent.md");
 
@@ -47,4 +48,17 @@ fn the_edited_skills_fit_the_commit_hook_limit() {
     for text in [EXPLORE, PLAN, EXECUTE, SUBAGENT, TASK_TEMPLATE] {
         assert!(text.len() < 20_000);
     }
+}
+
+#[test]
+fn reviews_always_ask_whether_follow_ups_land_in_the_same_feature_and_record_the_answer() {
+    for (name, text) in [("ivar-execute", EXECUTE), ("ivar-review", REVIEW)] {
+        assert!(text.contains("land in this same feature"), "{name}");
+        assert!(
+            text.contains("tags: [follow-ups]") || text.contains("tag `follow-ups`"),
+            "{name}"
+        );
+        assert!(text.contains("Follow-up preference"), "{name}");
+    }
+    assert!(EXECUTE.contains("Goal mode applies the `Follow-up preference` procedure"));
 }
