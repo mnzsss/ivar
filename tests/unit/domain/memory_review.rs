@@ -72,6 +72,29 @@ fn each_provider_write_key_under_docs_memory_is_a_page_target() {
 }
 
 #[test]
+fn a_hall_relative_write_path_is_a_page_target_under_the_same_confinement() {
+    assert_eq!(
+        memory_page_target(&json!({"file_path": "docs/memory/gotcha/x.md"}), HALL),
+        Some(("docs/memory/gotcha/x.md".to_owned(), "gotcha".to_owned()))
+    );
+    for outside in [
+        "../x",
+        "../docs/memory/gotcha/x.md",
+        "docs/memory/../x.md",
+        "docs/memory/gotcha/../x.md",
+        "docs/memory/nope/x.md",
+        "docs/memory/session/x.md",
+        "docs/memory/gotcha/deep/x.md",
+    ] {
+        assert_eq!(
+            memory_page_target(&json!({"file_path": outside}), HALL),
+            None,
+            "{outside}"
+        );
+    }
+}
+
+#[test]
 fn tool_writes_and_captured_writes_merge_by_path_and_the_last_action_wins() {
     let facts = [
         tool_write(
@@ -158,6 +181,17 @@ fn a_cut_body_still_yields_the_page_when_its_path_survived() {
     assert_eq!(
         written_pages(&facts, HALL)[0].path,
         "docs/memory/procedure/p.md"
+    );
+}
+
+#[test]
+fn a_cut_body_with_a_hall_relative_path_still_yields_the_page() {
+    let raw =
+        "{\"tool\":\"Write\",\"input\":{\"file_path\":\"docs/memory/gotcha/g.md\",\"content\":\"…";
+    let facts = [fact("session.tool", "t", 4, Value::String(raw.to_owned()))];
+    assert_eq!(
+        written_pages(&facts, HALL)[0].path,
+        "docs/memory/gotcha/g.md"
     );
 }
 

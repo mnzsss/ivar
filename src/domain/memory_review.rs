@@ -109,6 +109,9 @@ pub fn is_durable_page(rel: &str) -> bool {
 }
 
 fn hall_relative<'a>(path: &'a str, hall_root: &str) -> Option<&'a str> {
+    if std::path::Path::new(path).is_relative() {
+        return Some(path);
+    }
     path.strip_prefix(hall_root.trim_end_matches('/'))?
         .strip_prefix('/')
 }
@@ -125,8 +128,11 @@ pub fn memory_page_target(tool_input: &Value, hall_root: &str) -> Option<(String
 /// still read when it survived the cut.
 fn captured_target(body: &Value, hall_root: &str) -> Option<(String, String)> {
     if let Value::String(raw) = body {
-        let prefix = format!("{}/{MEMORY_DIR}", hall_root.trim_end_matches('/'));
-        let start = raw.find(&prefix)? + prefix.len() - MEMORY_DIR.len();
+        let absolute = format!("{}/{MEMORY_DIR}", hall_root.trim_end_matches('/'));
+        let relative = format!("\":\"{MEMORY_DIR}");
+        let start = [absolute, relative].iter().find_map(|prefix| {
+            Some(raw.find(prefix.as_str())? + prefix.len() - MEMORY_DIR.len())
+        })?;
         let rel: String = raw
             .get(start..)?
             .chars()
