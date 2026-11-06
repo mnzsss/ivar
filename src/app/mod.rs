@@ -5,6 +5,7 @@ mod agent_dispatch;
 mod capture;
 mod feature_dispatch;
 mod graph_dispatch;
+mod memory_dispatch;
 mod notice;
 mod planning_dispatch;
 mod respond;
