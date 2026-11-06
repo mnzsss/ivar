@@ -1,5 +1,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
+use std::collections::BTreeMap;
+
 use super::*;
 
 fn pairs(items: &[(&str, &str)]) -> Vec<(String, String)> {
@@ -32,6 +34,7 @@ fn the_host_environment_keeps_the_login_and_drops_every_git_credential() {
     let env = host_env(
         &parent,
         "/hall/.ivar/agents/tmp/r1/tmp",
+        &BTreeMap::new(),
         &pairs(&[("TOKEN", "s3")]),
         Tool::Codex,
         camino::Utf8Path::new("/state"),
@@ -74,6 +77,7 @@ fn the_tools_state_dir_overrides_the_parents() {
     let env = host_env(
         &pairs(&[("HOME", "/home/u"), ("CLAUDE_CONFIG_DIR", "/srv/claude")]),
         "/t",
+        &BTreeMap::new(),
         &[],
         Tool::Claude,
         camino::Utf8Path::new("/state"),
@@ -86,4 +90,38 @@ fn the_tools_state_dir_overrides_the_parents() {
         dirs,
         [&("CLAUDE_CONFIG_DIR".to_owned(), "/state".to_owned())]
     );
+}
+
+#[test]
+fn the_agents_env_is_added_once_and_replaces_tmpdir_and_kept_names() {
+    let extra: BTreeMap<String, String> = [
+        ("TMPDIR", "/tmp"),
+        ("LANG", "pt_BR.UTF-8"),
+        ("XDG_CURRENT_DESKTOP", "KDE"),
+    ]
+    .into_iter()
+    .map(|(k, v)| (k.to_owned(), v.to_owned()))
+    .collect();
+    let env = host_env(
+        &pairs(&[
+            ("PATH", "/usr/bin"),
+            ("HOME", "/home/u"),
+            ("LANG", "C.UTF-8"),
+        ]),
+        "/t",
+        &extra,
+        &[],
+        Tool::Claude,
+        camino::Utf8Path::new("/state"),
+    );
+    let values = |key: &str| {
+        env.iter()
+            .filter(|(k, _)| k == key)
+            .map(|(_, v)| v.as_str())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(values("TMPDIR"), ["/tmp"]);
+    assert_eq!(values("LANG"), ["pt_BR.UTF-8"]);
+    assert_eq!(values("XDG_CURRENT_DESKTOP"), ["KDE"]);
+    assert_eq!(values("CLAUDE_CONFIG_DIR"), ["/state"]);
 }

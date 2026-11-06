@@ -291,7 +291,14 @@ pub(super) fn execute_host(
         .cwd(cwd)
         .env_clear()
         .process_group();
-    for (key, value) in host_env(&host.parent_env, tmp.as_str(), secrets, *tool, state) {
+    for (key, value) in host_env(
+        &host.parent_env,
+        tmp.as_str(),
+        &spec.env,
+        secrets,
+        *tool,
+        state,
+    ) {
         command = command.env(key, value);
     }
     let log = scratch.join("output.log");

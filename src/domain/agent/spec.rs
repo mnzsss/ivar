@@ -1,5 +1,6 @@
 //! An agent file's frontmatter and prompt, validated into an [`AgentSpec`].
 
+use std::collections::BTreeMap;
 use std::time::Duration;
 
 use camino::{Utf8Path, Utf8PathBuf};
@@ -35,6 +36,8 @@ pub struct AgentFrontmatter {
     pub catchup: bool,
     #[serde(default)]
     pub write: Vec<String>,
+    #[serde(default)]
+    pub env: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -164,6 +167,7 @@ pub struct AgentSpec {
     pub workdir: Option<String>,
     pub catchup: bool,
     pub write: Vec<WritePath>,
+    pub env: BTreeMap<String, String>,
     pub prompt: String,
 }
 
@@ -197,6 +201,41 @@ fn is_secret_name(name: &str) -> bool {
         && name
             .chars()
             .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
+}
+
+/// Variables ivar sets so the tool stays on its private state and git has no credentials;
+/// an agent's `env` overriding one would undo that confinement.
+pub const RESERVED_ENV: &[&str] = &[
+    "PATH",
+    "HOME",
+    "CLAUDE_CONFIG_DIR",
+    "CODEX_HOME",
+    "XDG_DATA_HOME",
+    "XDG_STATE_HOME",
+    "XDG_CONFIG_HOME",
+    "XDG_CACHE_HOME",
+    "OPENCODE_CONFIG_CONTENT",
+];
+
+fn env_name_error(name: &str, secrets: &[String]) -> Option<String> {
+    let well_formed = name.starts_with(|c: char| c.is_ascii_uppercase() || c == '_')
+        && name
+            .chars()
+            .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_');
+    if !well_formed {
+        return Some(format!("`{name}` must match ^[A-Z_][A-Z0-9_]*$"));
+    }
+    if RESERVED_ENV.contains(&name) || name.starts_with("GIT_") {
+        return Some(format!(
+            "`{name}` is set by ivar to keep the run confined and cannot be overridden"
+        ));
+    }
+    if secrets.iter().any(|secret| secret == name) {
+        return Some(format!(
+            "`{name}` is already in `secrets`; a secret's value belongs only in agents.env"
+        ));
+    }
+    None
 }
 
 fn launch_of(fm: &AgentFrontmatter) -> Result<Launch, SpecError> {
@@ -253,6 +292,11 @@ impl AgentSpec {
                 "write",
                 "`write` adds Landlock roots to a `runtime: host` run; remove it or set `runtime: host`",
             ));
+        } else if !fm.env.is_empty() {
+            return Err(err(
+                "env",
+                "`env` is passed to a `runtime: host` run; remove it or set `runtime: host`",
+            ));
         }
         let write = fm
             .write
@@ -272,6 +316,13 @@ impl AgentSpec {
                 "secrets",
                 format!("`{bad}` must match ^[A-Z][A-Z0-9_]*$"),
             ));
+        }
+        if let Some(reason) = fm
+            .env
+            .keys()
+            .find_map(|name| env_name_error(name, &fm.secrets))
+        {
+            return Err(err("env", reason));
         }
         let notify = fm.notify.as_deref().map(notify_target).transpose()?;
         if let Some(dir) = fm.workdir.as_deref()
@@ -308,6 +359,7 @@ impl AgentSpec {
             workdir: fm.workdir,
             catchup: fm.catchup,
             write,
+            env: fm.env,
             prompt: prompt.to_owned(),
         })
     }

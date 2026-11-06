@@ -431,3 +431,23 @@ fn an_unresolvable_protected_path_is_named_in_the_refusal() {
         failure.what
     );
 }
+
+#[test]
+fn a_host_run_passes_the_agents_env_to_the_tool() {
+    let (_guard, root) = hall_with_agent(
+        "runtime: host\ntool: claude\nenv:\n  XDG_CURRENT_DESKTOP: KDE\n  TMPDIR: /tmp\n",
+    );
+    let fake = HostFake::new(&root);
+    let _r = redirect_on_this_thread(LAUNCHER, fake.command());
+
+    let receipt = run_host(&root, host_deps(&fake.home, true));
+    assert_eq!(
+        receipt.outcome,
+        AgentRunOutcome::Succeeded,
+        "{}",
+        receipt.output
+    );
+    let env = fake.read("env.txt");
+    assert!(env.lines().any(|l| l == "XDG_CURRENT_DESKTOP=KDE"), "{env}");
+    assert!(env.lines().any(|l| l == "TMPDIR=/tmp"), "{env}");
+}
