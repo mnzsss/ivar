@@ -31,38 +31,55 @@ fn a_hall_without_pages_has_no_page_findings() {
     assert!(codes(&root).is_empty());
 }
 
-#[test]
-fn legacy_doc_folders_are_named_with_the_git_mv_commands() {
-    let (_guard, root) = seeded_hall();
-    put(&root, "docs/updates/001-x.md", "# X\n");
-    let report = doctor(&Ctx::new(root.clone())).unwrap().value;
-    let found = finding(&report, "memory.legacy_docs");
+fn git_init(root: &Utf8Path) {
     assert!(
-        found.fix.contains("git mv docs/updates docs/memory/update"),
-        "{}",
-        found.fix
+        std::process::Command::new("git")
+            .args(["init", "-q"])
+            .current_dir(root)
+            .status()
+            .unwrap()
+            .success()
     );
 }
 
-#[test]
-fn an_existing_destination_folder_gets_a_merging_move_not_a_nesting_one() {
+#[rstest]
+#[case::git(true, "mkdir -p docs/memory && git mv docs/updates docs/memory/update")]
+#[case::plain(false, "mkdir -p docs/memory && mv docs/updates docs/memory/update")]
+fn legacy_doc_folders_are_moved_with_the_hall_s_own_tooling(
+    #[case] hall_is_git: bool,
+    #[case] expected: &str,
+) {
     let (_guard, root) = seeded_hall();
+    if hall_is_git {
+        git_init(&root);
+    }
+    put(&root, "docs/updates/001-x.md", "# X\n");
+    let report = doctor(&Ctx::new(root.clone())).unwrap().value;
+    let found = finding(&report, "memory.legacy_docs");
+    assert_eq!(found.fix, expected);
+    assert_eq!(found.fix.contains("git"), hall_is_git, "{}", found.fix);
+}
+
+#[rstest]
+#[case::git(
+    true,
+    "mkdir -p docs/memory && git mv docs/updates/* docs/memory/update/"
+)]
+#[case::plain(false, "mkdir -p docs/memory && mv docs/updates/* docs/memory/update/")]
+fn an_existing_destination_folder_gets_a_merging_move_not_a_nesting_one(
+    #[case] hall_is_git: bool,
+    #[case] expected: &str,
+) {
+    let (_guard, root) = seeded_hall();
+    if hall_is_git {
+        git_init(&root);
+    }
     put(&root, "docs/updates/001-x.md", "# X\n");
     put(&root, "docs/memory/update/002-y.md", "# Y\n");
     let report = doctor(&Ctx::new(root.clone())).unwrap().value;
     let found = finding(&report, "memory.legacy_docs");
-    assert!(
-        found
-            .fix
-            .contains("git mv docs/updates/* docs/memory/update/"),
-        "{}",
-        found.fix
-    );
-    assert!(
-        !found.fix.contains("git mv docs/updates docs/memory/update"),
-        "{}",
-        found.fix
-    );
+    assert_eq!(found.fix, expected);
+    assert_eq!(found.fix.contains("git"), hall_is_git, "{}", found.fix);
 }
 
 #[test]

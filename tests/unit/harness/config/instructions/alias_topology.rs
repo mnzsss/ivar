@@ -16,13 +16,14 @@ fn enabled_absent_alias_becomes_a_relative_symlink_to_hall() {
         let (_guard, root) = utf8_temp_dir();
         let canonical = root.join("HALL.md");
         let block = build_block(&hall(), &[]);
-        reconcile(&canonical, &block, &[]).unwrap();
+        reconcile(&canonical, &block, &[], true).unwrap();
         let alias_path = root.join(provider.instruction_file());
 
         let entries = reconcile(
             &canonical,
             &block,
             &[alias(provider, alias_path.clone(), true)],
+            true,
         )
         .unwrap();
 
@@ -45,7 +46,7 @@ fn enabled_correct_alias_is_unchanged() {
         let (_guard, root) = utf8_temp_dir();
         let canonical = root.join("HALL.md");
         let block = build_block(&hall(), &[]);
-        reconcile(&canonical, &block, &[]).unwrap();
+        reconcile(&canonical, &block, &[], true).unwrap();
         let alias_path = root.join(provider.instruction_file());
         fs::create_symlink(canonical.file_name().unwrap().as_ref(), &alias_path).unwrap();
         let before = fs::read_symlink(&alias_path).unwrap();
@@ -54,6 +55,7 @@ fn enabled_correct_alias_is_unchanged() {
             &canonical,
             &block,
             &[alias(provider, alias_path.clone(), true)],
+            true,
         )
         .unwrap();
 
@@ -73,7 +75,7 @@ fn enabled_broken_or_wrong_target_alias_is_replaced() {
         let (_guard, root) = utf8_temp_dir();
         let canonical = root.join("HALL.md");
         let block = build_block(&hall(), &[]);
-        reconcile(&canonical, &block, &[]).unwrap();
+        reconcile(&canonical, &block, &[], true).unwrap();
         let alias_path = root.join(provider.instruction_file());
         fs::create_symlink(Utf8Path::new("vanished.md"), &alias_path).unwrap();
 
@@ -81,6 +83,7 @@ fn enabled_broken_or_wrong_target_alias_is_replaced() {
             &canonical,
             &block,
             &[alias(provider, alias_path.clone(), true)],
+            true,
         )
         .unwrap();
 
@@ -98,7 +101,7 @@ fn enabled_broken_or_wrong_target_alias_is_replaced() {
         // Wrong target: a symlink to something that exists, but not HALL.md.
         let (_guard, root) = utf8_temp_dir();
         let canonical = root.join("HALL.md");
-        reconcile(&canonical, &block, &[]).unwrap();
+        reconcile(&canonical, &block, &[], true).unwrap();
         let alias_path = root.join(provider.instruction_file());
         let other = root.join("other.md");
         fs::write_text(&other, "x").unwrap();
@@ -108,6 +111,7 @@ fn enabled_broken_or_wrong_target_alias_is_replaced() {
             &canonical,
             &block,
             &[alias(provider, alias_path.clone(), true)],
+            true,
         )
         .unwrap();
 
@@ -130,7 +134,7 @@ fn enabled_regular_alias_is_a_conflict_and_preserved_byte_for_byte() {
         let (_guard, root) = utf8_temp_dir();
         let canonical = root.join("HALL.md");
         let block = build_block(&hall(), &[]);
-        reconcile(&canonical, &block, &[]).unwrap();
+        reconcile(&canonical, &block, &[], true).unwrap();
         let alias_path = root.join(provider.instruction_file());
         fs::write_text(&alias_path, "legacy instructions, precious\n").unwrap();
 
@@ -138,6 +142,7 @@ fn enabled_regular_alias_is_a_conflict_and_preserved_byte_for_byte() {
             &canonical,
             &block,
             &[alias(provider, alias_path.clone(), true)],
+            true,
         )
         .unwrap();
 
@@ -159,19 +164,56 @@ fn enabled_regular_alias_is_a_conflict_and_preserved_byte_for_byte() {
     }
 }
 
+#[rstest::rstest]
+#[case::git(
+    true,
+    "`CLAUDE.md` is a regular file and was preserved; consolidate its instructions into `HALL.md`, remove it, run `ivar sync`, and review the git diff"
+)]
+#[case::plain(
+    false,
+    "`CLAUDE.md` is a regular file and was preserved; consolidate its instructions into `HALL.md`, remove it, then run `ivar sync`"
+)]
+fn the_regular_alias_conflict_names_git_only_for_a_git_hall(
+    #[case] hall_is_git: bool,
+    #[case] expected: &str,
+) {
+    let (_guard, root) = utf8_temp_dir();
+    let canonical = root.join("HALL.md");
+    let block = build_block(&hall(), &[]);
+    let alias_path = root.join(Provider::ClaudeCode.instruction_file());
+    fs::write_text(&alias_path, "legacy\n").unwrap();
+
+    let entries = reconcile(
+        &canonical,
+        &block,
+        &[alias(Provider::ClaudeCode, alias_path.clone(), true)],
+        hall_is_git,
+    )
+    .unwrap();
+
+    let detail = entries
+        .iter()
+        .find(|entry| entry.path == alias_path)
+        .and_then(|entry| entry.detail.as_deref())
+        .unwrap();
+    assert_eq!(detail, expected);
+    assert_eq!(detail.contains("git"), hall_is_git);
+}
+
 #[test]
 fn disabled_absent_alias_is_unchanged() {
     for provider in Provider::ALL {
         let (_guard, root) = utf8_temp_dir();
         let canonical = root.join("HALL.md");
         let block = build_block(&hall(), &[]);
-        reconcile(&canonical, &block, &[]).unwrap();
+        reconcile(&canonical, &block, &[], true).unwrap();
         let alias_path = root.join(provider.instruction_file());
 
         let entries = reconcile(
             &canonical,
             &block,
             &[alias(provider, alias_path.clone(), false)],
+            true,
         )
         .unwrap();
 
@@ -191,7 +233,7 @@ fn disabled_alias_entries_are_removed_symlink_or_regular() {
         let (_guard, root) = utf8_temp_dir();
         let canonical = root.join("HALL.md");
         let block = build_block(&hall(), &[]);
-        reconcile(&canonical, &block, &[]).unwrap();
+        reconcile(&canonical, &block, &[], true).unwrap();
         let alias_path = root.join(provider.instruction_file());
         fs::create_symlink(Utf8Path::new(CANONICAL_FILE), &alias_path).unwrap();
 
@@ -199,6 +241,7 @@ fn disabled_alias_entries_are_removed_symlink_or_regular() {
             &canonical,
             &block,
             &[alias(provider, alias_path.clone(), false)],
+            true,
         )
         .unwrap();
 
@@ -212,7 +255,7 @@ fn disabled_alias_entries_are_removed_symlink_or_regular() {
         // A regular file left behind.
         let (_guard, root) = utf8_temp_dir();
         let canonical = root.join("HALL.md");
-        reconcile(&canonical, &block, &[]).unwrap();
+        reconcile(&canonical, &block, &[], true).unwrap();
         let alias_path = root.join(provider.instruction_file());
         fs::write_text(&alias_path, "a dropped provider's alias\n").unwrap();
 
@@ -220,6 +263,7 @@ fn disabled_alias_entries_are_removed_symlink_or_regular() {
             &canonical,
             &block,
             &[alias(provider, alias_path.clone(), false)],
+            true,
         )
         .unwrap();
 
@@ -240,13 +284,19 @@ fn no_reconcile_result_removes_or_rewrites_hall() {
         let (_guard, root) = utf8_temp_dir();
         let canonical = root.join("HALL.md");
         let block = build_block(&hall(), &[repo("api")]);
-        reconcile(&canonical, &block, &[]).unwrap();
+        reconcile(&canonical, &block, &[], true).unwrap();
         let before = fs::read_bytes(&canonical).unwrap().unwrap();
         let alias_path = root.join(provider.instruction_file());
         fs::write_text(&alias_path, "regular file\n").unwrap();
 
         // Both an enabled conflict and a disabled removal in one run.
-        reconcile(&canonical, &block, &[alias(provider, alias_path, false)]).unwrap();
+        reconcile(
+            &canonical,
+            &block,
+            &[alias(provider, alias_path, false)],
+            true,
+        )
+        .unwrap();
 
         assert!(fs::is_file(&canonical).unwrap());
         assert_eq!(fs::read_bytes(&canonical).unwrap().unwrap(), before);
@@ -258,7 +308,7 @@ fn shared_instruction_surface_matrix_opencode_and_omp() {
     let (_guard, root) = utf8_temp_dir();
     let canonical = root.join("HALL.md");
     let block = build_block(&hall(), &[]);
-    reconcile(&canonical, &block, &[]).unwrap();
+    reconcile(&canonical, &block, &[], true).unwrap();
     let agents_path = root.join("AGENTS.md");
 
     // State 1: Both OpenCode and OMP enabled -> AGENTS.md created once as symlink to HALL.md
@@ -270,6 +320,7 @@ fn shared_instruction_surface_matrix_opencode_and_omp() {
             owners: vec![Provider::OpenCode, Provider::Omp],
             enabled: true,
         }],
+        true,
     )
     .unwrap();
 
@@ -290,6 +341,7 @@ fn shared_instruction_surface_matrix_opencode_and_omp() {
             owners: vec![Provider::OpenCode, Provider::Omp],
             enabled: true, // any owner enabled means alias is enabled
         }],
+        true,
     )
     .unwrap();
     let agents_entry = entries.iter().find(|e| e.path == agents_path).unwrap();
@@ -308,6 +360,7 @@ fn shared_instruction_surface_matrix_opencode_and_omp() {
             owners: vec![Provider::OpenCode, Provider::Omp],
             enabled: true,
         }],
+        true,
     )
     .unwrap();
     let agents_entry = entries.iter().find(|e| e.path == agents_path).unwrap();
@@ -325,6 +378,7 @@ fn shared_instruction_surface_matrix_opencode_and_omp() {
             owners: vec![Provider::OpenCode, Provider::Omp],
             enabled: false,
         }],
+        true,
     )
     .unwrap();
     let agents_entry = entries.iter().find(|e| e.path == agents_path).unwrap();
@@ -337,7 +391,7 @@ fn shared_instruction_surface_user_content_outside_managed_block_is_preserved_on
     let (_guard, root) = utf8_temp_dir();
     let canonical = root.join("HALL.md");
     let block = build_block(&hall(), &[]);
-    reconcile(&canonical, &block, &[]).unwrap();
+    reconcile(&canonical, &block, &[], true).unwrap();
     let agents_path = root.join("AGENTS.md");
 
     // User created regular file at AGENTS.md
@@ -352,6 +406,7 @@ fn shared_instruction_surface_user_content_outside_managed_block_is_preserved_on
             owners: vec![Provider::OpenCode, Provider::Omp],
             enabled: true,
         }],
+        true,
     )
     .unwrap();
 

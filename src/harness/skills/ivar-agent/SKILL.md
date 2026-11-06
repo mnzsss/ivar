@@ -77,8 +77,9 @@ cannot ask questions.
 
 Then:
 
-1. Write `agents/<name>.md`. Hall files are committed straight to the hall's
-   `main`, with the `commit` skill if the user asked for a commit.
+1. Write `agents/<name>.md`. If the hall is a git repository, hall files are
+   committed straight to the hall's `main`, with the `commit` skill if the user
+   asked for a commit. If it is not, the file is only saved.
 2. Ask before `ivar agent sync`: it installs systemd user timers on this machine.
 3. Ask before `ivar agent run <name>`: it runs the tool, which may cost money. Use
    it as the first check, then read the result with `ivar agent logs <name>`.

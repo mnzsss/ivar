@@ -78,7 +78,8 @@ fn reconcile_instructions(
 ) -> Result<Vec<instructions::Entry>, instructions::Error> {
     let aliases = crate::action::collect_instruction_aliases(layout, manifest);
     let block = config::build_block(manifest.name(), &repo_names(manifest));
-    instructions::reconcile(&layout.hall_instructions(), &block, &aliases)
+    let hall_is_git = crate::git::inside_work_tree(layout.root());
+    instructions::reconcile(&layout.hall_instructions(), &block, &aliases, hall_is_git)
 }
 
 /// The warning for an instruction reconciliation that could not run at all.
