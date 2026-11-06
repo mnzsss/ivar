@@ -79,7 +79,7 @@ pub fn write_state(layout: &Layout, state: &ReindexState) {
     }
 }
 
-fn collect(dir: &Utf8Path, found: &mut Vec<Utf8PathBuf>) {
+pub(crate) fn collect(dir: &Utf8Path, found: &mut Vec<Utf8PathBuf>) {
     let Ok(entries) = dir.read_dir_utf8() else {
         return;
     };
