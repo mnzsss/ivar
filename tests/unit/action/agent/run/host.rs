@@ -331,6 +331,8 @@ fn write_roots_names_a_missing_path_with_its_code() {
 #[case::home("~")]
 #[case::hall_root(".")]
 #[case::hall_state(".ivar/secrets")]
+#[case::hall_scripts(".ivar/scripts")]
+#[case::hall_scripts_local(".ivar/scripts-local")]
 #[case::hall_git(".git")]
 #[case::agent_files("agents")]
 #[case::tool_login_dir("~/.claude")]
@@ -341,7 +343,13 @@ fn write_roots_names_a_missing_path_with_its_code() {
 fn write_roots_refuse_what_would_expose_the_hall_home_or_login(#[case] raw: &str) {
     let (_guard, root) = hall_with_agent("runtime: host\ntool: claude\n");
     let fake = HostFake::new(&root);
-    for dir in [".ivar/secrets", ".git", "agents"] {
+    for dir in [
+        ".ivar/secrets",
+        ".ivar/scripts",
+        ".ivar/scripts-local",
+        ".git",
+        "agents",
+    ] {
         std::fs::create_dir_all(root.join(dir)).unwrap();
     }
     std::fs::create_dir_all(root.join(".claude")).unwrap();

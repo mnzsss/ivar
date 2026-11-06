@@ -7,7 +7,8 @@ use camino::{Utf8Path, Utf8PathBuf};
 
 /// The set of paths a session is allowed to write into: its view dir, its
 /// feature directory (for feature sessions), the worktrees of promoted repos,
-/// the hall sources (`.ivar/skills`, `.ivar/skills-local`, `.ivar/setups`), and
+/// the hall sources (`.ivar/skills`, `.ivar/skills-local`, `.ivar/setups`,
+/// `.ivar/scripts`, `.ivar/scripts-local`), and
 /// the hall root outside `.ivar/` except its protected paths.
 #[derive(Debug, Clone)]
 pub(crate) struct WritableSet {
@@ -179,6 +180,8 @@ pub(super) fn hall_sources(layout: &Layout) -> Vec<Utf8PathBuf> {
         layout.hall_skills(),
         layout.hall_skills_local(),
         layout.hall_setups(),
+        layout.hall_scripts(),
+        layout.hall_scripts_local(),
     ]
     .into_iter()
     .map(|path| canonicalize_lenient(&path))

@@ -74,6 +74,9 @@ mod repo_create;
 #[path = "cli/repo_relations.rs"]
 mod repo_relations;
 
+#[path = "cli/script_list.rs"]
+mod script_list;
+
 #[path = "cli/shipped_commands.rs"]
 mod shipped_commands;
 

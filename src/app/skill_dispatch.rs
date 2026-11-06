@@ -6,14 +6,27 @@ use camino::Utf8PathBuf;
 use super::respond::{respond, respond_failure};
 use crate::action::Ctx;
 use crate::action::feedback as feedback_action;
+use crate::action::script::list as script_list;
 use crate::action::skill::{
     add as skill_add, create as skill_create, detach as skill_detach, doctor as skill_doctor,
     list as skill_list, remove as skill_remove, status as skill_status, sync as skill_sync,
     toggle as skill_toggle, update as skill_update,
 };
 use crate::cli::FeedbackCommand;
-use crate::cli::root::SkillCommand;
+use crate::cli::root::{ScriptCommand, SkillCommand};
 use crate::infra::term;
+
+pub(super) fn dispatch_script(
+    cmd: &ScriptCommand,
+    ctx: &Ctx,
+    json: bool,
+    stdout: &mut impl io::Write,
+    stderr: &mut impl io::Write,
+) -> ExitCode {
+    match cmd {
+        ScriptCommand::List => respond(script_list::list(ctx), json, stdout, stderr),
+    }
+}
 
 pub(super) fn dispatch_skill(
     cmd: SkillCommand,

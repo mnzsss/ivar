@@ -63,6 +63,8 @@ impl Sandbox {
         crate::infra::fs::ensure_dir(&layout.hall_skills())?;
         crate::infra::fs::ensure_dir(&layout.hall_skills_local())?;
         crate::infra::fs::ensure_dir(&layout.hall_setups())?;
+        crate::infra::fs::ensure_dir(&layout.hall_scripts())?;
+        crate::infra::fs::ensure_dir(&layout.hall_scripts_local())?;
 
         let mut candidate_roots: Vec<Utf8PathBuf> = Vec::new();
 

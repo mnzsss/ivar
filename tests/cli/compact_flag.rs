@@ -12,11 +12,12 @@
 use crate::common::{hall_root, ivar};
 use predicates::prelude::*;
 
-const NOT_GRAPH: [&[&str]; 8] = [
+const NOT_GRAPH: [&[&str]; 9] = [
     &["feature", "list"],
     &["repo", "list"],
     &["session", "list"],
     &["skill", "list"],
+    &["script", "list"],
     &["provider", "list"],
     &["plan", "list"],
     &["status"],

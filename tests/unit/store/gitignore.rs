@@ -21,7 +21,7 @@ fn an_absent_gitignore_is_created_with_exactly_the_halls_lines() {
 
     assert_eq!(
         read(&layout),
-        ".ivar/*\n!.ivar/skills/\n!.ivar/setups/\n\
+        ".ivar/*\n!.ivar/skills/\n!.ivar/setups/\n!.ivar/scripts/\n\
              .claude/commands/ivar-*.md\n.opencode/commands/ivar-*.md\n.omp/commands/ivar-*.md\n\
              .claude/skills/\n.opencode/skills/\n.omp/skills/\n.tmp/\n"
     );
@@ -89,6 +89,7 @@ fn only_the_missing_lines_are_added() {
     assert_eq!(content.matches(".ivar/*").count(), 1);
     assert!(content.contains("!.ivar/skills/"));
     assert!(content.contains("!.ivar/setups/"));
+    assert!(content.contains("!.ivar/scripts/"));
     assert!(content.contains(".claude/commands/ivar-*.md"));
     assert!(content.contains(".opencode/commands/ivar-*.md"));
 }

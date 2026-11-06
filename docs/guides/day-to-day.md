@@ -190,6 +190,41 @@ missing, leaving `plan.md` alone. Reach for the short path only when there is
 no real design decision to review; anything riskier earns the full three
 artifacts.
 
+## Hall scripts
+
+A hall keeps its repeatable automations as **scripts**: `.ivar/scripts/` is
+committed and shared with the team, `.ivar/scripts-local/` is personal and never
+enters git. `ivar` only reads them. It never writes, moves, chmods or deletes
+one; you (or your agent, in an interactive session) author the files.
+
+```sh
+ivar script list          # name, scope, description, usage and env of each script
+ivar script list --json
+```
+
+A script is a `.sh` or `.py` file whose stem is its name, in kebab-case
+(`deploy-staging.sh` is `deploy-staging`). A comment header right after the
+shebang describes it:
+
+```sh
+#!/usr/bin/env bash
+# description: Deploy a build to staging.
+# usage: deploy-staging.sh <build-id>
+# env: STAGING_TOKEN, STAGING_URL
+```
+
+`description` (one line) and `usage` are required; `env` is an optional,
+comma-separated list of the environment variables the script reads. The header
+is the run of `#` lines at the top of the file. A Python script may add a
+[PEP 723](https://peps.python.org/pep-0723/) `# /// script` block in that run,
+and runs with `uv run --script`; a shell script runs with `bash`.
+
+`ivar doctor` warns about a script with a missing or malformed header or an
+unsupported extension, and `ivar script list --json` names the same files under
+`invalid`. Valid scripts are announced in the session brief, personal first, at
+most 20 of them. The brief marks them as untrusted data, because anyone who can
+edit the file can change its description.
+
 ## Deliver
 
 Delivery is gated on the **plan** gate. A feature whose plan was never approved

@@ -313,6 +313,18 @@ across the hall from `.ivar/skills/` and materialised into each harness's native
 location. **External** skills track a ref in another repo; **authored** ones are
 local. **Detaching** converts external to authored, one way.
 
+**Script** — a `.sh` or `.py` file in `.ivar/scripts/`, committed to the hall and
+shared with the team, that automates a task. A comment header right after the
+shebang carries a required `description:` and `usage:` and an optional `env:`
+(see [Hall scripts](guides/day-to-day.md#hall-scripts)). `ivar script list`
+shows them and the session brief announces them; `ivar` only reads a script,
+and never writes, moves or deletes one.
+
+**Personal script** — a **Script** in `.ivar/scripts-local/`, which the hall's
+`.gitignore` leaves out of git, like `.ivar/skills-local/` does for skills. Same
+format as a team script. When both folders hold the same name, the brief and
+`ivar script list` show both.
+
 **Workflow Command** — an instruction workflow shipped inside the `ivar` binary
 and materialised into each available Provider as `/ivar-<name>`. Workflow
 Commands are local derived state: `ivar init`, `ivar provider add`, and

@@ -43,7 +43,7 @@ fn gitignore_uses_the_star_form_never_the_bare_dotdir() {
     let content = std::fs::read_to_string(root.join(".gitignore")).expect("read .gitignore");
     assert_eq!(
         content,
-        ".ivar/*\n!.ivar/skills/\n!.ivar/setups/\n\
+        ".ivar/*\n!.ivar/skills/\n!.ivar/setups/\n!.ivar/scripts/\n\
          .claude/commands/ivar-*.md\n.opencode/commands/ivar-*.md\n.omp/commands/ivar-*.md\n\
          .claude/skills/\n.opencode/skills/\n.omp/skills/\n.tmp/\n"
     );

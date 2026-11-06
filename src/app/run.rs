@@ -265,6 +265,9 @@ pub fn run(cli: Cli) -> ExitCode {
         Command::Skill(cmd) => {
             super::skill_dispatch::dispatch_skill(cmd, &ctx, json, &mut stdout, &mut stderr)
         }
+        Command::Script(cmd) => {
+            super::skill_dispatch::dispatch_script(&cmd, &ctx, json, &mut stdout, &mut stderr)
+        }
         Command::Feedback(cmd) => {
             super::skill_dispatch::dispatch_feedback(cmd, &ctx, json, &mut stdout, &mut stderr)
         }

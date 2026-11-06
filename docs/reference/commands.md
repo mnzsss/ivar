@@ -65,6 +65,7 @@ Multi-repo worktrees for coding agents: one feature across repos, on one branch,
 | [`ivar plan`](commands/plan.md) | Manage SPDD plans |
 | [`ivar review`](commands/review.md) | Review a feature's local changes |
 | [`ivar skill`](commands/skill.md) | Manage skills |
+| [`ivar script`](commands/script.md) | List the hall's scripts |
 | [`ivar mcp`](commands/mcp.md) | Authenticate the hall's declared MCP servers |
 | [`ivar graph`](commands/graph.md) | Query and index the codebase dependency graph |
 | [`ivar memory`](commands/memory.md) | Inspect, query and maintain the hall memory: pages, handoffs and the session hooks |
@@ -212,6 +213,26 @@ Page findings of `ivar doctor`:
 | `memory.page_field_unknown` | front matter has a key the format does not know (warning) | remove it or ignore it |
 | `memory.page_uncommitted` | page files under `docs/memory` have uncommitted changes | commit them |
 | `memory.index_failed` | the last page reindex failed | `ivar memory reindex` |
+
+**`ivar script list` lists the hall's scripts.** It reads `.ivar/scripts/` (scope `team`,
+committed) and `.ivar/scripts-local/` (scope `personal`, ignored by git) and prints each
+valid script's name, scope, description, usage and `env`, personal scripts first, then team,
+alphabetical within each group. `--json` adds `kind`, the hall-relative `path` and an
+`approval` field that is always `unknown` for now, and lists files that are not valid scripts
+under `invalid`. The command only reads: `ivar` never writes, chmods, moves or deletes a
+script. The format is in [day to day: hall scripts](../guides/day-to-day.md#hall-scripts).
+
+Script findings of `ivar doctor` (a warning-level finding, never an error):
+
+| Code | Meaning | Fix |
+| --- | --- | --- |
+| `script.unsupported_extension` | a file in a scripts folder is neither `.sh` nor `.py` | rename it, or move it out |
+| `script.bad_name` | the file stem is not kebab-case | rename it, e.g. `deploy-staging.sh` |
+| `script.missing_description` | the header has no `# description:` line | add it right after the shebang |
+| `script.missing_usage` | the header has no `# usage:` line | add it right after the shebang |
+| `script.duplicate_field` | the header repeats `description`, `usage` or `env` | keep one line per field |
+| `script.bad_env_name` | `# env:` lists something that is not an environment variable name | list names separated by commas |
+| `script.unreadable` | the file is not readable UTF-8 text | make it readable text |
 
 **`ivar session start` is the one verb that takes over your terminal.** It opens
 a TUI. Everything else prints and exits.

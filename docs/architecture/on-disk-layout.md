@@ -27,6 +27,8 @@ One dotdir, one manifest, one name everywhere.
     setups/<repo>.session.sh  per-repo session hooks
     skills/               hall-scoped skills (committed)
     skills-local/         personal skills (gitignored)
+    scripts/              hall scripts the team shares (committed)
+    scripts-local/        personal hall scripts (gitignored)
   agents/<name>.md        committed scheduled agents: recurring (`schedule:`) or
                           Agent Tasks (`at:`).
   agents/done/            committed concluded Agent Tasks, `<name>.<at>.md`.
@@ -61,9 +63,10 @@ agents you choose).
 
 Two traps, both learned the hard way:
 
-- `.gitignore` must be `.ivar/*` plus `!.ivar/skills/` plus `!.ivar/setups/`,
-  never `.ivar/`. Both of those children are committed — the skills a team shares
-  and the setup script each repo carries. Git does
+- `.gitignore` must be `.ivar/*` plus `!.ivar/skills/`, `!.ivar/setups/` and
+  `!.ivar/scripts/`, never `.ivar/`. All three of those children are committed —
+  the skills a team shares, the setup script each repo carries and the scripts the
+  team keeps. `scripts-local/` and `skills-local/` stay ignored by `.ivar/*`. Git does
   not re-include a child of an excluded directory, and the failure is silent.
 - **No legacy manifest-name fallback.** The manifest has already been renamed once.
   A fresh implementation should not be born carrying compatibility debt it never

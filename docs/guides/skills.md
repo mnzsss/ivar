@@ -27,7 +27,7 @@ Skills live in one of two roots:
 
 `.ivar/skills/` is **committed**, along with `.ivar/setups/` — the hall's
 `.gitignore` ignores derived harness targets `.claude/skills/`,
-`.opencode/skills/`, and `.omp/skills/`, and includes `.ivar/*` plus `!.ivar/skills/` and `!.ivar/setups/` for
+`.opencode/skills/`, and `.omp/skills/`, and includes `.ivar/*` plus `!.ivar/skills/`, `!.ivar/setups/` and `!.ivar/scripts/` for
 exactly this reason. Everything else under `.ivar/` is derived and ignored.
 
 ## Providers decide the targets
