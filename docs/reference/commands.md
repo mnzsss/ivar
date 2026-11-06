@@ -175,6 +175,8 @@ Misses and usage rows are kept for 30 days, so `ivar graph stats` reports a 30-d
 | `graph.repo_stale` | a repo indexed behind its worktree HEAD | `ivar graph index --repo <name>` |
 | `graph.hall_paths_unset` | the hall has `docs`, `brand` or `.ivar/skills` with files and `graph.paths` is empty | `ivar graph index --path <dir>` lists the directory in `graph.paths` and indexes it |
 | `graph.schema_mismatch` | database schema older or newer than the binary | `ivar graph index` or `ivar upgrade` |
+| `graph.open_failed` | `.ivar/graph.db` exists but cannot be opened | remove it, then `ivar graph index` rebuilds it |
+| `graph.watch_catchup_pending` | no watcher leader is running and a scope has changes nobody indexed | `ivar graph index`, or start `ivar graph mcp` to catch up |
 | `graph.db_missing` | the graph MCP server is registered but `.ivar/graph.db` is gone | `ivar graph index` |
 | `memory.db_missing` | `.ivar/graph.db` exists without `.ivar/memory.db` | `ivar memory status` creates it |
 | `memory.db_corrupt` | `.ivar/memory.db` fails to open, fails `quick_check`, or carries another `application_id` | `ivar memory clean`, then `ivar memory status` |
@@ -185,6 +187,9 @@ Misses and usage rows are kept for 30 days, so `ivar graph stats` reports a 30-d
 | `memory.spool_orphan` | a capture spool file has waited over an hour to be drained | `ivar memory status` drains it |
 | `memory.spool_dropped` | events were dropped because a session spool reached 8 MiB, and the last drop was within 7 days | `ivar memory status`, or keep `ivar graph mcp` running, so a drain acknowledges them; the finding clears after 7 days without new drops |
 | `memory.drain_failed` | the last drain of the capture spool failed | `ivar memory status`; if the error repeats, read the database findings of `ivar doctor` |
+| `memory.sweep_failed` | the last retention sweep failed | `ivar memory status`; if the error repeats, read the database findings of `ivar doctor` |
+| `memory.consolidate_failed` | the last consolidation of session pages failed | `ivar memory status`; if the error repeats, read the database findings of `ivar doctor` |
+| `memory.retention_overdue` | session observations older than 37 days are still stored | keep `ivar graph mcp` running; its leader deletes expired session observations hourly |
 | `provider.capture_hook_missing` | `memory.capture` is on and a provider has no capture hook | `ivar sync`, or set `memory.capture` to false in `ivar.json` |
 
 **`ivar memory query` searches the pages under `docs/memory/`.** `ivar memory query <TEXT>`
