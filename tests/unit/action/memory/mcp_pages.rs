@@ -411,6 +411,7 @@ fn only_the_delete_tool_is_destructive_and_every_read_tool_is_read_only() {
                 | "memory_read_session_observations"
                 | "memory_lint"
                 | "memory_handoff_list"
+                | "memory_message_list"
         ) {
             assert_eq!(tool["annotations"]["readOnlyHint"], true, "{name}");
         } else {
