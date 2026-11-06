@@ -206,4 +206,5 @@ fn related_memory_is_dropped_first_and_replaced_by_a_memory_query_continuation()
     let compact = render_explore(&res, ExploreFormat::Compact, false).unwrap();
     assert!(!compact.contains(RELATED_MEMORY_SCHEMA_FOR_TEST));
     assert!(compact.contains("memory_query|"), "{compact}");
+    assert_eq!(compact.matches(super::NEXT_SCHEMA).count(), 1, "{compact}");
 }

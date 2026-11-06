@@ -194,7 +194,12 @@ fn with_memory_continuation(
                 serde_json::to_string_pretty(&value).ok()
             }),
         ExploreFormat::Compact => {
-            Some(format!("{text}\n{NEXT_SCHEMA}\nmemory_query|{}", arguments))
+            let header = if text.lines().any(|line| line == NEXT_SCHEMA) {
+                String::new()
+            } else {
+                format!("\n{NEXT_SCHEMA}")
+            };
+            Some(format!("{text}{header}\nmemory_query|{arguments}"))
         }
     };
     extended
