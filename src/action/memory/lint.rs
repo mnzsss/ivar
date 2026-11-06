@@ -92,12 +92,8 @@ fn broken_anchor_warnings(layout: &Layout) -> Vec<LintIssue> {
         return Vec::new();
     }
     let _ = crate::action::memory::reindex::refresh_if_free(layout);
-    let Ok(conn) = rusqlite::Connection::open_with_flags(
-        layout.memory_db().as_std_path(),
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY
-            | rusqlite::OpenFlags::SQLITE_OPEN_URI
-            | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
-    ) else {
+    let Ok(conn) = crate::store::memory::db::open_read_only(layout.memory_db().as_std_path())
+    else {
         return Vec::new();
     };
     if !anchors::attach_graph(&conn, &layout.graph_db()) {

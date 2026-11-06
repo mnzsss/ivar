@@ -359,16 +359,14 @@ fn explore_within(
 pub(crate) const MAX_RELATED_PAGES: usize = 3;
 
 fn related_memory(hall_root: &Path, result: &ExploreResult) -> Vec<RelatedPage> {
-    let path = hall_root.join(".ivar").join("memory.db");
+    let Some(root) = camino::Utf8Path::from_path(hall_root) else {
+        return Vec::new();
+    };
+    let path = crate::store::layout::Layout::at(root.to_owned()).memory_db();
     if !path.exists() {
         return Vec::new();
     }
-    let Ok(conn) = rusqlite::Connection::open_with_flags(
-        &path,
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY
-            | rusqlite::OpenFlags::SQLITE_OPEN_URI
-            | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
-    ) else {
+    let Ok(conn) = crate::store::memory::db::open_read_only(path.as_std_path()) else {
         return Vec::new();
     };
     let mut files: Vec<(String, String)> = result
