@@ -12,6 +12,7 @@ pub mod mcp;
 pub mod page_file;
 pub mod query;
 pub mod reindex;
+pub mod review;
 pub mod status;
 pub mod sweep;
 

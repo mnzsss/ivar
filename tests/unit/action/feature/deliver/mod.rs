@@ -13,6 +13,7 @@ mod draft;
 mod events;
 pub(super) mod fixture;
 mod land;
+mod memory_review;
 mod metadata;
 mod ordering;
 mod pr_metadata;
