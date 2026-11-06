@@ -70,6 +70,7 @@ fn the_human_apply_surface_reports_each_push() {
             plan_gate: GateState::Approved,
             repos: vec![delivery_repo("api", vec![])],
             tree_blockers: Vec::new(),
+            memory_review: MemoryReviewGate::Reviewed,
             fingerprint: "abc123".to_owned(),
         },
         blockers: Vec::new(),

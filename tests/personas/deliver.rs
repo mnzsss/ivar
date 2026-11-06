@@ -18,6 +18,7 @@ fn approve_plan(root: &Utf8Path) {
     for gate in ["requirements", "analysis", "plan"] {
         run_ok(root, &["plan", "approve", "ship", gate]);
     }
+    crate::common::record_memory_review(root, "ship");
 }
 
 #[test]

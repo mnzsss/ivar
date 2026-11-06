@@ -32,6 +32,7 @@ pub(crate) fn approve_through_plan(root: &Utf8PathBuf, feature: &str) {
             .assert()
             .success();
     }
+    crate::common::record_memory_review(root, feature);
 }
 
 /// The fingerprint `--preview` printed for `feature`.

@@ -7,6 +7,7 @@ pub mod outcome;
 
 pub(crate) mod attribution;
 mod events;
+mod memory_gate;
 mod preview;
 mod push;
 mod repos;
@@ -25,10 +26,10 @@ use crate::action::read_manifest;
 use crate::domain::delivery_event::DeliveryScope;
 use crate::domain::feature::{
     DeliveryMode, DeliveryPreview, DeliveryTreeBlocker, Feature, FeatureIntegrationState, Gate,
-    GateState,
+    GateState, MemoryReviewGate,
 };
 use crate::domain::name::FeatureName;
-use crate::error::{Failure, FixAction, Outcome, Report};
+use crate::error::{Failure, FixAction, Outcome, Report, Warning};
 use crate::git;
 use crate::store::layout::Layout;
 use crate::store::manifest::Manifest;
@@ -45,7 +46,7 @@ fn preflight_and_resolve(
     manifest: &Manifest,
     git: &git::System,
     input: &DeliverInput,
-) -> Result<(FeatureName, Feature, DeliveryPreview), Failure> {
+) -> Result<(FeatureName, Feature, DeliveryPreview, Vec<Warning>), Failure> {
     let feature_name = FeatureName::new(input.feature.clone())?;
     let feature = relations::read_feature(layout, &feature_name)?;
     let selection = metadata::selected_repos(&feature, input)?;
@@ -87,6 +88,8 @@ fn preflight_and_resolve(
         .collect();
 
     let plan_gate = plan_gate_state(layout, &feature_name)?;
+    let (memory_review, memory_warnings) =
+        memory_gate::memory_gate(layout, &feature_name, &feature);
 
     let mode = if input.land {
         DeliveryMode::Land
@@ -105,7 +108,14 @@ fn preflight_and_resolve(
     )?;
     repos.sort_by(|a, b| a.repo.cmp(&b.repo));
     order_by_dependencies(&mut repos);
-    let fingerprint = fingerprint_for(&feature_name, mode, plan_gate, &tree_blockers, &repos)?;
+    let fingerprint = fingerprint_for(
+        &feature_name,
+        mode,
+        plan_gate,
+        memory_review,
+        &tree_blockers,
+        &repos,
+    )?;
 
     let preview = DeliveryPreview {
         feature: feature_name.clone(),
@@ -113,11 +123,12 @@ fn preflight_and_resolve(
         plan_gate,
         repos,
         tree_blockers,
+        memory_review,
         fingerprint,
     };
     attribution::check(layout, &preview)?;
 
-    Ok((feature_name, feature, preview))
+    Ok((feature_name, feature, preview, memory_warnings))
 }
 
 fn run_land_checks(
@@ -186,20 +197,23 @@ fn run(
 ) -> Outcome<DeliverOutcome> {
     let manifest = read_manifest(layout)?;
     let git = git::System;
-    let (feature_name, feature, preview) =
+    let (feature_name, feature, preview, memory_warnings) =
         preflight_and_resolve(ctx, layout, &manifest, &git, &input)?;
 
     if input.preview {
         let apply_command = apply_command(&input, &preview.fingerprint);
-        return Ok(Report::new(DeliverOutcome {
-            root: layout.root().to_path_buf(),
-            blockers: blockers(&preview),
-            preview,
-            apply_command: Some(apply_command),
-            pushes: Vec::new(),
-            land: Vec::new(),
-            checks: Vec::new(),
-        }));
+        return Ok(Report::with_warnings(
+            DeliverOutcome {
+                root: layout.root().to_path_buf(),
+                blockers: blockers(&preview),
+                preview,
+                apply_command: Some(apply_command),
+                pushes: Vec::new(),
+                land: Vec::new(),
+                checks: Vec::new(),
+            },
+            memory_warnings,
+        ));
     }
 
     if !preview.tree_blockers.is_empty() {
@@ -234,33 +248,16 @@ fn run(
         ));
     }
 
-    let expected = input
-        .fingerprint
-        .ok_or_else(|| preview_required(&feature_name))?;
-    if expected != preview.fingerprint {
-        return Err(Failure::blocked(
-            "deliver.fingerprint_mismatch",
-            format!(
-                "the state of feature `{feature_name}` has drifted since the preview was approved"
-            ),
-        )
-        .expected(format!("the preview fingerprint `{expected}`"))
-        .actual(format!(
-            "the current state fingerprints as `{}`",
-            preview.fingerprint
-        ))
-        .fix(FixAction::safe(
-            "deliver.re_preview",
-            format!(
-                "Run `ivar feature deliver {feature_name} --preview` again, then apply with the new fingerprint."
-            ),
-        )));
+    if preview.memory_review == MemoryReviewGate::Missing {
+        return Err(memory_gate::memory_not_reviewed(&feature_name));
     }
+
+    check_fingerprint(&feature_name, input.fingerprint, &preview.fingerprint)?;
 
     if input.land {
         let plans = land::preflight(&git, layout, &feature, &preview)?;
         refuse_blockers(&feature_name, &preview)?;
-        let mut warnings = Vec::new();
+        let mut warnings = memory_warnings;
         let checks = run_land_checks(&git, &manifest, layout, &feature, &preview, emitter)?;
         let land_results = land::execute(&git, layout, &plans, &mut warnings)?;
         events::emit_land_outcome(emitter, &git, layout, &feature, &land_results);
@@ -288,6 +285,35 @@ fn run(
         preview,
         Some(emitter),
     )
+    .map(|mut report| {
+        report.warnings.splice(0..0, memory_warnings);
+        report
+    })
+}
+
+fn check_fingerprint(
+    feature_name: &FeatureName,
+    presented: Option<String>,
+    current: &str,
+) -> Result<(), Failure> {
+    let expected = presented.ok_or_else(|| preview_required(feature_name))?;
+    if expected != current {
+        return Err(Failure::blocked(
+            "deliver.fingerprint_mismatch",
+            format!(
+                "the state of feature `{feature_name}` has drifted since the preview was approved"
+            ),
+        )
+        .expected(format!("the preview fingerprint `{expected}`"))
+        .actual(format!("the current state fingerprints as `{current}`"))
+        .fix(FixAction::safe(
+            "deliver.re_preview",
+            format!(
+                "Run `ivar feature deliver {feature_name} --preview` again, then apply with the new fingerprint."
+            ),
+        )));
+    }
+    Ok(())
 }
 
 /// The catch-all after the specific refusals above: whatever the preview

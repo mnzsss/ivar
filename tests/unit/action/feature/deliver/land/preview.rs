@@ -9,6 +9,7 @@ fn push_and_land_previews_of_the_same_state_fingerprint_differently() {
         &feature,
         DeliveryMode::Push,
         GateState::Approved,
+        MemoryReviewGate::Reviewed,
         &[],
         &repos,
     )
@@ -17,6 +18,7 @@ fn push_and_land_previews_of_the_same_state_fingerprint_differently() {
         &feature,
         DeliveryMode::Land,
         GateState::Approved,
+        MemoryReviewGate::Reviewed,
         &[],
         &repos,
     )
@@ -161,6 +163,7 @@ fn land_preview_names_the_target_and_the_mode() {
                 draft: None,
             }],
             tree_blockers: Vec::new(),
+            memory_review: MemoryReviewGate::Reviewed,
             fingerprint: "abc123".to_owned(),
         },
         blockers: Vec::new(),

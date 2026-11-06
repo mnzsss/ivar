@@ -3,8 +3,10 @@ use super::*;
 pub(super) use crate::action::feature::create::{CreateInput, create as create_action};
 pub(super) use crate::action::feature::promote::{self, PromoteInput};
 pub(super) use crate::action::hall::{self, InitInput};
+use crate::action::memory::events::{MemoryEventScope, record_memory_event};
 pub(super) use crate::domain::feature::{DeliveryAction, DeliveryRepo, DraftAction};
 pub(super) use crate::domain::name::{BranchName, HallName, RepoName};
+pub(super) use crate::domain::observation::SourceEvent;
 pub(super) use crate::domain::provider::Provider;
 pub(super) use crate::error::{Failure, Report, Status, WriteHuman};
 pub(super) use crate::git::Git;
@@ -17,6 +19,38 @@ pub(super) use crate::test_support::{
 pub(super) use camino::{Utf8Path, Utf8PathBuf};
 
 pub(super) fn approve_through_plan(root: &Utf8PathBuf) {
+    approve_plan_gates(root);
+    record_memory_review(root, "checkout", serde_json::json!({}));
+}
+
+/// Records `memory.reviewed` for `feature` and drains it, as the
+/// `memory_review` tool leaves it.
+pub(super) fn record_memory_review(root: &Utf8Path, feature: &str, heads: serde_json::Value) {
+    record_memory(
+        root,
+        feature,
+        SourceEvent::MemoryReviewed,
+        serde_json::json!({ "heads": heads }),
+    );
+}
+
+pub(super) fn record_memory(
+    root: &Utf8Path,
+    feature: &str,
+    event: SourceEvent,
+    body: serde_json::Value,
+) {
+    let layout = Layout::at(root.to_path_buf());
+    let scope = MemoryEventScope {
+        session_id: "fixture-session".to_owned(),
+        feature: feature.to_owned(),
+        parent_feature: String::new(),
+    };
+    record_memory_event(&layout, &scope, event, body).unwrap();
+    crate::action::memory::drain::drain(&layout).unwrap();
+}
+
+pub(super) fn approve_plan_gates(root: &Utf8PathBuf) {
     let ctx = Ctx::new(root.clone());
     crate::action::plan::create::create(
         &ctx,
