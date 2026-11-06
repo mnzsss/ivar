@@ -216,13 +216,15 @@ fn every_advertised_memory_tool_is_routed_to_the_memory_dispatcher() {
 fn the_serve_loop_sends_and_lists_a_message_through_the_memory_tools() {
     let (_guard, root) = seeded_hall();
     let db = crate::store::graph::db::GraphDb::open_in_memory().unwrap();
-    let call = |id: u32, name: &str, arguments: Value| {
-        json!({"jsonrpc": "2.0", "id": id, "method": "tools/call", "params": {"name": name, "arguments": arguments}})
-    };
+    let call = |id: u32, name: &str, arguments: Value| json!({"jsonrpc": "2.0", "id": id, "method": "tools/call", "params": {"name": name, "arguments": arguments}});
     let input = format!(
         "{}\n{}\n{}\n",
         json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"clientInfo": {"name": "opencode"}}}),
-        call(2, "memory_message_send", json!({"body": "hi", "hall": true})),
+        call(
+            2,
+            "memory_message_send",
+            json!({"body": "hi", "hall": true})
+        ),
         call(3, "memory_message_list", json!({"hall": true})),
     );
     let mut out = Vec::new();
@@ -245,7 +247,6 @@ fn the_serve_loop_sends_and_lists_a_message_through_the_memory_tools() {
         assert_ne!(answer["result"]["isError"], true, "{answer}");
     }
     let listed: Value =
-        serde_json::from_str(answers[2]["result"]["content"][0]["text"].as_str().unwrap())
-            .unwrap();
+        serde_json::from_str(answers[2]["result"]["content"][0]["text"].as_str().unwrap()).unwrap();
     assert_eq!(listed["messages"][0]["body"], "hi", "{listed}");
 }

@@ -53,7 +53,10 @@ fn the_docs_describe_handoffs_and_messages() {
         "memory_message_pop",
         "memory_message_cancel",
     ] {
-        assert!(tools.contains(&format!("| `{tool}` |")), "{tool} missing from mcp-tools.md");
+        assert!(
+            tools.contains(&format!("| `{tool}` |")),
+            "{tool} missing from mcp-tools.md"
+        );
     }
     assert!(tools.contains("### Handoffs and messages"));
 
@@ -63,7 +66,10 @@ fn the_docs_describe_handoffs_and_messages() {
     assert!(limits.contains("`<provider>:mcp-<uuid>`"));
 
     let databases = doc("docs/reference/on-disk-format-databases.md");
-    assert!(databases.contains("### Coordination (schema 5)"), "task 01 owns this section");
+    assert!(
+        databases.contains("### Coordination (schema 5)"),
+        "task 01 owns this section"
+    );
 
     let versions = doc("docs/reference/on-disk-format-versions.md");
     assert!(versions.contains("handoff_ttl_days"));
