@@ -182,4 +182,6 @@ pub struct ExploreResult {
     pub flows: Vec<PathResult>,
     #[serde(default)]
     pub not_shown: Vec<FileMention>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub related_memory: Vec<crate::domain::memory_anchor::RelatedPage>,
 }

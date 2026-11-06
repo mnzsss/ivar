@@ -5,6 +5,7 @@ use serde_json::{Value, json};
 
 pub(super) fn empty_result() -> ExploreResult {
     ExploreResult {
+        related_memory: Vec::new(),
         confidence: crate::domain::graph::ExploreConfidence::High,
         query: String::new(),
         file_matches: vec![],

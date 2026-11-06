@@ -60,6 +60,7 @@ fn explore_answers_name_files_the_way_the_agent_sees_them() {
         .expect("insert repo");
 
     let mut res = ExploreResult {
+        related_memory: Vec::new(),
         confidence: crate::domain::graph::ExploreConfidence::High,
         file_matches: Vec::new(),
         query: "auth".into(),
@@ -237,6 +238,7 @@ fn workspace_fixture_with_file_match(repo_name: &str, file_rel_path: &str) -> Wo
     .expect("insert repo");
 
     let res = ExploreResult {
+        related_memory: Vec::new(),
         confidence: crate::domain::graph::ExploreConfidence::High,
         query: "workflow".into(),
         file_matches: vec![FileMatch {

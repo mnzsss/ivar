@@ -183,6 +183,7 @@ fn cli_explore_outcome_caps_direct_relations_at_max_list_items_with_remainder() 
         .collect();
 
     let res = ExploreResult {
+        related_memory: Vec::new(),
         confidence: crate::domain::graph::ExploreConfidence::High,
         query: "target_fn".to_owned(),
         file_matches: Vec::new(),
@@ -260,6 +261,7 @@ fn cli_explore_outcome_stops_appending_sections_when_exceeding_max_output_chars(
     }];
 
     let res = ExploreResult {
+        related_memory: Vec::new(),
         confidence: crate::domain::graph::ExploreConfidence::High,
         query: "huge_fn".to_owned(),
         file_matches: Vec::new(),

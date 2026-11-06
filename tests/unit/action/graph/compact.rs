@@ -249,6 +249,7 @@ fn test_encode_path() {
 #[test]
 fn test_encode_explore() {
     let explore = ExploreResult {
+        related_memory: Vec::new(),
         confidence: crate::domain::graph::ExploreConfidence::High,
         file_matches: Vec::new(),
         query: "fetch".into(),
@@ -307,6 +308,7 @@ fn test_encode_explore() {
 #[test]
 fn complete_compact_exploration_keeps_every_distinct_consumer() {
     let res = ExploreResult {
+        related_memory: Vec::new(),
         confidence: crate::domain::graph::ExploreConfidence::High,
         query: "fetch".into(),
         file_matches: vec![],

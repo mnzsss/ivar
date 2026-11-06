@@ -100,6 +100,7 @@ pub(super) fn relation(
 
 pub(super) fn result(query: &str) -> ExploreResult {
     ExploreResult {
+        related_memory: Vec::new(),
         confidence: crate::domain::graph::ExploreConfidence::High,
         file_matches: Vec::new(),
         query: query.into(),

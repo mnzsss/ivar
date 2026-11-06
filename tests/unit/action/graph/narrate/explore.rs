@@ -436,6 +436,7 @@ fn a_file_larger_than_the_limit_is_cut_at_a_line() {
 #[test]
 fn test_narrate_truncation_note_names_next_range() {
     let res = ExploreResult {
+        related_memory: Vec::new(),
         confidence: crate::domain::graph::ExploreConfidence::High,
         query: "huge".to_owned(),
         file_matches: Vec::new(),

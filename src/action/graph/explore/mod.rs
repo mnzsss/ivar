@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 
 use crate::action::graph::query;
 use crate::domain::graph::{ExploreConfidence, ExploreResult, SymbolSnippet};
+use crate::domain::memory_anchor::RelatedPage;
 use crate::store::graph::db::GraphDb;
 
 pub use error::ExploreError;
@@ -103,6 +104,7 @@ fn explore_within(
     let trimmed_query = query.trim();
     if trimmed_query.is_empty() {
         return Ok(ExploreResult {
+            related_memory: Vec::new(),
             query: query.to_owned(),
             confidence: ExploreConfidence::High,
             file_matches: Vec::new(),
@@ -152,6 +154,7 @@ fn explore_within(
             )
         };
         return Ok(ExploreResult {
+            related_memory: Vec::new(),
             query: query.to_owned(),
             confidence: ExploreConfidence::NoMatch,
             file_matches: Vec::new(),
@@ -334,7 +337,8 @@ fn explore_within(
         collect_impact(db, &strong)?
     };
 
-    Ok(ExploreResult {
+    let mut result = ExploreResult {
+        related_memory: Vec::new(),
         query: query.to_owned(),
         confidence,
         file_matches,
@@ -347,7 +351,52 @@ fn explore_within(
         sources,
         flows,
         not_shown,
-    })
+    };
+    result.related_memory = related_memory(hall_root, &result);
+    Ok(result)
+}
+
+pub(crate) const MAX_RELATED_PAGES: usize = 3;
+
+fn related_memory(hall_root: &Path, result: &ExploreResult) -> Vec<RelatedPage> {
+    let path = hall_root.join(".ivar").join("memory.db");
+    if !path.exists() {
+        return Vec::new();
+    }
+    let Ok(conn) = rusqlite::Connection::open_with_flags(
+        &path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY
+            | rusqlite::OpenFlags::SQLITE_OPEN_URI
+            | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    ) else {
+        return Vec::new();
+    };
+    let mut files: Vec<(String, String)> = result
+        .sources
+        .iter()
+        .map(|s| (s.repo.clone(), s.file_path.clone()))
+        .chain(
+            result
+                .file_matches
+                .iter()
+                .map(|f| (f.repo.clone(), f.file_path.clone())),
+        )
+        .chain(
+            result
+                .primary_symbols
+                .iter()
+                .map(|s| (s.symbol.repo.clone(), s.file_path.clone())),
+        )
+        .collect();
+    files.sort();
+    files.dedup();
+    let symbols: Vec<String> = result
+        .primary_symbols
+        .iter()
+        .map(|s| s.symbol.name.clone())
+        .collect();
+    crate::store::memory::anchors::related_pages(&conn, &files, &symbols, MAX_RELATED_PAGES)
+        .unwrap_or_default()
 }
 
 fn matches_path(file_path: &str, query_path: &str) -> bool {
@@ -363,3 +412,7 @@ fn matches_path(file_path: &str, query_path: &str) -> bool {
 #[cfg(test)]
 #[path = "../../../../tests/unit/action/graph/explore.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "../../../../tests/unit/action/graph/explore_related.rs"]
+mod related_tests;
