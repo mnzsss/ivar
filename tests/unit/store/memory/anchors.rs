@@ -224,6 +224,28 @@ fn attach_reports_a_graph_that_is_not_sqlite_as_unreadable() {
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn attach_reports_a_dangling_graph_symlink_as_unreadable() {
+    let f = fixture();
+    let link = f.graph.with_file_name("dangling.db");
+    std::os::unix::fs::symlink(f.graph.with_file_name("absent.db"), &link).unwrap();
+    assert_eq!(
+        attach_graph(f.memory.conn(), &link),
+        GraphAttach::Unreadable
+    );
+}
+
+#[test]
+fn attach_reports_a_graph_that_cannot_be_stat_as_unreadable() {
+    let f = fixture();
+    let under_a_file = f.graph.join("graph.db");
+    assert_eq!(
+        attach_graph(f.memory.conn(), &under_a_file),
+        GraphAttach::Unreadable
+    );
+}
+
 #[test]
 fn a_path_anchor_matches_a_query_term_in_any_case() {
     let mut f = fixture();

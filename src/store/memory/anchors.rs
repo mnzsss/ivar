@@ -36,8 +36,10 @@ impl GraphAttach {
 /// Attaches `graph_db` read-only as `graph`.
 /// `ATTACH` is refused inside an open transaction, so callers attach before `BEGIN`.
 pub fn attach_graph(conn: &Connection, graph_db: &Utf8Path) -> GraphAttach {
-    if !graph_db.exists() {
-        return GraphAttach::Missing;
+    match graph_db.symlink_metadata() {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return GraphAttach::Missing,
+        Err(_) => return GraphAttach::Unreadable,
+        Ok(_) => {}
     }
     let escaped = graph_db
         .as_str()
