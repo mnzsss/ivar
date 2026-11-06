@@ -174,7 +174,7 @@ fn gitignore_uses_the_star_form_and_reincludes_committed_children() {
     let content = fs::read_text(&root.join(".gitignore")).unwrap().unwrap();
     assert_eq!(
         content,
-        ".ivar/*\n!.ivar/skills/\n!.ivar/setups/\n\
+        ".ivar/*\n!.ivar/skills/\n!.ivar/setups/\n!.ivar/scripts/\n\
              .claude/commands/ivar-*.md\n.opencode/commands/ivar-*.md\n.omp/commands/ivar-*.md\n\
              .claude/skills/\n.opencode/skills/\n.omp/skills/\n.tmp/\n"
     );

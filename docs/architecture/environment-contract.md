@@ -34,7 +34,7 @@ worktree rather than quietly bootstrap the wrong thing.
 `IVAR_SECRETS_DIR` points at a directory `ivar` creates and never writes into.
 The tool holds no secrets — the same posture `domain::mcp` takes for MCP server
 definitions. It lives under `.ivar/`, so the hall's `.gitignore` (`.ivar/*` plus
-exactly two negations) covers it without a line of its own; that is the reason
+its three negations: skills, setups and scripts) covers it without a line of its own; that is the reason
 for the location, not a coincidence of it.
 
 The prefix is `IVAR_`, with **no fallback to the old `BIFROST_` names**. Same

@@ -39,6 +39,9 @@
 //!     setups/<repo>.sh                 per-repo setup scripts — COMMITTED
 //!     setups/<repo>.session.sh         per-repo session hooks — COMMITTED
 //!     skills/                          hall-scoped skills — COMMITTED
+//!     skills-local/                    personal skills (gitignored)
+//!     scripts/                         hall scripts the team shares — COMMITTED
+//!     scripts-local/                   personal hall scripts (gitignored)
 //!   docs/                              flat topic documentation (product/, updates/,
 //!                                      repo-relations/) — COMMITTED
 //!   .claude/  .opencode/               harness-dictated. These are the TARGET of the
@@ -66,36 +69,37 @@
 //!   `archived_run(&FeatureName, &RunId)`, `archived_board(&FeatureName, &str)`,
 //!   `feature_session(&FeatureName, &SessionId)`, `discovery_session(&SessionId)`,
 //!   `hall_setups()`, `setup_script(&RepoName)`, `session_hook(&RepoName)`, `secrets_dir()`,
-//!   `hall_skills()`, `plan_dir(&FeatureName)`, `discovery_doc(&FeatureName)`,
+//!   `hall_skills()`, `hall_scripts()`, `hall_scripts_local()`, `plan_dir(&FeatureName)`, `discovery_doc(&FeatureName)`,
 //!   `docs_memory_dir()`, `page_dir(&PageKind)`, `update_pages_dir()`, `graph_db()`, `graph_lock()`, `memory_db()`, `memory_lock()`,
 //!   `harness_dir(&Provider)`, `commands_dir(&Provider)`.
 //! - `gitignore_lines()` — the exact patterns the hall's `.gitignore` needs.
 //!
 //! # Why `secrets/` needs no gitignore line of its own
 //!
-//! The hall's `.gitignore` excludes `.ivar/*` and negates exactly the two
+//! The hall's `.gitignore` excludes `.ivar/*` and negates exactly the three
 //! committed children. Anything else under `.ivar/` is therefore ignored by
 //! construction, and `secrets/` is deliberately placed there rather than at the
 //! hall root for precisely that reason: a secrets directory that depends on
 //! someone remembering to add a line is a secrets directory that eventually
-//! leaks. Adding a third negation would be the trap described below; not adding
-//! one is the whole design.
+//! leaks. Adding a negation for a personal folder would be the trap described below;
+//! not adding one is the whole design.
 //!
 //! # The gitignore trap
 //!
-//! It must be `.ivar/*` plus `!.ivar/skills/` plus `!.ivar/setups/` — **never**
+//! It must be `.ivar/*` plus `!.ivar/skills/`, `!.ivar/setups/` and
+//! `!.ivar/scripts/` — **never**
 //! `.ivar/`. Git does not re-include a child of an excluded directory, so `.ivar/`
 //! followed by negations silently drops the hall's committed children from
 //! version control. Silently. Put a test on this; the failure mode is invisible
-//! until a teammate clones and the skills (or the setup scripts) are not there.
+//! until a teammate clones and the skills (or the setup scripts, or the hall scripts) are not there.
 //!
 //! Two further lines — `.claude/commands/ivar-*.md` and
 //! `.opencode/commands/ivar-*.md` — keep the shipped workflow commands `ivar`
 //! materialises out of the hall's git history. They match only the reserved
 //! `ivar-*` prefix, so a user's own commands remain committable.
 //!
-//! `docs/reference/on-disk-format.md` marks *two* children of `.ivar/` committed —
-//! `skills/` and `setups/` — and `docs/architecture/environment-contract.md`
+//! `docs/reference/on-disk-format.md` marks the committed children of `.ivar/` —
+//! `skills/`, `setups/` and `scripts/` — and `docs/architecture/environment-contract.md`
 //! independently calls `.ivar/setups/<repo>.sh` "committed" in its own words. The
 //! "two traps" callout earlier in that same document names only `skills/` in its
 //! `.gitignore` example, which undercounts by one line against its own later

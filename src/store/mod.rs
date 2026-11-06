@@ -19,6 +19,7 @@ pub mod mcp_secrets;
 pub mod memory;
 pub mod render;
 pub mod review;
+pub mod script;
 pub mod session;
 pub mod setup_receipt;
 pub mod skill;

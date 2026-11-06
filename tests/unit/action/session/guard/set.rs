@@ -118,6 +118,8 @@ fn every_session_may_write_the_hall_root_outside_dot_ivar() {
         assert!(set.allows(&layout.hall_skills_local().join("private/SKILL.md")));
         assert!(set.allows(&layout.hall_setups().join("valhalla.sh")));
         assert!(set.allows(&layout.hall_setups().join("valhalla.session.sh")));
+        assert!(set.allows(&layout.hall_scripts().join("deploy.sh")));
+        assert!(set.allows(&layout.hall_scripts_local().join("mine.py")));
         assert!(!set.allows(&layout.state()));
         assert!(!set.allows(&layout.ivar_dir().join("cache/target/x")));
         assert!(!set.allows(&default_worktree.join("src/lib.rs")));
@@ -235,6 +237,8 @@ fn writable_set_roots_include_canonical_hall_sources() {
     crate::infra::fs::ensure_dir(&view_dir).unwrap();
     crate::infra::fs::ensure_dir(&layout.hall_skills()).unwrap();
     crate::infra::fs::ensure_dir(&layout.hall_skills_local()).unwrap();
+    crate::infra::fs::ensure_dir(&layout.hall_scripts()).unwrap();
+    crate::infra::fs::ensure_dir(&layout.hall_scripts_local()).unwrap();
     crate::infra::fs::write_text(&layout.root().join("HALL.md"), "# Hall\n").unwrap();
 
     let set = WritableSet::from_session(&layout, &feature, &view_dir).unwrap();
@@ -243,6 +247,8 @@ fn writable_set_roots_include_canonical_hall_sources() {
     assert!(roots.contains(&layout.root().join("HALL.md").canonicalize_utf8().unwrap()));
     assert!(roots.contains(&layout.hall_skills().canonicalize_utf8().unwrap()));
     assert!(roots.contains(&layout.hall_skills_local().canonicalize_utf8().unwrap()));
+    assert!(roots.contains(&layout.hall_scripts().canonicalize_utf8().unwrap()));
+    assert!(roots.contains(&layout.hall_scripts_local().canonicalize_utf8().unwrap()));
 }
 
 #[test]
@@ -462,6 +468,22 @@ fn discovery_guard_allows_a_hall_file_and_denies_ivar_state() {
             .unwrap()
             .exit_zero
     );
+
+    for script in [
+        layout.hall_scripts().join("deploy.sh"),
+        layout.hall_scripts_local().join("mine.py"),
+    ] {
+        let allow = serde_json::json!({
+            "tool": "write",
+            "args": { "filePath": script },
+            "cwd": view_dir,
+        });
+        assert!(
+            guard(Provider::Omp, &allow.to_string(), None)
+                .unwrap()
+                .exit_zero
+        );
+    }
 
     let docs = serde_json::json!({
         "tool": "write",

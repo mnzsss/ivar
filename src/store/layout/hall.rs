@@ -124,11 +124,26 @@ impl Layout {
 
     /// Local skills that never enter the hall's git repo.
     ///
-    /// The `.gitignore` is `.ivar/*` + `!.ivar/skills/` + `!.ivar/setups/`,
-    /// so any new directory here is gitignored by default.
+    /// The `.gitignore` is `.ivar/*` + `!.ivar/skills/` + `!.ivar/setups/` +
+    /// `!.ivar/scripts/`, so any new directory here is gitignored by default.
     #[must_use]
     pub fn hall_skills_local(&self) -> Utf8PathBuf {
         self.ivar_dir().join("skills-local")
+    }
+
+    /// `<hall>/.ivar/scripts/` — the team's hall scripts. Committed.
+    /// `ivar` only reads it.
+    #[must_use]
+    pub fn hall_scripts(&self) -> Utf8PathBuf {
+        self.ivar_dir().join("scripts")
+    }
+
+    /// `<hall>/.ivar/scripts-local/` — personal hall scripts. Ignored by the
+    /// `.ivar/*` line, so it never enters the hall's git repo. `ivar` only
+    /// reads it.
+    #[must_use]
+    pub fn hall_scripts_local(&self) -> Utf8PathBuf {
+        self.ivar_dir().join("scripts-local")
     }
 
     /// `<hall>/.ivar/features/<feature>/` — the unit of work's local working
@@ -316,7 +331,7 @@ impl Layout {
     /// The exact lines the hall's `.gitignore` needs.
     ///
     /// `.ivar/*` excludes every direct child of `.ivar/` as its own entry, and
-    /// the two negations below re-include exactly the children that are meant
+    /// the three negations below re-include exactly the children that are meant
     /// to be committed. This only works because the exclusion is `.ivar/*` and
     /// not `.ivar/` — see the module doc comment's "gitignore trap" section for
     /// why the whole-directory form silently breaks the negations.
@@ -336,6 +351,7 @@ impl Layout {
             ".ivar/*",
             "!.ivar/skills/",
             "!.ivar/setups/",
+            "!.ivar/scripts/",
             ".claude/commands/ivar-*.md",
             ".opencode/commands/ivar-*.md",
             ".omp/commands/ivar-*.md",

@@ -30,6 +30,8 @@ half-understood state file is worse than no state file.
                                              Code; AGENTS.md for OpenCode and OMP)
   .ivar/skills/                 committed    skills the team shares
   .ivar/skills-local/           local        personal skills, plus disabled.json (skills you turned off)
+  .ivar/scripts/                committed    scripts the team shares (`.sh`, `.py`); `ivar` only reads them
+  .ivar/scripts-local/          local        personal scripts, same format
   .ivar/setups/<repo>.sh        committed    per-repo worktree bootstrap
   .ivar/setups/<repo>.session.sh committed   per-repo session hook
   agents/<name>.md              committed    scheduled agent definitions (recurring, or an Agent Task with `at:`)

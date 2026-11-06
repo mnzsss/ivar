@@ -182,6 +182,12 @@ The tools are in [MCP tools](mcp-tools.md#handoffs-and-messages).
 - The brief prints at most 5 handoff headers, opened by a header that marks them as
   untrusted data. Each summary is cut to 120 characters and quoted on one `> ` line.
   Messages appear only as a count, never by body.
+- When the hall has valid scripts, the brief adds a section for them after the handoffs:
+  one `name (personal|team): description` line per script, personal first, then team,
+  alphabetical within each group, at most 20 lines and then `+N: ivar script list`. Scripts
+  with a malformed header are omitted, and a name in both folders shows twice. The section
+  is marked as untrusted data and opens with fixed lines on how to run a script. With no
+  handoffs, no messages and no scripts, the brief is silent.
 - The brief reads `memory.db` read-only and never drains the spool. It prints nothing on
   any failure and always exits 0. Measured with 1000 handoffs, its p95 was 13.46 ms.
 - `ivar session stop` warns `session.handoff_missing` when the session worked and opened

@@ -186,6 +186,16 @@ fn discovery_sandbox_contains_canonical_hall_sources() {
             .contains(&layout.hall_setups().canonicalize_utf8().unwrap())
     );
     assert!(
+        sandbox
+            .roots()
+            .contains(&layout.hall_scripts().canonicalize_utf8().unwrap())
+    );
+    assert!(
+        sandbox
+            .roots()
+            .contains(&layout.hall_scripts_local().canonicalize_utf8().unwrap())
+    );
+    assert!(
         !sandbox
             .roots()
             .contains(&layout.root().canonicalize_utf8().unwrap())

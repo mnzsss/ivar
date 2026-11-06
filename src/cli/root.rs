@@ -127,6 +127,9 @@ pub enum Command {
     /// Manage skills.
     #[command(subcommand)]
     Skill(SkillCommand),
+    /// List the hall's scripts.
+    #[command(subcommand)]
+    Script(ScriptCommand),
     /// Authenticate the hall's declared MCP servers.
     #[command(subcommand)]
     Mcp(McpCommand),
@@ -229,6 +232,8 @@ mod provider;
 mod repo;
 #[path = "review.rs"]
 mod review;
+#[path = "script.rs"]
+mod script;
 #[path = "session.rs"]
 mod session;
 #[path = "skill.rs"]
@@ -259,6 +264,7 @@ pub use review::{
     CommentAddArgs, CommentCommand, CommentListArgs, CommentResolveArgs, CommentStatusArg,
     ReviewCommand,
 };
+pub use script::ScriptCommand;
 pub use session::{
     SessionCommand, SessionConnectArgs, SessionConvertArgs, SessionEnvArgs, SessionRelayArgs,
     SessionSandboxArgs, SessionStartArgs, SessionStopArgs,
