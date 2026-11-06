@@ -65,7 +65,10 @@ fn legacy_doc_folders_are_moved_with_the_hall_s_own_tooling(
     true,
     "mkdir -p docs/memory && git mv docs/updates/* docs/memory/update/"
 )]
-#[case::plain(false, "mkdir -p docs/memory && mv docs/updates/* docs/memory/update/")]
+#[case::plain(
+    false,
+    "mkdir -p docs/memory && mv -n docs/updates/* docs/memory/update/"
+)]
 fn an_existing_destination_folder_gets_a_merging_move_not_a_nesting_one(
     #[case] hall_is_git: bool,
     #[case] expected: &str,
@@ -80,6 +83,91 @@ fn an_existing_destination_folder_gets_a_merging_move_not_a_nesting_one(
     let found = finding(&report, "memory.legacy_docs");
     assert_eq!(found.fix, expected);
     assert_eq!(found.fix.contains("git"), hall_is_git, "{}", found.fix);
+}
+
+fn has_legacy_finding(root: &Utf8Path) -> bool {
+    codes(root).contains(&"memory.legacy_docs")
+}
+
+fn run_fix(root: &Utf8Path, fix: &str) {
+    let status = std::process::Command::new("sh")
+        .args(["-c", fix])
+        .current_dir(root)
+        .status()
+        .unwrap();
+    assert!(status.success(), "{fix}");
+}
+
+fn git_add_all(root: &Utf8Path) {
+    assert!(
+        std::process::Command::new("git")
+            .args(["add", "-A"])
+            .current_dir(root)
+            .status()
+            .unwrap()
+            .success()
+    );
+}
+
+#[rstest]
+#[case::empty_updates(&[], &["docs/updates"])]
+#[case::empty_product(&[], &["docs/product"])]
+#[case::only_non_markdown(&["docs/updates/notes.txt", "docs/product/img/a.png"], &[])]
+fn a_legacy_folder_without_pages_is_not_reported(#[case] files: &[&str], #[case] dirs: &[&str]) {
+    let (_guard, root) = seeded_hall();
+    for dir in dirs {
+        std::fs::create_dir_all(root.join(dir)).unwrap();
+    }
+    for file in files {
+        put(&root, file, "x\n");
+    }
+    assert!(!has_legacy_finding(&root));
+}
+
+#[rstest]
+#[case::nested("docs/updates/2026/001-x.md")]
+#[case::upper_case("docs/updates/001-x.MD")]
+fn a_nested_or_upper_case_page_is_still_reported(#[case] rel: &str) {
+    let (_guard, root) = seeded_hall();
+    put(&root, rel, "# X\n");
+    assert!(has_legacy_finding(&root));
+}
+
+#[rstest]
+#[case::git(true)]
+#[case::plain(false)]
+fn running_the_fix_moves_the_pages_and_clears_the_finding(
+    #[case] hall_is_git: bool,
+    #[values(false, true)] destination_exists: bool,
+) {
+    let (_guard, root) = seeded_hall();
+    if hall_is_git {
+        git_init(&root);
+    }
+    put(&root, "docs/updates/001-x.md", "# X\n");
+    if destination_exists {
+        put(&root, "docs/memory/update/002-y.md", "# Y\n");
+    }
+    if hall_is_git {
+        git_add_all(&root);
+    }
+    let report = doctor(&Ctx::new(root.clone())).unwrap().value;
+    run_fix(&root, &finding(&report, "memory.legacy_docs").fix);
+    assert!(root.join("docs/memory/update/001-x.md").is_file());
+    assert!(!has_legacy_finding(&root));
+}
+
+#[test]
+fn the_plain_fix_never_overwrites_a_page_already_at_the_destination() {
+    let (_guard, root) = seeded_hall();
+    put(&root, "docs/updates/001-x.md", "# legacy\n");
+    put(&root, "docs/updates/003-z.md", "# Z\n");
+    put(&root, "docs/memory/update/001-x.md", "# kept\n");
+    let report = doctor(&Ctx::new(root.clone())).unwrap().value;
+    run_fix(&root, &finding(&report, "memory.legacy_docs").fix);
+    let kept = std::fs::read_to_string(root.join("docs/memory/update/001-x.md")).unwrap();
+    assert_eq!(kept, "# kept\n");
+    assert!(root.join("docs/memory/update/003-z.md").is_file());
 }
 
 #[test]

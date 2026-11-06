@@ -203,7 +203,7 @@ Page findings of `ivar doctor`:
 
 | Code | Meaning | Fix |
 | --- | --- | --- |
-| `memory.legacy_docs` | pages still live in `docs/product` or `docs/updates` | the `git mv` commands it prints: the folder itself, or its contents (`git mv docs/updates/* docs/memory/update/`, which skips hidden entries) when the destination already exists |
+| `memory.legacy_docs` | `docs/product` or `docs/updates` still holds at least one Markdown page (any depth, any extension case); an empty folder, or one with no `.md`, is not reported | the commands it prints: `git mv` (or `mv` in a hall without git) on the folder itself, or on its contents (`git mv docs/updates/* docs/memory/update/`, `mv -n …` without git) when the destination already exists. Nothing is overwritten: a page that already exists at the destination stays where it is, so resolve those by hand. Hidden entries are skipped |
 | `memory.page_invalid` | front matter does not parse, `kind` differs from the directory, or `expires_at` is not `YYYY-MM-DDTHH:MM:SSZ` | edit the page |
 | `memory.page_kind_unknown` | a directory under `docs/memory/` or `.ivar/memory/` is not a kind of that root | rename or move it |
 | `memory.page_misplaced` | a page is outside `<kind>/`, nested, has a non-kebab slug, or does not end in lowercase `.md` (or no `NNN-` for `product` and `update`) | move or rename it |

@@ -1,10 +1,12 @@
 //! Read-only checks on the memory pages under `docs/memory/` and `.ivar/memory/`.
 
-use crate::action::memory::reindex::{read_state, walk_pages};
+use crate::action::memory::reindex::{collect, read_state, walk_pages};
 use crate::domain::memory_page::PageIssueCode;
 use crate::git::exec::changed_paths;
 use crate::store::layout::Layout;
 use crate::store::memory::page_source::validate_page;
+
+use camino::Utf8Path;
 
 use super::Diagnosis;
 
@@ -64,16 +66,26 @@ fn page_issues(layout: &Layout) -> Vec<Diagnosis> {
         .collect()
 }
 
+/// A legacy folder only counts when it still holds a Markdown page at any depth.
+fn holds_pages(dir: &Utf8Path) -> bool {
+    let mut found = Vec::new();
+    collect(dir, &mut found);
+    !found.is_empty()
+}
+
 fn legacy_docs(layout: &Layout, hall_is_git: bool) -> Option<Diagnosis> {
-    let mv = if hall_is_git { "git mv" } else { "mv" };
+    // `git mv` refuses to overwrite; plain `mv` needs `-n` to do the same.
+    let mv = if hall_is_git { "git mv" } else { "mv -n" };
     let moves: Vec<String> = LEGACY_FOLDERS
         .into_iter()
-        .filter(|(old, _)| layout.root().join(old).is_dir())
+        .filter(|(old, _)| holds_pages(&layout.root().join(old)))
         .map(|(old, new)| {
             if layout.root().join(new).is_dir() {
                 format!("{mv} {old}/* {new}/")
+            } else if hall_is_git {
+                format!("git mv {old} {new}")
             } else {
-                format!("{mv} {old} {new}")
+                format!("mv {old} {new}")
             }
         })
         .collect();
