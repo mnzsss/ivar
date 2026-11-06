@@ -117,3 +117,17 @@ fn cancelling_without_a_memory_db_reports_no_open_handoff_and_does_not_create_it
     assert_eq!(failure.code, "memory.handoff_not_open");
     assert!(!layout.memory_db().exists());
 }
+
+#[test]
+fn listing_from_a_schema_four_db_is_empty_and_leaves_it_unmigrated() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root.clone());
+    crate::test_support::memory_db_at_schema_four(&layout.memory_db());
+
+    let listed = list_from_cli(&Ctx::new(root), None, false).unwrap().value.0;
+
+    assert_eq!(listed["handoffs"], json!([]));
+    let inspection =
+        crate::store::memory::db::MemoryDb::inspect(layout.memory_db().as_std_path()).unwrap();
+    assert_eq!(inspection.schema_version, 4);
+}

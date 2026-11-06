@@ -19,7 +19,7 @@ use crate::infra::fs;
 use crate::providers;
 use crate::store::layout::Layout;
 use crate::store::memory::coordination::owner_has_handoff;
-use crate::store::memory::db::open_read_only;
+use crate::store::memory::db::open_coordination_read_only;
 use crate::store::memory::observations::session_has_activity;
 
 use super::super::discover_hall;
@@ -175,10 +175,12 @@ pub(crate) fn end(
     Ok((removed, warnings))
 }
 
-// A missing memory db means no capture, and an unreadable one is already
-// reported as `memory.consolidate_failed`.
+// A missing or pre-queue memory db means no handoff can exist, and an
+// unreadable one is already reported as `memory.consolidate_failed`.
 fn handoff_missing(layout: &Layout, session: &str) -> Option<Warning> {
-    let conn = open_read_only(layout.memory_db().as_std_path()).ok()?;
+    let conn = open_coordination_read_only(layout.memory_db().as_std_path())
+        .ok()
+        .flatten()?;
     let active = session_has_activity(&conn, session).ok()?;
     let handed_off = owner_has_handoff(&conn, session).ok()?;
     (active && !handed_off).then(|| {
