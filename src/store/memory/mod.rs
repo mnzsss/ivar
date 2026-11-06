@@ -3,6 +3,7 @@
 
 pub mod anchors;
 pub mod conversations;
+pub mod coordination;
 pub mod db;
 pub mod observation_search;
 pub mod observations;

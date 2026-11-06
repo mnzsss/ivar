@@ -18,6 +18,9 @@ use crate::error::{Failure, FixAction, Outcome, Report, Warning, WriteHuman};
 use crate::infra::fs;
 use crate::providers;
 use crate::store::layout::Layout;
+use crate::store::memory::coordination::owner_has_handoff;
+use crate::store::memory::db::open_read_only;
+use crate::store::memory::observations::session_has_activity;
 
 use super::super::discover_hall;
 use super::lookup;
@@ -146,6 +149,9 @@ pub(crate) fn end(
             failure.what,
         )),
     }
+    if let Some(warning) = handoff_missing(layout, session.id.as_str()) {
+        warnings.push(warning);
+    }
     let view_dir = &session.view_dir;
     if !fs::exists(view_dir).unwrap_or(false) {
         return Ok((false, warnings));
@@ -167,6 +173,23 @@ pub(crate) fn end(
     // recursively is the right cleanup.
     let removed = std::fs::remove_dir_all(view_dir.as_std_path()).is_ok();
     Ok((removed, warnings))
+}
+
+// A missing memory db means no capture, and an unreadable one is already
+// reported as `memory.consolidate_failed`.
+fn handoff_missing(layout: &Layout, session: &str) -> Option<Warning> {
+    let conn = open_read_only(layout.memory_db().as_std_path()).ok()?;
+    let active = session_has_activity(&conn, session).ok()?;
+    let handed_off = owner_has_handoff(&conn, session).ok()?;
+    (active && !handed_off).then(|| {
+        Warning::new(
+            "session.handoff_missing",
+            session,
+            format!(
+                "the session worked and opened no handoff; call memory_handoff_begin, or run `ivar memory handoff begin --session {session}` before stopping"
+            ),
+        )
+    })
 }
 
 #[cfg(test)]

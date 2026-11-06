@@ -34,6 +34,7 @@ const MCP_APPROVALS: &str = "enabledMcpjsonServers";
 /// as a block that erases the prompt, and an older `ivar` on PATH exits 2 on
 /// the unknown subcommand.
 const CAPTURE_COMMAND: &str = "ivar memory capture --provider claude-code || true";
+const BRIEF_COMMAND: &str = "ivar memory brief --provider claude-code || true";
 const ENV: &str = "env";
 const LEGACY_ENV_IVAR_HALL: &str = "IVAR_HALL";
 
@@ -199,7 +200,8 @@ fn remove_legacy_ivar_hall(object: &mut serde_json::Map<String, serde_json::Valu
 /// commands in one entry, so each inlines up to ~10,000 chars of repository
 /// instructions for the same call (57,000 chars in all). With `capture`, the
 /// memory capture hooks sit in their own entries beside `PreToolUse`, never
-/// inside the guard entry.
+/// inside the guard entry. The brief sits in `SessionStart` with capture on
+/// or off, because its stdout is additional context for the agent.
 fn ivar_doc(capture: bool) -> serde_json::Value {
     let mut root = serde_json::Map::new();
 
@@ -214,6 +216,10 @@ fn ivar_doc(capture: bool) -> serde_json::Value {
             "command": CAPTURE_COMMAND
         }));
     }
+    session_start_hooks.push(serde_json::json!({
+        "type": "command",
+        "command": BRIEF_COMMAND
+    }));
     hooks.insert(
         "SessionStart".to_owned(),
         serde_json::json!([{ "matcher": "", "hooks": session_start_hooks }]),

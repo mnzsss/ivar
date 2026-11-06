@@ -1,5 +1,6 @@
 //! Deletes `session.*` observations whose session ended more than the
-//! retention window ago. Runs under a non-waiting `memory.lock` held for the
+//! retention window ago, expires overdue handoffs and messages and prunes
+//! their terminal rows. Runs under a non-waiting `memory.lock` held for the
 //! whole sweep and never creates `memory.db`.
 
 use std::time::SystemTime;
@@ -9,12 +10,16 @@ use serde::{Deserialize, Serialize};
 use camino::Utf8Path;
 
 use crate::action::memory::consolidate;
+use crate::action::memory::events::{MemoryEventScope, report_memory_event};
 use crate::action::memory::page_file::SESSION_PAGES_DIR;
 use crate::action::memory::reindex;
+use crate::domain::coordination::TERMINAL_RETENTION_DAYS;
+use crate::domain::observation::SourceEvent;
 use crate::domain::session::{epoch_secs_from_rfc3339, rfc3339_now};
 use crate::error::Failure;
 use crate::infra::fs;
 use crate::store::layout::Layout;
+use crate::store::memory::coordination;
 use crate::store::memory::db::MemoryDb;
 use crate::store::memory::page_source::parse_page;
 use crate::store::memory::retention::{
@@ -38,7 +43,17 @@ pub struct SweepReport {
     pub deleted: usize,
     pub pages_removed: usize,
     pub usage_pruned: usize,
+    pub handoffs_expired: usize,
+    pub messages_expired: usize,
+    pub coordination_pruned: usize,
     pub busy: bool,
+}
+
+#[derive(Debug, Default)]
+struct CoordinationSwept {
+    handoffs_expired: usize,
+    messages_expired: usize,
+    pruned: usize,
 }
 
 /// Sweeps expired sessions, or reports `busy` instead of waiting when another
@@ -67,6 +82,8 @@ pub fn sweep(layout: &Layout, now_epoch_secs: u64) -> Result<SweepReport, Failur
         .map_err(|error| record_failure(layout, &mut state, error))?;
     let pages_removed = expire_session_pages(layout, now_epoch_secs)
         .map_err(|error| record_failure(layout, &mut state, error))?;
+    let coordination = expire_coordination(layout, now_epoch_secs)
+        .map_err(|error| record_failure(layout, &mut state, error))?;
     state.swept_total += u64::try_from(deleted).unwrap_or(u64::MAX);
     state.last_sweep_at = Some(rfc3339_now());
     state.last_error = None;
@@ -75,6 +92,9 @@ pub fn sweep(layout: &Layout, now_epoch_secs: u64) -> Result<SweepReport, Failur
         deleted,
         pages_removed,
         usage_pruned,
+        handoffs_expired: coordination.handoffs_expired,
+        messages_expired: coordination.messages_expired,
+        coordination_pruned: coordination.pruned,
         busy: false,
     })
 }
@@ -137,6 +157,33 @@ fn delete_all_expired(
             .map_err(|e| e.to_string())?;
     }
     Ok((total, usage_pruned))
+}
+
+fn expire_coordination(layout: &Layout, now_epoch_secs: u64) -> Result<CoordinationSwept, String> {
+    if !layout.memory_db().exists() {
+        return Ok(CoordinationSwept::default());
+    }
+    let db = MemoryDb::open(layout.memory_db().as_std_path()).map_err(|e| e.to_string())?;
+    let now = i64::try_from(now_epoch_secs).unwrap_or(i64::MAX);
+    let expired = coordination::expire_overdue(db.conn(), now).map_err(|e| e.to_string())?;
+    for id in &expired.handoffs {
+        report_memory_event(
+            layout,
+            &MemoryEventScope::default(),
+            SourceEvent::HandoffExpired,
+            &serde_json::json!({ "id": id }),
+        );
+    }
+    let pruned = coordination::prune_terminal(
+        db.conn(),
+        now.saturating_sub(TERMINAL_RETENTION_DAYS * 86_400),
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(CoordinationSwept {
+        handoffs_expired: expired.handoffs.len(),
+        messages_expired: expired.messages,
+        pruned,
+    })
 }
 
 /// A page ages from its conversation's marker in `_consolidate.json`, keyed by

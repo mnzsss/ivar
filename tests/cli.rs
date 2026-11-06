@@ -35,11 +35,20 @@ mod mcp_add;
 #[path = "cli/mcp_edit_remove.rs"]
 mod mcp_edit_remove;
 
+#[path = "cli/memory_brief.rs"]
+mod memory_brief;
+
 #[path = "cli/memory_capture.rs"]
 mod memory_capture;
 
 #[path = "cli/memory_capture_contract.rs"]
 mod memory_capture_contract;
+
+#[path = "cli/memory_handoffs_contract.rs"]
+mod memory_handoffs_contract;
+
+#[path = "cli/memory_handoff_cli.rs"]
+mod memory_handoff_cli;
 
 #[path = "cli/memory_mcp_contract.rs"]
 mod memory_mcp_contract;

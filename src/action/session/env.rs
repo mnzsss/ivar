@@ -221,7 +221,7 @@ impl SessionEnv {
     /// The live session of `layout` whose id is exactly `id`. A lookup failure
     /// (no match, ambiguous prefix, unreadable tree) or a prefix match is
     /// `None`: an ambient id only ever narrows resolution to a real session.
-    fn from_ambient(layout: &Layout, id: &str) -> Option<Self> {
+    pub(crate) fn from_ambient(layout: &Layout, id: &str) -> Option<Self> {
         let session = super::lookup::resolve(layout, Some(id), None).ok()?;
         if session.id.as_str() != id {
             return None;

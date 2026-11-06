@@ -198,6 +198,7 @@ fn memory_review_refuses_a_malformed_verdict() {
         session: Some("s1".to_owned()),
         feature: Some(crate::domain::name::FeatureName::new("login").unwrap()),
         parent_feature: None,
+        ..Default::default()
     };
 
     let error = call_as(
@@ -209,4 +210,28 @@ fn memory_review_refuses_a_malformed_verdict() {
     .unwrap_err();
 
     assert!(error.contains("`stale`"), "{error}");
+}
+
+#[test]
+fn the_ambient_session_owns_a_call_only_when_it_is_a_session_of_this_hall() {
+    let (_guard, root) = seeded_hall();
+    let (_other_guard, other_root) = seeded_hall();
+    let layout = Layout::at(root.clone());
+    let ours = crate::domain::name::SessionId::new("6f0c9d5f-0000-4000-8000-00000000000a").unwrap();
+    let theirs =
+        crate::domain::name::SessionId::new("6f0c9d5f-0000-4000-8000-00000000000b").unwrap();
+    crate::test_support::graph_session_view(&root, &ours);
+    let their_view = crate::test_support::graph_session_view(&other_root, &theirs);
+    let client = McpClient::from_initialize(
+        &json!({"clientInfo": {"name": "opencode"}}),
+        uuid::Uuid::new_v4(),
+    );
+
+    let foreign = caller_in(&layout, &their_view, Some(&client), Some(theirs.as_str()));
+    let own = caller_in(&layout, &root, Some(&client), Some(ours.as_str()));
+
+    assert_eq!(foreign.session, None);
+    assert_eq!(foreign.owner_key, client.owner_key());
+    assert_eq!(own.session.as_deref(), Some(ours.as_str()));
+    assert_eq!(own.owner_key, ours.as_str());
 }

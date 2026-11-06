@@ -333,3 +333,30 @@ fn both_capture_artifacts_are_valid_javascript_modules() {
         );
     }
 }
+
+#[test]
+fn omp_brief_hook_injects_once_through_before_agent_start() {
+    let artifacts = providers::managed_artifacts(Provider::Omp);
+    let path = Utf8PathBuf::from(".omp/hooks/pre/ivar-brief.js");
+    let artifact = artifacts
+        .iter()
+        .find(|a| a.relative_path == path)
+        .unwrap_or_else(|| panic!("expected artifact at {path}, found: {artifacts:?}"));
+    let js = artifact.contents;
+
+    assert!(js.contains("export default"), "{js}");
+    assert!(js.contains("pi.on(\"before_agent_start\""), "{js}");
+    assert!(js.contains("let shown = false;"), "{js}");
+    assert!(js.contains("if (shown) return;"), "{js}");
+    assert!(
+        js.contains("[\"memory\", \"brief\", \"--provider\", \"omp\"]"),
+        "{js}"
+    );
+    assert!(js.contains("customType: \"ivar-brief\""), "{js}");
+    assert!(!js.contains("require("), "{js}");
+    assert!(
+        providers::capture_artifacts(Provider::Omp)
+            .iter()
+            .all(|a| a.relative_path != path)
+    );
+}

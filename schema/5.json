@@ -113,11 +113,17 @@
         "capture": {
           "description": "Whether session hooks record Observations. On unless set to `false`.",
           "type": "boolean"
+        },
+        "handoff_ttl_days": {
+          "description": "Days an open handoff or a pending message stays visible. 7 when absent.",
+          "format": "uint32",
+          "minimum": 1,
+          "type": [
+            "integer",
+            "null"
+          ]
         }
       },
-      "required": [
-        "capture"
-      ],
       "type": "object"
     },
     "Provider": {

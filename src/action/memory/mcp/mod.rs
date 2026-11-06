@@ -1,13 +1,16 @@
 mod confine;
+mod coordination;
 mod instructions;
 mod observations;
 mod pages;
 mod tools;
 
+use std::sync::OnceLock;
+
 use camino::Utf8Path;
 use serde_json::{Value, json};
 
-use crate::action::graph::session::session_key_for;
+use crate::action::graph::mcp::McpClient;
 use crate::action::memory::events::MemoryEventScope;
 use crate::action::memory::lint::lint_in;
 use crate::action::memory::query::{QueryInput, QueryOrigin, query_in};
@@ -27,27 +30,25 @@ const DEFAULT_LIMIT: usize = 10;
 const MAX_PAGE_BYTES: u64 = 256 * 1024;
 const SIMILAR_TITLE_THRESHOLD: f64 = 0.8;
 
-pub const TOOL_NAMES: &[&str] = &[
-    "memory_query",
-    "memory_status",
-    "memory_read_page",
-    "memory_recent",
-    "memory_read_session_observations",
-    "memory_write_page",
-    "memory_patch_page",
-    "memory_delete_page",
-    "memory_lint",
-    "memory_review",
-];
-
 #[must_use]
 pub fn is_memory_tool(name: &str) -> bool {
-    TOOL_NAMES.contains(&name)
+    static NAMES: OnceLock<Vec<String>> = OnceLock::new();
+    NAMES
+        .get_or_init(|| {
+            tool_definitions()
+                .iter()
+                .filter_map(|tool| tool.get("name").and_then(Value::as_str).map(str::to_owned))
+                .collect()
+        })
+        .iter()
+        .any(|known| known == name)
 }
 
 #[must_use]
 pub fn tool_definitions() -> Vec<Value> {
-    tools::definitions()
+    let mut tools = tools::definitions();
+    tools.extend(coordination::definitions());
+    tools
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -55,6 +56,8 @@ pub struct MemoryCaller {
     pub session: Option<String>,
     pub feature: Option<FeatureName>,
     pub parent_feature: Option<FeatureName>,
+    pub provider: String,
+    pub owner_key: String,
 }
 
 impl From<&MemoryCaller> for MemoryEventScope {
@@ -70,21 +73,55 @@ impl From<&MemoryCaller> for MemoryEventScope {
 }
 
 #[must_use]
-pub fn caller_for(layout: &Layout, cwd: &Utf8Path) -> MemoryCaller {
-    let ambient = std::env::var("IVAR_SESSION_ID").ok();
-    let env = SessionEnv::resolve_for_agent(cwd, ambient.as_deref())
+pub fn caller_for(layout: &Layout, cwd: &Utf8Path, client: Option<&McpClient>) -> MemoryCaller {
+    caller_in(
+        layout,
+        cwd,
+        client,
+        std::env::var("IVAR_SESSION_ID").ok().as_deref(),
+    )
+}
+
+fn caller_in(
+    layout: &Layout,
+    cwd: &Utf8Path,
+    client: Option<&McpClient>,
+    ambient: Option<&str>,
+) -> MemoryCaller {
+    let env = SessionEnv::resolve_for_agent(cwd, ambient)
         .ok()
-        .flatten();
+        .flatten()
+        .filter(|env| same_hall(&env.hall, layout.root()))
+        .or_else(|| ambient.and_then(|id| SessionEnv::from_ambient(layout, id)));
     let feature = env.as_ref().and_then(|env| env.feature.clone());
     let parent_feature = feature
         .as_ref()
         .and_then(|name| Feature::read(layout, name).ok().flatten())
         .and_then(|feature| feature.parent);
+    let session = env.as_ref().map(|env| env.session_id.clone());
+    let provider = env
+        .as_ref()
+        .map(|env| env.provider.id().to_owned())
+        .or_else(|| client.map(|client| client.provider.clone()))
+        .unwrap_or_else(|| "unknown".to_owned());
+    let owner_key = session
+        .clone()
+        .or_else(|| client.map(McpClient::owner_key))
+        .unwrap_or_else(|| "unknown:mcp".to_owned());
     MemoryCaller {
-        session: session_key_for(env.as_ref(), ambient),
+        session,
         feature,
         parent_feature,
+        provider,
+        owner_key,
     }
+}
+
+pub(crate) fn same_hall(session_hall: &Utf8Path, root: &Utf8Path) -> bool {
+    session_hall == root
+        || root
+            .canonicalize_utf8()
+            .is_ok_and(|root| session_hall == root)
 }
 
 /// # Errors
@@ -103,6 +140,9 @@ pub fn call_as(
     args: &Value,
     caller: &MemoryCaller,
 ) -> Result<String, String> {
+    if let Some(result) = coordination::call(layout, name, args, caller) {
+        return result;
+    }
     match name {
         "memory_query" => query(layout, args, caller.session.clone()),
         "memory_status" => to_text(&status_in(layout).map_err(|failure| failure.what)?.value),

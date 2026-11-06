@@ -11,9 +11,13 @@ use crate::action::feature::promote::{self as feature_promote, PromoteInput};
 use crate::action::hall::{self, InitInput};
 use crate::action::session::start::{self as session_start, StartInput};
 use crate::domain::name::{BranchName, FeatureName, HallName, RepoName};
+use crate::domain::observation::{Importance, Observation, ToolEffect};
 use crate::domain::provider::Provider;
+use crate::domain::sanitize::{SanitizeContext, Sanitized};
 use crate::store::layout::Layout;
 use crate::store::manifest::{Manifest, Providers, Repo};
+use crate::store::memory::db::MemoryDb;
+use crate::store::memory::observations::insert_batch;
 use crate::test_support::{
     FakeT3, enable_t3_host, fake_t3_command, fake_t3_on_this_thread, hall_root, seeded_repo,
 };
@@ -486,3 +490,6 @@ fn a_failed_drain_is_a_warning_and_consolidation_still_runs() {
     assert!(root.join(".ivar/memory/session/live.md").exists());
     unguard_worktrees(&root);
 }
+
+#[path = "stop_handoff.rs"]
+mod handoff;

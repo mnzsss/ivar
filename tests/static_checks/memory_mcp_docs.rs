@@ -28,8 +28,8 @@ fn doc(rel: &str) -> String {
 fn the_docs_describe_the_memory_review_gate() {
     let tools = doc("docs/reference/mcp-tools.md");
     assert!(tools.contains("| `memory_review` |"));
-    assert!(tools.contains("The default surface lists 12 tools"));
-    assert!(tools.contains("all twelve tools"));
+    assert!(tools.contains("The default surface lists 20 tools"));
+    assert!(tools.contains("all twenty tools"));
     assert!(doc("docs/reference/limitations-memory.md").contains("## The memory review"));
     assert!(doc("docs/reference/limitations-delivery.md").contains("--skip-memory-review"));
     assert!(doc("docs/guides/day-to-day.md").contains("`deliver.memory_not_reviewed`"));
@@ -37,5 +37,44 @@ fn the_docs_describe_the_memory_review_gate() {
         !doc("docs/guides/day-to-day.md")
             .contains("approvals for delivery, documentation, and teardown")
     );
-    assert!(doc("README.md").contains("eight more memory tools"));
+    assert!(doc("README.md").contains("sixteen more memory tools"));
+}
+
+#[test]
+fn the_docs_describe_handoffs_and_messages() {
+    let tools = doc("docs/reference/mcp-tools.md");
+    for tool in [
+        "memory_handoff_begin",
+        "memory_handoff_list",
+        "memory_handoff_accept",
+        "memory_handoff_cancel",
+        "memory_message_send",
+        "memory_message_list",
+        "memory_message_pop",
+        "memory_message_cancel",
+    ] {
+        assert!(
+            tools.contains(&format!("| `{tool}` |")),
+            "{tool} missing from mcp-tools.md"
+        );
+    }
+    assert!(tools.contains("### Handoffs and messages"));
+
+    let limits = doc("docs/reference/limitations-memory.md");
+    assert!(limits.contains("## Handoffs and messages"));
+    assert!(limits.contains("OpenCode has no brief"));
+    assert!(limits.contains("`<provider>:mcp-<uuid>`"));
+
+    let databases = doc("docs/reference/on-disk-format-databases.md");
+    assert!(
+        databases.contains("### Coordination (schema 5)"),
+        "task 01 owns this section"
+    );
+
+    let versions = doc("docs/reference/on-disk-format-versions.md");
+    assert!(versions.contains("handoff_ttl_days"));
+
+    let readme = doc("README.md");
+    assert!(readme.contains("ivar memory handoff"));
+    assert!(readme.contains("ivar memory brief"));
 }

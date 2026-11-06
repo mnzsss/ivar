@@ -372,3 +372,123 @@ fn usage_and_misses_older_than_thirty_days_are_pruned() {
         .unwrap();
     assert_eq!(left, 2);
 }
+
+use crate::domain::coordination::{NewHandoff, NewMessage, Owner, Queue};
+use crate::store::memory::coordination::{insert_handoff, insert_message};
+
+fn owner() -> Owner {
+    Owner {
+        key: "s-owner".to_owned(),
+        provider: "claude-code".to_owned(),
+    }
+}
+
+fn plant_handoff(layout: &Layout, id: &str, expires_days_ago: i64) {
+    let db = MemoryDb::open(layout.memory_db().as_std_path()).unwrap();
+    let expires_at = NOW as i64 - expires_days_ago * DAY as i64;
+    insert_handoff(
+        db.conn(),
+        &NewHandoff {
+            id: id.to_owned(),
+            queue: Queue::Hall,
+            address: None,
+            owner: owner(),
+            summary: "s".to_owned(),
+            pending_tasks: vec![],
+            open_decisions: vec![],
+            modified_files: vec![],
+            created_at: expires_at - 7 * DAY as i64,
+            expires_at,
+        },
+    )
+    .unwrap();
+}
+
+fn handoff_rows(layout: &Layout) -> Vec<(String, String)> {
+    let db = MemoryDb::open(layout.memory_db().as_std_path()).unwrap();
+    let mut stmt = db
+        .conn()
+        .prepare("SELECT id, state FROM handoffs ORDER BY id")
+        .unwrap();
+    stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect()
+}
+
+#[test]
+fn overdue_handoffs_and_messages_expire_and_each_handoff_records_an_observation() {
+    let (_guard, root) = crate::test_support::seeded_hall();
+    let layout = Layout::at(root);
+    plant_handoff(&layout, "h-due", 2);
+    plant_handoff(&layout, "h-live", -3);
+    let db = MemoryDb::open(layout.memory_db().as_std_path()).unwrap();
+    insert_message(
+        db.conn(),
+        &NewMessage {
+            id: "m-due".to_owned(),
+            queue: Queue::Hall,
+            address: None,
+            sender: owner(),
+            subject: None,
+            body: "b".to_owned(),
+            created_at: NOW as i64 - 9 * DAY as i64,
+            expires_at: NOW as i64 - 2 * DAY as i64,
+        },
+    )
+    .unwrap();
+    drop(db);
+
+    let report = sweep(&layout, NOW).unwrap();
+
+    assert_eq!(report.handoffs_expired, 1);
+    assert_eq!(report.messages_expired, 1);
+    assert_eq!(
+        handoff_rows(&layout),
+        vec![
+            ("h-due".to_owned(), "expired".to_owned()),
+            ("h-live".to_owned(), "open".to_owned())
+        ]
+    );
+    let spool = std::fs::read_to_string(layout.memory_spool_dir().join("delivery.jsonl")).unwrap();
+    let expired: Vec<serde_json::Value> = spool
+        .lines()
+        .map(|l| serde_json::from_str::<serde_json::Value>(l).unwrap())
+        .filter(|l| l["source_event"] == "handoff.expired")
+        .collect();
+    assert_eq!(expired.len(), 1);
+    assert!(expired[0]["body"].as_str().unwrap().contains("h-due"));
+}
+
+#[test]
+fn terminal_rows_older_than_thirty_days_are_pruned_and_younger_ones_stay() {
+    let (_guard, root) = crate::test_support::seeded_hall();
+    let layout = Layout::at(root);
+    plant_handoff(&layout, "h-ancient", 40);
+    plant_handoff(&layout, "h-recent", 10);
+
+    let report = sweep(&layout, NOW).unwrap();
+
+    assert_eq!(report.coordination_pruned, 1);
+    assert_eq!(
+        handoff_rows(&layout),
+        vec![("h-recent".to_owned(), "expired".to_owned())]
+    );
+}
+
+#[test]
+fn a_busy_sweep_expires_nothing() {
+    let (_guard, root) = crate::test_support::seeded_hall();
+    let layout = Layout::at(root);
+    plant_handoff(&layout, "h-due", 2);
+    let _held = crate::infra::fs::lock_exclusive(&layout.memory_lock()).unwrap();
+
+    let report = sweep(&layout, NOW).unwrap();
+
+    assert!(report.busy);
+    assert_eq!(report.handoffs_expired, 0);
+    assert_eq!(
+        handoff_rows(&layout),
+        vec![("h-due".to_owned(), "open".to_owned())]
+    );
+}

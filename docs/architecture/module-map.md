@@ -19,6 +19,7 @@ src/
     respond.rs     rendering an action's `Outcome`/`Report`/`Failure` as bytes.
     graph_dispatch.rs  the `ivar graph` subcommand tree's dispatch.
     agent_dispatch.rs  the `ivar agent` subcommand tree's dispatch.
+    memory_dispatch.rs  the `ivar memory` subcommand tree's dispatch.
 
   cli/             clap derive types ONLY — structs, enums, doc comments.
     root.rs        root entries and command-group wiring; focused command

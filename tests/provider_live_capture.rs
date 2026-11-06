@@ -39,6 +39,7 @@ use support::{home, isolated_ivar, run_ok};
 const PROMPT: &str = "Read the file README.md and answer with its first word.";
 const QUERY_PROMPT: &str = "Run `ivar memory query seeded-page --json` in the shell and answer with the path of the first result.";
 const MCP_PROMPT: &str = "Call the memory_write_page tool with kind decision, title Live check and body from the live check. Then answer with the path it returned.";
+const BRIEF_PROMPT: &str = "If your context lists an ivar handoff, call the memory_handoff_accept tool with its id. Then answer DONE.";
 const T3_THREAD_WAIT: Duration = Duration::from_secs(180);
 
 #[derive(Clone, Copy, Debug)]
@@ -181,6 +182,36 @@ impl Live {
                 MCP_PROMPT,
             ],
             Self::OpenCode => vec!["run", "--format", "json", MCP_PROMPT],
+        };
+        args.into_iter().map(str::to_owned).collect()
+    }
+
+    fn brief_args(self, view: &Utf8Path) -> Vec<String> {
+        let args: Vec<&str> = match self {
+            Self::Claude => vec![
+                "-p",
+                BRIEF_PROMPT,
+                "--output-format",
+                "stream-json",
+                "--verbose",
+                "--model",
+                "haiku",
+                "--allowedTools",
+                "mcp__acme-ivar__memory_handoff_accept",
+            ],
+            Self::Omp => vec![
+                "-p",
+                "--mode",
+                "json",
+                "--no-session",
+                "--no-title",
+                "--model",
+                "haiku",
+                "--cwd",
+                view.as_str(),
+                BRIEF_PROMPT,
+            ],
+            Self::OpenCode => vec!["run", "--format", "json", BRIEF_PROMPT],
         };
         args.into_iter().map(str::to_owned).collect()
     }
@@ -413,6 +444,44 @@ fn omp_writes_a_page_through_the_mcp_tool() {
 #[ignore = "needs provider credentials: opencode"]
 fn opencode_writes_a_page_through_the_mcp_tool() {
     mcp_scenario(Live::OpenCode);
+}
+
+fn brief_scenario(live: Live) {
+    if !live.enabled() || matches!(live, Live::OpenCode) {
+        return;
+    }
+    let (_guard, root) = scratch_hall();
+    run_ok(
+        &root,
+        &[
+            "memory",
+            "handoff",
+            "begin",
+            "--summary",
+            "Live brief check",
+            "--hall",
+        ],
+    );
+    let (id, view) = session(&root, "brief", live.provider());
+    finish(launch(&root, &id, live, &live.brief_args(&view)));
+    stop(&root, &id);
+    let open = run_ok(&root, &["memory", "handoff", "list", "--hall"]);
+    assert!(
+        open["handoffs"].as_array().unwrap().is_empty(),
+        "{live:?}: the brief handoff is still open: {open}"
+    );
+}
+
+#[test]
+#[ignore = "needs provider credentials: claude"]
+fn claude_brief_shows_the_open_handoff() {
+    brief_scenario(Live::Claude);
+}
+
+#[test]
+#[ignore = "needs provider credentials: omp"]
+fn omp_brief_shows_the_open_handoff() {
+    brief_scenario(Live::Omp);
 }
 
 /// T3 threads live in the desktop app, so a human opens a thread, sends a prompt and archives

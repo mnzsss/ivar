@@ -2,7 +2,7 @@
 
 use clap::Parser;
 
-use crate::cli::memory::MemoryCommand;
+use crate::cli::memory::{HandoffCommand, MemoryCommand};
 use crate::cli::root::{Cli, Command};
 
 #[test]
@@ -99,5 +99,127 @@ fn memory_review_parses_with_and_without_a_feature() {
     assert!(matches!(
         bare.command,
         Command::Memory(MemoryCommand::Review { feature: None })
+    ));
+}
+
+#[test]
+fn memory_handoff_begin_parses_repeated_lists_and_an_address() {
+    let cli = Cli::try_parse_from([
+        "ivar",
+        "memory",
+        "handoff",
+        "begin",
+        "--summary",
+        "half done",
+        "--pending",
+        "write docs",
+        "--pending",
+        "run clippy",
+        "--decision",
+        "keep the sweep",
+        "--file",
+        "src/a.rs",
+        "--hall",
+        "--to-provider",
+        "omp",
+        "--json",
+    ])
+    .unwrap();
+    let Command::Memory(MemoryCommand::Handoff {
+        command:
+            HandoffCommand::Begin {
+                summary,
+                pending,
+                decision,
+                file,
+                feature,
+                hall,
+                to_provider,
+                to_session,
+                session,
+            },
+    }) = cli.command
+    else {
+        panic!("expected memory handoff begin");
+    };
+    assert_eq!(summary, "half done");
+    assert_eq!(pending, vec!["write docs", "run clippy"]);
+    assert_eq!(decision, vec!["keep the sweep"]);
+    assert_eq!(file, vec!["src/a.rs"]);
+    assert!(hall && feature.is_none());
+    assert_eq!(to_provider.as_deref(), Some("omp"));
+    assert!(to_session.is_none() && session.is_none());
+    assert!(cli.json);
+}
+
+#[test]
+fn memory_handoff_begin_refuses_feature_with_hall_and_two_addresses() {
+    assert!(
+        Cli::try_parse_from([
+            "ivar",
+            "memory",
+            "handoff",
+            "begin",
+            "--summary",
+            "s",
+            "--feature",
+            "x",
+            "--hall"
+        ])
+        .is_err()
+    );
+    assert!(
+        Cli::try_parse_from([
+            "ivar",
+            "memory",
+            "handoff",
+            "begin",
+            "--summary",
+            "s",
+            "--to-provider",
+            "omp",
+            "--to-session",
+            "abc"
+        ])
+        .is_err()
+    );
+    assert!(Cli::try_parse_from(["ivar", "memory", "handoff", "begin"]).is_err());
+}
+
+#[test]
+fn memory_handoff_list_and_cancel_parse() {
+    let list =
+        Cli::try_parse_from(["ivar", "memory", "handoff", "list", "--feature", "login"]).unwrap();
+    assert!(matches!(
+        list.command,
+        Command::Memory(MemoryCommand::Handoff {
+            command: HandoffCommand::List {
+                feature: Some(_),
+                hall: false
+            }
+        })
+    ));
+    let cancel = Cli::try_parse_from(["ivar", "memory", "handoff", "cancel", "h-1"]).unwrap();
+    let Command::Memory(MemoryCommand::Handoff {
+        command: HandoffCommand::Cancel { id },
+    }) = cancel.command
+    else {
+        panic!("expected memory handoff cancel");
+    };
+    assert_eq!(id, "h-1");
+}
+
+#[test]
+fn memory_brief_parses_with_and_without_a_provider() {
+    let cli = Cli::try_parse_from(["ivar", "memory", "brief", "--provider", "omp"]).unwrap();
+    let Command::Memory(MemoryCommand::Brief { provider }) = cli.command else {
+        panic!("expected memory brief");
+    };
+    assert_eq!(provider.as_deref(), Some("omp"));
+    assert!(matches!(
+        Cli::try_parse_from(["ivar", "memory", "brief"])
+            .unwrap()
+            .command,
+        Command::Memory(MemoryCommand::Brief { provider: None })
     ));
 }

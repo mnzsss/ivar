@@ -24,10 +24,16 @@ pub enum SourceEvent {
     MemoryPageWritten,
     MemoryReviewed,
     MemoryReviewSkipped,
+    HandoffOpened,
+    HandoffAccepted,
+    HandoffCancelled,
+    HandoffExpired,
+    MessageSent,
+    MessagePopped,
 }
 
 impl SourceEvent {
-    pub const ALL: [Self; 18] = [
+    pub const ALL: [Self; 24] = [
         Self::SessionStarted,
         Self::SessionPrompted,
         Self::SessionTool,
@@ -46,6 +52,12 @@ impl SourceEvent {
         Self::MemoryPageWritten,
         Self::MemoryReviewed,
         Self::MemoryReviewSkipped,
+        Self::HandoffOpened,
+        Self::HandoffAccepted,
+        Self::HandoffCancelled,
+        Self::HandoffExpired,
+        Self::MessageSent,
+        Self::MessagePopped,
     ];
 
     #[must_use]
@@ -69,6 +81,12 @@ impl SourceEvent {
             Self::MemoryPageWritten => "memory.page_written",
             Self::MemoryReviewed => "memory.reviewed",
             Self::MemoryReviewSkipped => "memory.review_skipped",
+            Self::HandoffOpened => "handoff.opened",
+            Self::HandoffAccepted => "handoff.accepted",
+            Self::HandoffCancelled => "handoff.cancelled",
+            Self::HandoffExpired => "handoff.expired",
+            Self::MessageSent => "message.sent",
+            Self::MessagePopped => "message.popped",
         }
     }
 
@@ -175,6 +193,36 @@ impl Importance {
     #[must_use]
     pub const fn memory_review_skipped() -> Self {
         Self(7)
+    }
+
+    #[must_use]
+    pub const fn handoff_opened() -> Self {
+        Self(5)
+    }
+
+    #[must_use]
+    pub const fn handoff_accepted() -> Self {
+        Self(5)
+    }
+
+    #[must_use]
+    pub const fn handoff_cancelled() -> Self {
+        Self(3)
+    }
+
+    #[must_use]
+    pub const fn handoff_expired() -> Self {
+        Self(3)
+    }
+
+    #[must_use]
+    pub const fn message_sent() -> Self {
+        Self(4)
+    }
+
+    #[must_use]
+    pub const fn message_popped() -> Self {
+        Self(4)
     }
 }
 

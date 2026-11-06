@@ -1,6 +1,9 @@
+use std::num::NonZeroU32;
+
 use serde::{Deserialize, Serialize};
 
 use super::{Error, Manifest};
+use crate::domain::coordination::DEFAULT_TTL_DAYS;
 
 /// Which hall-root directories `ivar graph index` keeps in the graph.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
@@ -55,7 +58,27 @@ pub(crate) fn normalise_graph_path(raw: &str) -> Result<String, Error> {
 #[serde(deny_unknown_fields)]
 pub(super) struct MemorySettings {
     /// Whether session hooks record Observations. On unless set to `false`.
+    #[serde(default = "capture_on", skip_serializing_if = "is_on")]
     capture: bool,
+    /// Days an open handoff or a pending message stays visible. 7 when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    handoff_ttl_days: Option<NonZeroU32>,
+}
+
+const fn capture_on() -> bool {
+    true
+}
+
+#[allow(clippy::trivially_copy_pass_by_ref)]
+const fn is_on(capture: &bool) -> bool {
+    *capture
+}
+
+impl MemorySettings {
+    /// `None` when every field is at its default, so the `memory` key disappears.
+    fn normalised(self) -> Option<Self> {
+        (!self.capture || self.handoff_ttl_days.is_some()).then_some(self)
+    }
 }
 
 impl Manifest {
@@ -65,19 +88,32 @@ impl Manifest {
         self.memory.as_ref().is_none_or(|settings| settings.capture)
     }
 
-    /// Return a new `Manifest` with memory capture switched on or off. Turning it
-    /// on drops the key, so a hall that never opted out stays byte-identical.
+    /// Days an open handoff or a pending message stays visible.
+    #[must_use]
+    pub fn memory_handoff_ttl_days(&self) -> u32 {
+        self.memory
+            .as_ref()
+            .and_then(|settings| settings.handoff_ttl_days)
+            .map_or(DEFAULT_TTL_DAYS, NonZeroU32::get)
+    }
+
+    /// Return a new `Manifest` with memory capture switched on or off. A
+    /// `memory` key left at its defaults is dropped, so a hall that never
+    /// opted out stays byte-identical.
     ///
     /// # Errors
     ///
     /// Returns an [`Error`] if the rebuilt manifest fails validation.
     pub fn with_memory_capture(&self, enabled: bool) -> Result<Self, Error> {
         let mut manifest = self.rebuild(self.providers.clone(), self.repos.clone())?;
-        manifest.memory = if enabled {
-            None
-        } else {
-            Some(MemorySettings { capture: false })
-        };
+        manifest.memory = MemorySettings {
+            capture: enabled,
+            handoff_ttl_days: self
+                .memory
+                .as_ref()
+                .and_then(|settings| settings.handoff_ttl_days),
+        }
+        .normalised();
         manifest.validate()?;
         Ok(manifest)
     }

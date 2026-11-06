@@ -3,6 +3,7 @@
 //! Conforms strictly to MCP specification 2024-11-05. Advertises `graph_explore` alone by
 //! default, or every graph tool on request. Operates synchronously over standard I/O streams.
 
+pub mod client;
 pub mod dispatch;
 mod dispatch_support;
 mod explore_output;
@@ -21,6 +22,7 @@ use crate::action::graph::session::{SessionView, resolve_session_key, resolve_se
 use crate::domain::graph::{UsageEvent, UsageSource, truncate_for_storage};
 use crate::store::graph::db::GraphDb;
 use crate::store::layout::Layout;
+pub use client::McpClient;
 pub use dispatch::*;
 pub use tools::*;
 /// Sent on `initialize`. Hosts that show MCP tools as one-line devices (omp) may
@@ -130,6 +132,8 @@ where
     F: FnMut(Option<&str>) -> Result<Value, String>,
 {
     let _ = db.prune(super::MISS_RETENTION_DAYS);
+    let instance = uuid::Uuid::new_v4();
+    let mut client: Option<McpClient> = None;
     for line_res in reader.lines() {
         let line = line_res?;
         let trimmed = line.trim();
@@ -138,6 +142,7 @@ where
         }
 
         if let Ok(req) = serde_json::from_str::<Value>(trimmed) {
+            client::track_client(&mut client, &req, instance);
             if let Some(resp) = handle_json_rpc(
                 db,
                 hall_root,
@@ -145,6 +150,7 @@ where
                 &req,
                 &mut refresh_index,
                 watch.as_deref_mut(),
+                client.as_ref(),
             ) {
                 let bytes = serde_json::to_vec(&resp)?;
                 writer.write_all(&bytes)?;
@@ -178,15 +184,26 @@ pub fn handle_json_rpc<F>(
     req: &Value,
     refresh_index: &mut F,
     watch: Option<&mut crate::action::graph::watch::Watch>,
+    client: Option<&McpClient>,
 ) -> Option<Value>
 where
     F: FnMut(Option<&str>) -> Result<Value, String>,
 {
     let cwd = camino::Utf8PathBuf::from_path_buf(std::env::current_dir().unwrap_or_default())
         .unwrap_or_default();
-    handle_json_rpc_at(db, hall_root, &cwd, tools, req, refresh_index, watch)
+    handle_json_rpc_as(
+        db,
+        hall_root,
+        &cwd,
+        tools,
+        req,
+        refresh_index,
+        watch,
+        client,
+    )
 }
 
+#[cfg(test)]
 fn handle_json_rpc_at<F>(
     db: &GraphDb,
     hall_root: Option<&Path>,
@@ -195,6 +212,23 @@ fn handle_json_rpc_at<F>(
     req: &Value,
     refresh_index: &mut F,
     watch: Option<&mut crate::action::graph::watch::Watch>,
+) -> Option<Value>
+where
+    F: FnMut(Option<&str>) -> Result<Value, String>,
+{
+    handle_json_rpc_as(db, hall_root, cwd, tools, req, refresh_index, watch, None)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn handle_json_rpc_as<F>(
+    db: &GraphDb,
+    hall_root: Option<&Path>,
+    cwd: &camino::Utf8Path,
+    tools: ToolSurface,
+    req: &Value,
+    refresh_index: &mut F,
+    watch: Option<&mut crate::action::graph::watch::Watch>,
+    client: Option<&McpClient>,
 ) -> Option<Value>
 where
     F: FnMut(Option<&str>) -> Result<Value, String>,
@@ -269,6 +303,7 @@ where
                     cwd,
                     name,
                     &tool_args,
+                    client,
                 ));
             }
 
@@ -317,6 +352,7 @@ fn memory_tool_response(
     cwd: &camino::Utf8Path,
     name: &str,
     args: &Value,
+    client: Option<&McpClient>,
 ) -> Value {
     let Some(root) = hall_root else {
         return tool_error(id, "memory tools need a hall");
@@ -328,7 +364,7 @@ fn memory_tool_response(
         );
     };
     let layout = Layout::at(utf8_root);
-    let caller = crate::action::memory::mcp::caller_for(&layout, cwd);
+    let caller = crate::action::memory::mcp::caller_for(&layout, cwd, client);
     match crate::action::memory::mcp::call_as(&layout, name, args, &caller) {
         Ok(text) => json!({
             "jsonrpc": "2.0",

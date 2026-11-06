@@ -132,7 +132,7 @@ Run graph MCP server
 
 | flag | value | default | description |
 | --- | --- | --- | --- |
-| `--tools` | `<TOOLS>` | `explore` | Tools to advertise: `explore` lists `graph_explore`, `graph_feedback`, the ten memory tools including `memory_lint` and `memory_review` (12 tools in total), `all` lists every graph tool as well |
+| `--tools` | `<TOOLS>` | `explore` | Tools to advertise: `explore` lists `graph_explore`, `graph_feedback`, the eighteen memory tools including `memory_lint`, `memory_review`, the handoff and the message tools (20 tools in total), `all` lists every graph tool as well |
 
 
 ## `ivar graph dead-code`

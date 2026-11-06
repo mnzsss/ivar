@@ -8,8 +8,9 @@ for the hall. It carries the code graph tools and the hall memory tools.
 The server is `ivar`, so a provider sees it as `<hall>-ivar`. The command is still
 `ivar graph mcp`. `serverInfo.name` is `ivar`.
 
-The default surface lists 12 tools: `graph_explore`, `graph_feedback` and the ten
-`memory_*` tools below. `ivar graph mcp --tools all` also lists the remaining graph tools.
+The default surface lists 20 tools: `graph_explore`, `graph_feedback` and the eighteen
+`memory_*` tools below. `ivar graph mcp --tools all` also lists the remaining graph tools,
+30 in all.
 `graph_explore` and `memory_query` carry `anthropic/alwaysLoad`.
 
 ## Migration from `<hall>-graph`
@@ -32,7 +33,7 @@ Earlier versions registered the server as `graph`.
 ## Approval
 
 `ivar` approves the server, not single tools. On Claude Code the entry is
-`<hall>-ivar` in `enabledMcpjsonServers`, so one approval covers all twelve tools,
+`<hall>-ivar` in `enabledMcpjsonServers`, so one approval covers all twenty tools,
 including `memory_write_page`, `memory_patch_page` and `memory_delete_page`. Each
 provider's permission mode decides whether it asks before a call.
 
@@ -54,6 +55,14 @@ is the scope. The read tools carry `readOnlyHint`. `memory_delete_page` carries
 | `memory_status` | none | The same block as `ivar memory status`, plus `anchors_pending` and 30-day `usage`: `queries_cli`, `queries_mcp`, `empty`, `followup`, `skipped` and `miss_rate_cli` / `miss_rate_mcp` (empty queries over queries, per source). |
 | `memory_recent` | `limit` (default 20, maximum 100), `source_event` (prefix), `feature` | Observations, newest first, each with a one-line summary, and `drain_error` when the spool drain failed. |
 | `memory_read_session_observations` | `session` (required), `limit` (default 50, maximum 100), `cursor` | Observations of one session, oldest first, `next_cursor` while more remain, and `drain_error` when the spool drain failed. |
+| `memory_handoff_begin` | `summary` (required), `pending_tasks[]`, `open_decisions[]`, `modified_files[]`, `feature` or `hall`, `to.provider` or `to.session` | `handoff_id`, `expires_at`. |
+| `memory_handoff_list` | `feature` or `hall`, `limit` (default 20, maximum 100) | Open handoffs the caller sees, newest first, and `notice`. |
+| `memory_handoff_accept` | `handoff_id` | `status`: `claimed` with the `handoff` and `notice`, `already_claimed` or `none_pending`. Without `handoff_id` it claims the newest visible one. |
+| `memory_handoff_cancel` | `handoff_id` (required) | `cancelled`. Only the owner can cancel, and only an open handoff. |
+| `memory_message_send` | `body` (required), `subject`, `feature` or `hall`, `to.provider` or `to.session` | `message_id`, `expires_at`. |
+| `memory_message_list` | `box` (`inbox` or `outbox`, default `inbox`), `feature` or `hall`, `limit` (default 20, maximum 100) | Pending messages, oldest first, and `notice`. The outbox lists the caller's own. |
+| `memory_message_pop` | `message_id` | `status`: `popped` with the `message` and `notice`, `already_claimed` or `none_pending`. Without `message_id` it pops the oldest visible one. |
+| `memory_message_cancel` | `message_id` | `cancelled`: how many of the caller's pending messages were retracted, all of them without `message_id`. |
 
 Both observation tools drain the capture spool before they read. A failed drain does not fail the call: the answer carries the stored observations and a `drain_error` string, so a reader can tell the data may be stale.
 
@@ -117,6 +126,39 @@ confirmation is refused with `memory.review_unreadable`. `memory.reviewed` recor
 heads, the verdicts, `not_required`, the written and stale page paths and the gap kinds,
 and `last` returns them. `ivar memory review` prints the same report, read-only.
 
+### Handoffs and messages
+
+A handoff is what one session leaves for the next: a summary, pending tasks, open
+decisions and changed files. A message is a note from one agent to another. Both live in
+`memory.db`; see [Coordination (schema 5)](on-disk-format-databases.md#coordination-schema-5).
+
+- **Queue.** A row lands in the queue of the caller's feature, or the hall queue outside a
+  feature. `feature` names another feature's queue and `hall` the hall queue; passing both
+  is an error. A caller sees the hall queue and its own feature's queue. On the list tools,
+  `feature` and `hall` narrow the answer to one queue.
+- **Address.** `to` takes exactly one of `provider` or `session`. An addressed row is seen
+  only by that provider or that session. Without `to`, everyone on the queue sees it.
+- **Owner.** Inside an `ivar session` of this hall the owner is its session id, and the
+  provider comes from the session's state. An `IVAR_SESSION_ID` that names no session of
+  this hall is ignored. Outside a session, the owner is `<provider>:mcp-<uuid>`: the
+  provider is mapped from `clientInfo.name` at `initialize`, else `unknown`, and the uuid
+  is new for each server process. Only the owner can cancel its handoff or message.
+- **Claim.** `memory_handoff_accept` and `memory_message_pop` claim a row once. A second
+  claim answers `already_claimed`, and nothing visible answers `none_pending`.
+- **Expiry.** A row expires `memory.handoff_ttl_days` days after it was written, 7 by
+  default; see [the `memory` key](on-disk-format-versions.md#ivarjson-memory-key). The
+  read tools skip an expired row even before the sweep marks it.
+- **Untrusted content.** Text is redacted before it is stored, and refused past 16 KiB or
+  when a secret survives redaction. Lists hold at most 50 items. Every answer that returns
+  content carries a `notice` saying it is untrusted data written by another agent.
+- **Observations.** The tools record `handoff.opened`, `handoff.accepted`,
+  `handoff.cancelled`, `message.sent` and `message.popped`, and the sweep records
+  `handoff.expired`. None carries the summary or the body.
+
+`ivar memory handoff` has `begin`, `list` and `cancel` for a terminal. Its `cancel` works
+on a handoff of any owner, and `list --feature` refuses a feature the hall does not have. `ivar memory brief` prints the open handoffs at session start;
+see [the brief](limitations-memory.md#handoffs-and-messages).
+
 ## Lint
 
 `memory_lint` and `ivar memory lint` share one function. It reads the files, not the
@@ -162,4 +204,5 @@ under the old name. The old suffixes leave in 0.20.0, and a test fails from that
 while they remain. Memory tool calls are not written to `usage`.
 
 Capture classifies `memory_query`, `memory_read_page`, `memory_lint`, `memory_status`,
-`memory_recent` and `memory_read_session_observations` as reads. The other tools are writes.
+`memory_recent`, `memory_read_session_observations`, `memory_handoff_list` and
+`memory_message_list` as reads. The other tools are writes.

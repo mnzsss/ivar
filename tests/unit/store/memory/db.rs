@@ -346,7 +346,7 @@ fn schema_three_migrates_to_four_with_anchor_and_usage_tables() {
 
     let db = MemoryDb::open(&path).unwrap();
 
-    assert_eq!(db.schema_version().unwrap(), 4);
+    assert_eq!(db.schema_version().unwrap(), MEMORY_SCHEMA_VERSION);
     let pending: i64 = db
         .conn()
         .query_row("SELECT anchors_pending FROM pages", [], |r| r.get(0))
@@ -359,5 +359,78 @@ fn schema_three_migrates_to_four_with_anchor_and_usage_tables() {
             })
             .unwrap();
     }
+    assert_eq!(object_names(&path), memory_objects());
+}
+
+#[test]
+fn schema_four_migrates_to_five_with_coordination_tables_and_keeps_observations() {
+    let (_dir, path) = temp_db();
+    {
+        let mut conn = Connection::open(&path).unwrap();
+        conn.execute_batch(&format!("PRAGMA application_id = {APPLICATION_ID};"))
+            .unwrap();
+        let tx = conn.transaction().unwrap();
+        for migration in [
+            crate::store::memory::schema::MIGRATION_V1,
+            crate::store::memory::schema::MIGRATION_V2,
+            crate::store::memory::schema::MIGRATION_V3,
+            crate::store::memory::schema::MIGRATION_V4,
+        ] {
+            tx.execute_batch(migration).unwrap();
+        }
+        tx.execute("UPDATE memory_schema SET version = 4", [])
+            .unwrap();
+        tx.execute_batch("PRAGMA user_version = 4;").unwrap();
+        tx.execute(
+            "INSERT INTO observations (event_id, source_event, occurred_at, native_session_id, provider, ivar_version, importance, body)
+             VALUES ('e1', 'session.tool', '2026-11-06T00:00:00Z', 'n1', 'claude-code', '0.18.0', 2, '{}')",
+            [],
+        )
+        .unwrap();
+        tx.commit().unwrap();
+    }
+
+    let db = MemoryDb::open(&path).unwrap();
+
+    assert_eq!(db.schema_version().unwrap(), 5);
+    let kept: i64 = db
+        .conn()
+        .query_row("SELECT count(*) FROM observations", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(kept, 1);
+    db.conn()
+        .execute(
+            "INSERT INTO handoffs (id, queue, owner_key, owner_provider, summary, created_at, expires_at)
+             VALUES ('h1', '', 'cli', 'unknown', 'done', 1, 2)",
+            [],
+        )
+        .unwrap();
+    let (state, to_kind, tasks): (String, String, String) = db
+        .conn()
+        .query_row(
+            "SELECT state, to_kind, pending_tasks FROM handoffs WHERE id = 'h1'",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .unwrap();
+    assert_eq!(
+        (state.as_str(), to_kind.as_str(), tasks.as_str()),
+        ("open", "", "[]")
+    );
+    db.conn()
+        .execute(
+            "INSERT INTO messages (id, queue, sender_key, sender_provider, body, created_at, expires_at)
+             VALUES ('m1', 'login', 'cli', 'unknown', 'hi', 1, 2)",
+            [],
+        )
+        .unwrap();
+    let message_state: String = db
+        .conn()
+        .query_row("SELECT state FROM messages WHERE id = 'm1'", [], |r| {
+            r.get(0)
+        })
+        .unwrap();
+    assert_eq!(message_state, "pending");
+    drop(db);
     assert_eq!(object_names(&path), memory_objects());
 }

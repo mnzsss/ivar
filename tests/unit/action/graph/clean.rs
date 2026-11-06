@@ -471,3 +471,39 @@ fn clean_all_leaves_memory_usage_alone() {
         .unwrap();
     assert_eq!(rows, 1);
 }
+
+#[test]
+fn clean_all_leaves_handoffs_alone() {
+    let dir = tempdir().unwrap();
+    drop(populate_hall_with_graph(dir.path()));
+    let memory =
+        crate::store::memory::db::MemoryDb::open(&dir.path().join(".ivar/memory.db")).unwrap();
+    memory
+        .conn()
+        .execute(
+            "INSERT INTO handoffs (id, queue, owner_key, owner_provider, summary, created_at, expires_at)
+             VALUES ('h1', '', 'cli', 'unknown', 'kept', 1, 2)",
+            [],
+        )
+        .unwrap();
+    drop(memory);
+
+    clean_cmd(
+        &make_ctx(dir.path()),
+        CleanInput {
+            repo: None,
+            feature: None,
+            all: true,
+            path: None,
+        },
+    )
+    .unwrap();
+
+    let memory =
+        crate::store::memory::db::MemoryDb::open(&dir.path().join(".ivar/memory.db")).unwrap();
+    let rows: i64 = memory
+        .conn()
+        .query_row("SELECT count(*) FROM handoffs", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(rows, 1);
+}

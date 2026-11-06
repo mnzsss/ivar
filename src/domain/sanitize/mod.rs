@@ -78,25 +78,44 @@ impl Sanitized<Observation> {
     }
 }
 
+fn clean(
+    text: &str,
+    ctx: &SanitizeContext,
+    limit: usize,
+    redact: impl Fn(&str) -> String,
+) -> Result<String, SanitizeError> {
+    let pre_cut = patterns::cut_before_redaction(text, limit.saturating_mul(PRE_REDACTION_FACTOR));
+    let input_was_cut = pre_cut.len() < text.len();
+    let redacted = redact(pre_cut);
+    let confined = patterns::confine_paths(&redacted, &ctx.hall_root);
+    let enveloped = patterns::redact_env_values(&confined, &ctx.env_values);
+    let bounded = patterns::truncate(&enveloped, limit, input_was_cut);
+    if patterns::contains_secret(&bounded) {
+        return Err(SanitizeError::ResidualSecret);
+    }
+    Ok(bounded)
+}
+
 fn sanitize_with(
     mut observation: Observation,
     ctx: &SanitizeContext,
     redact: impl Fn(&str) -> String,
 ) -> Result<Sanitized<Observation>, SanitizeError> {
-    let pre_cut = patterns::cut_before_redaction(
-        &observation.body,
-        ctx.body_limit.saturating_mul(PRE_REDACTION_FACTOR),
-    );
-    let input_was_cut = pre_cut.len() < observation.body.len();
-    let redacted = redact(pre_cut);
-    let confined = patterns::confine_paths(&redacted, &ctx.hall_root);
-    let enveloped = patterns::redact_env_values(&confined, &ctx.env_values);
-    let bounded = patterns::truncate(&enveloped, ctx.body_limit, input_was_cut);
-    if patterns::contains_secret(&bounded) {
-        return Err(SanitizeError::ResidualSecret);
-    }
-    observation.body = bounded;
+    observation.body = clean(&observation.body, ctx, ctx.body_limit, redact)?;
     Ok(Sanitized(observation))
+}
+
+/// Redacts free text through the same pipeline as an observation body, bounded by `limit` bytes.
+///
+/// # Errors
+///
+/// [`SanitizeError::ResidualSecret`] when a secret survives redaction.
+pub fn redact_text(
+    text: &str,
+    ctx: &SanitizeContext,
+    limit: usize,
+) -> Result<String, SanitizeError> {
+    clean(text, ctx, limit, patterns::redact_secrets)
 }
 
 #[cfg(test)]

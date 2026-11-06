@@ -20,7 +20,7 @@ the hook's p95 was about 15.8 ms per event. A slow disk or a debug build costs m
 
 | Provider | Gap |
 | --- | --- |
-| OpenCode | No session end, so no `session.ended` is recorded. Its `tool.execute.after` reports `failed: false`, so no OpenCode `session.tool` is recorded as a failure and none gets importance 6. |
+| OpenCode | No session end, so no `session.ended` is recorded. Its `tool.execute.after` reports `failed: false`, so no OpenCode `session.tool` is recorded as a failure and none gets importance 6. OpenCode has no brief: its plugins cannot inject context at session start, so the MCP instructions ask for `memory_handoff_list` and `memory_message_list`. |
 | T3 Code | `session.ended` is recorded when the thread is closed (archived) with reason `other`, not when a turn finishes, so an idle open thread has no end yet. Deleting a thread or quitting the app was not tested. T3 hosts Claude Code, so it uses the Claude Code hooks. |
 
 The payload fixtures under `tests/cli/capture_payloads` are written by hand from each
@@ -48,8 +48,12 @@ provider that changes its payload shape is caught by `ivar doctor`
 The leader of `ivar graph mcp` deletes `session.*` observations of sessions whose last
 observation is older than 30 days, once at start and then every hour. A hall without a
 running leader never sweeps, `ivar doctor` reports `memory.retention_overdue` after
-37 days, and a broken graph database stops the loop. `delivery.*` observations are kept;
-`ivar memory clean` deletes the whole database.
+37 days, and a broken graph database stops the loop. `delivery.*`, `handoff.*` and
+`message.*` observations are kept; `ivar memory clean` deletes the whole database.
+
+The same sweep marks handoffs and messages past `memory.handoff_ttl_days` as expired, and
+deletes accepted, popped, cancelled and expired rows 30 days after they ended. The read
+tools skip an expired row on their own, so a late sweep only delays the deletion.
 
 ## Session pages
 
@@ -156,7 +160,27 @@ The tools are in [MCP tools](mcp-tools.md).
 - A broken anchor counts wherever its file is, so a page broken before the feature
   is listed too and needs a verdict.
 
+## Handoffs and messages
+
+The tools are in [MCP tools](mcp-tools.md#handoffs-and-messages).
+
+- Outside an `ivar session` the owner is `<provider>:mcp-<uuid>`, one uuid per MCP server
+  process. It ends with the conversation, so afterwards only
+  `ivar memory handoff cancel <id>` or the expiry clears its open handoff.
+- A `clientInfo.name` the provider matrix does not know resolves to provider `unknown`.
+  Outside an `ivar session` such a caller sees only unaddressed items.
+- `ivar memory brief` runs at session start on Claude Code and T3 (`SessionStart`) and
+  on OMP (`before_agent_start`, once per process). A reload of the OMP hook resets its
+  module flag, so the brief shows again. OpenCode has none.
+- The brief prints at most 5 handoff headers, opened by a header that marks them as
+  untrusted data. Each summary is cut to 120 characters and quoted on one `> ` line.
+  Messages appear only as a count, never by body.
+- The brief reads `memory.db` read-only and never drains the spool. It prints nothing on
+  any failure and always exits 0. Measured with 1000 handoffs, its p95 was 13.46 ms.
+- `ivar session stop` warns `session.handoff_missing` when the session worked and opened
+  no handoff. It does not block the stop.
+
 ## Older `ivar`
 
-A hall that sets `memory.capture` in `ivar.json` cannot be read by an `ivar` that
-predates the key. See [On-disk format: versions](on-disk-format-versions.md).
+A hall that sets `memory.capture` or `memory.handoff_ttl_days` in `ivar.json` cannot be
+read by an `ivar` that predates the key. See [On-disk format: versions](on-disk-format-versions.md).

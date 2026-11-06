@@ -11,6 +11,7 @@
 
 pub mod agent;
 pub mod capability;
+pub mod coordination;
 pub mod delivery_event;
 pub mod discovery;
 pub mod feature;

@@ -40,11 +40,70 @@ pub enum MemoryCommand {
         /// Feature to review. Defaults to the session's feature.
         feature: Option<String>,
     },
+    /// Open, list or cancel a handoff for the next session. Accepting one and messages are MCP-only.
+    Handoff {
+        #[command(subcommand)]
+        command: HandoffCommand,
+    },
     /// Record one session hook event into the capture spool. Always exits 0 and prints nothing.
     Capture {
         /// Provider whose hook payload arrives on stdin; without one nothing is recorded.
         #[arg(long)]
         provider: Option<String>,
+    },
+    /// Print the open handoffs and pending messages this session can see, for a session-start hook. Always exits 0; prints nothing when there is nothing to show.
+    Brief {
+        /// Provider whose hook runs this; used when the session is outside `ivar session`.
+        #[arg(long)]
+        provider: Option<String>,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum HandoffCommand {
+    /// Open a handoff in this session's feature queue, or the hall's outside a feature.
+    Begin {
+        /// Where the work stopped, in markdown.
+        #[arg(long)]
+        summary: String,
+        /// A task the next session should pick up (repeatable).
+        #[arg(long = "pending")]
+        pending: Vec<String>,
+        /// A decision still open (repeatable).
+        #[arg(long = "decision")]
+        decision: Vec<String>,
+        /// A file the work touched (repeatable).
+        #[arg(long = "file")]
+        file: Vec<String>,
+        /// Open it in this feature's queue instead.
+        #[arg(long)]
+        feature: Option<String>,
+        /// Open it in the hall queue.
+        #[arg(long, conflicts_with = "feature")]
+        hall: bool,
+        /// Only sessions of this provider see it.
+        #[arg(long)]
+        to_provider: Option<String>,
+        /// Only this ivar session sees it.
+        #[arg(long, conflicts_with = "to_provider")]
+        to_session: Option<String>,
+        /// Open it on behalf of this ivar session, which becomes its owner.
+        #[arg(long)]
+        session: Option<String>,
+    },
+    /// List open handoffs. Read-only.
+    List {
+        /// Only this feature's queue.
+        #[arg(long)]
+        feature: Option<String>,
+        /// Only the hall queue.
+        #[arg(long, conflicts_with = "feature")]
+        hall: bool,
+    },
+    /// Cancel an open handoff, whoever owns it.
+    Cancel {
+        /// The handoff id, as `list` shows it.
+        id: String,
     },
 }
 

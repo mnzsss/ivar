@@ -53,6 +53,10 @@ pub fn run(cli: Cli) -> ExitCode {
         capture_event(provider.as_deref());
         return ExitCode::SUCCESS;
     }
+    if let Command::Memory(MemoryCommand::Brief { provider }) = &cli.command {
+        super::brief::brief_event(provider.as_deref());
+        return ExitCode::SUCCESS;
+    }
     let json = cli.json;
     let compact = cli.compact;
     // Prime both per-stream colour decisions with the flag, before any output
@@ -334,66 +338,9 @@ pub fn run(cli: Cli) -> ExitCode {
             &mut stdout,
             &mut stderr,
         ),
-        Command::Memory(cmd) => match cmd {
-            MemoryCommand::Capture { .. } => ExitCode::SUCCESS,
-            MemoryCommand::Status => respond(
-                crate::action::memory::status::status(&ctx),
-                json,
-                &mut stdout,
-                &mut stderr,
-            ),
-            MemoryCommand::Clean => respond(
-                crate::action::memory::clean::clean(&ctx),
-                json,
-                &mut stdout,
-                &mut stderr,
-            ),
-            MemoryCommand::Query {
-                text,
-                kind,
-                tier,
-                tag,
-                limit,
-                include_expired,
-                explain,
-            } => respond(
-                crate::action::memory::query::query(
-                    &ctx,
-                    &crate::action::memory::query::QueryInput {
-                        text,
-                        kinds: kind,
-                        tier,
-                        tag,
-                        limit,
-                        include_expired,
-                        explain,
-                    },
-                ),
-                json,
-                &mut stdout,
-                &mut stderr,
-            ),
-            MemoryCommand::Lint => {
-                let outcome = crate::action::memory::lint::lint(&ctx);
-                let failing = outcome
-                    .as_ref()
-                    .is_ok_and(|report| report.value.has_errors());
-                let code = respond(outcome, json, &mut stdout, &mut stderr);
-                if failing { ExitCode::FAILURE } else { code }
-            }
-            MemoryCommand::Review { feature } => respond(
-                crate::action::memory::review::review(&ctx, feature),
-                json,
-                &mut stdout,
-                &mut stderr,
-            ),
-            MemoryCommand::Reindex => respond(
-                crate::action::memory::reindex::reindex(&ctx),
-                json,
-                &mut stdout,
-                &mut stderr,
-            ),
-        },
+        Command::Memory(cmd) => {
+            super::memory_dispatch::dispatch_memory(cmd, &ctx, json, &mut stdout, &mut stderr)
+        }
         // Git's credential protocol is raw on stdin/stdout — it must not pass
         // through `respond`, which would render a `Report` on top of it.
         Command::GitCredential(args) => {
@@ -458,6 +405,9 @@ pub fn parse(args: Vec<std::ffi::OsString>) -> Cli {
         Ok(cli) => cli,
         Err(err) if err.use_stderr() && is_capture_invocation(&args) => {
             capture_event(lenient_provider(&args));
+            std::process::exit(0);
+        }
+        Err(err) if err.use_stderr() && super::brief::is_brief_invocation(&args) => {
             std::process::exit(0);
         }
         Err(err) => {

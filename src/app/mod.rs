@@ -2,9 +2,11 @@
 //! allowed to reach every other one.
 
 mod agent_dispatch;
+mod brief;
 mod capture;
 mod feature_dispatch;
 mod graph_dispatch;
+mod memory_dispatch;
 mod notice;
 mod planning_dispatch;
 mod respond;
