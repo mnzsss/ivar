@@ -127,3 +127,21 @@ fn a_skipped_review_counts_as_checked_and_docs_is_skipped() {
     assert!(!not_reviewed(&applied.warnings), "{:?}", applied.warnings);
     assert_eq!(cleaned_docs(&sink), ["skipped"]);
 }
+
+#[test]
+fn a_spool_that_cannot_be_drained_warns_and_still_reports_the_review() {
+    let (_guard, root) = hall_with_feature(&["api"], None);
+    let lock = Layout::at(root.clone()).memory_lock();
+    let _ = std::fs::remove_file(&lock);
+    std::fs::create_dir_all(&lock).unwrap();
+
+    let warnings = preview_report(&root).warnings;
+
+    assert!(
+        warnings
+            .iter()
+            .any(|w| w.code == "cleanup.memory_drain_failed" && w.subject == "checkout"),
+        "{warnings:?}"
+    );
+    assert!(not_reviewed(&warnings), "{warnings:?}");
+}

@@ -106,6 +106,8 @@ It will not stop a determined process running as your user.
   the command still succeeds with its exit code unchanged.
 - `deliver` drains the capture spool before it reads the memory review. A failed drain
   warns `deliver.memory_drain_failed` and the gate reads what is stored.
+- `cleanup` drains it the same way. A failed drain warns `cleanup.memory_drain_failed` and
+  the cleanup reads what is stored.
 - The memory review is part of the preview fingerprint. A review recorded after the
   preview reads as drift.
 - `--skip-memory-review "<reason>"` records `memory.review_skipped` once the apply

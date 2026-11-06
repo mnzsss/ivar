@@ -165,29 +165,39 @@ pub fn cleanup(ctx: &Ctx, input: CleanupInput) -> Outcome<CleanupOutcome> {
             preview: previewed.preview,
             apply_outcome: None,
         },
-        memory_warning.into_iter().collect(),
+        memory_warning,
     ))
 }
 
 /// What the memory review of `name` says for `delivery.cleaned`, and the
-/// warning when it was neither reviewed nor skipped. Never refuses.
-fn memory_review(layout: &Layout, name: &FeatureName) -> (&'static str, Option<Warning>) {
-    // ponytail: a drain failure falls through to the read, which then warns `missing`.
-    let _ = crate::action::memory::drain::drain(layout);
-    match review_state(layout, name) {
-        Ok(ReviewState::Reviewed { .. }) => ("reviewed", None),
-        Ok(ReviewState::Skipped) => ("skipped", None),
-        Ok(ReviewState::Missing) | Err(_) => (
-            "missing",
-            Some(Warning::new(
-                "cleanup.memory_not_reviewed",
-                name.to_string(),
-                format!(
-                    "`{name}` has neither `memory.reviewed` nor `memory.review_skipped`: its memory was not reviewed before delivery"
-                ),
-            )),
-        ),
+/// warnings when the spool cannot be drained or the feature was neither
+/// reviewed nor skipped. Never refuses.
+fn memory_review(layout: &Layout, name: &FeatureName) -> (&'static str, Vec<Warning>) {
+    let mut warnings = Vec::new();
+    if let Err(failure) = crate::action::memory::drain::drain(layout) {
+        warnings.push(Warning::new(
+            "cleanup.memory_drain_failed",
+            name.to_string(),
+            format!(
+                "the capture spool could not be drained, so a recent review may be missed: {}",
+                failure.what
+            ),
+        ));
     }
+    let cause = match review_state(layout, name) {
+        Ok(ReviewState::Reviewed { .. }) => return ("reviewed", warnings),
+        Ok(ReviewState::Skipped) => return ("skipped", warnings),
+        Ok(ReviewState::Missing) => String::new(),
+        Err(failure) => format!(" (memory could not be read: {})", failure.what),
+    };
+    warnings.push(Warning::new(
+        "cleanup.memory_not_reviewed",
+        name.to_string(),
+        format!(
+            "`{name}` has neither `memory.reviewed` nor `memory.review_skipped`: its memory was not reviewed before delivery{cause}"
+        ),
+    ));
+    ("missing", warnings)
 }
 
 fn emit_merged(emitter: &Emitter<'_>, feature: &Feature, merged: &[(RepoName, PullRequest)]) {
