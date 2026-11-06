@@ -110,6 +110,10 @@ fn reads_under_the_memory_dirs_are_detected_and_writes_are_not() {
     assert_eq!(memory_read_pattern(&code, &cwd), None);
     assert_eq!(memory_read_pattern(&db_file, &cwd), None);
     assert_eq!(memory_read_pattern(&sibling, &cwd), None);
+    for lookalike in ["/hall/mydocs/memory/a.md", "/hall/x.ivar/memory/a.md"] {
+        let request = request("Read", serde_json::json!({}), &[lookalike], false);
+        assert_eq!(memory_read_pattern(&request, &cwd), None, "{lookalike}");
+    }
 }
 
 #[test]

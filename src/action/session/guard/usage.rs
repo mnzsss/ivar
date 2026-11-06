@@ -140,7 +140,10 @@ pub(super) fn memory_read_pattern(request: &ToolRequest, cwd: &Utf8Path) -> Opti
 }
 
 fn under_dir(candidate: &str, dir: &str) -> bool {
-    candidate.ends_with(dir) || candidate.contains(&format!("{dir}/"))
+    candidate == dir
+        || candidate.starts_with(&format!("{dir}/"))
+        || candidate.contains(&format!("/{dir}/"))
+        || candidate.ends_with(&format!("/{dir}"))
 }
 
 /// Never creates the file and gives up on a busy database after 50 ms: the
