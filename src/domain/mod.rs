@@ -22,6 +22,7 @@ pub mod mcp;
 pub mod memory_anchor;
 pub mod memory_page;
 pub mod memory_rank;
+pub mod memory_review;
 pub mod name;
 pub mod observation;
 pub mod plan;
