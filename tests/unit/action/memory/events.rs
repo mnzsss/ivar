@@ -33,6 +33,7 @@ fn caller() -> MemoryCaller {
         session: Some("s1".to_owned()),
         feature: Some(FeatureName::new("login").unwrap()),
         parent_feature: None,
+        ..Default::default()
     }
 }
 
@@ -135,4 +136,33 @@ fn a_refused_write_spools_nothing() {
     .unwrap_err();
 
     assert!(spooled(&layout).is_empty());
+}
+
+#[test]
+fn a_coordination_event_is_spooled_with_its_importance() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root);
+
+    record_memory_event(
+        &layout,
+        &scope(),
+        SourceEvent::HandoffOpened,
+        &json!({"id": "h1", "queue": "login", "owner": "s1"}),
+    )
+    .unwrap();
+    record_memory_event(
+        &layout,
+        &scope(),
+        SourceEvent::MessageSent,
+        &json!({"id": "m1", "queue": ""}),
+    )
+    .unwrap();
+
+    let lines = spooled(&layout);
+    assert_eq!(lines.len(), 2);
+    assert_eq!(lines[0]["source_event"], "handoff.opened");
+    assert_eq!(lines[0]["importance"], 5);
+    assert_eq!(body(&lines[0])["id"], "h1");
+    assert_eq!(lines[1]["source_event"], "message.sent");
+    assert_eq!(lines[1]["importance"], 4);
 }

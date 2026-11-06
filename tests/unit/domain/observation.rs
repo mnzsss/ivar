@@ -100,6 +100,54 @@ fn all_lists_every_event_once() {
         .map(|event| event.as_str())
         .collect();
     assert_eq!(names.len(), SourceEvent::ALL.len());
-    assert_eq!(SourceEvent::ALL.len(), 18);
+    assert_eq!(SourceEvent::ALL.len(), 24);
     assert!(names.contains("memory.review_skipped"));
+    assert!(names.contains("message.popped"));
+}
+
+#[test]
+fn coordination_events_round_trip_and_carry_their_fixed_importance() {
+    let expected = [
+        (
+            SourceEvent::HandoffOpened,
+            "handoff.opened",
+            Importance::handoff_opened(),
+            5,
+        ),
+        (
+            SourceEvent::HandoffAccepted,
+            "handoff.accepted",
+            Importance::handoff_accepted(),
+            5,
+        ),
+        (
+            SourceEvent::HandoffCancelled,
+            "handoff.cancelled",
+            Importance::handoff_cancelled(),
+            3,
+        ),
+        (
+            SourceEvent::HandoffExpired,
+            "handoff.expired",
+            Importance::handoff_expired(),
+            3,
+        ),
+        (
+            SourceEvent::MessageSent,
+            "message.sent",
+            Importance::message_sent(),
+            4,
+        ),
+        (
+            SourceEvent::MessagePopped,
+            "message.popped",
+            Importance::message_popped(),
+            4,
+        ),
+    ];
+    for (event, name, importance, level) in expected {
+        assert_eq!(event.as_str(), name);
+        assert_eq!(SourceEvent::parse(name), Some(event));
+        assert_eq!(importance.get(), level, "{name}");
+    }
 }

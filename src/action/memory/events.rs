@@ -1,4 +1,4 @@
-//! `memory.*` Observations the binary records through the delivery spool.
+//! `memory.*`, `handoff.*` and `message.*` Observations the binary records through the delivery spool.
 
 use std::io::Write;
 
@@ -23,6 +23,12 @@ const fn importance(event: SourceEvent) -> Option<Importance> {
         SourceEvent::MemoryPageWritten => Some(Importance::memory_page_written()),
         SourceEvent::MemoryReviewed => Some(Importance::memory_reviewed()),
         SourceEvent::MemoryReviewSkipped => Some(Importance::memory_review_skipped()),
+        SourceEvent::HandoffOpened => Some(Importance::handoff_opened()),
+        SourceEvent::HandoffAccepted => Some(Importance::handoff_accepted()),
+        SourceEvent::HandoffCancelled => Some(Importance::handoff_cancelled()),
+        SourceEvent::HandoffExpired => Some(Importance::handoff_expired()),
+        SourceEvent::MessageSent => Some(Importance::message_sent()),
+        SourceEvent::MessagePopped => Some(Importance::message_popped()),
         _ => None,
     }
 }
