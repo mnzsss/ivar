@@ -32,7 +32,7 @@ ivar runs no process of its own between runs. Linux with systemd only.
 | `runtime` | `docker` | `docker`: the container below. `host`: the installed `tool` under your own login, confined by Landlock; needs `tool`, refuses `image`, `command` and `network` |
 | `workdir` | `/workspace` | relative path under the hall's repos, first segment is the repo; required for `access: feature` |
 | `write` | `[]` | `runtime: host` only. Extra writable paths: absolute (`/srv/out`), home-relative (`~/.cache/x`) or hall-relative (`brand/metricas`); no `..`. Each must exist when the run starts |
-| `env` | `{}` | `runtime: host` only. Literal variables for the tool's process, such as `{TMPDIR: /tmp, XDG_CURRENT_DESKTOP: KDE}`. Names match `^[A-Z_][A-Z0-9_]*$`; `PATH`, `HOME`, `GIT_*`, the tool's state variables and names in `secrets` are refused. Values stay in the agent file as written and are not redacted: never put a secret here |
+| `env` | `{}` | `runtime: host` only. Literal variables for the tool's process, such as `{TMPDIR: /tmp, XDG_CURRENT_DESKTOP: KDE}` (with `/tmp` also in `write`: the run writes only its scratch, its state directory and the `write` paths). Names match `^[A-Z_][A-Z0-9_]*$`; `PATH`, `HOME`, any `GIT_*`, the state variables of every tool (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `XDG_DATA_HOME`, `XDG_STATE_HOME`, `XDG_CONFIG_HOME`, `XDG_CACHE_HOME`) whatever `tool` is set, `OPENCODE_CONFIG_CONTENT` and names in `secrets` are refused. Values stay in the agent file as written and are not redacted: never put a secret here |
 | `network` | `[]` | bare hostnames the egress proxy allows; everything else fails |
 | `secrets` | `[]` | names (`^[A-Z][A-Z0-9_]*$`) read from `.ivar/secrets/agents.env` |
 | `notify` | — | `http(s)://` URL that receives a JSON run summary, or `telegram:<chat_id>` to message a Telegram chat (see [Telegram](#telegram)) |
@@ -125,6 +125,8 @@ which on KDE takes `XDG_CURRENT_DESKTOP`, `DESKTOP_SESSION`,
 `KDE_SESSION_VERSION`, `DBUS_SESSION_BUS_ADDRESS` and `XDG_RUNTIME_DIR`.
 The D-Bus address hands the run your keyring and every other session
 service, so list it only for an agent you trust with them.
+`SSH_AUTH_SOCK` likewise hands the run your ssh-agent, so it could push
+over SSH.
 
 Chrome's own sandbox writes `/proc/self/uid_map`, so a host agent that
 drives Chrome needs `/proc` in `write`. Landlock fixes each rule's path when
