@@ -18,7 +18,7 @@ fn review(root: &Utf8PathBuf, event: SourceEvent) {
         &layout,
         &scope,
         event,
-        serde_json::json!({"heads": {}, "reason": "hotfix"}),
+        &serde_json::json!({"heads": {}, "reason": "hotfix"}),
     )
     .unwrap();
     crate::action::memory::drain::drain(&layout).unwrap();

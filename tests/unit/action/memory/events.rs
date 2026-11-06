@@ -45,7 +45,7 @@ fn a_memory_event_is_spooled_with_its_scope_and_fixed_importance() {
         &layout,
         &scope(),
         SourceEvent::MemoryReviewed,
-        json!({"heads": {"api": "abc"}}),
+        &json!({"heads": {"api": "abc"}}),
     )
     .unwrap();
 
@@ -64,7 +64,7 @@ fn a_session_event_is_refused_and_nothing_is_spooled() {
     let layout = Layout::at(root);
 
     let error =
-        record_memory_event(&layout, &scope(), SourceEvent::SessionTool, json!({})).unwrap_err();
+        record_memory_event(&layout, &scope(), SourceEvent::SessionTool, &json!({})).unwrap_err();
 
     assert!(error.contains("not a memory event"), "{error}");
     assert!(spooled(&layout).is_empty());

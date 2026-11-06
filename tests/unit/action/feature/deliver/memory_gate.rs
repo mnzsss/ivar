@@ -70,7 +70,7 @@ fn a_review_still_in_the_spool_is_drained_before_the_gate() {
         &Layout::at(root.clone()),
         &scope,
         SourceEvent::MemoryReviewed,
-        json!({"heads": {}}),
+        &json!({"heads": {}}),
     )
     .unwrap();
 

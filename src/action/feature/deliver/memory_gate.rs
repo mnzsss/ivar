@@ -122,6 +122,6 @@ pub(crate) fn record_skip(layout: &Layout, feature: &FeatureName, reason: &str) 
         layout,
         &scope,
         SourceEvent::MemoryReviewSkipped,
-        json!({ "reason": reason }),
+        &json!({ "reason": reason }),
     );
 }

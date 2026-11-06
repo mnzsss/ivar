@@ -46,7 +46,7 @@ pub(super) fn record_memory(
         feature: feature.to_owned(),
         parent_feature: String::new(),
     };
-    record_memory_event(&layout, &scope, event, body).unwrap();
+    record_memory_event(&layout, &scope, event, &body).unwrap();
     crate::action::memory::drain::drain(&layout).unwrap();
 }
 

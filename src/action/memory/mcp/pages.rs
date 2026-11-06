@@ -211,7 +211,7 @@ fn page_written(
         layout,
         &MemoryEventScope::from(caller),
         SourceEvent::MemoryPageWritten,
-        json!({"path": rel, "kind": kind.as_str(), "action": action, "sha256": sha256}),
+        &json!({"path": rel, "kind": kind.as_str(), "action": action, "sha256": sha256}),
     );
 }
 

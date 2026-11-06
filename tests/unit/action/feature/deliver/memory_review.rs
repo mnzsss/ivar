@@ -122,7 +122,7 @@ fn the_review_lists_written_pages_gaps_and_pages_anchored_to_changed_files() {
         ToolEffect::Reads,
         json!({"tool": "mcp__acme-ivar__memory_query", "path": ""}),
     );
-    record_memory_event(&layout, &scope(), SourceEvent::MemoryPageWritten, json!({"path": "docs/memory/gotcha/g.md", "kind": "gotcha", "action": "written", "sha256": "h"})).unwrap();
+    record_memory_event(&layout, &scope(), SourceEvent::MemoryPageWritten, &json!({"path": "docs/memory/gotcha/g.md", "kind": "gotcha", "action": "written", "sha256": "h"})).unwrap();
 
     let report = review_in(&layout, &checkout()).unwrap().value;
 
@@ -195,7 +195,7 @@ fn a_skip_alone_is_skipped_and_a_review_outranks_a_later_skip() {
         &layout,
         &scope(),
         SourceEvent::MemoryReviewSkipped,
-        json!({"reason": "hotfix"}),
+        &json!({"reason": "hotfix"}),
     )
     .unwrap();
     crate::action::memory::drain::drain(&layout).unwrap();
@@ -216,7 +216,7 @@ fn a_skip_alone_is_skipped_and_a_review_outranks_a_later_skip() {
         &layout,
         &scope(),
         SourceEvent::MemoryReviewSkipped,
-        json!({"reason": "again"}),
+        &json!({"reason": "again"}),
     )
     .unwrap();
     crate::action::memory::drain::drain(&layout).unwrap();
@@ -459,7 +459,7 @@ fn the_heads_survive_a_review_body_cut_at_the_sanitize_limit() {
         &layout,
         &scope(),
         SourceEvent::MemoryReviewed,
-        json!({"heads": {"api": "abc123"}, "gaps": ["update"], "written": written}),
+        &json!({"heads": {"api": "abc123"}, "gaps": ["update"], "written": written}),
     )
     .unwrap();
     crate::action::memory::drain::drain(&layout).unwrap();

@@ -191,7 +191,7 @@ pub fn confirm_in(
         feature: name.to_string(),
         ..scope.clone()
     };
-    record_memory_event(layout, &scope, SourceEvent::MemoryReviewed, body)
+    record_memory_event(layout, &scope, SourceEvent::MemoryReviewed, &body)
         .map_err(|reason| Failure::failed("memory.review_not_recorded", reason))?;
     review_in(layout, name)
 }

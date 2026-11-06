@@ -31,12 +31,11 @@ const fn importance(event: SourceEvent) -> Option<Importance> {
 ///
 /// When `event` is not a `memory.*` event, the body cannot be sanitized,
 /// or the spool refuses the line.
-#[allow(clippy::needless_pass_by_value)]
 pub fn record_memory_event(
     layout: &Layout,
     scope: &MemoryEventScope,
     event: SourceEvent,
-    body: Value,
+    body: &Value,
 ) -> Result<(), String> {
     let importance =
         importance(event).ok_or_else(|| format!("`{}` is not a memory event", event.as_str()))?;
@@ -74,7 +73,7 @@ pub fn report_memory_event(
     layout: &Layout,
     scope: &MemoryEventScope,
     event: SourceEvent,
-    body: Value,
+    body: &Value,
 ) {
     if let Err(reason) = record_memory_event(layout, scope, event, body) {
         let _ = writeln!(
