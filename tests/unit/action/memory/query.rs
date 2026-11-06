@@ -272,3 +272,87 @@ fn query_in_answers_from_a_layout_without_a_ctx() {
 
     assert_eq!(outcome.pages[0].path, "docs/memory/gotcha/teardown.md");
 }
+
+fn seed_graph(layout: &Layout) {
+    let g = crate::store::graph::db::GraphDb::open(layout.graph_db().as_std_path()).unwrap();
+    g.conn()
+        .execute_batch(
+            "INSERT INTO repos (id, root_path, default_branch, indexed_at) VALUES ('ivar', '/i', 'main', 0);
+             INSERT INTO files (id, repo, path, content_hash, mtime_ns, size_bytes, indexed_at)
+               VALUES (1, 'ivar', 'src/store/quokka.rs', 'h', 0, 1, 0);",
+        )
+        .unwrap();
+}
+
+#[test]
+fn an_anchored_page_is_ranked_by_the_anchors_source_and_lists_its_anchors() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root.clone());
+    seed_graph(&layout);
+    page(
+        &layout,
+        "docs/memory/gotcha/q.md",
+        "# Q\n\nSee `src/store/quokka.rs` and `src/gone.rs`.\n",
+    );
+
+    let outcome = query(&Ctx::new(root), &input("quokka")).unwrap().value;
+
+    let hit = &outcome.pages[0];
+    assert_eq!(hit.path, "docs/memory/gotcha/q.md");
+    assert!(hit.sources.iter().any(|s| s.source == "anchors"));
+    assert_eq!(
+        hit.anchors.len(),
+        1,
+        "src/gone.rs never resolved, so it is not an anchor"
+    );
+    assert_eq!(
+        (hit.anchors[0].repo.as_str(), hit.anchors[0].path.as_str()),
+        ("ivar", "src/store/quokka.rs")
+    );
+    assert!(!hit.anchors[0].broken);
+}
+
+#[test]
+fn an_anchor_whose_file_left_the_graph_is_reported_broken_and_listed_first() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root.clone());
+    seed_graph(&layout);
+    page(
+        &layout,
+        "docs/memory/gotcha/q.md",
+        "# Q\n\nSee `src/store/quokka.rs`.\n",
+    );
+    query(&Ctx::new(root.clone()), &input("quokka")).unwrap();
+    let g = crate::store::graph::db::GraphDb::open(layout.graph_db().as_std_path()).unwrap();
+    g.conn()
+        .execute("DELETE FROM files WHERE id = 1", [])
+        .unwrap();
+    drop(g);
+
+    let outcome = query(&Ctx::new(root), &input("quokka")).unwrap().value;
+
+    assert!(outcome.pages[0].anchors[0].broken);
+}
+
+#[test]
+fn a_kind_filter_leaves_the_anchors_source_out() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root.clone());
+    seed_graph(&layout);
+    page(
+        &layout,
+        "docs/memory/gotcha/q.md",
+        "# Q\n\nSee `src/store/quokka.rs`.\n",
+    );
+    let mut filtered = input("quokka");
+    filtered.kinds = vec!["gotcha".into()];
+
+    let outcome = query(&Ctx::new(root), &filtered).unwrap().value;
+
+    assert!(outcome.pages[0].sources.iter().all(|s| s.source == "fts"));
+    assert_eq!(
+        outcome.pages[0].anchors.len(),
+        1,
+        "anchors are listed even when filtered"
+    );
+}
