@@ -245,3 +245,17 @@ fn status_reports_the_last_consolidation() {
     assert!(outcome.consolidation.last_run_at.is_some());
     assert_eq!(outcome.consolidation.written_total, 0);
 }
+
+#[test]
+fn status_counts_pages_waiting_for_anchors() {
+    let (_guard, root) = crate::test_support::seeded_hall();
+    let layout = Layout::at(root);
+    let _ = std::fs::remove_file(layout.graph_db());
+    let page = layout.root().join("docs/memory/gotcha/a.md");
+    std::fs::create_dir_all(page.parent().unwrap()).unwrap();
+    std::fs::write(&page, "# A\n\nSee `src/a.rs`.\n").unwrap();
+
+    let value = status_in(&layout).unwrap().value;
+
+    assert_eq!(value.pages.anchors_pending, 1);
+}

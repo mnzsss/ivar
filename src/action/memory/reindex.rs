@@ -5,16 +5,20 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::io;
 
+use rusqlite::Transaction;
+
 use camino::{Utf8Path, Utf8PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::action::graph::split_failure;
 use crate::action::{Ctx, discover_hall};
+use crate::domain::memory_anchor::extract_candidates;
 use crate::domain::memory_page::links::{extract_links, relation_links};
 use crate::domain::session::rfc3339_now;
 use crate::error::{Failure, Outcome, Report, WriteHuman};
 use crate::infra::{fs, hash};
 use crate::store::layout::Layout;
+use crate::store::memory::anchors;
 use crate::store::memory::db::MemoryDb;
 use crate::store::memory::page_source::parse_page;
 use crate::store::memory::pages::{self, IndexedFile};
@@ -27,6 +31,7 @@ pub struct ReindexReport {
     pub indexed: usize,
     pub unchanged: usize,
     pub removed: usize,
+    pub anchored: usize,
     pub invalid: Vec<String>,
 }
 
@@ -129,7 +134,38 @@ fn mtime_ns(metadata: &std::fs::Metadata) -> i64 {
         .unwrap_or(0)
 }
 
+fn anchor_page(
+    tx: &Transaction<'_>,
+    rel: &str,
+    body: &str,
+    attached: bool,
+) -> rusqlite::Result<bool> {
+    if !attached {
+        anchors::set_pending(tx, rel, true)?;
+        return Ok(false);
+    }
+    let found = anchors::resolve(tx, &extract_candidates(body))?;
+    anchors::replace_anchors(tx, rel, &found)?;
+    anchors::set_pending(tx, rel, false)?;
+    Ok(true)
+}
+
 fn index(layout: &Layout, db: &mut MemoryDb, full: bool) -> Result<ReindexReport, String> {
+    // ATTACH is refused once the transaction below is open.
+    let attached = anchors::attach_graph(db.conn(), &layout.graph_db());
+    let outcome = index_attached(layout, db, full, attached);
+    if attached {
+        anchors::detach_graph(db.conn());
+    }
+    outcome
+}
+
+fn index_attached(
+    layout: &Layout,
+    db: &mut MemoryDb,
+    full: bool,
+    attached: bool,
+) -> Result<ReindexReport, String> {
     let sql = |error: rusqlite::Error| error.to_string();
     let tx = db.conn_mut().transaction().map_err(sql)?;
     let previous: BTreeMap<String, IndexedFile> = pages::indexed_files(&tx)
@@ -183,12 +219,28 @@ fn index(layout: &Layout, db: &mut MemoryDb, full: bool) -> Result<ReindexReport
             content_hash: hash::text(&text),
         };
         pages::upsert_page(&tx, &page, &indexed, &indexed_at, &links).map_err(sql)?;
+        if anchor_page(&tx, &file.rel, &page.body, attached).map_err(sql)? {
+            report.anchored += 1;
+        }
         kept.insert(file.rel);
         report.indexed += 1;
     }
     for path in previous.keys().filter(|path| !kept.contains(*path)) {
         pages::remove_page(&tx, path).map_err(sql)?;
         report.removed += 1;
+    }
+    if attached {
+        for path in anchors::pending_paths(&tx).map_err(sql)? {
+            let Some(page) = std::fs::read_to_string(layout.root().join(&path))
+                .ok()
+                .and_then(|text| parse_page(&path, &text).ok())
+            else {
+                continue;
+            };
+            if anchor_page(&tx, &path, &page.body, true).map_err(sql)? {
+                report.anchored += 1;
+            }
+        }
     }
     if report.indexed > 0 || report.removed > 0 {
         pages::resolve_links(&tx).map_err(sql)?;
@@ -212,6 +264,7 @@ fn record(layout: &Layout, outcome: &Result<ReindexReport, String>) {
     let pages = report.indexed + report.unchanged;
     let nothing_to_record = report.indexed == 0
         && report.removed == 0
+        && report.anchored == 0
         && state.last_error.is_none()
         && state.last_reindex_at.is_some()
         && state.pages == pages;

@@ -55,6 +55,7 @@ pub struct PagesStatus {
     pub last_reindex_error: Option<String>,
     pub refresh_error: Option<String>,
     pub invalid: usize,
+    pub anchors_pending: usize,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -162,6 +163,7 @@ pub fn status_in(layout: &Layout) -> Outcome<MemoryStatusOutcome> {
         last_reindex_error: reindex_state.last_error,
         refresh_error,
         invalid,
+        anchors_pending: crate::store::memory::anchors::pending_count(db.conn()).unwrap_or(0),
     };
     let observations = count_by_source_event(&db)
         .map_err(|error| Failure::failed("memory.read_failed", error.to_string()))?
@@ -260,6 +262,7 @@ impl WriteHuman for MemoryStatusOutcome {
             self.pages.last_reindex_at.as_deref().unwrap_or("never"),
             self.pages.invalid
         )?;
+        writeln!(w, "  anchors pending: {}", self.pages.anchors_pending)?;
         if let Some(error) = &self.pages.last_reindex_error {
             writeln!(w, "  last reindex error: {error}")?;
         }

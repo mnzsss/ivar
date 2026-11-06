@@ -236,3 +236,118 @@ fn a_markdown_file_with_an_uppercase_extension_is_invalid_not_indexed() {
     assert_eq!(report.invalid, ["docs/memory/gotcha/Upper.MD"]);
     assert_eq!(count(&layout, "SELECT count(*) FROM pages"), 1);
 }
+
+fn seed_graph(layout: &Layout) {
+    let g = crate::store::graph::db::GraphDb::open(layout.graph_db().as_std_path()).unwrap();
+    g.conn()
+        .execute_batch(
+            "INSERT INTO repos (id, root_path, default_branch, indexed_at) VALUES ('ivar', '/i', 'main', 0);
+             INSERT INTO files (id, repo, path, content_hash, mtime_ns, size_bytes, indexed_at)
+               VALUES (1, 'ivar', 'src/a.rs', 'h', 0, 1, 0);",
+        )
+        .unwrap();
+}
+
+#[test]
+fn a_page_indexed_without_a_graph_is_pending_until_the_graph_appears() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root);
+    let _ = std::fs::remove_file(layout.graph_db());
+    write_page(
+        &layout,
+        "docs/memory/gotcha/a.md",
+        "# A\n\nSee `src/a.rs`.\n",
+    );
+
+    let first = refresh(&layout).unwrap();
+    assert_eq!(first.anchored, 0);
+    assert_eq!(
+        count(
+            &layout,
+            "SELECT count(*) FROM pages WHERE anchors_pending = 1"
+        ),
+        1
+    );
+    assert_eq!(count(&layout, "SELECT count(*) FROM page_anchors"), 0);
+
+    seed_graph(&layout);
+    let second = refresh(&layout).unwrap();
+    assert_eq!((second.indexed, second.anchored), (0, 1));
+    assert_eq!(
+        count(
+            &layout,
+            "SELECT count(*) FROM pages WHERE anchors_pending = 1"
+        ),
+        0
+    );
+    assert_eq!(
+        count(
+            &layout,
+            "SELECT count(*) FROM page_anchors WHERE repo = 'ivar' AND path = 'src/a.rs'"
+        ),
+        1
+    );
+}
+
+#[test]
+fn editing_a_page_while_the_graph_is_missing_keeps_its_anchors_and_marks_it_pending() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root);
+    seed_graph(&layout);
+    write_page(
+        &layout,
+        "docs/memory/gotcha/a.md",
+        "# A\n\nSee `src/a.rs`.\n",
+    );
+    refresh(&layout).unwrap();
+    std::fs::remove_file(layout.graph_db()).unwrap();
+
+    write_page(
+        &layout,
+        "docs/memory/gotcha/a.md",
+        "# A\n\nSee `src/a.rs` again.\n",
+    );
+    let report = refresh(&layout).unwrap();
+
+    assert_eq!((report.indexed, report.anchored), (1, 0));
+    assert_eq!(count(&layout, "SELECT count(*) FROM page_anchors"), 1);
+    assert_eq!(
+        count(
+            &layout,
+            "SELECT count(*) FROM pages WHERE anchors_pending = 1"
+        ),
+        1
+    );
+}
+
+#[test]
+fn editing_a_page_reanchors_it_and_removing_it_drops_its_anchors() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root);
+    seed_graph(&layout);
+    write_page(
+        &layout,
+        "docs/memory/gotcha/a.md",
+        "# A\n\nSee `src/a.rs`.\n",
+    );
+    refresh(&layout).unwrap();
+    assert_eq!(count(&layout, "SELECT count(*) FROM page_anchors"), 1);
+
+    write_page(
+        &layout,
+        "docs/memory/gotcha/a.md",
+        "# A\n\nNo citation now.\n",
+    );
+    refresh(&layout).unwrap();
+    assert_eq!(count(&layout, "SELECT count(*) FROM page_anchors"), 0);
+
+    write_page(
+        &layout,
+        "docs/memory/gotcha/a.md",
+        "# A\n\nSee `src/a.rs`.\n",
+    );
+    refresh(&layout).unwrap();
+    std::fs::remove_file(layout.root().join("docs/memory/gotcha/a.md")).unwrap();
+    refresh(&layout).unwrap();
+    assert_eq!(count(&layout, "SELECT count(*) FROM page_anchors"), 0);
+}
