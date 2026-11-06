@@ -11,7 +11,6 @@ use camino::Utf8Path;
 use serde_json::{Value, json};
 
 use crate::action::graph::mcp::McpClient;
-use crate::action::graph::session::session_key_for;
 use crate::action::memory::events::MemoryEventScope;
 use crate::action::memory::lint::lint_in;
 use crate::action::memory::query::{QueryInput, QueryOrigin, query_in};
@@ -75,17 +74,30 @@ impl From<&MemoryCaller> for MemoryEventScope {
 
 #[must_use]
 pub fn caller_for(layout: &Layout, cwd: &Utf8Path, client: Option<&McpClient>) -> MemoryCaller {
-    let ambient = std::env::var("IVAR_SESSION_ID").ok();
+    caller_in(layout, cwd, client, std::env::var("IVAR_SESSION_ID").ok())
+}
+
+fn caller_in(
+    layout: &Layout,
+    cwd: &Utf8Path,
+    client: Option<&McpClient>,
+    ambient: Option<String>,
+) -> MemoryCaller {
     let env = SessionEnv::resolve_for_agent(cwd, ambient.as_deref())
         .ok()
         .flatten()
-        .filter(|env| same_hall(&env.hall, layout.root()));
+        .filter(|env| same_hall(&env.hall, layout.root()))
+        .or_else(|| {
+            ambient
+                .as_deref()
+                .and_then(|id| SessionEnv::from_ambient(layout, id))
+        });
     let feature = env.as_ref().and_then(|env| env.feature.clone());
     let parent_feature = feature
         .as_ref()
         .and_then(|name| Feature::read(layout, name).ok().flatten())
         .and_then(|feature| feature.parent);
-    let session = session_key_for(env.as_ref(), ambient);
+    let session = env.as_ref().map(|env| env.session_id.clone());
     let provider = env
         .as_ref()
         .map(|env| env.provider.id().to_owned())
