@@ -145,9 +145,31 @@ for an agent you would not trust with your home directory.
 
 ## Outcomes
 
-`succeeded`, `failed`, `blocked` (the tool asked for input; the run is
-stopped at once), `skipped` (the previous run was still going),
-`timed_out`. Receipts live in `.ivar/agents/runs/<agent>/<run-id>.json`.
+`succeeded`, `failed`, `blocked` (the tool asked for input, and the run is
+stopped at once; or the run declared it, see below), `skipped` (the previous
+run was still going), `timed_out`. Receipts live in
+`.ivar/agents/runs/<agent>/<run-id>.json`.
+
+### Declaring an outcome
+
+A run with `tool:` can report that it could not do its work. If the last
+non-empty line of its output starts with `BLOCKED:` the receipt records
+`blocked`; if it starts with `FAILED:` it records `failed`. The receipt's
+`exit_code` stays what the tool returned. `ivar agent status`, `ivar agent
+logs` and the notification show the declared outcome.
+
+- The match is case-sensitive and on plain text: `**BLOCKED:**` or
+  `blocked:` do not count. Only the last non-empty line counts, so a sentinel
+  earlier in the output, or echoed back from the prompt, changes nothing.
+- A timeout or a pending approval still wins over a declaration. A
+  declaration wins over the exit code, so `BLOCKED:` with exit 1 is `blocked`.
+- It does not stop the run; it is read after the process ends.
+- Runs with `image:` and `command:` are not prompt-driven and ignore it.
+- A prompt whose output happens to end in `BLOCKED:` or `FAILED:` is
+  now recorded accordingly; add a closing line if that is not what you want.
+
+Tell the agent in its prompt to finish with `BLOCKED: <reason>` or
+`FAILED: <reason>` when it cannot do the work.
 
 ## `access: feature`
 

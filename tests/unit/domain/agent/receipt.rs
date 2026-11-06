@@ -9,13 +9,54 @@ use super::*;
 
 #[test]
 fn classifies_each_terminal_outcome() {
-    assert_eq!(classify(Some(0), false, false), AgentRunOutcome::Succeeded);
-    assert_eq!(classify(Some(1), false, false), AgentRunOutcome::Failed);
-    assert_eq!(classify(Some(1), false, true), AgentRunOutcome::Blocked);
-    assert_eq!(classify(Some(0), false, true), AgentRunOutcome::Blocked);
-    assert_eq!(classify(None, false, true), AgentRunOutcome::Blocked);
-    assert_eq!(classify(None, true, true), AgentRunOutcome::TimedOut);
-    assert_eq!(classify(None, false, false), AgentRunOutcome::Failed);
+    use AgentRunOutcome::{Blocked, Failed, Succeeded, TimedOut};
+    assert_eq!(classify(Some(0), false, false, None), Succeeded);
+    assert_eq!(classify(Some(1), false, false, None), Failed);
+    assert_eq!(classify(Some(1), false, true, None), Blocked);
+    assert_eq!(classify(Some(0), false, true, None), Blocked);
+    assert_eq!(classify(None, false, true, None), Blocked);
+    assert_eq!(classify(None, true, true, None), TimedOut);
+    assert_eq!(classify(None, false, false, None), Failed);
+}
+
+#[test]
+fn a_declared_outcome_overrides_the_exit_code_but_not_timeout_or_approval() {
+    use AgentRunOutcome::{Blocked, Failed, Succeeded, TimedOut};
+    assert_eq!(classify(Some(0), false, false, Some(Blocked)), Blocked);
+    assert_eq!(classify(Some(0), false, false, Some(Failed)), Failed);
+    assert_eq!(classify(Some(1), false, false, Some(Blocked)), Blocked);
+    assert_eq!(classify(Some(0), true, false, Some(Blocked)), TimedOut);
+    assert_eq!(classify(Some(0), false, true, Some(Failed)), Blocked);
+    assert_eq!(classify(Some(0), false, false, Some(Succeeded)), Succeeded);
+}
+
+#[test]
+fn the_last_non_empty_line_declares_the_outcome() {
+    assert_eq!(
+        declared_outcome("did stuff\nBLOCKED: no token\n\n  \n"),
+        Some(AgentRunOutcome::Blocked)
+    );
+    assert_eq!(
+        declared_outcome("x\n  FAILED: boom  "),
+        Some(AgentRunOutcome::Failed)
+    );
+    assert_eq!(
+        declared_outcome("BLOCKED: only line"),
+        Some(AgentRunOutcome::Blocked)
+    );
+}
+
+#[test]
+fn a_sentinel_anywhere_but_the_last_line_is_ignored() {
+    assert_eq!(declared_outcome("BLOCKED: x\nall good"), None);
+    assert_eq!(
+        declared_outcome("prompt: finish with BLOCKED: <error>\ndone"),
+        None
+    );
+    assert_eq!(declared_outcome("done BLOCKED: x"), None);
+    assert_eq!(declared_outcome("blocked: x"), None);
+    assert_eq!(declared_outcome("**BLOCKED:** x"), None);
+    assert_eq!(declared_outcome(""), None);
 }
 
 #[test]

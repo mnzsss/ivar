@@ -268,12 +268,36 @@ impl AgentRunReceipt {
     }
 }
 
-pub fn classify(exit_code: Option<i32>, timed_out: bool, blocked: bool) -> AgentRunOutcome {
-    match (timed_out, blocked, exit_code) {
-        (true, _, _) => AgentRunOutcome::TimedOut,
-        (false, true, _) => AgentRunOutcome::Blocked,
-        (false, false, Some(0)) => AgentRunOutcome::Succeeded,
+/// Precedence: timeout, pending approval, the run's own declaration, exit code.
+pub fn classify(
+    exit_code: Option<i32>,
+    timed_out: bool,
+    blocked: bool,
+    declared: Option<AgentRunOutcome>,
+) -> AgentRunOutcome {
+    match (timed_out, blocked, declared, exit_code) {
+        (true, _, _, _) => AgentRunOutcome::TimedOut,
+        (false, true, _, _) => AgentRunOutcome::Blocked,
+        (false, false, Some(outcome), _) => outcome,
+        (false, false, None, Some(0)) => AgentRunOutcome::Succeeded,
         _ => AgentRunOutcome::Failed,
+    }
+}
+
+/// The outcome a prompt-driven run declares by ending its output with
+/// `BLOCKED:` or `FAILED:` (case-sensitive, plain text, last non-empty line).
+pub fn declared_outcome(output: &str) -> Option<AgentRunOutcome> {
+    let last = output
+        .lines()
+        .rev()
+        .map(str::trim)
+        .find(|l| !l.is_empty())?;
+    if last.starts_with("BLOCKED:") {
+        Some(AgentRunOutcome::Blocked)
+    } else if last.starts_with("FAILED:") {
+        Some(AgentRunOutcome::Failed)
+    } else {
+        None
     }
 }
 

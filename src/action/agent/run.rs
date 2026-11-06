@@ -12,7 +12,9 @@ use crate::domain::agent::container::{
     ContainerPlan, Mount, agent_run_args, proxy_run_args, tinyproxy_conf, tinyproxy_filter,
 };
 use crate::domain::agent::images::{BASE_IMAGE, PROXY_IMAGE};
-use crate::domain::agent::receipt::{self, AgentRunReceipt, Trigger, classify, scrub};
+use crate::domain::agent::receipt::{
+    self, AgentRunReceipt, Trigger, classify, declared_outcome, scrub,
+};
 use crate::domain::agent::spec::{Access, AgentSpec, Launch, Runtime};
 use crate::domain::session::rfc3339_now;
 use crate::error::{Failure, Outcome, Report, WriteHuman};
@@ -164,13 +166,14 @@ fn completed(
     };
     let blocked =
         attempt.ran.finished == Finished::Stopped || tool.is_some_and(|t| t.is_blocked(&output));
+    let declared = tool.and_then(|_| declared_outcome(&output));
     let (exit_code, timed_out) = match attempt.ran.finished {
         Finished::Exited(code) => (code, false),
         Finished::TimedOut => (None, true),
         Finished::Stopped => (None, false),
     };
     let mut receipt = AgentRunReceipt {
-        outcome: classify(exit_code, timed_out, blocked),
+        outcome: classify(exit_code, timed_out, blocked, declared),
         exit_code,
         cost_usd: tool.and_then(|t| t.cost_usd(&output)),
         output,

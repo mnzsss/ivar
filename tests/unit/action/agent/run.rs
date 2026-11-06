@@ -131,6 +131,47 @@ fn a_prompt_for_input_is_blocked_even_when_the_tool_exits_zero() {
     );
 }
 
+fn run_with_output(frontmatter: &str, output: &str) -> AgentRunReceipt {
+    let (_guard, root) = hall_with_agent(frontmatter);
+    let fake = FakeDocker::install(&root);
+    let _r = redirect_on_this_thread(
+        "docker",
+        fake_docker_command(&fake)
+            .env("DOCKER_FAKE_OUTPUT", output)
+            .env("DOCKER_FAKE_EXIT", "0"),
+    );
+    run_manual(&root)
+}
+
+#[test]
+fn a_run_that_ends_with_blocked_is_recorded_blocked_with_the_tool_exit_code() {
+    let receipt = run_with_output("tool: claude\n", "tried\nBLOCKED: no token");
+    assert_eq!(receipt.outcome, AgentRunOutcome::Blocked);
+    assert_eq!(receipt.exit_code, Some(0));
+}
+
+#[test]
+fn a_run_that_ends_with_failed_is_recorded_failed() {
+    let receipt = run_with_output("tool: claude\n", "tried\nFAILED: boom");
+    assert_eq!(receipt.outcome, AgentRunOutcome::Failed);
+    assert_eq!(receipt.exit_code, Some(0));
+}
+
+#[test]
+fn a_sentinel_before_the_last_line_leaves_the_run_succeeded() {
+    let receipt = run_with_output("tool: claude\n", "BLOCKED: x\nall done");
+    assert_eq!(receipt.outcome, AgentRunOutcome::Succeeded);
+}
+
+#[test]
+fn an_image_run_ending_in_blocked_stays_succeeded() {
+    let receipt = run_with_output(
+        "image: curlimages/curl:8.10.1\ncommand: [true]\n",
+        "BLOCKED: x",
+    );
+    assert_eq!(receipt.outcome, AgentRunOutcome::Succeeded);
+}
+
 #[test]
 fn a_tool_that_asks_and_hangs_is_stopped_at_once_as_blocked() {
     let (_guard, root) = hall_with_agent("tool: claude\ntimeout: 30m\n");
