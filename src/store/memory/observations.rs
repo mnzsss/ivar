@@ -130,6 +130,22 @@ pub fn session_observations(
     .collect()
 }
 
+/// Whether the session prompted or ran a tool, matched on `session_id` or
+/// `native_session_id`.
+///
+/// # Errors
+///
+/// Returns the `SQLite` error when the query fails.
+pub fn session_has_activity(db: &MemoryDb, session: &str) -> rusqlite::Result<bool> {
+    db.conn().query_row(
+        "SELECT EXISTS(SELECT 1 FROM observations
+           WHERE (session_id = ?1 OR native_session_id = ?1)
+             AND source_event IN ('session.prompted', 'session.tool'))",
+        [session],
+        |row| row.get(0),
+    )
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FeatureObservation {
     pub id: i64,
