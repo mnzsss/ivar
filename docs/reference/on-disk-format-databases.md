@@ -60,7 +60,7 @@ shared by every session, in WAL mode, with writers serialised on `.ivar/memory.l
 | --- | --- |
 | `PRAGMA application_id` | `0x69766d31` (`ivm1`) |
 | Schema version | the single row of `memory_schema(version)`, mirrored in `PRAGMA user_version` |
-| Current schema | 3 — `memory_schema`, `observations`, `pages`, `page_links`, search |
+| Current schema | 4 — `memory_schema`, `observations`, `pages`, `page_links`, `page_anchors`, `memory_usage`, `memory_misses`, search |
 
 ### Observations (schema 2)
 
