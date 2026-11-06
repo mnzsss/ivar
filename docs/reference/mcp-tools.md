@@ -106,7 +106,7 @@ refuses a path that resolves outside the hall.
 
 `memory_lint` and `ivar memory lint` share one function. It reads the files, not the
 index, so it covers uncommitted pages. The verb exits non-zero when it finds an issue and
-accepts `--json`. Every issue is an `error` except `lint.anchor_broken`, a `warning` that does not change the exit code.
+accepts `--json`. Every issue is an `error` except `lint.anchor_broken` and `lint.reindex_failed`, both `warning`s that do not change the exit code.
 
 | Code | When |
 | --- | --- |
@@ -116,6 +116,7 @@ accepts `--json`. Every issue is an `error` except `lint.anchor_broken`, a `warn
 | `lint.link_broken` | A markdown link that resolves to a missing `.md` under `docs/memory/`. |
 | `lint.misplaced` | A subfolder, a slug that is not kebab-case ASCII, or a `product` or `update` page without `NNN-`. |
 | `lint.anchor_broken` | An anchor whose file or symbol the current graph no longer has. Checked only when `graph.db` exists. |
+| `lint.reindex_failed` | The index refresh that precedes the anchor check failed; the message carries the error. Checked only when `graph.db` and `memory.db` exist. |
 
 ## Related memory in `graph_explore`
 

@@ -91,19 +91,26 @@ fn broken_anchor_warnings(layout: &Layout) -> Vec<LintIssue> {
     if !layout.graph_db().exists() || !layout.memory_db().exists() {
         return Vec::new();
     }
-    let _ = crate::action::memory::reindex::refresh_if_free(layout);
+    let refresh_failure = crate::action::memory::reindex::refresh_if_free(layout)
+        .err()
+        .map(|failure| LintIssue {
+            path: "docs/memory".to_owned(),
+            code: "lint.reindex_failed",
+            severity: "warning",
+            message: failure.what,
+        });
     let Ok(conn) = crate::store::memory::db::open_read_only(layout.memory_db().as_std_path())
     else {
-        return Vec::new();
+        return refresh_failure.into_iter().collect();
     };
     if !anchors::attach_graph(&conn, &layout.graph_db()) {
-        return Vec::new();
+        return refresh_failure.into_iter().collect();
     }
     let broken = anchors::broken_anchors(&conn).unwrap_or_default();
     anchors::detach_graph(&conn);
-    broken
+    refresh_failure
         .into_iter()
-        .map(|(page, anchor)| LintIssue {
+        .chain(broken.into_iter().map(|(page, anchor)| LintIssue {
             path: page,
             code: "lint.anchor_broken",
             severity: "warning",
@@ -117,7 +124,7 @@ fn broken_anchor_warnings(layout: &Layout) -> Vec<LintIssue> {
                     anchor.repo, anchor.path
                 ),
             },
-        })
+        }))
         .collect()
 }
 
