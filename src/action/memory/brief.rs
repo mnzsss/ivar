@@ -4,6 +4,7 @@ use std::fmt::Write as _;
 
 use camino::Utf8Path;
 
+use crate::action::memory::mcp::same_hall;
 use crate::action::session::env::SessionEnv;
 use crate::domain::coordination::{Handoff, Viewer};
 use crate::domain::feature::Feature;
@@ -93,13 +94,6 @@ pub fn viewer_for(
             feature: None,
         },
     }
-}
-
-fn same_hall(session_hall: &Utf8Path, root: &Utf8Path) -> bool {
-    session_hall == root
-        || root
-            .canonicalize_utf8()
-            .is_ok_and(|root| session_hall == root)
 }
 
 fn format_brief(handoffs: &[Handoff], messages: usize, now: i64) -> String {

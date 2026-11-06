@@ -116,7 +116,7 @@ fn caller_in(
     }
 }
 
-fn same_hall(session_hall: &Utf8Path, root: &Utf8Path) -> bool {
+pub(crate) fn same_hall(session_hall: &Utf8Path, root: &Utf8Path) -> bool {
     session_hall == root
         || root
             .canonicalize_utf8()
