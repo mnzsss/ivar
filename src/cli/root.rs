@@ -133,7 +133,7 @@ pub enum Command {
     /// Query and index the codebase dependency graph.
     #[command(subcommand)]
     Graph(super::graph::GraphCommand),
-    /// Inspect or delete the hall memory database (`.ivar/memory.db`).
+    /// Inspect, query and maintain the hall memory: pages, handoffs and the session hooks.
     #[command(subcommand)]
     Memory(super::memory::MemoryCommand),
     /// Record bugs, proposals, and submit issues.

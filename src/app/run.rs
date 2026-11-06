@@ -53,6 +53,10 @@ pub fn run(cli: Cli) -> ExitCode {
         capture_event(provider.as_deref());
         return ExitCode::SUCCESS;
     }
+    if let Command::Memory(MemoryCommand::Brief { provider }) = &cli.command {
+        super::brief::brief_event(provider.as_deref());
+        return ExitCode::SUCCESS;
+    }
     let json = cli.json;
     let compact = cli.compact;
     // Prime both per-stream colour decisions with the flag, before any output
@@ -401,6 +405,9 @@ pub fn parse(args: Vec<std::ffi::OsString>) -> Cli {
         Ok(cli) => cli,
         Err(err) if err.use_stderr() && is_capture_invocation(&args) => {
             capture_event(lenient_provider(&args));
+            std::process::exit(0);
+        }
+        Err(err) if err.use_stderr() && super::brief::is_brief_invocation(&args) => {
             std::process::exit(0);
         }
         Err(err) => {

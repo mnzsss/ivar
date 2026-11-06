@@ -1,5 +1,6 @@
 //! `ivar memory`: the hall memory database's verbs.
 
+pub mod brief;
 pub mod capture;
 pub mod classify;
 pub mod clean;

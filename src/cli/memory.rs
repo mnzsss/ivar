@@ -51,6 +51,12 @@ pub enum MemoryCommand {
         #[arg(long)]
         provider: Option<String>,
     },
+    /// Print the open handoffs and pending messages this session can see, for a session-start hook. Always exits 0; prints nothing when there is nothing to show.
+    Brief {
+        /// Provider whose hook runs this; used when the session is outside `ivar session`.
+        #[arg(long)]
+        provider: Option<String>,
+    },
 }
 
 #[derive(Debug, Subcommand)]

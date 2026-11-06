@@ -3,7 +3,7 @@
 
 # `ivar memory`
 
-Inspect or delete the hall memory database (`.ivar/memory.db`)
+Inspect, query and maintain the hall memory: pages, handoffs and the session hooks
 
 
 ## `ivar memory status`
@@ -101,4 +101,13 @@ Record one session hook event into the capture spool. Always exits 0 and prints 
 | flag | value | default | description |
 | --- | --- | --- | --- |
 | `--provider` | `<PROVIDER>` |  | Provider whose hook payload arrives on stdin; without one nothing is recorded |
+
+
+## `ivar memory brief`
+
+Print the open handoffs and pending messages this session can see, for a session-start hook. Always exits 0; prints nothing when there is nothing to show
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--provider` | `<PROVIDER>` |  | Provider whose hook runs this; used when the session is outside `ivar session` |
 

@@ -208,3 +208,18 @@ fn memory_handoff_list_and_cancel_parse() {
     };
     assert_eq!(id, "h-1");
 }
+
+#[test]
+fn memory_brief_parses_with_and_without_a_provider() {
+    let cli = Cli::try_parse_from(["ivar", "memory", "brief", "--provider", "omp"]).unwrap();
+    let Command::Memory(MemoryCommand::Brief { provider }) = cli.command else {
+        panic!("expected memory brief");
+    };
+    assert_eq!(provider.as_deref(), Some("omp"));
+    assert!(matches!(
+        Cli::try_parse_from(["ivar", "memory", "brief"])
+            .unwrap()
+            .command,
+        Command::Memory(MemoryCommand::Brief { provider: None })
+    ));
+}

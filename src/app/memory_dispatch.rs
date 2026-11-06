@@ -16,7 +16,7 @@ pub(super) fn dispatch_memory(
     stderr: &mut impl io::Write,
 ) -> ExitCode {
     match cmd {
-        MemoryCommand::Capture { .. } => ExitCode::SUCCESS,
+        MemoryCommand::Capture { .. } | MemoryCommand::Brief { .. } => ExitCode::SUCCESS,
         MemoryCommand::Status => respond(status::status(ctx), json, stdout, stderr),
         MemoryCommand::Clean => respond(clean::clean(ctx), json, stdout, stderr),
         MemoryCommand::Query {
