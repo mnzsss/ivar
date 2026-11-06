@@ -86,37 +86,54 @@ pub(super) fn safe_to_reset(
         return Err(ResetBlocker::Diverged);
     }
 
+    if landed_upstream(git, worktree, branch, &remote, &divergence) {
+        Ok(())
+    } else {
+        Err(ResetBlocker::Diverged)
+    }
+}
+
+/// Whether every commit `local` has that `remote` lacks is already in `remote`
+/// by content: re-landed as a squash, or rebased / cherry-picked one for one.
+///
+/// `divergence` is `git.divergence(worktree, local, remote)`, passed in because
+/// both callers have already read it. Only commits that are not ancestors of
+/// `remote` are looked at, so an empty `local_only` is the caller's call: for a
+/// reset it means nothing diverged, for a retirement it means plain ancestry.
+///
+/// Conservative: a patch-id or merge base that cannot be read is `false`.
+pub(crate) fn landed_upstream(
+    git: &impl Git,
+    worktree: &Utf8Path,
+    local: &str,
+    remote: &str,
+    divergence: &Divergence,
+) -> bool {
     let Some(remote_patch_ids) = divergence
         .remote_only
         .iter()
         .map(|commit| git.commit_patch_id(worktree, &commit.sha).ok())
         .collect::<Option<HashSet<String>>>()
     else {
-        return Err(ResetBlocker::Diverged);
+        return false;
     };
 
     // Squash case: the whole local range, as one cumulative diff, matches a
     // single remote commit — local commits re-landed as a squash.
     let contained_as_squash = git
-        .merge_base(worktree, branch, &remote)
+        .merge_base(worktree, local, remote)
         .ok()
-        .and_then(|base| git.diff_patch_id(worktree, &base, branch).ok())
-        .map(|local_cumulative| remote_patch_ids.contains(&local_cumulative))
-        .unwrap_or(false);
+        .and_then(|base| git.diff_patch_id(worktree, &base, local).ok())
+        .is_some_and(|local_cumulative| remote_patch_ids.contains(&local_cumulative));
 
     // Rebase / cherry-pick case: every local-only commit individually matches
     // a remote commit.
     let contained_per_commit = divergence.local_only.iter().all(|commit| {
         git.commit_patch_id(worktree, &commit.sha)
-            .map(|id| remote_patch_ids.contains(&id))
-            .unwrap_or(false)
+            .is_ok_and(|id| remote_patch_ids.contains(&id))
     });
 
-    if contained_as_squash || contained_per_commit {
-        Ok(())
-    } else {
-        Err(ResetBlocker::Diverged)
-    }
+    contained_as_squash || contained_per_commit
 }
 
 /// The local-vs-remote commit lists behind a "cannot fast-forward" report —

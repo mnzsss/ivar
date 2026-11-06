@@ -57,6 +57,11 @@ pub(super) fn diagnose_orphan_worktrees(
                 continue;
             }
         };
+        findings.extend(diagnose_unregistered_checkouts(
+            layout,
+            repo.name(),
+            &entries,
+        ));
         for entry in entries {
             if let Some(owner) = integration_staging_owner(layout, repo.name(), &entry.path) {
                 if integration_running(layout, &owner) {
@@ -123,12 +128,109 @@ fn orphan_diagnosis(
         Ok(false) => String::new(),
         Err(error) => format!(" (could not inspect: {error})"),
     };
+    let remove = format!("git --git-dir {bare} worktree remove {path}");
+    // A checkout that was the default or a base branch carries ivar's
+    // read-only guard on its root, and git cannot delete the entries of a
+    // directory it cannot write to: it drops the registration, then aborts,
+    // leaving the files behind unregistered. Lift the guard first.
+    let remove = if is_read_only(path) {
+        format!("chmod u+w {path} && {remove}")
+    } else {
+        remove
+    };
     Diagnosis {
         code: "repo.worktree_orphaned",
         what: format!("`{path}` in `{repo}` is on branch `{branch}`, which no feature owns{state}"),
-        fix: format!(
-            "Inspect it; if nothing is needed, run `git --git-dir {bare} worktree remove {path}`."
-        ),
+        fix: format!("Inspect it; if nothing is needed, run `{remove}`."),
+    }
+}
+
+/// Whether `path`'s root has no write bit — the read-only guard ivar puts on a
+/// default-branch or base-branch checkout. A path whose mode cannot be read is
+/// not reported as guarded.
+fn is_read_only(path: &Utf8Path) -> bool {
+    fs::unix_mode(path)
+        .ok()
+        .flatten()
+        .is_some_and(|mode| mode & 0o222 == 0)
+}
+
+/// How deep below `repos/<repo>/` a checkout is looked for. A branch name nests
+/// one directory per `/`, so this is far past any real name; it bounds the walk
+/// through a directory that is not a checkout at all.
+const MAX_CHECKOUT_DEPTH: usize = 8;
+
+/// Directories under `repos/<repo>/` that are checkouts (hold a `.git`) but
+/// that git does not list as a worktree of the repo's bare clone.
+///
+/// The usual cause is a `git worktree remove` that unregistered the worktree
+/// and then failed to delete its files. The registration is gone, so
+/// [`diagnose_orphan_worktrees`] has nothing to list and nothing else would
+/// ever name the directory. `.git` marks a checkout's root, which is how a
+/// branch prefix like `fix/` (a plain intermediate directory) is told apart
+/// from a checkout; the walk does not descend into a checkout.
+fn diagnose_unregistered_checkouts(
+    layout: &Layout,
+    repo: &RepoName,
+    entries: &[WorktreeEntry],
+) -> Vec<Diagnosis> {
+    // Git reports real paths; the hall root may be reached through a symlink.
+    let registered: HashSet<Utf8PathBuf> = entries
+        .iter()
+        .flat_map(|entry| {
+            let real = fs::canonicalize(&entry.path).ok();
+            [Some(entry.path.clone()), real]
+        })
+        .flatten()
+        .collect();
+    let mut checkouts = Vec::new();
+    collect_checkouts(&layout.repo_dir(repo), 0, &mut checkouts);
+    checkouts
+        .into_iter()
+        .filter(|path| {
+            !registered.contains(path)
+                && !fs::canonicalize(path).is_ok_and(|real| registered.contains(&real))
+        })
+        .map(|path| {
+            let remove = if is_read_only(&path) {
+                format!("chmod u+w {path} && rm -rf {path}")
+            } else {
+                format!("rm -rf {path}")
+            };
+            Diagnosis {
+                code: "repo.worktree_unregistered",
+                what: format!(
+                    "`{path}` in `{repo}` is a checkout that git does not list as a worktree — \
+                     a removal that failed part-way usually leaves this behind"
+                ),
+                // Not `git worktree remove`: there is no registration for it to act on.
+                fix: format!(
+                    "Inspect it for work you still need; if nothing is needed, run `{remove}`."
+                ),
+            }
+        })
+        .collect()
+}
+
+/// Collect every checkout root under `dir`, descending through the
+/// directories that are not one. `.bare` and symlinks are skipped.
+fn collect_checkouts(dir: &Utf8Path, depth: usize, found: &mut Vec<Utf8PathBuf>) {
+    let Ok(mut children) = fs::read_dir(dir) else {
+        return;
+    };
+    children.sort();
+    for child in children {
+        if child.file_name() == Some(".bare") && depth == 0 {
+            continue;
+        }
+        if !fs::is_real_dir(&child).unwrap_or(false) {
+            continue;
+        }
+        if fs::exists(&child.join(".git")).unwrap_or(false) {
+            found.push(child);
+        } else if depth < MAX_CHECKOUT_DEPTH {
+            collect_checkouts(&child, depth + 1, found);
+        }
     }
 }
 
@@ -167,7 +269,7 @@ fn integration_running(layout: &Layout, child: &FeatureName) -> bool {
 /// branch its sessions view ([`base_view::resolve`] → `BaseBranch`).
 /// Fails with one diagnosis per feature record that cannot be read, and per
 /// base view that cannot be resolved.
-fn feature_worktrees(
+pub(crate) fn feature_worktrees(
     layout: &Layout,
     manifest: &Manifest,
 ) -> Result<HashSet<(RepoName, String)>, Vec<Diagnosis>> {

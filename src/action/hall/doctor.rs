@@ -42,6 +42,7 @@ mod memory;
 mod pages;
 mod repos;
 
+pub(crate) use features::feature_worktrees;
 use features::{
     check_legacy_working_docs, diagnose_feature_state, diagnose_orphan_worktrees,
     diagnose_orphaned_runs,

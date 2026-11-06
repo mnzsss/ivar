@@ -20,8 +20,8 @@
 //! # What it does, in order
 //!
 //! 1. The hall skeleton — `.ivar/`, `.ivar/repos/`, and the `.gitignore` lines.
-//! 2. Each repo in `ivar.json`: bare clone, default-branch worktree, setup
-//!    script.
+//! 2. Each repo in `ivar.json`: bare clone, default-branch worktree, the
+//!    retirement of a former default branch's checkout, setup script.
 //! 3. Each provider: the managed block in its instruction file, its MCP
 //!    config, and its official workflow commands — all materialised for a
 //!    provider the hall lists and stripped for one it does not.
@@ -43,6 +43,12 @@
 //! can destroy uncommitted work, and a verb that runs on every `git pull` must
 //! never be able to do that on its own. `ivar cleanup` (slice 8) is where
 //! removal lives, and it will ask.
+//!
+//! The one worktree it does remove is the read-only checkout of a repo's
+//! *former* default branch after `defaultBranch` changes — and only when the
+//! tree is clean and every commit is already in the new default branch.
+//! Otherwise it warns and leaves it; the branch itself is never deleted. See
+//! [`retire`].
 
 use std::collections::BTreeMap;
 use std::io;
@@ -66,6 +72,7 @@ use super::read_manifest;
 mod mcp_rename;
 mod providers;
 mod repo;
+mod retire;
 mod setup;
 
 pub(crate) use providers::{
@@ -342,6 +349,7 @@ pub fn sync(ctx: &Ctx, input: &SyncInput) -> Outcome<SyncOutcome> {
         sync_repo(
             &git,
             &layout,
+            &manifest,
             repo,
             input.force_setup,
             &mut entries,

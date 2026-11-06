@@ -80,7 +80,16 @@ pub(crate) fn fetch_branch(worktree: &Utf8Path, branch: &str) -> Result<(), Erro
 /// `--force` because a worktree with uncommitted changes is refused by git
 /// otherwise, and this is only called from a cascade that has decided the
 /// work is being torn down.
+///
+/// Lifts the read-only guard on `dest` first. ivar clears the write bits on a
+/// default-branch or base-branch checkout's root, and git cannot delete the
+/// entries of a directory it cannot write to: it unregisters the worktree, then
+/// aborts, leaving the files behind with no worktree to account for them.
+/// `u+w` on the root alone is enough, and is a no-op on a path that was never
+/// guarded or is already gone. If the remove fails the directory stays
+/// writable — it is no longer being held as a guarded checkout either way.
 pub(crate) fn remove_worktree(git_dir: &Utf8Path, dest: &Utf8Path) -> Result<(), Error> {
+    fs::restore_write_bits(dest)?;
     run(&git()
         .arg("--git-dir")
         .arg(git_dir.as_str())
