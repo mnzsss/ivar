@@ -45,8 +45,10 @@ impl From<&MemoryCaller> for CoordinationCaller {
 }
 
 #[must_use]
-pub const fn ttl_days(_layout: &Layout) -> u32 {
-    DEFAULT_TTL_DAYS
+pub fn ttl_days(layout: &Layout) -> u32 {
+    crate::action::read_manifest(layout).map_or(DEFAULT_TTL_DAYS, |manifest| {
+        manifest.memory_handoff_ttl_days()
+    })
 }
 
 /// # Errors

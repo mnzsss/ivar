@@ -450,3 +450,17 @@ fn handoff_tools_are_listed_and_only_list_is_read_only() {
         );
     }
 }
+
+#[test]
+fn ttl_days_reads_the_manifest_and_falls_back_to_seven() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root.clone());
+    assert_eq!(super::ttl_days(&layout), 7);
+
+    let path = root.join("ivar.json");
+    let mut manifest: Value =
+        serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    manifest["memory"] = json!({ "handoff_ttl_days": 2 });
+    std::fs::write(&path, serde_json::to_string_pretty(&manifest).unwrap()).unwrap();
+    assert_eq!(super::ttl_days(&layout), 2);
+}
