@@ -343,7 +343,7 @@ pub fn broken_anchors(conn: &Connection) -> rusqlite::Result<Vec<(String, Anchor
     rows.collect()
 }
 
-/// Durable pages anchored to any of `files` or `symbols`, most anchors first.
+/// Durable pages anchored to any of `files`, most anchors first.
 ///
 /// # Errors
 ///
@@ -351,7 +351,6 @@ pub fn broken_anchors(conn: &Connection) -> rusqlite::Result<Vec<(String, Anchor
 pub fn related_pages(
     conn: &Connection,
     files: &[(String, String)],
-    symbols: &[String],
     limit: usize,
 ) -> rusqlite::Result<Vec<RelatedPage>> {
     let mut stmt = conn.prepare(
@@ -375,9 +374,8 @@ pub fn related_pages(
     })?;
     let mut pages: BTreeMap<String, (RelatedPage, f64)> = BTreeMap::new();
     for row in rows {
-        let (page, tier, file, symbol) = row?;
-        let hit = files.contains(&file) || symbol.is_some_and(|s| symbols.contains(&s));
-        if !hit {
+        let (page, tier, file, _) = row?;
+        if !files.contains(&file) {
             continue;
         }
         let weight = tier_multiplier(Tier::parse(&tier).unwrap_or(Tier::Working));

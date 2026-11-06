@@ -179,13 +179,18 @@ fn stored_anchors_are_read_matched_and_reported_broken() {
     );
     detach_graph(f.memory.conn());
 
-    let related = related_pages(
-        f.memory.conn(),
-        &[("ivar".into(), "src/a.rs".into())],
-        &["refresh_locked".into()],
-        3,
-    )
-    .unwrap();
+    assert!(
+        related_pages(
+            f.memory.conn(),
+            &[("ivar".into(), "src/other.rs".into())],
+            3,
+        )
+        .unwrap()
+        .is_empty(),
+        "a symbol name alone never relates a page"
+    );
+
+    let related = related_pages(f.memory.conn(), &[("ivar".into(), "src/a.rs".into())], 3).unwrap();
     assert_eq!(related.len(), 1, "session pages are never related memory");
     assert_eq!(
         (related[0].path.as_str(), related[0].anchors),

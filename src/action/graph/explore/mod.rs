@@ -390,12 +390,7 @@ fn related_memory(hall_root: &Path, result: &ExploreResult) -> Vec<RelatedPage> 
         .collect();
     files.sort();
     files.dedup();
-    let symbols: Vec<String> = result
-        .primary_symbols
-        .iter()
-        .map(|s| s.symbol.name.clone())
-        .collect();
-    crate::store::memory::anchors::related_pages(&conn, &files, &symbols, MAX_RELATED_PAGES)
+    crate::store::memory::anchors::related_pages(&conn, &files, MAX_RELATED_PAGES)
         .unwrap_or_default()
 }
 
