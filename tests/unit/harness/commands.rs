@@ -528,7 +528,10 @@ fn feature_cleanup_has_two_gates_and_writes_schema_two() {
         .content;
 
     assert!(text.contains("two explicit human decisions"));
-    assert!(!text.contains("Documentation Gate"), "the documentation gate is gone");
+    assert!(
+        !text.contains("Documentation Gate"),
+        "the documentation gate is gone"
+    );
     assert!(text.contains("\"schema_version\": 2"));
     assert!(text.contains("Schema 1 records"));
     assert!(text.contains("`ivar memory review <feature>`"));

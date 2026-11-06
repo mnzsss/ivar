@@ -8,7 +8,7 @@ for the hall. It carries the code graph tools and the hall memory tools.
 The server is `ivar`, so a provider sees it as `<hall>-ivar`. The command is still
 `ivar graph mcp`. `serverInfo.name` is `ivar`.
 
-The default surface lists 11 tools: `graph_explore`, `graph_feedback` and the nine
+The default surface lists 12 tools: `graph_explore`, `graph_feedback` and the ten
 `memory_*` tools below. `ivar graph mcp --tools all` also lists the remaining graph tools.
 `graph_explore` and `memory_query` carry `anthropic/alwaysLoad`.
 
@@ -32,7 +32,7 @@ Earlier versions registered the server as `graph`.
 ## Approval
 
 `ivar` approves the server, not single tools. On Claude Code the entry is
-`<hall>-ivar` in `enabledMcpjsonServers`, so one approval covers all eleven tools,
+`<hall>-ivar` in `enabledMcpjsonServers`, so one approval covers all twelve tools,
 including `memory_write_page`, `memory_patch_page` and `memory_delete_page`. Each
 provider's permission mode decides whether it asks before a call.
 
@@ -50,6 +50,7 @@ is the scope. The read tools carry `readOnlyHint`. `memory_delete_page` carries
 | `memory_patch_page` | `path` (required), `old`, `new`, `tags`, `pinned`, `relations`, `expires_at`; only `pinned` and `expires_at` on a `session` page | `path`, `hash`, `indexed`. |
 | `memory_delete_page` | `path` | `path`, `indexed`. |
 | `memory_lint` | none | `issues`: a list of `{path, code, severity, message}`. |
+| `memory_review` | `confirm`, `stale[{path, verdict: updated \| still_valid}]`, `not_required` | `feature`, `written`, `gaps`, `stale`, `warnings` and `last`. Without `confirm` it only reads. With `confirm: true` it records `memory.reviewed`, and refuses while a stale page has no verdict. It errors outside a feature session. |
 | `memory_status` | none | The same block as `ivar memory status`, plus `anchors_pending` and 30-day `usage`: `queries_cli`, `queries_mcp`, `empty`, `followup`, `skipped` and `miss_rate_cli` / `miss_rate_mcp` (empty queries over queries, per source). |
 | `memory_recent` | `limit` (default 20, maximum 100), `source_event` (prefix), `feature` | Observations, newest first, each with a one-line summary, and `drain_error` when the spool drain failed. |
 | `memory_read_session_observations` | `session` (required), `limit` (default 50, maximum 100), `cursor` | Observations of one session, oldest first, `next_cursor` while more remain, and `drain_error` when the spool drain failed. |
@@ -101,6 +102,17 @@ The server runs outside the session write guard, so the tools confine themselves
 
 `memory_read_page` accepts `docs/memory/<kind>/` and `.ivar/memory/` paths of known kinds. It
 refuses a path that resolves outside the hall.
+
+### Review
+
+`memory_review` works on the caller's feature, the root's review including its
+descendants' sessions. `written` joins `memory.page_written`, which the three write
+tools record, with captured write tools under `docs/memory/<kind>/`. `gaps` are a
+failed tool without a `gotcha`, no `update` page, and an Analysis approved without a
+`memory_query`. None blocks the confirmation. `stale` lists durable pages anchored to a
+file the feature's diff changed, and pages with a broken anchor in those files. Without
+`graph.db` the broken anchors are left out, with a warning. `ivar memory review` prints
+the same report, read-only.
 
 ## Lint
 

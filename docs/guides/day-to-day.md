@@ -203,6 +203,12 @@ There is no lifecycle field to set — the gate *is* the state. See
 [Planning and execution](planning-and-execution.md) for the gate chain, and
 [seam 7 of the architecture](../architecture/seams.md) for why it is derived rather than stored.
 
+Delivery also needs the feature's **memory review**. In a session of the feature,
+call the `memory_review` MCP tool: it lists the pages the feature wrote, the gaps and
+the pages its diff may have made stale. Give each stale page a verdict and confirm.
+Apply refuses without it (`deliver.memory_not_reviewed`). A human who decides the
+review is not needed passes `--skip-memory-review "<reason>"` at apply.
+
 **Only a root delivers.** A child integrates into its parent instead — see
 [Nested subfeatures](../concepts.md#nested-subfeatures) for the leaves-first
 flow — and a root with an active, failed, stale, or unintegrated descendant is
@@ -269,7 +275,7 @@ ivar feature close checkout --outcome delivered   # or: abandoned
 
 `close` records the outcome in `plan.md`'s frontmatter and stops executor state. Working documents stay under `.ivar/features/<feature>/` until cleanup or delete.
 
-`/ivar-feature-cleanup` (supported by `ivar feature cleanup --preview` and `--record`) is the documented, human-approved end-of-feature workflow. It verifies delivery evidence, collects explicit human approvals for delivery, documentation, and teardown, writes durable audit documentation, and tears down local feature resources only when all gates pass and fingerprint state has not drifted.
+`/ivar-feature-cleanup` (supported by `ivar feature cleanup --preview` and `--record`) is the documented, human-approved end-of-feature workflow. It verifies delivery evidence and the feature's memory review, collects explicit human approvals for delivery and teardown, writes a durable cleanup record, and tears down local feature resources only when both gates pass and fingerprint state has not drifted.
 
 `ivar feature delete` is direct low-level teardown — worktrees, state, working documents. It preflights write access across the whole cleanup tree and collects every blocker before touching anything, so a run that cannot finish does not start. It also refuses while the feature has a live session or a promoted worktree with uncommitted or untracked changes; `--force` discards them. A feature with subfeatures is deleted together with its whole subtree, leaves first: a terminal asks once, and a non-interactive run needs `--yes`.
 
