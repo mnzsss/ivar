@@ -138,8 +138,9 @@ decisions and changed files. A message is a note from one agent to another. Both
   `feature` and `hall` narrow the answer to one queue.
 - **Address.** `to` takes exactly one of `provider` or `session`. An addressed row is seen
   only by that provider or that session. Without `to`, everyone on the queue sees it.
-- **Owner.** Inside an `ivar session` the owner is `IVAR_SESSION_ID`, and the provider
-  comes from the session's state. Outside one, the owner is `<provider>:mcp-<uuid>`: the
+- **Owner.** Inside an `ivar session` of this hall the owner is its session id, and the
+  provider comes from the session's state. An `IVAR_SESSION_ID` that names no session of
+  this hall is ignored. Outside a session, the owner is `<provider>:mcp-<uuid>`: the
   provider is mapped from `clientInfo.name` at `initialize`, else `unknown`, and the uuid
   is new for each server process. Only the owner can cancel its handoff or message.
 - **Claim.** `memory_handoff_accept` and `memory_message_pop` claim a row once. A second
@@ -155,7 +156,7 @@ decisions and changed files. A message is a note from one agent to another. Both
   `handoff.expired`. None carries the summary or the body.
 
 `ivar memory handoff` has `begin`, `list` and `cancel` for a terminal. Its `cancel` works
-on a handoff of any owner. `ivar memory brief` prints the open handoffs at session start;
+on a handoff of any owner, and `list --feature` refuses a feature the hall does not have. `ivar memory brief` prints the open handoffs at session start;
 see [the brief](limitations-memory.md#handoffs-and-messages).
 
 ## Lint
