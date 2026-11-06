@@ -3,6 +3,7 @@
 use rusqlite::Connection;
 
 use super::db::MemoryDb;
+use super::fingerprints;
 use crate::domain::observation::Observation;
 use crate::domain::sanitize::Sanitized;
 
@@ -27,7 +28,7 @@ pub fn insert_batch(
         )?;
         for item in batch {
             let o = item.as_observation();
-            inserted += stmt.execute(rusqlite::params![
+            let new = stmt.execute(rusqlite::params![
                 o.event_id,
                 o.source_event,
                 o.occurred_at,
@@ -43,6 +44,18 @@ pub fn insert_batch(
                 o.attempt_id,
                 o.body
             ])?;
+            // A replayed event is ignored above, so it never gets a second fingerprint.
+            if new == 1 && fingerprints::is_fingerprinted(&o.source_event, &o.origin) {
+                fingerprints::insert(
+                    &tx,
+                    tx.last_insert_rowid(),
+                    &o.session_id,
+                    &o.feature,
+                    &o.occurred_at,
+                    &o.body,
+                )?;
+            }
+            inserted += new;
         }
     }
     tx.commit()?;

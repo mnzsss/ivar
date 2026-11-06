@@ -135,6 +135,52 @@ fn a_host_run_launches_the_tool_in_the_sandbox_without_git_credentials() {
     assert!(!root.join(".ivar/agents/tmp").join(&receipt.run_id).exists());
 }
 
+/// See the container twin in `run.rs`: a scheduled-agent run must not reach the
+/// memory spool. The tool gets a cleared environment with an isolated state
+/// directory, so no `IVAR_*` variable points a hook at the hall, and Landlock
+/// grants it no root that holds the spool.
+#[test]
+fn a_host_run_cannot_reach_the_memory_spool() {
+    let (_guard, root) = hall_with_agent("runtime: host\ntool: claude\n");
+    let spool = Layout::at(root.clone()).memory_spool_dir();
+    std::fs::create_dir_all(&spool).unwrap();
+    let fake = HostFake::new(&root);
+    let _r = redirect_on_this_thread(LAUNCHER, fake.command());
+    let mut deps = host_deps(&fake.home, true);
+    for (key, value) in [
+        ("IVAR_HALL", root.as_str()),
+        ("IVAR_SESSION_ID", "session-1"),
+        ("IVAR_FEATURE", "login"),
+        ("IVAR_PROVIDER", "claude-code"),
+        ("IVAR_SESSION_PATH", root.as_str()),
+    ] {
+        deps.parent_env.push((key.into(), value.into()));
+    }
+
+    let receipt = run_host(&root, deps);
+
+    assert_eq!(receipt.outcome, AgentRunOutcome::Succeeded);
+    let env = fake.read("env.txt");
+    assert!(
+        !env.contains("IVAR_"),
+        "an IVAR_ variable reached the run: {env}"
+    );
+    let argv = fake.read("launcher.log");
+    let mut words = argv.split_whitespace();
+    let mut roots = 0;
+    while let Some(word) = words.next() {
+        if word == "--write" {
+            roots += 1;
+            let granted = Utf8PathBuf::from(words.next().unwrap());
+            assert!(
+                !spool.starts_with(&granted) && !granted.starts_with(&spool),
+                "{granted} is writable and holds or is the spool"
+            );
+        }
+    }
+    assert!(roots > 0, "the run granted no write root: {argv}");
+}
+
 #[test]
 fn a_blocked_host_run_kills_the_tools_whole_process_group() {
     let (_guard, root) = hall_with_agent("runtime: host\ntool: claude\n");

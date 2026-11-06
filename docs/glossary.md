@@ -319,6 +319,14 @@ Commands are local derived state: `ivar init`, `ivar provider add`, and
 `ivar sync` create or repair them. They are not **Skills** and are not shared
 through `.ivar/skills/`.
 
+**Request fingerprint** — the normalized form of a `User` prompt, stored in
+`.ivar/memory.db` and kept 90 days, so repetition can be seen beyond the 30-day
+observation retention. Lowercased, without accents, with paths, ids, numbers
+and high-entropy tokens replaced by placeholders and common Portuguese and
+English stopwords removed. A `harness` prompt has none. It has no version: a
+rule change renormalizes only the retained observations. See
+[Memory database](reference/on-disk-format-databases.md#request-fingerprints-schema-6).
+
 **Sync** — reconciling the local hall against `ivar.json`: clone missing repos,
 materialise per-harness config (managed block, MCP, official workflow
 commands), run setup scripts. Idempotent, and it touches no git remote —

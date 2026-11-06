@@ -130,7 +130,7 @@ a hall that sets it needs every teammate on a release that knows it. When both f
 are back at their defaults, the key is removed.
 
 The hall memory database has its own schema version, `memory_schema.version`, which is
-5 today; see [Memory database](on-disk-format-databases.md#memory-database-ivarmemorydb).
+6 today; see [Memory database](on-disk-format-databases.md#memory-database-ivarmemorydb).
 
 The graph database has its own schema version, 12 today. Version 12: hall `docs/memory/` files
 lose their content-index rows; see

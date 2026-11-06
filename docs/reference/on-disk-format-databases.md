@@ -66,7 +66,7 @@ shared by every session, in WAL mode, with writers serialised on `.ivar/memory.l
 | --- | --- |
 | `PRAGMA application_id` | `0x69766d31` (`ivm1`) |
 | Schema version | the single row of `memory_schema(version)`, mirrored in `PRAGMA user_version` |
-| Current schema | 5 — `memory_schema`, `observations`, `pages`, `page_links`, `page_anchors`, `memory_usage`, `memory_misses`, `handoffs`, `messages`, search |
+| Current schema | 6 — `memory_schema`, `observations`, `pages`, `page_links`, `page_anchors`, `memory_usage`, `memory_misses`, `handoffs`, `messages`, `request_fingerprints`, search |
 
 ### Observations (schema 2)
 
@@ -169,6 +169,27 @@ arrays of strings. Times are Unix seconds.
 These tables are primary data, not a cache: no reindex rebuilds them and `ivar graph clean`
 never touches them. The memory sweep of the `ivar graph mcp` leader deletes terminal rows
 after 30 days, and `ivar memory clean` deletes the whole database.
+
+### Request fingerprints (schema 6)
+
+Schema 6 adds one normalized fingerprint for every `session.prompted` observation whose
+`origin` is `user`, so repetition stays visible after the 30-day observation retention. A
+`harness` prompt never has one. Nothing reads the table yet.
+
+| Table or column | Meaning |
+| --- | --- |
+| `request_fingerprints` | `id`, `observation_id`, `session_id`, `feature`, `day`, `normalized`, `created_at`. Indexes `request_fingerprints_day`, `request_fingerprints_observation` |
+| `observation_id` | the `observations.id` the fingerprint came from. Not a foreign key and not unique: the observation is deleted after 30 days and the fingerprint is not, and SQLite can reuse a freed id |
+| `day` | the UTC date (`YYYY-MM-DD`) of the prompt |
+| `normalized` | the sanitised prompt body lowercased and stripped of accents, with paths, ids, numbers and high-entropy tokens replaced by `<path>`, `<id>`, `<n>` and `<token>`, then Portuguese and English stopwords removed and whitespace collapsed |
+| `request_fingerprints_fts` | full-text index over `normalized`, kept by two triggers |
+
+The row is written in the transaction that stores the observation, so a replayed spool line
+adds none. The migration that creates the table also adds one for every retained `user`
+prompt already in `observations`. The memory sweep deletes a fingerprint whose `day` is more
+than 90 days ago; observation retention does not change. `ivar memory clean` deletes the
+whole database. A scheduled agent run cannot reach the capture spool, so its prompts never
+become fingerprints.
 
 ### Moving a legacy graph
 
