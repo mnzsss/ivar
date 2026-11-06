@@ -112,7 +112,8 @@ CREATE VIRTUAL TABLE IF NOT EXISTS file_content_fts USING fts5(
 const SEARCH_SCHEMA_VERSION: i64 = 4;
 
 /// The `user_version` a database carries once every migration below has run.
-pub const SCHEMA_VERSION: i64 = 11;
+pub const SCHEMA_VERSION: i64 = 12;
+const MEMORY_CONTENT_PURGE_VERSION: i64 = 12;
 
 /// Misses recorded before this version were classified without session
 /// attribution or a quote-aware parser, so they cannot be trusted.
@@ -225,6 +226,12 @@ fn migrate(conn: &Connection) -> rusqlite::Result<()> {
         conn.execute_batch(&format!(
             "DELETE FROM graph_misses WHERE ts < {LEGACY_MISS_TS_CEILING} OR kind = 'skipped';"
         ))?;
+    }
+    if user_version(conn)? < MEMORY_CONTENT_PURGE_VERSION {
+        conn.execute_batch(
+            "DELETE FROM file_content_fts WHERE rowid IN
+               (SELECT id FROM files WHERE repo = 'hall' AND path LIKE 'docs/memory/%');",
+        )?;
     }
     if user_version(conn)? < SCHEMA_VERSION {
         conn.execute_batch(&format!("PRAGMA user_version = {SCHEMA_VERSION};"))?;
@@ -403,3 +410,7 @@ pub fn name_words(name: &str) -> String {
 #[cfg(test)]
 #[path = "../../../tests/unit/store/graph/schema.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "../../../tests/unit/store/graph/schema_v12.rs"]
+mod v12_tests;

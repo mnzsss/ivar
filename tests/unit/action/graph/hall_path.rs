@@ -116,3 +116,56 @@ fn indexing_the_hall_skills_stores_their_scripts_under_hall_relative_paths() {
         ]
     );
 }
+
+#[test]
+fn a_memory_page_keeps_its_file_row_but_no_searchable_content() {
+    let (_tmp, root) = hall_with(&[
+        (
+            "docs/memory/decision/anchor.md",
+            "# Anchor\n\nquokka reindex",
+        ),
+        ("docs/guide.md", "quokka guide"),
+    ]);
+    let db = GraphDb::open_in_memory().unwrap();
+
+    index_hall_path(&db, root.as_std_path(), "docs", false, &Silent).unwrap();
+
+    let paths: Vec<String> = db
+        .get_files_for_repo(HALL_REPO)
+        .unwrap()
+        .into_iter()
+        .map(|f| f.path)
+        .collect();
+    assert_eq!(
+        paths,
+        vec!["docs/guide.md", "docs/memory/decision/anchor.md"]
+    );
+    let hits: Vec<String> = db
+        .conn()
+        .prepare(
+            "SELECT f.path FROM file_content_fts fts JOIN files f ON f.id = fts.rowid
+             WHERE file_content_fts MATCH 'quokka' ORDER BY f.path",
+        )
+        .unwrap()
+        .query_map([], |r| r.get(0))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect();
+    assert_eq!(hits, vec!["docs/guide.md"]);
+
+    let whole = crate::action::graph::explore::explore_files(
+        &db,
+        root.as_std_path(),
+        "docs/memory/decision/anchor.md",
+        Some(HALL_REPO),
+    )
+    .unwrap();
+    assert_eq!(
+        whole.sources.len(),
+        1,
+        "paths still returns the memory page"
+    );
+    let page = whole.sources.first().unwrap();
+    assert_eq!(page.file_path, "docs/memory/decision/anchor.md");
+    assert_eq!(page.line_count, 3);
+}
