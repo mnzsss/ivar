@@ -42,6 +42,8 @@ pub struct UsageStatus {
     pub window_days: u64,
     #[serde(flatten)]
     pub summary: usage::UsageSummary,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub usage_error: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -165,6 +167,10 @@ pub fn status_in(layout: &Layout) -> Outcome<MemoryStatusOutcome> {
         .into_iter()
         .map(|(kind, count)| KindCount { kind, count })
         .collect();
+    let mut read_errors = Vec::new();
+    let anchors_pending = crate::store::memory::anchors::pending_count(db.conn())
+        .map_err(|error| read_errors.push(format!("anchor count: {error}")))
+        .unwrap_or(0);
     let reindex_state = reindex::read_state(layout);
     let pages = PagesStatus {
         by_kind,
@@ -172,7 +178,7 @@ pub fn status_in(layout: &Layout) -> Outcome<MemoryStatusOutcome> {
         last_reindex_error: reindex_state.last_error,
         refresh_error,
         invalid,
-        anchors_pending: crate::store::memory::anchors::pending_count(db.conn()).unwrap_or(0),
+        anchors_pending,
     };
     let observations = count_by_source_event(&db)
         .map_err(|error| Failure::failed("memory.read_failed", error.to_string()))?
@@ -184,9 +190,13 @@ pub fn status_in(layout: &Layout) -> Outcome<MemoryStatusOutcome> {
         .collect();
     let since =
         i64::try_from(epoch_secs_now().saturating_sub(USAGE_RETENTION_DAYS * 86_400)).unwrap_or(0);
+    let summary = usage::summary(db.conn(), since)
+        .map_err(|error| read_errors.push(format!("usage summary: {error}")))
+        .unwrap_or_default();
     let usage = UsageStatus {
         window_days: USAGE_RETENTION_DAYS,
-        summary: usage::summary(db.conn(), since).unwrap_or_default(),
+        summary,
+        usage_error: (!read_errors.is_empty()).then(|| read_errors.join("; ")),
     };
     let state = read_state(layout);
     let mut spool = SpoolStatus::read(&layout.memory_spool_dir());
@@ -283,6 +293,9 @@ impl WriteHuman for MemoryStatusOutcome {
             u.followup,
             u.skipped
         )?;
+        if let Some(error) = &self.usage.usage_error {
+            writeln!(w, "  usage failed: {error}")?;
+        }
         for count in &self.pages.by_kind {
             writeln!(w, "  pages {}: {}", count.kind, count.count)?;
         }

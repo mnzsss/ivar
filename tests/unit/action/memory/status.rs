@@ -285,3 +285,20 @@ fn status_reports_thirty_days_of_queries_and_misses_by_source() {
     );
     assert_eq!((s.miss_rate_cli, s.miss_rate_mcp), (0.0, 1.0));
 }
+
+#[test]
+fn status_surfaces_a_failed_usage_summary_instead_of_reporting_zero_queries() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root.clone());
+    {
+        let db = MemoryDb::open(layout.memory_db().as_std_path()).unwrap();
+        db.conn().execute_batch("DROP TABLE memory_usage").unwrap();
+    }
+
+    let value = status(&Ctx::new(root)).unwrap().value;
+
+    assert!(value.usage.usage_error.is_some());
+    let mut human = Vec::new();
+    value.write_human(&mut human).unwrap();
+    assert!(String::from_utf8(human).unwrap().contains("usage failed"));
+}
