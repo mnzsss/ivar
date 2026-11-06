@@ -149,10 +149,14 @@ pub(super) fn memory_read_pattern(request: &ToolRequest, cwd: &Utf8Path) -> Opti
 }
 
 fn under_dir(candidate: &str, dir: &str) -> bool {
-    candidate == dir
-        || candidate.starts_with(&format!("{dir}/"))
-        || candidate.contains(&format!("/{dir}/"))
-        || candidate.ends_with(&format!("/{dir}"))
+    let bytes = candidate.as_bytes();
+    candidate.match_indices(dir).any(|(start, _)| {
+        let before = start.checked_sub(1).and_then(|i| bytes.get(i).copied());
+        let after = bytes.get(start + dir.len()).copied();
+        before.is_none_or(|b| {
+            b == b'/' || b == b'=' || b == b'"' || b == b'\'' || b.is_ascii_whitespace()
+        }) && after.is_none_or(|b| b == b'/' || b == b'"' || b == b'\'' || b.is_ascii_whitespace())
+    })
 }
 
 /// Never creates the file and gives up on a busy database after 50 ms: the

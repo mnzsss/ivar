@@ -247,3 +247,23 @@ fn a_bash_search_reaching_memory_is_still_a_memory_read() {
     };
     assert!(memory_read_pattern(&bash, &Utf8PathBuf::from("/hall")).is_some());
 }
+
+#[test]
+fn a_bash_search_naming_a_relative_memory_dir_is_a_memory_read() {
+    for command in [
+        "rg foo docs/memory",
+        "grep -r x \"docs/memory/gotcha\"",
+        "rg x .ivar/memory/session",
+    ] {
+        let input = serde_json::json!({ "command": command });
+        let pattern = crate::providers::extract_search_pattern("Bash", &input);
+        let bash = crate::domain::guard::ToolRequest {
+            search_pattern: pattern,
+            ..request("Bash", input, &[], false)
+        };
+        assert!(
+            memory_read_pattern(&bash, &Utf8PathBuf::from("/hall")).is_some(),
+            "{command}"
+        );
+    }
+}
