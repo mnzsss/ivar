@@ -351,3 +351,50 @@ fn editing_a_page_reanchors_it_and_removing_it_drops_its_anchors() {
     refresh(&layout).unwrap();
     assert_eq!(count(&layout, "SELECT count(*) FROM page_anchors"), 0);
 }
+
+#[test]
+fn an_empty_graph_leaves_the_page_pending_until_it_has_files() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root);
+    let _ = std::fs::remove_file(layout.graph_db());
+    crate::store::graph::db::GraphDb::open(layout.graph_db().as_std_path()).unwrap();
+    write_page(
+        &layout,
+        "docs/memory/gotcha/a.md",
+        "# A\n\nSee `src/a.rs`.\n",
+    );
+
+    refresh(&layout).unwrap();
+    assert_eq!(
+        count(
+            &layout,
+            "SELECT count(*) FROM pages WHERE anchors_pending = 1"
+        ),
+        1
+    );
+
+    seed_graph(&layout);
+    let report = refresh(&layout).unwrap();
+    assert_eq!(report.anchored, 1);
+    assert_eq!(count(&layout, "SELECT count(*) FROM page_anchors"), 1);
+}
+
+#[test]
+fn a_full_rebuild_drops_the_anchors_of_a_page_deleted_from_disk() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root);
+    seed_graph(&layout);
+    write_page(
+        &layout,
+        "docs/memory/gotcha/a.md",
+        "# A\n\nSee `src/a.rs`.\n",
+    );
+    refresh(&layout).unwrap();
+    assert_eq!(count(&layout, "SELECT count(*) FROM page_anchors"), 1);
+
+    std::fs::remove_file(layout.root().join("docs/memory/gotcha/a.md")).unwrap();
+    rebuild(&layout).unwrap();
+
+    assert_eq!(count(&layout, "SELECT count(*) FROM page_anchors"), 0);
+    assert_eq!(count(&layout, "SELECT count(*) FROM pages"), 0);
+}

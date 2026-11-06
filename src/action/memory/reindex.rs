@@ -152,7 +152,7 @@ fn anchor_page(
 
 fn index(layout: &Layout, db: &mut MemoryDb, full: bool) -> Result<ReindexReport, String> {
     // ATTACH is refused once the transaction below is open.
-    let attached = anchors::attach_graph(db.conn(), &layout.graph_db());
+    let attached = anchors::attach_indexed_graph(db.conn(), &layout.graph_db());
     let outcome = index_attached(layout, db, full, attached);
     if attached {
         anchors::detach_graph(db.conn());

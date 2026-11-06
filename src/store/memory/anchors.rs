@@ -50,6 +50,22 @@ pub fn attach_graph(conn: &Connection, graph_db: &Utf8Path) -> bool {
     readable
 }
 
+/// Like [`attach_graph`], but an empty graph counts as unavailable: anchoring against it would resolve nothing.
+pub fn attach_indexed_graph(conn: &Connection, graph_db: &Utf8Path) -> bool {
+    if !attach_graph(conn, graph_db) {
+        return false;
+    }
+    let indexed = conn
+        .query_row("SELECT EXISTS(SELECT 1 FROM graph.files)", [], |r| {
+            r.get::<_, bool>(0)
+        })
+        .unwrap_or(false);
+    if !indexed {
+        detach_graph(conn);
+    }
+    indexed
+}
+
 pub fn detach_graph(conn: &Connection) {
     let _ = conn.execute_batch("DETACH DATABASE graph");
 }
