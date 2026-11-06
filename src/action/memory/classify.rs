@@ -16,7 +16,7 @@ const READ_TOOLS: [&str; 11] = [
     "glob",
     "list",
 ];
-const MEMORY_READ_TOOLS: [&str; 7] = [
+const MEMORY_READ_TOOLS: [&str; 8] = [
     "memory_query",
     "memory_read_page",
     "memory_lint",
@@ -24,6 +24,7 @@ const MEMORY_READ_TOOLS: [&str; 7] = [
     "memory_recent",
     "memory_read_session_observations",
     "memory_handoff_list",
+    "memory_message_list",
 ];
 const READ_COMMANDS: [&str; 14] = [
     "git status",

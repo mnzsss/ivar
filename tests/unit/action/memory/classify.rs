@@ -121,3 +121,16 @@ fn listing_handoffs_is_a_read_and_the_other_handoff_tools_are_writes() {
         );
     }
 }
+
+#[test]
+fn a_message_list_call_is_a_memory_read() {
+    let input = serde_json::json!({});
+    assert_eq!(
+        tool_effect("mcp__hall-ivar__memory_message_list", &input, false),
+        ToolEffect::Reads
+    );
+    assert_ne!(
+        tool_effect("mcp__hall-ivar__memory_message_pop", &input, false),
+        ToolEffect::Reads
+    );
+}
