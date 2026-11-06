@@ -10,11 +10,11 @@ use crate::store::memory::db::MemoryDb;
 use crate::store::memory::observations::insert_batch;
 use serde_json::json;
 
-fn checkout() -> FeatureName {
+pub(super) fn checkout() -> FeatureName {
     FeatureName::new("checkout").unwrap()
 }
 
-fn scope() -> MemoryEventScope {
+pub(super) fn scope() -> MemoryEventScope {
     MemoryEventScope {
         session_id: "s1".to_owned(),
         feature: "checkout".to_owned(),
@@ -44,7 +44,7 @@ fn approve_analysis(root: &Utf8PathBuf) {
     }
 }
 
-fn session_tool(
+pub(super) fn session_tool(
     layout: &Layout,
     id: &str,
     feature: &str,

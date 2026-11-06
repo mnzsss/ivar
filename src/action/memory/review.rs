@@ -167,6 +167,19 @@ pub fn confirm_in(
             "Fix the causes listed above (memory database, manifest, a repo's diff or the graph), then review again.",
         )));
     }
+    if not_required.is_some() && !review.written.is_empty() {
+        let count = review.written.len();
+        return Err(Failure::blocked(
+            "memory.review_not_required_with_pages",
+            format!(
+                "`not_required` is for a feature that wrote no page, and `{name}` wrote {count}"
+            ),
+        )
+        .fix(FixAction::safe(
+            "memory.review_drop_not_required",
+            format!("Drop `not_required`: the feature wrote {count} page(s)."),
+        )));
+    }
     let missing = missing_verdicts(&review.stale, verdicts);
     if !missing.is_empty() {
         return Err(Failure::blocked(

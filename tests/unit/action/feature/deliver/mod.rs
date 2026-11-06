@@ -15,6 +15,7 @@ pub(super) mod fixture;
 mod land;
 mod memory_gate;
 mod memory_review;
+mod memory_review_confirm;
 mod metadata;
 mod ordering;
 mod pr_metadata;

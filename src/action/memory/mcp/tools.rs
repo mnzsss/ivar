@@ -97,7 +97,7 @@ fn review() -> Value {
                         "required": ["path", "verdict"]
                     }
                 },
-                "not_required": { "type": "string", "description": "Why the feature needs no page, when it wrote none" }
+                "not_required": { "type": "string", "description": "Why the feature needs no page; refused when it wrote one" }
             },
             "required": []
         }
