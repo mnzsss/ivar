@@ -159,3 +159,16 @@ fn a_body_that_fits_untouched_is_not_marked() {
 
     assert_eq!(clean.as_observation().body, "short body");
 }
+
+#[test]
+fn redact_text_redacts_like_an_observation_body_under_its_own_limit() {
+    let context = ctx();
+    let body = "token ghp_0123456789abcdefghijklmnopqrstuvwxyzAB and more";
+
+    let text = redact_text(body, &context, 16 * 1024).unwrap();
+    let observed = Sanitized::sanitize(observation(body), &context).unwrap();
+
+    assert_eq!(text, observed.as_observation().body);
+    assert!(!text.contains("ghp_0123"));
+    assert!(redact_text(&"é".repeat(20), &context, 8).unwrap().len() < "é".repeat(20).len());
+}

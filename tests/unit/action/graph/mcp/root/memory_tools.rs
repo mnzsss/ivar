@@ -115,5 +115,5 @@ fn memory_lint_returns_the_same_issues_as_the_function_and_the_surface_has_twelv
         ToolSurface::Explore,
         json!({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}),
     );
-    assert_eq!(listed["result"]["tools"].as_array().unwrap().len(), 12);
+    assert_eq!(listed["result"]["tools"].as_array().unwrap().len(), 16);
 }

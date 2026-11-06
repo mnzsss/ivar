@@ -101,3 +101,23 @@ fn read_only_tools_record_only_name_and_path() {
         "file contents must not be stored: {body}"
     );
 }
+
+#[test]
+fn listing_handoffs_is_a_read_and_the_other_handoff_tools_are_writes() {
+    let none = serde_json::json!({});
+    assert_eq!(
+        tool_effect("mcp__acme-ivar__memory_handoff_list", &none, false),
+        ToolEffect::Reads
+    );
+    for tool in [
+        "memory_handoff_begin",
+        "memory_handoff_accept",
+        "memory_handoff_cancel",
+    ] {
+        assert_eq!(
+            tool_effect(&format!("mcp__acme-ivar__{tool}"), &none, false),
+            ToolEffect::Writes,
+            "{tool}"
+        );
+    }
+}

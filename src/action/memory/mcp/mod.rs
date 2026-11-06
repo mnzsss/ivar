@@ -1,4 +1,5 @@
 mod confine;
+mod coordination;
 mod instructions;
 mod observations;
 mod pages;
@@ -39,6 +40,10 @@ pub const TOOL_NAMES: &[&str] = &[
     "memory_delete_page",
     "memory_lint",
     "memory_review",
+    "memory_handoff_begin",
+    "memory_handoff_list",
+    "memory_handoff_accept",
+    "memory_handoff_cancel",
 ];
 
 #[must_use]
@@ -48,7 +53,9 @@ pub fn is_memory_tool(name: &str) -> bool {
 
 #[must_use]
 pub fn tool_definitions() -> Vec<Value> {
-    tools::definitions()
+    let mut tools = tools::definitions();
+    tools.extend(coordination::definitions());
+    tools
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -77,7 +84,8 @@ pub fn caller_for(layout: &Layout, cwd: &Utf8Path, client: Option<&McpClient>) -
     let ambient = std::env::var("IVAR_SESSION_ID").ok();
     let env = SessionEnv::resolve_for_agent(cwd, ambient.as_deref())
         .ok()
-        .flatten();
+        .flatten()
+        .filter(|env| same_hall(&env.hall, layout.root()));
     let feature = env.as_ref().and_then(|env| env.feature.clone());
     let parent_feature = feature
         .as_ref()
@@ -102,6 +110,13 @@ pub fn caller_for(layout: &Layout, cwd: &Utf8Path, client: Option<&McpClient>) -
     }
 }
 
+fn same_hall(session_hall: &Utf8Path, root: &Utf8Path) -> bool {
+    session_hall == root
+        || root
+            .canonicalize_utf8()
+            .is_ok_and(|root| session_hall == root)
+}
+
 /// # Errors
 ///
 /// The message the MCP answer carries as `isError`.
@@ -118,6 +133,9 @@ pub fn call_as(
     args: &Value,
     caller: &MemoryCaller,
 ) -> Result<String, String> {
+    if let Some(result) = coordination::call(layout, name, args, caller) {
+        return result;
+    }
     match name {
         "memory_query" => query(layout, args, caller.session.clone()),
         "memory_status" => to_text(&status_in(layout).map_err(|failure| failure.what)?.value),

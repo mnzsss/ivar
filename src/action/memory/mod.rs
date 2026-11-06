@@ -4,6 +4,7 @@ pub mod capture;
 pub mod classify;
 pub mod clean;
 pub mod consolidate;
+pub mod coordination;
 pub mod delivery;
 pub mod drain;
 pub mod events;

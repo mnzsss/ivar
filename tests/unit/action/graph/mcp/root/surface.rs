@@ -36,7 +36,7 @@ fn test_mcp_initialize_and_tools_list() {
     let tools = list_resp["result"]["tools"]
         .as_array()
         .expect("tools array");
-    assert_eq!(tools.len(), 22);
+    assert_eq!(tools.len(), 26);
     let tool_names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
     assert!(tool_names.contains(&"graph_feedback"));
     assert!(tool_names.contains(&"graph_explore"));

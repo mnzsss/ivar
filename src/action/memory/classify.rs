@@ -16,13 +16,14 @@ const READ_TOOLS: [&str; 11] = [
     "glob",
     "list",
 ];
-const MEMORY_READ_TOOLS: [&str; 6] = [
+const MEMORY_READ_TOOLS: [&str; 7] = [
     "memory_query",
     "memory_read_page",
     "memory_lint",
     "memory_status",
     "memory_recent",
     "memory_read_session_observations",
+    "memory_handoff_list",
 ];
 const READ_COMMANDS: [&str; 14] = [
     "git status",
