@@ -164,3 +164,49 @@ fn memory_schemas_expose_no_scope_arguments_and_only_query_is_always_loaded() {
         assert_eq!(always, tool["name"] == "memory_query", "{}", tool["name"]);
     }
 }
+
+#[test]
+fn memory_review_is_listed_with_its_verdict_schema_and_is_not_read_only() {
+    let review = tool_definitions()
+        .into_iter()
+        .find(|tool| tool["name"] == "memory_review")
+        .unwrap();
+
+    assert!(is_memory_tool("memory_review"));
+    assert_eq!(
+        review["inputSchema"]["properties"]["stale"]["items"]["properties"]["verdict"]["enum"],
+        json!(["updated", "still_valid"])
+    );
+    assert!(review.get("annotations").is_none());
+}
+
+#[test]
+fn memory_review_outside_a_feature_session_is_an_error() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root);
+
+    let error = call(&layout, "memory_review", &json!({})).unwrap_err();
+
+    assert!(error.contains("needs a feature session"), "{error}");
+}
+
+#[test]
+fn memory_review_refuses_a_malformed_verdict() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root);
+    let caller = MemoryCaller {
+        session: Some("s1".to_owned()),
+        feature: Some(crate::domain::name::FeatureName::new("login").unwrap()),
+        parent_feature: None,
+    };
+
+    let error = call_as(
+        &layout,
+        "memory_review",
+        &json!({"confirm": true, "stale": [{"path": "docs/memory/a.md", "verdict": "maybe"}]}),
+        &caller,
+    )
+    .unwrap_err();
+
+    assert!(error.contains("`stale`"), "{error}");
+}

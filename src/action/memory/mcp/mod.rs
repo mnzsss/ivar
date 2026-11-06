@@ -11,9 +11,11 @@ use crate::action::graph::session::session_key_for;
 use crate::action::memory::events::MemoryEventScope;
 use crate::action::memory::lint::lint_in;
 use crate::action::memory::query::{QueryInput, QueryOrigin, query_in};
+use crate::action::memory::review::{confirm_in, review_in};
 use crate::action::memory::status::status_in;
 use crate::action::session::env::SessionEnv;
 use crate::domain::feature::Feature;
+use crate::domain::memory_review::Verdict;
 use crate::domain::name::FeatureName;
 use crate::store::layout::Layout;
 use crate::store::memory::page_source::parse_page;
@@ -35,6 +37,7 @@ pub const TOOL_NAMES: &[&str] = &[
     "memory_patch_page",
     "memory_delete_page",
     "memory_lint",
+    "memory_review",
 ];
 
 #[must_use]
@@ -110,8 +113,40 @@ pub fn call_as(
         "memory_patch_page" => pages::patch(layout, args, caller),
         "memory_delete_page" => pages::delete(layout, args, caller),
         "memory_lint" => to_text(&json!({ "issues": lint_in(layout) })),
+        "memory_review" => review(layout, args, caller),
         other => Err(format!("Unknown tool: {other}")),
     }
+}
+
+#[derive(serde::Deserialize)]
+struct StaleVerdict {
+    path: String,
+    verdict: Verdict,
+}
+
+fn review(layout: &Layout, args: &Value, caller: &MemoryCaller) -> Result<String, String> {
+    let feature = caller.feature.as_ref().ok_or(
+        "memory_review needs a feature session: run it from a session opened with `ivar session connect <feature>`",
+    )?;
+    let confirm = args
+        .get("confirm")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let report = if confirm {
+        let verdicts = match args.get("stale") {
+            None => Vec::new(),
+            Some(stale) => serde_json::from_value::<Vec<StaleVerdict>>(stale.clone())
+                .map_err(|error| format!("`stale` must be a list of {{path, verdict}} with verdict `updated` or `still_valid`: {error}"))?
+                .into_iter()
+                .map(|entry| (entry.path, entry.verdict))
+                .collect::<Vec<_>>(),
+        };
+        confirm_in(layout, &MemoryEventScope::from(caller), feature, &verdicts, string_arg(args, "not_required"))
+    } else {
+        review_in(layout, feature)
+    }
+    .map_err(|failure| failure.what)?;
+    to_text(&report.value)
 }
 
 fn to_text<T: serde::Serialize>(value: &T) -> Result<String, String> {

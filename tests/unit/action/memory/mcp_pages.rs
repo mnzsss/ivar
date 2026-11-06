@@ -400,7 +400,9 @@ fn only_the_delete_tool_is_destructive_and_every_read_tool_is_read_only() {
         let name = tool["name"].as_str().unwrap();
         let destructive = tool["annotations"]["destructiveHint"] == true;
         assert_eq!(destructive, name == "memory_delete_page", "{name}");
-        if matches!(
+        if name == "memory_review" {
+            assert!(tool.get("annotations").is_none(), "{name}");
+        } else if matches!(
             name,
             "memory_query"
                 | "memory_status"

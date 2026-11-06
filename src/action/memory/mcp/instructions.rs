@@ -21,7 +21,10 @@ Hall memory: durable pages in docs/memory/<kind>/ and the observations captured 
 - Call memory_query before proposing architecture or when the user refers to earlier work, \
 and memory_read_page for the full body of a hit.
 - memory_status reports the health and counts of the memory index.
-- Record a decision, gotcha, procedure or update once the insight is settled; never `session`.
+- Record a decision, gotcha, procedure, product or update page during the feature, once the insight \
+is settled; never `session`. The update page of a delivery is written before delivery, not at cleanup.
+- Before `ivar feature deliver`, call memory_review, give each possibly stale page a verdict and \
+confirm; delivery refuses a feature without that review.
 - The memory tools do not commit: a written page stays uncommitted until you commit it.
 
 ",

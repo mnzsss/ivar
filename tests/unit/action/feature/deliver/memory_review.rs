@@ -268,3 +268,31 @@ fn an_unreadable_memory_database_is_a_warning_never_an_error() {
     .unwrap_err();
     assert_eq!(refused.code, "memory.review_unreadable");
 }
+
+#[test]
+fn confirming_through_the_tool_records_the_review_for_the_callers_feature() {
+    let (_guard, root) = hall_with_promoted(&["api"]);
+    let layout = Layout::at(root);
+    let caller = crate::action::memory::mcp::MemoryCaller {
+        session: Some("s1".to_owned()),
+        feature: Some(checkout()),
+        parent_feature: None,
+    };
+
+    let text = crate::action::memory::mcp::call_as(
+        &layout,
+        "memory_review",
+        &json!({"confirm": true, "not_required": "internal refactor"}),
+        &caller,
+    )
+    .unwrap();
+
+    let report: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(report["feature"], "checkout");
+    assert_eq!(report["last"]["source_event"], "memory.reviewed");
+    assert_eq!(report["last"]["not_required"], "internal refactor");
+    assert!(matches!(
+        review_state(&layout, &checkout()).unwrap(),
+        ReviewState::Reviewed { .. }
+    ));
+}
