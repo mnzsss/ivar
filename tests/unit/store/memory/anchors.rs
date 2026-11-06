@@ -70,7 +70,7 @@ fn anchor(repo: &str, p: &str, symbol: Option<&str>) -> Anchor {
 }
 
 fn resolved(f: &mut Fixture, candidates: &[Candidate]) -> Vec<Anchor> {
-    assert!(attach_graph(f.memory.conn(), &f.graph));
+    assert!(attach_graph(f.memory.conn(), &f.graph).is_attached());
     let tx = f.memory.conn_mut().transaction().unwrap();
     let anchors = resolve(&tx, candidates).unwrap();
     tx.commit().unwrap();
@@ -169,7 +169,7 @@ fn stored_anchors_are_read_matched_and_reported_broken() {
         match_terms(f.memory.conn(), &["Refresh_Locked".into(), "a".into()]).unwrap()[0],
         ("docs/memory/decision/a.md".to_owned(), 2, 1)
     );
-    assert!(attach_graph(f.memory.conn(), &f.graph));
+    assert!(attach_graph(f.memory.conn(), &f.graph).is_attached());
     let views = anchors_for(f.memory.conn(), "docs/memory/decision/a.md", true, 10).unwrap();
     assert_eq!(
         (views[0].path.as_str(), views[0].broken),
@@ -207,10 +207,21 @@ fn stored_anchors_are_read_matched_and_reported_broken() {
 #[test]
 fn attach_refuses_a_missing_graph() {
     let f = fixture();
-    assert!(!attach_graph(
-        f.memory.conn(),
-        &f.graph.with_file_name("absent.db")
-    ));
+    assert_eq!(
+        attach_graph(f.memory.conn(), &f.graph.with_file_name("absent.db")),
+        GraphAttach::Missing
+    );
+}
+
+#[test]
+fn attach_reports_a_graph_that_is_not_sqlite_as_unreadable() {
+    let f = fixture();
+    let junk = f.graph.with_file_name("junk.db");
+    std::fs::write(&junk, "not a sqlite database").unwrap();
+    assert_eq!(
+        attach_graph(f.memory.conn(), &junk),
+        GraphAttach::Unreadable
+    );
 }
 
 #[test]

@@ -22,7 +22,9 @@ use crate::domain::observation::SourceEvent;
 use crate::error::{Failure, FixAction, Outcome, Report, WriteHuman};
 use crate::git::{self, Git};
 use crate::store::layout::Layout;
-use crate::store::memory::anchors::{anchored_files, attach_graph, broken_anchors, detach_graph};
+use crate::store::memory::anchors::{
+    GraphAttach, anchored_files, attach_graph, broken_anchors, detach_graph,
+};
 use crate::store::memory::db::MemoryDb;
 use crate::store::memory::observations::{FeatureObservation, feature_observations};
 
@@ -162,7 +164,7 @@ pub fn confirm_in(
         )
         .fix(FixAction::safe(
             "memory.inspect_db",
-            "Run `ivar memory status` to see the database error, fix `.ivar/memory.db`, then review again.",
+            "Fix the causes listed above (memory database, manifest, a repo's diff or the graph), then review again.",
         )));
     }
     let missing = missing_verdicts(&review.stale, verdicts);
@@ -388,17 +390,27 @@ fn anchor_matches(
     changed: &[(String, String)],
     notes: &mut Notes,
 ) -> (Anchored, Broken) {
-    let Ok(db) = open(layout) else {
-        notes.incomplete = true;
-        return (Vec::new(), Vec::new());
+    let db = match open(layout) {
+        Ok(db) => db,
+        Err(failure) => {
+            notes.unread(format!("the anchors could not be read: {}", failure.what));
+            return (Vec::new(), Vec::new());
+        }
     };
     let anchored = anchored_files(db.conn(), changed).unwrap_or_else(|error| {
         notes.unread(format!("the anchors could not be read: {error}"));
         Vec::new()
     });
-    if !attach_graph(db.conn(), &layout.graph_db()) {
-        notes.warn("graph.db is missing or unreadable: broken anchors were not checked".to_owned());
-        return (anchored, Vec::new());
+    match attach_graph(db.conn(), &layout.graph_db()) {
+        GraphAttach::Attached => {}
+        GraphAttach::Missing => {
+            notes.warn("graph.db is missing: broken anchors were not checked".to_owned());
+            return (anchored, Vec::new());
+        }
+        GraphAttach::Unreadable => {
+            notes.unread("graph.db could not be read: broken anchors were not checked".to_owned());
+            return (anchored, Vec::new());
+        }
     }
     let broken = broken_anchors(db.conn())
         .map(|rows| {

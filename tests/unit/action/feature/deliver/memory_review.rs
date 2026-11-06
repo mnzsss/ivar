@@ -396,6 +396,59 @@ fn every_broken_anchor_of_a_durable_page_is_stale_wherever_its_file_is() {
 }
 
 #[test]
+fn a_missing_graph_is_a_warning_that_never_blocks_the_confirmation() {
+    let (_guard, root) = hall_with_promoted(&["api"]);
+    let layout = Layout::at(root);
+    let _ = std::fs::remove_file(layout.graph_db());
+
+    let report = review_in(&layout, &checkout()).unwrap().value;
+
+    assert!(
+        report
+            .warnings
+            .iter()
+            .any(|w| w.starts_with("graph.db is missing")),
+        "{:?}",
+        report.warnings
+    );
+    confirm_in(
+        &layout,
+        &scope(),
+        &checkout(),
+        &[],
+        Some("internal".to_owned()),
+    )
+    .unwrap();
+}
+
+#[test]
+fn an_unreadable_graph_is_a_warning_and_refuses_the_confirmation() {
+    let (_guard, root) = hall_with_promoted(&["api"]);
+    let layout = Layout::at(root);
+    std::fs::write(layout.graph_db(), "not a sqlite database").unwrap();
+
+    let report = review_in(&layout, &checkout()).unwrap().value;
+
+    assert!(
+        report
+            .warnings
+            .iter()
+            .any(|w| w.starts_with("graph.db could not be read")),
+        "{:?}",
+        report.warnings
+    );
+    let refused = confirm_in(
+        &layout,
+        &scope(),
+        &checkout(),
+        &[],
+        Some("internal".to_owned()),
+    )
+    .unwrap_err();
+    assert_eq!(refused.code, "memory.review_unreadable");
+}
+
+#[test]
 fn the_heads_survive_a_review_body_cut_at_the_sanitize_limit() {
     let (_guard, root) = hall_with_promoted(&["api"]);
     let layout = Layout::at(root);

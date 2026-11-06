@@ -20,11 +20,24 @@ const BROKEN: &str =
         SELECT 1 FROM graph.symbols s JOIN graph.files f ON f.id = s.file_id
          WHERE f.repo = a.repo AND f.path = a.path AND s.name = a.symbol)))";
 
-/// Attaches `graph_db` read-only as `graph`; returns whether it is readable.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GraphAttach {
+    Missing,
+    Attached,
+    Unreadable,
+}
+
+impl GraphAttach {
+    pub fn is_attached(self) -> bool {
+        self == Self::Attached
+    }
+}
+
+/// Attaches `graph_db` read-only as `graph`.
 /// `ATTACH` is refused inside an open transaction, so callers attach before `BEGIN`.
-pub fn attach_graph(conn: &Connection, graph_db: &Utf8Path) -> bool {
+pub fn attach_graph(conn: &Connection, graph_db: &Utf8Path) -> GraphAttach {
     if !graph_db.exists() {
-        return false;
+        return GraphAttach::Missing;
     }
     let escaped = graph_db
         .as_str()
@@ -38,7 +51,7 @@ pub fn attach_graph(conn: &Connection, graph_db: &Utf8Path) -> bool {
         )
         .is_err()
     {
-        return false;
+        return GraphAttach::Unreadable;
     }
     let readable = conn
         .query_row("SELECT count(*) FROM graph.files", [], |r| {
@@ -47,13 +60,14 @@ pub fn attach_graph(conn: &Connection, graph_db: &Utf8Path) -> bool {
         .is_ok();
     if !readable {
         detach_graph(conn);
+        return GraphAttach::Unreadable;
     }
-    readable
+    GraphAttach::Attached
 }
 
 /// Like [`attach_graph`], but an empty graph counts as unavailable: anchoring against it would resolve nothing.
 pub fn attach_indexed_graph(conn: &Connection, graph_db: &Utf8Path) -> bool {
-    if !attach_graph(conn, graph_db) {
+    if !attach_graph(conn, graph_db).is_attached() {
         return false;
     }
     let indexed = conn
