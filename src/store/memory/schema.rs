@@ -6,7 +6,7 @@ use rusqlite::Transaction;
 pub const APPLICATION_ID: i32 = 0x6976_6d31;
 
 /// The memory schema this binary migrates to.
-pub const MEMORY_SCHEMA_VERSION: i64 = 4;
+pub const MEMORY_SCHEMA_VERSION: i64 = 5;
 
 /// Every schema object a memory database up to [`MEMORY_SCHEMA_VERSION`]
 /// owns. Anything else in the file was put there by another program.
@@ -43,6 +43,12 @@ pub(crate) const MEMORY_OBJECTS: &[&str] = &[
     "memory_usage_session_ts",
     "memory_misses",
     "memory_misses_session_ts",
+    "handoffs",
+    "handoffs_state_queue",
+    "handoffs_owner",
+    "messages",
+    "messages_state_queue",
+    "messages_sender",
 ];
 
 pub(crate) const OBSERVATIONS_TABLE: &str = "observations";
@@ -157,6 +163,47 @@ CREATE TABLE memory_misses (
 CREATE INDEX memory_misses_session_ts ON memory_misses (session, ts);
 ";
 
+// Coordination rows are primary data: only `ivar memory clean` removes them.
+// `queue` is a feature name, or '' for the hall queue.
+pub(crate) const MIGRATION_V5: &str = "
+CREATE TABLE handoffs (
+    id             TEXT PRIMARY KEY,
+    queue          TEXT NOT NULL,
+    to_kind        TEXT NOT NULL DEFAULT '',
+    to_value       TEXT NOT NULL DEFAULT '',
+    owner_key      TEXT NOT NULL,
+    owner_provider TEXT NOT NULL,
+    summary        TEXT NOT NULL,
+    pending_tasks  TEXT NOT NULL DEFAULT '[]',
+    open_decisions TEXT NOT NULL DEFAULT '[]',
+    modified_files TEXT NOT NULL DEFAULT '[]',
+    state          TEXT NOT NULL DEFAULT 'open',
+    created_at     INTEGER NOT NULL,
+    expires_at     INTEGER NOT NULL,
+    accepted_by    TEXT,
+    accepted_at    INTEGER
+);
+CREATE INDEX handoffs_state_queue ON handoffs (state, queue, expires_at);
+CREATE INDEX handoffs_owner ON handoffs (owner_key);
+CREATE TABLE messages (
+    id              TEXT PRIMARY KEY,
+    queue           TEXT NOT NULL,
+    to_kind         TEXT NOT NULL DEFAULT '',
+    to_value        TEXT NOT NULL DEFAULT '',
+    sender_key      TEXT NOT NULL,
+    sender_provider TEXT NOT NULL,
+    subject         TEXT,
+    body            TEXT NOT NULL,
+    state           TEXT NOT NULL DEFAULT 'pending',
+    created_at      INTEGER NOT NULL,
+    expires_at      INTEGER NOT NULL,
+    popped_by       TEXT,
+    popped_at       INTEGER
+);
+CREATE INDEX messages_state_queue ON messages (state, queue, expires_at);
+CREATE INDEX messages_sender ON messages (sender_key);
+";
+
 pub(crate) fn migrate(tx: &Transaction<'_>, from: i64) -> rusqlite::Result<()> {
     if from < 1 {
         tx.execute_batch(MIGRATION_V1)?;
@@ -169,6 +216,9 @@ pub(crate) fn migrate(tx: &Transaction<'_>, from: i64) -> rusqlite::Result<()> {
     }
     if from < 4 {
         tx.execute_batch(MIGRATION_V4)?;
+    }
+    if from < 5 {
+        tx.execute_batch(MIGRATION_V5)?;
     }
     tx.execute(
         "UPDATE memory_schema SET version = ?1",

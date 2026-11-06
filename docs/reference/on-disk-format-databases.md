@@ -66,7 +66,7 @@ shared by every session, in WAL mode, with writers serialised on `.ivar/memory.l
 | --- | --- |
 | `PRAGMA application_id` | `0x69766d31` (`ivm1`) |
 | Schema version | the single row of `memory_schema(version)`, mirrored in `PRAGMA user_version` |
-| Current schema | 4 — `memory_schema`, `observations`, `pages`, `page_links`, `page_anchors`, `memory_usage`, `memory_misses`, search |
+| Current schema | 5 — `memory_schema`, `observations`, `pages`, `page_links`, `page_anchors`, `memory_usage`, `memory_misses`, `handoffs`, `messages`, search |
 
 ### Observations (schema 2)
 
@@ -149,6 +149,21 @@ resolved against `graph.db` by the reindex, so they are a cache like the rest of
 | `pages.anchors_pending` | `1` when the page was indexed without a readable `graph.db`; the next reindex with a graph resolves it |
 | `memory_usage` | one row per `memory_query`: `ts`, `source` (`cli`, `mcp`, `hook`), `session`, `query`, `filters`, `page_count`, `observation_count`, `duration_ms`, `error`. Kept 30 days |
 | `memory_misses` | `kind` (`empty`, `followup`, `skipped`), `session`, `query`, `filters`, `pattern`, `usage_id`, `fallback`. Kept 30 days |
+
+### Coordination (schema 5)
+
+Schema 5 adds the handoffs one session leaves for the next and the messages sessions send
+each other. `queue` is a feature name, or empty for the hall queue. `to_kind` and `to_value`
+name the recipient, empty when the row is for anyone on the queue. List columns hold JSON
+arrays of strings. Times are Unix seconds.
+
+| Table | Meaning |
+| --- | --- |
+| `handoffs` | one row per handoff: `id`, `queue`, `to_kind`, `to_value`, `owner_key`, `owner_provider`, `summary`, `pending_tasks`, `open_decisions`, `modified_files`, `state`, `created_at`, `expires_at`, `accepted_by`, `accepted_at`. `state` goes from `open` to `accepted`, `cancelled` or `expired`. A terminal row is deleted 30 days after `accepted_at`, or after `expires_at` when it was never accepted. Indexes `handoffs_state_queue`, `handoffs_owner` |
+| `messages` | one row per message: `id`, `queue`, `to_kind`, `to_value`, `sender_key`, `sender_provider`, `subject`, `body`, `state`, `created_at`, `expires_at`, `popped_by`, `popped_at`. `state` goes from `pending` to `popped`, `cancelled` or `expired`. A terminal row is deleted 30 days after `popped_at`, or after `expires_at` when it was never popped. Indexes `messages_state_queue`, `messages_sender` |
+
+These tables are primary data, not a cache: no reindex rebuilds them, `ivar graph clean`
+never touches them, and only `ivar memory clean` deletes them.
 
 ### Moving a legacy graph
 
