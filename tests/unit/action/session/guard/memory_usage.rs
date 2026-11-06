@@ -199,3 +199,51 @@ fn recording_without_a_memory_database_is_a_silent_no_op() {
     record_memory_read_at(&root, None, Some("s1".into()), "docs/memory/a.md");
     assert!(!Layout::at(root).memory_db().exists());
 }
+
+fn searching(
+    tool: &str,
+    input: serde_json::Value,
+    pattern: &str,
+) -> crate::domain::guard::ToolRequest {
+    crate::domain::guard::ToolRequest {
+        search_pattern: Some(pattern.into()),
+        ..request(tool, input, &[], false)
+    }
+}
+
+#[test]
+fn a_grep_pattern_naming_memory_is_not_a_memory_read() {
+    let grep = searching(
+        "Grep",
+        serde_json::json!({"pattern": "docs/memory/", "path": "src"}),
+        "docs/memory/",
+    );
+    assert_eq!(
+        memory_read_pattern(&grep, &Utf8PathBuf::from("/hall")),
+        None
+    );
+}
+
+#[test]
+fn a_pathless_grep_from_a_memory_dir_reads_the_cwd() {
+    let grep = searching("Grep", serde_json::json!({"pattern": "x"}), "x");
+    assert_eq!(
+        memory_read_pattern(&grep, &Utf8PathBuf::from("/hall/docs/memory")).as_deref(),
+        Some("/hall/docs/memory")
+    );
+    assert_eq!(
+        memory_read_pattern(&grep, &Utf8PathBuf::from("/hall")),
+        None
+    );
+}
+
+#[test]
+fn a_bash_search_reaching_memory_is_still_a_memory_read() {
+    let input = serde_json::json!({"command": "rg foo /hall/docs/memory"});
+    let pattern = crate::providers::extract_search_pattern("Bash", &input);
+    let bash = crate::domain::guard::ToolRequest {
+        search_pattern: pattern,
+        ..request("Bash", input, &[], false)
+    };
+    assert!(memory_read_pattern(&bash, &Utf8PathBuf::from("/hall")).is_some());
+}

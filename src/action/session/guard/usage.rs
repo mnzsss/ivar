@@ -128,14 +128,23 @@ pub(super) fn memory_read_pattern(request: &ToolRequest, cwd: &Utf8Path) -> Opti
         .get("path")
         .and_then(serde_json::Value::as_str)
         .map(Utf8PathBuf::from);
+    let tool = request.tool.to_ascii_lowercase();
+    let structured_search = tool == "grep" || tool == "glob";
+    let searches_cwd = structured_search && path_arg.is_none() && request.targets.is_empty();
+    let search_text = if structured_search {
+        None
+    } else {
+        request.search_pattern.clone()
+    };
     request
         .targets
         .iter()
         .cloned()
         .chain(path_arg)
+        .chain(searches_cwd.then(|| cwd.to_owned()))
         .map(|p| if p.is_absolute() { p } else { cwd.join(p) })
         .map(|p| p.to_string())
-        .chain(request.search_pattern.clone())
+        .chain(search_text)
         .find(|candidate| MEMORY_DIRS.iter().any(|dir| under_dir(candidate, dir)))
 }
 
