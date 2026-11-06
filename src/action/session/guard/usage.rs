@@ -1,8 +1,12 @@
 //! Graph-call and search-miss recording from guard hook payloads.
 
+use crate::action::session::env::SessionEnv;
+use crate::domain::graph::truncate_for_storage;
 use crate::domain::graph::{MissEvent, MissKind, UsageEvent, UsageSource};
+use crate::domain::guard::ToolRequest;
 use crate::store::layout::Layout;
-use camino::Utf8Path;
+use crate::store::memory::usage::{self, MemoryMiss, MemoryMissKind, QueryRecord};
+use camino::{Utf8Path, Utf8PathBuf};
 
 const IVAR_SERVER_SUFFIXES: [&str; 2] = ["-ivar_graph_explore", "_ivar_graph_explore"];
 pub(super) const LEGACY_SERVER_SUFFIXES: [&str; 2] =
@@ -26,16 +30,9 @@ pub(super) fn record_graph_call_at(
     session_env: Option<&crate::action::session::env::SessionEnv>,
     ambient_session: Option<String>,
 ) {
-    let Some(session) =
-        crate::action::graph::session::session_key_for(session_env, ambient_session)
-    else {
+    let Some((layout, session)) = session_layout(cwd, session_env, ambient_session) else {
         return;
     };
-    let layout = match session_env {
-        Some(env) => Some(Layout::at(env.hall.clone())),
-        None => Layout::discover(cwd).ok().flatten(),
-    };
-    let Some(layout) = layout else { return };
     let db_path = layout.graph_db();
     let Ok(db) = crate::store::graph::db::GraphDb::open_for_usage(db_path.as_std_path()) else {
         return;
@@ -61,16 +58,7 @@ pub(super) fn record_search_miss_at(
     ambient_session: Option<String>,
     pattern: &str,
 ) {
-    let Some(session) =
-        crate::action::graph::session::session_key_for(session_env, ambient_session)
-    else {
-        return;
-    };
-    let layout = match session_env {
-        Some(env) => Some(Layout::at(env.hall.clone())),
-        None => Layout::discover(cwd).ok().flatten(),
-    };
-    if let Some(layout) = layout {
+    if let Some((layout, session)) = session_layout(cwd, session_env, ambient_session) {
         record_search_miss(&layout, &session, pattern);
     }
 }
@@ -104,5 +92,133 @@ pub(super) fn record_search_miss(layout: &Layout, session: &str, pattern: &str) 
             db.record_followup(&miss(MissKind::Followup, call.query.clone()), &call)
         }
         _ => Ok(()),
+    };
+}
+
+fn session_layout(
+    cwd: &Utf8Path,
+    session_env: Option<&SessionEnv>,
+    ambient_session: Option<String>,
+) -> Option<(Layout, String)> {
+    let session = crate::action::graph::session::session_key_for(session_env, ambient_session)?;
+    let layout = match session_env {
+        Some(env) => Layout::at(env.hall.clone()),
+        None => Layout::discover(cwd).ok().flatten()?,
+    };
+    Some((layout, session))
+}
+
+const MEMORY_QUERY_SUFFIXES: [&str; 3] =
+    ["__memory_query", "-ivar_memory_query", "_ivar_memory_query"];
+const MEMORY_DIRS: [&str; 2] = ["docs/memory", ".ivar/memory"];
+
+pub(super) fn is_memory_query_tool(tool: &str) -> bool {
+    tool == "memory_query"
+        || MEMORY_QUERY_SUFFIXES
+            .iter()
+            .any(|suffix| tool.ends_with(suffix))
+}
+
+pub(super) fn memory_read_pattern(request: &ToolRequest, cwd: &Utf8Path) -> Option<String> {
+    if request.writes {
+        return None;
+    }
+    let path_arg = request
+        .input
+        .get("path")
+        .and_then(serde_json::Value::as_str)
+        .map(Utf8PathBuf::from);
+    request
+        .targets
+        .iter()
+        .cloned()
+        .chain(path_arg)
+        .map(|p| if p.is_absolute() { p } else { cwd.join(p) })
+        .map(|p| p.to_string())
+        .chain(request.search_pattern.clone())
+        .find(|candidate| MEMORY_DIRS.iter().any(|dir| under_dir(candidate, dir)))
+}
+
+fn under_dir(candidate: &str, dir: &str) -> bool {
+    candidate.ends_with(dir) || candidate.contains(&format!("{dir}/"))
+}
+
+/// Never creates the file and gives up on a busy database after 50 ms: the
+/// guard's decision and latency must not depend on recording.
+fn open_memory(layout: &Layout) -> Option<rusqlite::Connection> {
+    let conn = rusqlite::Connection::open_with_flags(
+        layout.memory_db().as_std_path(),
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )
+    .ok()?;
+    conn.busy_timeout(std::time::Duration::from_millis(50))
+        .ok()?;
+    Some(conn)
+}
+
+pub(super) fn record_memory_call_at(
+    cwd: &Utf8Path,
+    session_env: Option<&SessionEnv>,
+    ambient_session: Option<String>,
+    query: Option<&str>,
+) {
+    let Some((layout, session)) = session_layout(cwd, session_env, ambient_session) else {
+        return;
+    };
+    let Some(conn) = open_memory(&layout) else {
+        return;
+    };
+    let _ = usage::record_query(
+        &conn,
+        &QueryRecord {
+            source: "hook".into(),
+            session: Some(session),
+            query: query.map(truncate_for_storage).unwrap_or_default(),
+            filters: "{}".into(),
+            page_count: 0,
+            observation_count: 0,
+            duration_ms: 0,
+            error: false,
+        },
+    );
+}
+
+pub(super) fn record_memory_read_at(
+    cwd: &Utf8Path,
+    session_env: Option<&SessionEnv>,
+    ambient_session: Option<String>,
+    pattern: &str,
+) {
+    let Some((layout, session)) = session_layout(cwd, session_env, ambient_session) else {
+        return;
+    };
+    let Some(conn) = open_memory(&layout) else {
+        return;
+    };
+    let miss = |kind, usage_id, query| MemoryMiss {
+        kind,
+        session: Some(session.clone()),
+        query,
+        filters: None,
+        pattern: Some(truncate_for_storage(pattern)),
+        usage_id,
+        fallback: false,
+    };
+    let _ = match usage::last_query(&conn, &session) {
+        Ok(Some(last))
+            if crate::store::graph::db::types::now_timestamp() - last.ts
+                <= FOLLOWUP_WINDOW_SECS =>
+        {
+            if matches!(usage::has_followup_for(&conn, last.usage_id), Ok(false)) {
+                usage::record_miss(
+                    &conn,
+                    &miss(MemoryMissKind::Followup, Some(last.usage_id), last.query),
+                )
+            } else {
+                Ok(())
+            }
+        }
+        Ok(_) => usage::record_miss(&conn, &miss(MemoryMissKind::Skipped, None, None)),
+        Err(_) => Ok(()),
     };
 }
