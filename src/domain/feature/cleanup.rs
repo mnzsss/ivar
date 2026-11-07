@@ -228,6 +228,10 @@ pub struct CleanupFacts {
     pub repos: Vec<CleanupRepoFacts>,
     pub live_sessions: Vec<SessionId>,
     pub session_inspection_error: Option<String>,
+    /// The feature has a `memory.reviewed` or `memory.review_skipped`
+    /// observation. For a feature with no promoted repo this is the only
+    /// evidence of work, and it stands in for the repos' delivery.
+    pub memory_reviewed: bool,
 }
 impl CleanupFacts {
     #[must_use]
@@ -347,7 +351,10 @@ impl fmt::Display for CleanupBlocker {
             CleanupBlocker::RepoAbsentFromManifest { repo } => {
                 write!(f, "repo `{repo}` is no longer in ivar.json")
             }
-            CleanupBlocker::EmptyFeature => write!(f, "feature is empty"),
+            CleanupBlocker::EmptyFeature => write!(
+                f,
+                "feature has no promoted repo and no memory review; remove it with `ivar feature delete`"
+            ),
             CleanupBlocker::SessionInspectionFailed { error } => {
                 write!(f, "cannot check its sessions: {error}")
             }
@@ -385,7 +392,7 @@ pub fn classify_cleanup(facts: &CleanupFacts) -> CleanupVerdict {
         }
     }
 
-    if facts.repos.is_empty() {
+    if facts.repos.is_empty() && !facts.memory_reviewed {
         blockers.push(CleanupBlocker::EmptyFeature);
     }
 
