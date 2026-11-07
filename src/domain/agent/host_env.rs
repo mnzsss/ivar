@@ -28,7 +28,10 @@ pub fn host_env(
         .collect();
     env.extend(
         [
+            // Node reads TMPDIR, then TMP, then TEMP; other tools pick one of them.
             ("TMPDIR", tmpdir),
+            ("TMP", tmpdir),
+            ("TEMP", tmpdir),
             ("GIT_CONFIG_GLOBAL", "/dev/null"),
             ("GIT_CONFIG_NOSYSTEM", "1"),
             ("GIT_TERMINAL_PROMPT", "0"),
