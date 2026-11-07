@@ -704,3 +704,224 @@ fn the_human_output_says_so_when_there_is_nothing() {
     let text = String::from_utf8(out).unwrap();
     assert!(text.starts_with("0 recurring request candidate(s)"));
 }
+
+fn decision(layout: &Layout, sql: &str, texts: &[&str]) -> i64 {
+    let db = MemoryDb::open(layout.memory_db().as_std_path()).unwrap();
+    db.conn()
+        .execute(
+            &format!(
+                "INSERT INTO automation_decisions (kind, intent, form, artifact, until, created_at, updated_at)
+                 VALUES ({sql}, 'then', 'then')"
+            ),
+            [],
+        )
+        .unwrap();
+    let id = db.conn().last_insert_rowid();
+    for text in texts {
+        db.conn()
+            .execute(
+                "INSERT INTO automation_decision_texts (decision_id, normalized) VALUES (?1, ?2)",
+                params![id, text],
+            )
+            .unwrap();
+    }
+    id
+}
+
+fn recurring_changelog(layout: &Layout) {
+    plant(
+        layout,
+        &[
+            prompt("s1", 5, "update changelog entry"),
+            prompt("s2", 5, "update changelog entry"),
+            prompt("s3", 2, "update changelog entry typo"),
+        ],
+    );
+}
+
+#[test]
+fn a_group_matching_any_text_of_a_decline_is_suppressed_and_only_counted() {
+    let (_guard, layout) = hall();
+    plant(
+        &layout,
+        &[
+            prompt("s1", 5, "update changelog entry"),
+            prompt("s2", 5, "update changelog entry"),
+            prompt("s3", 2, "update changelog entry typo"),
+            prompt("o1", 5, "refresh the fixtures"),
+            prompt("o2", 5, "refresh the fixtures"),
+            prompt("o3", 1, "refresh the fixtures"),
+        ],
+    );
+    let id = decision(
+        &layout,
+        "'declined', 'changelog', NULL, NULL, NULL",
+        &["update changelog entry", "some text that left the window"],
+    );
+
+    let outcome = scanned(&layout);
+
+    let [candidate] = outcome.candidates.as_slice() else {
+        panic!("{outcome:?}");
+    };
+    assert_eq!(candidate.samples[0].text, "refresh the fixtures");
+    let [suppressed] = outcome.suppressed.as_slice() else {
+        panic!("{outcome:?}");
+    };
+    assert_eq!(
+        (
+            suppressed.decision_id,
+            suppressed.kind,
+            suppressed.intent.as_str(),
+            suppressed.groups
+        ),
+        (id, DecisionKind::Declined, "changelog", 1)
+    );
+    let json = serde_json::to_value(suppressed).unwrap();
+    assert_eq!(
+        json,
+        serde_json::json!({"decision_id": id, "kind": "declined", "intent": "changelog", "groups": 1})
+    );
+}
+
+#[test]
+fn an_overdue_deferral_no_longer_suppresses_even_before_the_sweep_deletes_it() {
+    let (_guard, layout) = hall();
+    recurring_changelog(&layout);
+    // NOW is 2027-01-15.
+    decision(
+        &layout,
+        "'deferred', 'a', NULL, NULL, '2027-01-14'",
+        &["update changelog entry"],
+    );
+
+    let outcome = scanned(&layout);
+
+    assert_eq!(outcome.candidates.len(), 1);
+    assert!(outcome.suppressed.is_empty());
+}
+
+#[test]
+fn a_deferral_due_today_still_suppresses() {
+    let (_guard, layout) = hall();
+    recurring_changelog(&layout);
+    decision(
+        &layout,
+        "'deferred', 'a', NULL, NULL, '2027-01-15'",
+        &["update changelog entry"],
+    );
+
+    let outcome = scanned(&layout);
+
+    assert!(outcome.candidates.is_empty());
+    assert_eq!(outcome.suppressed.len(), 1);
+}
+
+#[test]
+fn an_accepted_decision_hides_its_group_only_while_the_artifact_exists() {
+    let (_guard, layout) = hall();
+    recurring_changelog(&layout);
+    decision(
+        &layout,
+        "'accepted', 'changelog', 'script', '.ivar/scripts/changelog.sh', NULL",
+        &["update changelog entry typo"],
+    );
+
+    let missing = scanned(&layout);
+    assert_eq!(
+        missing.candidates.len(),
+        1,
+        "an artifact that is gone is ignored"
+    );
+
+    std::fs::create_dir_all(layout.root().join(".ivar/scripts").as_std_path()).unwrap();
+    std::fs::write(
+        layout
+            .root()
+            .join(".ivar/scripts/changelog.sh")
+            .as_std_path(),
+        "",
+    )
+    .unwrap();
+    let present = scanned(&layout);
+    assert!(present.candidates.is_empty());
+    assert!(
+        present.suppressed.is_empty(),
+        "an accepted group is not reported as suppressed"
+    );
+}
+
+#[test]
+fn a_decline_wins_over_an_accepted_decision_for_the_same_group() {
+    let (_guard, layout) = hall();
+    recurring_changelog(&layout);
+    std::fs::write(layout.root().join("a.sh").as_std_path(), "").unwrap();
+    decision(
+        &layout,
+        "'accepted', 'a', 'script', 'a.sh', NULL",
+        &["update changelog entry"],
+    );
+    let declined = decision(
+        &layout,
+        "'declined', 'b', NULL, NULL, NULL",
+        &["update changelog entry"],
+    );
+
+    let outcome = scanned(&layout);
+
+    assert_eq!(outcome.suppressed.len(), 1);
+    assert_eq!(outcome.suppressed[0].decision_id, declined);
+}
+
+#[test]
+fn the_feature_cut_counts_only_the_groups_it_keeps() {
+    let (_guard, layout) = hall();
+    create_feature(&layout, "checkout", None);
+    recurring_changelog(&layout);
+    decision(
+        &layout,
+        "'declined', 'a', NULL, NULL, NULL",
+        &["update changelog entry"],
+    );
+
+    let outcome = scan_with(&layout, Some("checkout"), false).value;
+
+    assert!(outcome.candidates.is_empty());
+    assert!(outcome.suppressed.is_empty());
+}
+
+#[test]
+fn a_scan_never_writes_the_decisions() {
+    let (_guard, layout) = hall();
+    recurring_changelog(&layout);
+    decision(
+        &layout,
+        "'deferred', 'a', NULL, NULL, '2027-01-01'",
+        &["update changelog entry"],
+    );
+    decision(
+        &layout,
+        "'declined', 'b', NULL, NULL, NULL",
+        &["no group has this text"],
+    );
+    let snapshot = |layout: &Layout| -> Vec<(i64, String, i64)> {
+        let db = MemoryDb::open(layout.memory_db().as_std_path()).unwrap();
+        let mut stmt = db
+            .conn()
+            .prepare(
+                "SELECT d.id, d.updated_at, (SELECT count(*) FROM automation_decision_texts t WHERE t.decision_id = d.id)
+                   FROM automation_decisions d ORDER BY d.id",
+            )
+            .unwrap();
+        stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect()
+    };
+    let before = snapshot(&layout);
+
+    scanned(&layout);
+
+    assert_eq!(snapshot(&layout), before);
+    assert_eq!(before.len(), 2);
+}

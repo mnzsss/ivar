@@ -33,6 +33,7 @@ use crate::action::graph::reconcile::HallFacts;
 use crate::action::session::base_view::{self, BaseView};
 use camino::{Utf8Path, Utf8PathBuf};
 
+mod automation;
 mod database;
 mod features;
 mod graph;
@@ -116,6 +117,7 @@ pub fn doctor(ctx: &Ctx) -> Outcome<DoctorOutcome> {
     findings.extend(memory::memory_capture_diagnoses(&layout, &manifest));
     findings.extend(pages::page_diagnoses(&layout, hall_is_git));
     findings.extend(scripts::script_diagnoses(&layout));
+    findings.extend(automation::automation_diagnoses(&layout));
     findings.extend(graph_diagnoses(&layout, &manifest, &git));
     findings.extend(diagnose_orphaned_runs(&layout)?);
     findings.extend(diagnose_orphan_worktrees(&layout, &manifest, &git));

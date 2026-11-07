@@ -544,6 +544,80 @@ fn an_older_database_gets_a_fingerprint_for_each_retained_user_prompt() {
 }
 
 #[test]
+fn schema_six_migrates_to_seven_with_the_decision_tables_and_keeps_its_rows() {
+    let (_dir, path) = temp_db();
+    crate::test_support::memory_db_at_schema_six(camino::Utf8Path::from_path(&path).unwrap());
+    Connection::open(&path)
+        .unwrap()
+        .execute(
+            "INSERT INTO request_fingerprints (observation_id, day, normalized, created_at)
+             VALUES (1, '2026-11-01', 'kept', '2026-11-01T00:00:00Z')",
+            [],
+        )
+        .unwrap();
+
+    let db = MemoryDb::open(&path).unwrap();
+
+    assert_eq!(db.schema_version().unwrap(), MEMORY_SCHEMA_VERSION);
+    let kept: i64 = db
+        .conn()
+        .query_row("SELECT count(*) FROM request_fingerprints", [], |r| {
+            r.get(0)
+        })
+        .unwrap();
+    assert_eq!(kept, 1);
+    db.conn()
+        .execute(
+            "INSERT INTO automation_decisions (kind, intent, until, created_at, updated_at)
+             VALUES ('deferred', 'changelog', '2026-12-01', 'now', 'now')",
+            [],
+        )
+        .unwrap();
+    db.conn()
+        .execute(
+            "INSERT INTO automation_decision_texts (decision_id, normalized) VALUES (1, 'a')",
+            [],
+        )
+        .unwrap();
+    drop(db);
+    assert_eq!(object_names(&path), memory_objects());
+    assert_eq!(pragma_i64(&path, "user_version"), MEMORY_SCHEMA_VERSION);
+
+    // A second open keeps the decisions.
+    let db = MemoryDb::open(&path).unwrap();
+    let decisions: i64 = db
+        .conn()
+        .query_row("SELECT count(*) FROM automation_decisions", [], |r| {
+            r.get(0)
+        })
+        .unwrap();
+    assert_eq!(decisions, 1);
+}
+
+#[test]
+fn the_decision_table_refuses_fields_that_do_not_belong_to_its_kind() {
+    let (_dir, path) = temp_db();
+    let db = MemoryDb::open(&path).unwrap();
+    let insert = |kind: &str, form: Option<&str>, artifact: Option<&str>, until: Option<&str>| {
+        db.conn().execute(
+            "INSERT INTO automation_decisions (kind, intent, form, artifact, until, created_at, updated_at)
+             VALUES (?1, 'x', ?2, ?3, ?4, 'now', 'now')",
+            rusqlite::params![kind, form, artifact, until],
+        )
+    };
+
+    assert!(insert("accepted", Some("script"), Some("a.sh"), None).is_ok());
+    assert!(insert("declined", None, None, None).is_ok());
+    assert!(insert("deferred", None, None, Some("2026-12-01")).is_ok());
+    assert!(insert("accepted", None, None, None).is_err());
+    assert!(insert("declined", Some("script"), None, None).is_err());
+    assert!(insert("declined", None, None, Some("2026-12-01")).is_err());
+    assert!(insert("deferred", None, None, None).is_err());
+    assert!(insert("accepted", Some("tool"), Some("a"), None).is_err());
+    assert!(insert("maybe", None, None, None).is_err());
+}
+
+#[test]
 fn a_current_database_opens_read_only_without_changing_a_byte() {
     let (_dir, path) = temp_db();
     drop(MemoryDb::open(&path).unwrap());

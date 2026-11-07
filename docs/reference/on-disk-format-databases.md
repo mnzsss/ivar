@@ -66,7 +66,7 @@ shared by every session, in WAL mode, with writers serialised on `.ivar/memory.l
 | --- | --- |
 | `PRAGMA application_id` | `0x69766d31` (`ivm1`) |
 | Schema version | the single row of `memory_schema(version)`, mirrored in `PRAGMA user_version` |
-| Current schema | 6 — `memory_schema`, `observations`, `pages`, `page_links`, `page_anchors`, `memory_usage`, `memory_misses`, `handoffs`, `messages`, `request_fingerprints`, search |
+| Current schema | 7 — `memory_schema`, `observations`, `pages`, `page_links`, `page_anchors`, `memory_usage`, `memory_misses`, `handoffs`, `messages`, `request_fingerprints`, `automation_decisions`, `automation_decision_texts`, search |
 
 ### Observations (schema 2)
 
@@ -191,6 +191,28 @@ prompt already in `observations`. The memory sweep deletes a fingerprint whose `
 than 90 days ago; observation retention does not change. `ivar memory clean` deletes the
 whole database. A scheduled agent run cannot reach the capture spool, so its prompts never
 become fingerprints.
+
+### Automation decisions (schema 7)
+
+Schema 7 adds what the human answered to a proposal to automate a recurring request (see
+[Automation decision](../glossary.md#health-and-state)). It is personal data, not a cache:
+no reindex rebuilds it and `ivar graph clean` never touches it.
+
+| Table or column | Meaning |
+| --- | --- |
+| `automation_decisions` | `id`, `kind` (`accepted`, `declined` or `deferred`), `intent`, `form`, `artifact`, `until`, `created_at`, `updated_at` (RFC 3339 UTC). Checks keep each field to its kind |
+| `form`, `artifact` | set only for `accepted`: `script`, `skill`, `agent` or `procedure`, and the automation's path relative to the hall |
+| `until` | set only for `deferred`: the last day, `YYYY-MM-DD`, the deferral holds |
+| `automation_decision_texts` | `decision_id` and `normalized`, one row per text the decision covers; primary key `(decision_id, normalized)`, index `automation_decision_texts_normalized`. Deleted with the decision |
+
+A group matches a decision when **any** of its normalized texts is in the decision's set. Only
+`ivar automation decide`, `renew` and `undo` write the tables; `ivar automation scan` reads
+them and never writes. The memory sweep maintains them: it adds to each `declined` and
+`deferred` decision the texts of the groups that currently match it, deletes a `declined`
+decision that no fingerprint of the 90-day window matches any more, and deletes a `deferred`
+decision the day after its `until`. An `accepted` decision never expires. One whose artifact no
+longer exists is ignored by matching, so its group is a candidate again, and `ivar doctor`
+reports it as `automation.artifact_missing`. `ivar memory clean` deletes the whole database.
 
 ### Moving a legacy graph
 

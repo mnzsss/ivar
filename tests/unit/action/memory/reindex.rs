@@ -417,3 +417,39 @@ fn the_human_report_names_the_anchored_pages() {
         "Indexed 2, unchanged 1, removed 0, anchored 3\n"
     );
 }
+
+#[test]
+fn a_full_rebuild_keeps_every_automation_decision() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root);
+    write_page(&layout, "docs/memory/gotcha/a.md", "# A\n");
+    refresh(&layout).unwrap();
+    {
+        let db = MemoryDb::open(layout.memory_db().as_std_path()).unwrap();
+        db.conn()
+            .execute(
+                "INSERT INTO automation_decisions (kind, intent, created_at, updated_at)
+                 VALUES ('declined', 'changelog', 'then', 'then')",
+                [],
+            )
+            .unwrap();
+        db.conn()
+            .execute(
+                "INSERT INTO automation_decision_texts (decision_id, normalized) VALUES (1, 'update changelog')",
+                [],
+            )
+            .unwrap();
+    }
+
+    rebuild(&layout).unwrap();
+    refresh(&layout).unwrap();
+
+    assert_eq!(
+        count(&layout, "SELECT count(*) FROM automation_decisions"),
+        1
+    );
+    assert_eq!(
+        count(&layout, "SELECT count(*) FROM automation_decision_texts"),
+        1
+    );
+}

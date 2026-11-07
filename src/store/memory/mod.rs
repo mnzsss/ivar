@@ -2,6 +2,7 @@
 //! moved the code graph out of that path into `.ivar/graph.db`.
 
 pub mod anchors;
+pub mod automation;
 pub mod conversations;
 pub mod coordination;
 pub mod db;

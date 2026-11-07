@@ -551,3 +551,217 @@ fn a_fingerprint_outlives_the_observation_it_came_from() {
     assert!(remaining(&layout).is_empty());
     assert_eq!(fingerprint_labels(&layout), ["kept"]);
 }
+
+fn plant_decision(layout: &Layout, kind: &str, until: Option<&str>, texts: &[&str]) -> i64 {
+    let db = MemoryDb::open(layout.memory_db().as_std_path()).unwrap();
+    let (form, artifact) = if kind == "accepted" {
+        (Some("script"), Some("gone.sh"))
+    } else {
+        (None, None)
+    };
+    db.conn()
+        .execute(
+            "INSERT INTO automation_decisions (kind, intent, form, artifact, until, created_at, updated_at)
+             VALUES (?1, 'intent', ?2, ?3, ?4, 'then', 'then')",
+            rusqlite::params![kind, form, artifact, until],
+        )
+        .unwrap();
+    let id = db.conn().last_insert_rowid();
+    for text in texts {
+        db.conn()
+            .execute(
+                "INSERT INTO automation_decision_texts (decision_id, normalized) VALUES (?1, ?2)",
+                rusqlite::params![id, text],
+            )
+            .unwrap();
+    }
+    id
+}
+
+fn decision_texts(layout: &Layout) -> Vec<(i64, Vec<String>)> {
+    let db = MemoryDb::open(layout.memory_db().as_std_path()).unwrap();
+    let mut stmt = db
+        .conn()
+        .prepare("SELECT id FROM automation_decisions ORDER BY id")
+        .unwrap();
+    let ids: Vec<i64> = stmt
+        .query_map([], |row| row.get(0))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect();
+    ids.into_iter()
+        .map(|id| {
+            let mut stmt = db
+                .conn()
+                .prepare("SELECT normalized FROM automation_decision_texts WHERE decision_id = ?1 ORDER BY normalized")
+                .unwrap();
+            let texts = stmt
+                .query_map([id], |row| row.get(0))
+                .unwrap()
+                .map(Result::unwrap)
+                .collect();
+            (id, texts)
+        })
+        .collect()
+}
+
+fn strings(texts: &[&str]) -> Vec<String> {
+    texts.iter().map(|text| (*text).to_owned()).collect()
+}
+
+#[test]
+fn a_decline_and_a_deferral_take_the_texts_of_the_groups_that_match_them() {
+    let (_guard, root) = crate::test_support::seeded_hall();
+    let layout = Layout::at(root);
+    plant(&layout, &[]);
+    plant_fingerprint(&layout, "update changelog entry", 5);
+    plant_fingerprint(&layout, "update changelog entry typo", 2);
+    plant_fingerprint(&layout, "rotate the signing keys", 5);
+    plant_fingerprint(&layout, "rotate the signing keys again", 1);
+    plant_fingerprint(&layout, "unrelated work item", 1);
+    let declined = plant_decision(&layout, "declined", None, &["update changelog entry"]);
+    // NOW is 2027-01-15.
+    let deferred = plant_decision(
+        &layout,
+        "deferred",
+        Some("2027-02-01"),
+        &["rotate the signing keys"],
+    );
+
+    let report = sweep(&layout, NOW).unwrap();
+
+    assert_eq!(
+        (report.decisions_extended, report.decisions_expired),
+        (2, 0)
+    );
+    assert_eq!(
+        decision_texts(&layout),
+        [
+            (
+                declined,
+                strings(&["update changelog entry", "update changelog entry typo"])
+            ),
+            (
+                deferred,
+                strings(&["rotate the signing keys", "rotate the signing keys again"])
+            ),
+        ]
+    );
+}
+
+#[test]
+fn a_decline_is_deleted_once_no_fingerprint_of_the_window_matches_it() {
+    let (_guard, root) = crate::test_support::seeded_hall();
+    let layout = Layout::at(root);
+    plant(&layout, &[]);
+    plant_fingerprint(&layout, "update changelog entry", 5);
+    plant_fingerprint(&layout, "old request long gone", 120);
+    let kept = plant_decision(&layout, "declined", None, &["update changelog entry"]);
+    plant_decision(
+        &layout,
+        "declined",
+        None,
+        &["something nobody types any more"],
+    );
+    plant_decision(&layout, "declined", None, &["old request long gone"]);
+
+    let report = sweep(&layout, NOW).unwrap();
+
+    assert_eq!(report.decisions_expired, 2);
+    assert_eq!(
+        decision_texts(&layout),
+        [(kept, strings(&["update changelog entry"]))]
+    );
+}
+
+#[test]
+fn a_decline_matched_through_any_one_text_stays() {
+    let (_guard, root) = crate::test_support::seeded_hall();
+    let layout = Layout::at(root);
+    plant(&layout, &[]);
+    plant_fingerprint(&layout, "second text", 1);
+    let id = plant_decision(&layout, "declined", None, &["first text", "second text"]);
+
+    let report = sweep(&layout, NOW).unwrap();
+
+    assert_eq!(report.decisions_expired, 0);
+    assert_eq!(decision_texts(&layout)[0].0, id);
+}
+
+#[test]
+fn a_deferral_is_deleted_after_its_date_and_kept_through_it() {
+    let (_guard, root) = crate::test_support::seeded_hall();
+    let layout = Layout::at(root);
+    plant(&layout, &[]);
+    plant_fingerprint(&layout, "update changelog entry", 1);
+    plant_decision(
+        &layout,
+        "deferred",
+        Some("2027-01-14"),
+        &["update changelog entry"],
+    );
+    let today = plant_decision(
+        &layout,
+        "deferred",
+        Some("2027-01-15"),
+        &["update changelog entry"],
+    );
+    // No fingerprint matches this one, which does not matter to a deferral.
+    let later = plant_decision(
+        &layout,
+        "deferred",
+        Some("2027-02-14"),
+        &["nothing matches this"],
+    );
+
+    let report = sweep(&layout, NOW).unwrap();
+
+    assert_eq!(report.decisions_expired, 1);
+    let kept: Vec<i64> = decision_texts(&layout)
+        .into_iter()
+        .map(|(id, _)| id)
+        .collect();
+    assert_eq!(kept, [today, later]);
+}
+
+#[test]
+fn an_accepted_decision_never_expires_and_never_grows() {
+    let (_guard, root) = crate::test_support::seeded_hall();
+    let layout = Layout::at(root);
+    plant(&layout, &[]);
+    plant_fingerprint(&layout, "update changelog entry", 1);
+    plant_fingerprint(&layout, "update changelog entry typo", 1);
+    let id = plant_decision(&layout, "accepted", None, &["update changelog entry"]);
+    let orphan = plant_decision(&layout, "accepted", None, &["nobody types this"]);
+
+    let report = sweep(&layout, NOW + 1000 * DAY).unwrap();
+
+    assert_eq!(
+        (report.decisions_expired, report.decisions_extended),
+        (0, 0)
+    );
+    assert_eq!(
+        decision_texts(&layout),
+        [
+            (id, strings(&["update changelog entry"])),
+            (orphan, strings(&["nobody types this"]))
+        ]
+    );
+}
+
+#[test]
+fn a_decline_whose_fingerprints_age_out_in_this_sweep_is_deleted_in_it() {
+    let (_guard, root) = crate::test_support::seeded_hall();
+    let layout = Layout::at(root);
+    plant(&layout, &[]);
+    plant_fingerprint(&layout, "update changelog entry", 91);
+    plant_decision(&layout, "declined", None, &["update changelog entry"]);
+
+    let report = sweep(&layout, NOW).unwrap();
+
+    assert_eq!(
+        (report.fingerprints_pruned, report.decisions_expired),
+        (1, 1)
+    );
+    assert!(decision_texts(&layout).is_empty());
+}

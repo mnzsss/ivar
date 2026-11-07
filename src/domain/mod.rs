@@ -10,6 +10,7 @@
 //! like. What does not: reading it, writing it, or shelling out about it.
 
 pub mod agent;
+pub mod automation;
 pub mod capability;
 pub mod coordination;
 pub mod delivery_event;
