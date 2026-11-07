@@ -30,6 +30,7 @@ pub mod observation;
 pub mod plan;
 pub mod plan_commands;
 pub mod provider;
+pub mod repetition;
 pub mod sanitize;
 pub mod script;
 pub mod session;

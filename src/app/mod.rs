@@ -2,6 +2,7 @@
 //! allowed to reach every other one.
 
 mod agent_dispatch;
+mod automation_dispatch;
 mod brief;
 mod capture;
 mod feature_dispatch;

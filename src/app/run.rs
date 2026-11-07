@@ -333,6 +333,13 @@ pub fn run(cli: Cli) -> ExitCode {
         Command::Agent(cmd) => {
             super::agent_dispatch::dispatch_agent(cmd, &ctx, json, &mut stdout, &mut stderr)
         }
+        Command::Automation(cmd) => super::automation_dispatch::dispatch_automation(
+            cmd,
+            &ctx,
+            json,
+            &mut stdout,
+            &mut stderr,
+        ),
         Command::Graph(cmd) => super::graph_dispatch::dispatch_graph(
             cmd,
             &ctx,

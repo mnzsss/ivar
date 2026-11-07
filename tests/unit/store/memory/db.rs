@@ -542,3 +542,98 @@ fn an_older_database_gets_a_fingerprint_for_each_retained_user_prompt() {
         .unwrap();
     assert_eq!(again, 2, "reopening does not backfill twice");
 }
+
+#[test]
+fn a_current_database_opens_read_only_without_changing_a_byte() {
+    let (_dir, path) = temp_db();
+    drop(MemoryDb::open(&path).unwrap());
+    let before = std::fs::read(&path).unwrap();
+
+    let ReadOnlyOpen::Current(conn) = open_current_read_only(&path).unwrap() else {
+        panic!("a freshly migrated database is current");
+    };
+    let rows: i64 = conn
+        .query_row("SELECT count(*) FROM request_fingerprints", [], |r| {
+            r.get(0)
+        })
+        .unwrap();
+    assert_eq!(rows, 0);
+    let write = conn.execute("DELETE FROM request_fingerprints", []);
+    assert!(write.is_err(), "the connection is read-only");
+    drop(conn);
+
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+}
+
+#[test]
+fn an_outdated_database_is_reported_and_not_migrated() {
+    let (_dir, path) = temp_db();
+    drop(MemoryDb::open(&path).unwrap());
+    Connection::open(&path)
+        .unwrap()
+        .execute_batch("UPDATE memory_schema SET version = 3;")
+        .unwrap();
+
+    let opened = open_current_read_only(&path).unwrap();
+
+    assert!(matches!(
+        opened,
+        ReadOnlyOpen::Outdated { found: 3, current } if current == MEMORY_SCHEMA_VERSION
+    ));
+    assert_eq!(pragma_i64(&path, "user_version"), MEMORY_SCHEMA_VERSION);
+    let stored: i64 = Connection::open(&path)
+        .unwrap()
+        .query_row("SELECT max(version) FROM memory_schema", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(stored, 3);
+}
+
+#[test]
+fn a_newer_database_and_a_foreign_one_are_errors() {
+    let (_dir, path) = temp_db();
+    drop(MemoryDb::open(&path).unwrap());
+    Connection::open(&path)
+        .unwrap()
+        .execute_batch("UPDATE memory_schema SET version = 99;")
+        .unwrap();
+    assert!(matches!(
+        open_current_read_only(&path),
+        Err(MemoryDbError::NewerSchema { found: 99, .. })
+    ));
+
+    let (_dir, foreign) = temp_db();
+    drop(GraphDb::open(&foreign).unwrap());
+    assert!(matches!(
+        open_current_read_only(&foreign),
+        Err(MemoryDbError::ForeignApplication { .. })
+    ));
+}
+
+#[test]
+fn an_immutable_uri_escapes_what_a_uri_cannot_carry() {
+    assert_eq!(
+        immutable_uri(std::path::Path::new("/tmp/a b/c?d#e%f/memory.db")),
+        "file:/tmp/a%20b/c%3Fd%23e%25f/memory.db?immutable=1"
+    );
+}
+
+#[test]
+fn a_database_in_an_unwritable_directory_is_read_through_an_immutable_open() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("with space").join("mem.sqlite");
+    std::fs::create_dir(path.parent().unwrap()).unwrap();
+    drop(MemoryDb::open(&path).unwrap());
+
+    let conn = open_for_reading(&path).unwrap();
+    drop(conn);
+
+    let immutable = Connection::open_with_flags(
+        immutable_uri(&path),
+        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_URI,
+    )
+    .unwrap();
+    let id: i32 = immutable
+        .query_row("PRAGMA application_id", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(id, APPLICATION_ID, "the escaped uri names the same file");
+}

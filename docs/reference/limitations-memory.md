@@ -58,6 +58,12 @@ the new rules apply to prompts captured from then on and to a migration's backfi
 observations still retained (the last 30 days), and every older fingerprint keeps the form
 it was written in. Until those age out, the same request can have two forms.
 
+`ivar automation scan` matches words, not meaning: two prompts that ask the same thing in
+different words are two requests, and a request typed outside an `ivar` session counts for
+no session. It sees only fingerprints already in `memory.db`, so with `--no-drain`, or when
+the drain fails, the newest prompts are missing. A fingerprint written in the older form
+(see above) can fail to join a newer one until it ages out.
+
 The same sweep marks handoffs and messages past `memory.handoff_ttl_days` as expired, and
 deletes accepted, popped, cancelled and expired rows 30 days after they ended. The read
 tools skip an expired row on their own, so a late sweep only delays the deletion.

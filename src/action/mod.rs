@@ -17,6 +17,7 @@
 //! which enforces this lexically over every file in this directory.
 
 pub mod agent;
+pub mod automation;
 pub mod batch;
 pub mod confirm;
 pub mod discovery;

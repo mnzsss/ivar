@@ -1,5 +1,6 @@
 //! Opening, inspecting and repairing `.ivar/memory.db`.
 
+use std::fmt::Write as _;
 use std::path::Path;
 use std::time::Duration;
 
@@ -76,6 +77,98 @@ pub fn open_coordination_read_only(path: &Path) -> rusqlite::Result<Option<Conne
     }
     let conn = open_read_only(path)?;
     Ok((stored_version(&conn)? >= COORDINATION_SCHEMA_VERSION).then_some(conn))
+}
+
+/// Opens `path` read-only and reads it once.
+///
+/// A reader of a WAL database needs its `-shm` file, and creates it when it is
+/// absent; in a directory that cannot be written it cannot, and the read fails.
+/// That is the one case this falls back to an `immutable` open, which takes no
+/// lock and creates no file. It is only safe while nothing is in the `-wal`
+/// file, since an immutable open never reads it, so a database with
+/// uncommitted-to-file writes keeps the first error.
+fn open_for_reading(path: &Path) -> rusqlite::Result<Connection> {
+    let first = match open_read_only(path).and_then(|conn| application_id(&conn).map(|_| conn)) {
+        Ok(conn) => return Ok(conn),
+        Err(error) => error,
+    };
+    let mut wal = path.as_os_str().to_owned();
+    wal.push("-wal");
+    let wal_has_content = std::fs::metadata(&wal).is_ok_and(|meta| meta.len() > 0);
+    if wal_has_content {
+        return Err(first);
+    }
+    Connection::open_with_flags(
+        immutable_uri(path),
+        OpenFlags::SQLITE_OPEN_READ_ONLY
+            | OpenFlags::SQLITE_OPEN_URI
+            | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )
+    .map_err(|_| first)
+}
+
+/// `file:<path>?immutable=1`, with every byte a URI cannot carry as is
+/// percent-encoded.
+fn immutable_uri(path: &Path) -> String {
+    use std::os::unix::ffi::OsStrExt as _;
+    let mut uri = String::from("file:");
+    for &byte in path.as_os_str().as_bytes() {
+        if byte.is_ascii_alphanumeric() || b"/-_.~".contains(&byte) {
+            uri.push(char::from(byte));
+        } else {
+            let _ = write!(uri, "%{byte:02X}");
+        }
+    }
+    uri.push_str("?immutable=1");
+    uri
+}
+
+/// What [`open_current_read_only`] found.
+#[derive(Debug)]
+pub enum ReadOnlyOpen {
+    /// The schema is the one this binary writes; the connection is read-only.
+    Current(Connection),
+    /// The file was written by an older ivar and has not been migrated. A read
+    /// never migrates it.
+    Outdated {
+        /// Schema version stored in the file.
+        found: i64,
+        /// The version a migrated file has.
+        current: i64,
+    },
+}
+
+/// Opens an existing `memory.db` read-only, only when its schema is current.
+/// Never creates, migrates or otherwise writes the file, so it works where
+/// `.ivar/` is not writable.
+///
+/// # Errors
+///
+/// [`MemoryDbError::ForeignApplication`] when the file is not a memory
+/// database, [`MemoryDbError::NewerSchema`] when a newer ivar wrote it, and
+/// [`MemoryDbError::Sqlite`] when the file is missing or `SQLite` fails.
+pub fn open_current_read_only(path: &Path) -> Result<ReadOnlyOpen, MemoryDbError> {
+    let conn = open_for_reading(path)?;
+    let application_id = application_id(&conn)?;
+    if application_id != APPLICATION_ID {
+        return Err(MemoryDbError::ForeignApplication {
+            found: application_id,
+        });
+    }
+    let found = stored_version(&conn)?;
+    if found > MEMORY_SCHEMA_VERSION {
+        return Err(MemoryDbError::NewerSchema {
+            found,
+            supported: MEMORY_SCHEMA_VERSION,
+        });
+    }
+    if found < MEMORY_SCHEMA_VERSION {
+        return Ok(ReadOnlyOpen::Outdated {
+            found,
+            current: MEMORY_SCHEMA_VERSION,
+        });
+    }
+    Ok(ReadOnlyOpen::Current(conn))
 }
 
 impl MemoryDb {

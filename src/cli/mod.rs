@@ -14,6 +14,7 @@
 //! a no-op. See docs/architecture/seams.md, seam 8.
 
 pub mod agent;
+pub mod automation;
 pub mod feedback;
 pub mod graph;
 pub mod memory;
