@@ -7,6 +7,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.19.0](https://github.com/mnzsss/ivar/compare/v0.18.0...v0.19.0) - 2026-11-07
+
+### Added
+
+- flag dead ivar:product-docs and ivar:updates regions in doctor ([#266](https://github.com/mnzsss/ivar/pull/266))
+- export TMP and TEMP in host agent runs ([#262](https://github.com/mnzsss/ivar/pull/262))
+- add script execution approvals ([#257](https://github.com/mnzsss/ivar/pull/257))
+- *(automation)* report existing automations with state and retirable mark ([#259](https://github.com/mnzsss/ivar/pull/259))
+- record automation decisions and suppress declined candidates ([#258](https://github.com/mnzsss/ivar/pull/258))
+- add ivar automation scan for recurring requests ([#256](https://github.com/mnzsss/ivar/pull/256))
+- add hall scripts folders and list them in the brief ([#254](https://github.com/mnzsss/ivar/pull/254))
+- record request fingerprints in memory.db ([#253](https://github.com/mnzsss/ivar/pull/253))
+- add one-shot Agent Tasks with at: ([#255](https://github.com/mnzsss/ivar/pull/255))
+- record BLOCKED/FAILED declared by agent run output ([#247](https://github.com/mnzsss/ivar/pull/247))
+- add memory handoffs and messages ([#238](https://github.com/mnzsss/ivar/pull/238))
+- require a memory review before delivery ([#237](https://github.com/mnzsss/ivar/pull/237))
+- link hall memory to the code graph ([#234](https://github.com/mnzsss/ivar/pull/234))
+- *(agent)* pass a literal env to host agents and warn on /proc writes ([#233](https://github.com/mnzsss/ivar/pull/233))
+- *(agent)* let host agents write to listed paths ([#232](https://github.com/mnzsss/ivar/pull/232))
+- consolidate conversations into session memory pages ([#231](https://github.com/mnzsss/ivar/pull/231))
+- send telegram run notifications as an html card ([#229](https://github.com/mnzsss/ivar/pull/229))
+- serve memory over the ivar MCP server ([#230](https://github.com/mnzsss/ivar/pull/230))
+- notify agent runs on telegram ([#228](https://github.com/mnzsss/ivar/pull/228))
+- index memory pages and query them ([#227](https://github.com/mnzsss/ivar/pull/227))
+- record delivery events and sweep expired session memory ([#226](https://github.com/mnzsss/ivar/pull/226))
+- authenticate slack mcp through claude code's partner app ([#225](https://github.com/mnzsss/ivar/pull/225))
+- pull a stale default branch before reading it ([#224](https://github.com/mnzsss/ivar/pull/224))
+- capture session events into hall memory ([#223](https://github.com/mnzsss/ivar/pull/223))
+- add global -C <dir> option to run from another directory ([#220](https://github.com/mnzsss/ivar/pull/220))
+- split the hall graph and memory databases ([#222](https://github.com/mnzsss/ivar/pull/222))
+
+### Changed
+
+- prefilter edge ids in graph callers query ([#217](https://github.com/mnzsss/ivar/pull/217))
+
+### Fixed
+
+- record oauth requirement after mcp auth succeeds ([#265](https://github.com/mnzsss/ivar/pull/265))
+- allow cleanup of reviewed hall-only features ([#264](https://github.com/mnzsss/ivar/pull/264))
+- count memory_usage queries in analysis_without_query gap ([#263](https://github.com/mnzsss/ivar/pull/263))
+- remove read-only worktrees and report unregistered checkouts ([#252](https://github.com/mnzsss/ivar/pull/252))
+- skip empty legacy docs dirs and make doctor mv safe ([#251](https://github.com/mnzsss/ivar/pull/251))
+- read handoff queues from a pre-schema-5 memory.db ([#239](https://github.com/mnzsss/ivar/pull/239))
+- use unix commands in hall hints when hall is not git ([#236](https://github.com/mnzsss/ivar/pull/236))
+- accept wave 0 in execute checkpoint and validate against plan ([#221](https://github.com/mnzsss/ivar/pull/221))
+
 ## [0.18.0](https://github.com/mnzsss/ivar/compare/v0.17.2...v0.18.0) - 2026-10-29
 
 ### Added
