@@ -6,6 +6,11 @@ scaffolds in `plan.md`:
 - **Entities** — domain model, delta only
 - **Approach** — the chosen design, and what was rejected
 - **Structure** — file/module organization
+- **Interfaces** — the signatures each packet produces or consumes, as a table
+  (`| Signature | Produced by | Consumed by |`, task numbers in the last two
+  columns). Locked before any packet is delegated; every consumer must also
+  wait for its producer in the wave tables' `Blocked by`
+  (`ivar plan lint` refuses a missing dependency).
 - **Changes** — implementation organized into sequential waves (`### Wave N — <outcome>`)
   with point budget (`**Budget:** 0 / 8 points`, ceiling 8 per wave), prerequisites, a
   task table (`| Task | Points | Blocked by | Outcome |`), and exit criteria.
@@ -53,6 +58,12 @@ The chosen design, and what was rejected.
 ## Structure
 
 File and module organization.
+
+## Interfaces
+
+| Signature | Produced by | Consumed by |
+| --- | --- | --- |
+| `fn exact_name(arg: Type) -> Type` | 1 | 2 |
 
 ## Changes
 

@@ -31,7 +31,7 @@ session re-derives where the feature is — the gates remain the source of truth
 `plan.md` is written as a **REASONS canvas** — Entities, Approach, Structure, Changes, Verification, Norms, Safeguards. The design sections *reference* the
 standing sources rather than restating them, and record only this feature's
 delta. Its `## Changes` section organizes the implementation into sequential waves
-with a point budget (ceiling 8 points per wave). Each task in a wave is written as an explicit task packet under `.ivar/features/<feature>/tasks/NN-<semantic-name>.md` (or `../../tasks/` from within a session) following a Test-Driven Red → Green → Refactor structure. Before the plan gate is approved, a plan-document reviewer subagent evaluates `plan.md` and all task packets for completeness, spec alignment against `requirements.md`, task decomposition, and buildability.
+with a point budget (ceiling 8 points per wave). Each task in a wave is written as an explicit task packet under `.ivar/features/<feature>/tasks/NN-<semantic-name>.md` (or `../../tasks/` from within a session) following a Test-Driven Red → Green → Refactor structure. `ivar plan lint <feature>` checks the packets mechanically first (placeholders, Readers with no `git grep` output, `Create:`/`Modify:` against the repo, a consumer missing its producer in `Blocked by`) and exits `1` while any problem remains. Before the plan gate is approved, a plan-document reviewer subagent evaluates `plan.md` and all task packets for completeness, spec alignment against `requirements.md`, task decomposition, and buildability.
 
 Read them back with `ivar plan show checkout requirements`, and see how far along
 every feature is with `ivar plan list`.

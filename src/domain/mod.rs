@@ -31,6 +31,7 @@ pub mod name;
 pub mod observation;
 pub mod plan;
 pub mod plan_commands;
+pub mod plan_lint;
 pub mod provider;
 pub mod repetition;
 pub mod sanitize;

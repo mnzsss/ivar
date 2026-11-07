@@ -59,3 +59,12 @@ Show approval gate status for a plan file. Omits a gate that has no artifact and
 | --- | --- | --- |
 | `target` | no | The feature, or a path to a file under its feature directory (e.g. its plan.md) |
 
+
+## `ivar plan lint`
+
+Check a feature's task packets (`tasks/*.md`) mechanically before the plan review: placeholders, Readers without `git grep` output, a `**Sketch:**` with no reason, `Modify:` of a missing file, `Create:` of an existing one, a new test in a file at or above the 20,000-byte hook limit, and a consumer that does not wait for the producer of an interface it uses. Exits `0` when the packets are clean and `1` when any problem is found, one warning with its own code per problem
+
+| argument | required | description |
+| --- | --- | --- |
+| `feature` | no | The feature whose task packets to check |
+
