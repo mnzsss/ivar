@@ -35,6 +35,7 @@ pub mod provider;
 pub mod repetition;
 pub mod sanitize;
 pub mod script;
+pub mod script_approval;
 pub mod session;
 pub mod skill;
 pub mod skill_sync;

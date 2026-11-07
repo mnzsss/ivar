@@ -711,3 +711,72 @@ fn a_database_in_an_unwritable_directory_is_read_through_an_immutable_open() {
         .unwrap();
     assert_eq!(id, APPLICATION_ID, "the escaped uri names the same file");
 }
+
+#[test]
+fn schema_seven_migrates_to_eight_with_script_approvals_and_keeps_its_rows() {
+    let (_dir, path) = temp_db();
+    crate::test_support::memory_db_at_schema_seven(camino::Utf8Path::from_path(&path).unwrap());
+    Connection::open(&path)
+        .unwrap()
+        .execute(
+            "INSERT INTO automation_decisions (kind, intent, until, created_at, updated_at)
+             VALUES ('deferred', 'changelog', '2026-12-01', 'now', 'now')",
+            [],
+        )
+        .unwrap();
+
+    let db = MemoryDb::open(&path).unwrap();
+
+    assert_eq!(db.schema_version().unwrap(), MEMORY_SCHEMA_VERSION);
+    assert_eq!(MEMORY_SCHEMA_VERSION, 8);
+    let kept: i64 = db
+        .conn()
+        .query_row("SELECT count(*) FROM automation_decisions", [], |r| {
+            r.get(0)
+        })
+        .unwrap();
+    assert_eq!(kept, 1);
+    db.conn()
+        .execute(
+            "INSERT INTO script_approvals (path, sha256, approved_at) VALUES ('.ivar/scripts/a.sh', 'abc', '2026-11-06T00:00:00Z')",
+            [],
+        )
+        .unwrap();
+    let duplicate = db.conn().execute(
+        "INSERT INTO script_approvals (path, sha256, approved_at) VALUES ('.ivar/scripts/a.sh', 'def', 't')",
+        [],
+    );
+    assert!(duplicate.is_err(), "path is the primary key");
+    drop(db);
+    assert_eq!(object_names(&path), memory_objects());
+    assert_eq!(pragma_i64(&path, "user_version"), MEMORY_SCHEMA_VERSION);
+
+    let reopened = MemoryDb::open(&path).unwrap();
+    let hash: String = reopened
+        .conn()
+        .query_row(
+            "SELECT sha256 FROM script_approvals WHERE path = '.ivar/scripts/a.sh'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(hash, "abc", "reopening keeps the approval");
+}
+
+#[test]
+fn approvals_are_not_readable_from_a_database_that_predates_them() {
+    let (_dir, path) = temp_db();
+    crate::test_support::memory_db_at_schema_seven(camino::Utf8Path::from_path(&path).unwrap());
+
+    assert!(open_approvals_read_only(&path).unwrap().is_none());
+    assert!(
+        open_approvals_read_only(&path.with_extension("none"))
+            .unwrap()
+            .is_none()
+    );
+    let version: i64 = Connection::open(&path)
+        .unwrap()
+        .query_row("SELECT version FROM memory_schema", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(version, 7, "a read never migrates");
+}

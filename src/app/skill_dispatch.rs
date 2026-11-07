@@ -6,7 +6,9 @@ use camino::Utf8PathBuf;
 use super::respond::{respond, respond_failure};
 use crate::action::Ctx;
 use crate::action::feedback as feedback_action;
-use crate::action::script::list as script_list;
+use crate::action::script::{
+    approve as script_approve, check as script_check, list as script_list,
+};
 use crate::action::skill::{
     add as skill_add, create as skill_create, detach as skill_detach, doctor as skill_doctor,
     list as skill_list, remove as skill_remove, status as skill_status, sync as skill_sync,
@@ -15,6 +17,10 @@ use crate::action::skill::{
 use crate::cli::FeedbackCommand;
 use crate::cli::root::{ScriptCommand, SkillCommand};
 use crate::infra::term;
+
+/// The exit code of `ivar script check` for an unreviewed script: apart from
+/// 1 (warnings) and 2 (a failure) so a caller can tell "ask first" from "broke".
+const UNREVIEWED_EXIT: u8 = 3;
 
 pub(super) fn dispatch_script(
     cmd: &ScriptCommand,
@@ -25,6 +31,22 @@ pub(super) fn dispatch_script(
 ) -> ExitCode {
     match cmd {
         ScriptCommand::List => respond(script_list::list(ctx), json, stdout, stderr),
+        ScriptCommand::Approve(args) => respond(
+            script_approve::approve(ctx, &args.path),
+            json,
+            stdout,
+            stderr,
+        ),
+        ScriptCommand::Check(args) => {
+            let result = script_check::check(ctx, &args.path);
+            let unreviewed = matches!(&result, Ok(report) if !report.value.is_approved());
+            let code = respond(result, json, stdout, stderr);
+            if unreviewed {
+                ExitCode::from(UNREVIEWED_EXIT)
+            } else {
+                code
+            }
+        }
     }
 }
 

@@ -8,7 +8,7 @@ use super::fingerprints;
 pub const APPLICATION_ID: i32 = 0x6976_6d31;
 
 /// The memory schema this binary migrates to.
-pub const MEMORY_SCHEMA_VERSION: i64 = 7;
+pub const MEMORY_SCHEMA_VERSION: i64 = 8;
 
 /// Every schema object a memory database up to [`MEMORY_SCHEMA_VERSION`]
 /// owns. Anything else in the file was put there by another program.
@@ -64,6 +64,7 @@ pub(crate) const MEMORY_OBJECTS: &[&str] = &[
     "automation_decisions",
     "automation_decision_texts",
     "automation_decision_texts_normalized",
+    "script_approvals",
 ];
 
 pub(crate) const OBSERVATIONS_TABLE: &str = "observations";
@@ -278,6 +279,17 @@ CREATE TABLE automation_decision_texts (
 CREATE INDEX automation_decision_texts_normalized ON automation_decision_texts (normalized);
 ";
 
+// Personal data, written only by `ivar script approve`: no reindex, sweep or
+// rebuild touches it. `path` is hall-relative; only the hash is stored, never
+// the script's content.
+pub(crate) const MIGRATION_V8: &str = "
+CREATE TABLE script_approvals (
+    path        TEXT PRIMARY KEY,
+    sha256      TEXT NOT NULL,
+    approved_at TEXT NOT NULL
+);
+";
+
 pub(crate) fn migrate(tx: &Transaction<'_>, from: i64) -> rusqlite::Result<()> {
     if from < 1 {
         tx.execute_batch(MIGRATION_V1)?;
@@ -300,6 +312,9 @@ pub(crate) fn migrate(tx: &Transaction<'_>, from: i64) -> rusqlite::Result<()> {
     }
     if from < 7 {
         tx.execute_batch(MIGRATION_V7)?;
+    }
+    if from < 8 {
+        tx.execute_batch(MIGRATION_V8)?;
     }
     tx.execute(
         "UPDATE memory_schema SET version = ?1",

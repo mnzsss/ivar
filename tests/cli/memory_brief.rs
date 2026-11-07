@@ -86,7 +86,7 @@ fn scripts_are_announced_as_untrusted_data_with_the_fixed_lines_first() {
     let lines: Vec<&str> = out.lines().collect();
     assert!(lines[0].contains("untrusted data"), "{out}");
     assert_eq!(&lines[1..5], &FIXED_LINES, "{out}");
-    assert_eq!(lines[5], "deploy (team): Deploy to staging");
+    assert_eq!(lines[5], "deploy (team): Deploy to staging [unreviewed]");
     assert_eq!(lines.len(), 6, "{out}");
 }
 
@@ -107,11 +107,11 @@ fn personal_scripts_come_first_then_team_alphabetical_and_duplicates_show_twice(
     assert_eq!(
         entries,
         [
-            "mid (personal): personal mid",
-            "shared (personal): personal shared",
-            "alpha (team): team alpha",
-            "shared (team): team shared",
-            "zeta (team): team zeta",
+            "mid (personal): personal mid [unreviewed]",
+            "shared (personal): personal shared [unreviewed]",
+            "alpha (team): team alpha [unreviewed]",
+            "shared (team): team shared [unreviewed]",
+            "zeta (team): team zeta [unreviewed]",
         ]
     );
 }
@@ -126,7 +126,10 @@ fn at_most_twenty_scripts_are_listed_then_the_remainder_is_counted() {
 
     let listed = out.lines().filter(|l| l.contains(" (team): ")).count();
     assert_eq!(listed, 20, "{out}");
-    assert!(out.contains("s19 (team): team script"), "{out}");
+    assert!(
+        out.contains("s19 (team): team script [unreviewed]"),
+        "{out}"
+    );
     assert!(!out.contains("s20 (team)"), "{out}");
     assert_eq!(out.lines().last().unwrap(), "+3: ivar script list");
 
@@ -225,5 +228,41 @@ fn the_brief_p95_stays_inside_one_hundred_milliseconds_with_a_thousand_handoffs(
         samples[37] < Duration::from_millis(100),
         "p95 {:?}",
         samples[37]
+    );
+}
+
+#[test]
+fn only_scripts_without_a_current_approval_are_marked_unreviewed() {
+    let (_guard, root) = init_hall();
+    described(&root, "scripts", "approved.sh", "Approved one");
+    described(&root, "scripts", "edited.sh", "Edited after approval");
+    described(&root, "scripts-local", "fresh.sh", "Never approved");
+    for path in [".ivar/scripts/approved.sh", ".ivar/scripts/edited.sh"] {
+        ivar()
+            .current_dir(&root)
+            .args(["script", "approve", path])
+            .assert()
+            .success();
+    }
+    script(
+        &root,
+        "scripts",
+        "edited.sh",
+        "#!/usr/bin/env bash\n# description: Edited after approval\n# usage: edited.sh\necho changed\n",
+    );
+
+    let (out, _) = brief(&root);
+
+    let entries: Vec<&str> = out
+        .lines()
+        .filter(|line| line.contains(" (personal): ") || line.contains(" (team): "))
+        .collect();
+    assert_eq!(
+        entries,
+        [
+            "fresh (personal): Never approved [unreviewed]",
+            "approved (team): Approved one",
+            "edited (team): Edited after approval [unreviewed]",
+        ]
     );
 }

@@ -147,6 +147,23 @@ pub(super) fn redact_secrets(text: &str) -> String {
         })
 }
 
+/// Every place a built-in pattern matches in `text`, as 1-based start lines
+/// and pattern names, sorted by line. Never returns the matched text.
+pub(super) fn find_secrets(text: &str) -> Vec<(usize, &'static str)> {
+    let mut found = Vec::new();
+    for (re, label) in &COMPILED.each {
+        for hit in re.find_iter(text) {
+            let line = 1 + text
+                .get(..hit.start())
+                .map_or(0, |head| head.matches('\n').count());
+            found.push((line, *label));
+        }
+    }
+    found.sort_unstable();
+    found.dedup();
+    found
+}
+
 pub(super) fn contains_secret(text: &str) -> bool {
     COMPILED
         .set

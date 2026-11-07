@@ -20,7 +20,7 @@ fn a_fresh_hall_has_no_scripts() {
 }
 
 #[test]
-fn valid_scripts_list_with_scope_header_fields_and_unknown_approval() {
+fn valid_scripts_list_with_scope_header_fields_and_unreviewed_approval() {
     let (_guard, root) = seeded_hall();
     let layout = Layout::at(root.clone());
     put(
@@ -52,7 +52,7 @@ fn valid_scripts_list_with_scope_header_fields_and_unknown_approval() {
     let deploy = value.scripts.get(1).unwrap();
     assert_eq!(deploy.path, ".ivar/scripts/deploy.sh");
     assert_eq!(deploy.env, ["TOKEN", "URL"]);
-    assert!(value.scripts.iter().all(|s| s.approval == "unknown"));
+    assert!(value.scripts.iter().all(|s| s.approval == "unreviewed"));
     assert_eq!(value.invalid.len(), 1);
     assert_eq!(
         value.invalid.first().unwrap().code,
@@ -77,7 +77,7 @@ fn the_human_surface_names_valid_and_invalid_scripts() {
     let text = String::from_utf8(out).unwrap();
     assert!(text.contains("deploy"), "{text}");
     assert!(text.contains("team"), "{text}");
-    assert!(text.contains("unknown"), "{text}");
+    assert!(text.contains("unreviewed"), "{text}");
     assert!(text.contains(".ivar/scripts/notes.txt"), "{text}");
 }
 
@@ -94,5 +94,46 @@ fn listing_never_touches_the_scripts() {
     assert_eq!(
         std::fs::metadata(&path).unwrap().modified().unwrap(),
         before
+    );
+}
+
+#[test]
+fn approval_follows_the_recorded_hash_and_goes_back_to_unreviewed_when_the_file_changes() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root.clone());
+    let header = "# description: d\n# usage: u\n";
+    put(&layout.hall_scripts(), "a.sh", header);
+    put(&layout.hall_scripts(), "b.sh", header);
+    crate::action::script::approve::approve(
+        &Ctx::new(root.clone()),
+        &camino::Utf8PathBuf::from(".ivar/scripts/a.sh"),
+    )
+    .unwrap();
+
+    let approvals = |root: &camino::Utf8PathBuf| -> Vec<(String, &'static str)> {
+        list(&Ctx::new(root.clone()))
+            .unwrap()
+            .value
+            .scripts
+            .into_iter()
+            .map(|s| (s.name, s.approval))
+            .collect()
+    };
+    assert_eq!(
+        approvals(&root),
+        [("a".to_owned(), "approved"), ("b".to_owned(), "unreviewed")]
+    );
+
+    put(
+        &layout.hall_scripts(),
+        "a.sh",
+        &format!("{header}echo more\n"),
+    );
+    assert_eq!(
+        approvals(&root),
+        [
+            ("a".to_owned(), "unreviewed"),
+            ("b".to_owned(), "unreviewed")
+        ]
     );
 }

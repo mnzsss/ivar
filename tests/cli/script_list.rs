@@ -27,7 +27,7 @@ fn json(root: &camino::Utf8Path, args: &[&str]) -> serde_json::Value {
 }
 
 #[test]
-fn script_list_json_lists_both_folders_with_unknown_approval() {
+fn script_list_json_lists_both_folders_with_unreviewed_approval() {
     let (_guard, root) = hall_root();
     ivar().current_dir(&root).arg("init").assert().success();
     put(
@@ -57,7 +57,7 @@ fn script_list_json_lists_both_folders_with_unknown_approval() {
     assert_eq!(scripts[1]["description"], "Deploy.");
     assert_eq!(scripts[1]["usage"], "deploy.sh <env>");
     assert_eq!(scripts[1]["env"], serde_json::json!(["TOKEN", "URL"]));
-    assert!(scripts.iter().all(|s| s["approval"] == "unknown"));
+    assert!(scripts.iter().all(|s| s["approval"] == "unreviewed"));
     assert_eq!(value["invalid"].as_array().unwrap().len(), 1);
 }
 

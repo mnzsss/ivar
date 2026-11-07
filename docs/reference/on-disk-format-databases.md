@@ -66,7 +66,7 @@ shared by every session, in WAL mode, with writers serialised on `.ivar/memory.l
 | --- | --- |
 | `PRAGMA application_id` | `0x69766d31` (`ivm1`) |
 | Schema version | the single row of `memory_schema(version)`, mirrored in `PRAGMA user_version` |
-| Current schema | 7 — `memory_schema`, `observations`, `pages`, `page_links`, `page_anchors`, `memory_usage`, `memory_misses`, `handoffs`, `messages`, `request_fingerprints`, `automation_decisions`, `automation_decision_texts`, search |
+| Current schema | 8 — `memory_schema`, `observations`, `pages`, `page_links`, `page_anchors`, `memory_usage`, `memory_misses`, `handoffs`, `messages`, `request_fingerprints`, `automation_decisions`, `automation_decision_texts`, `script_approvals`, search |
 
 ### Observations (schema 2)
 
@@ -213,6 +213,26 @@ decision that no fingerprint of the 90-day window matches any more, and deletes 
 decision the day after its `until`. An `accepted` decision never expires. One whose artifact no
 longer exists is ignored by matching, so its group is a candidate again, and `ivar doctor`
 reports it as `automation.artifact_missing`. `ivar memory clean` deletes the whole database.
+
+### Script approvals (schema 8)
+
+Schema 8 adds `script_approvals`, the content hashes a human approved for scripts with
+`ivar script approve`. It is personal data: `memory.db` is local to the machine, and only the
+binary writes the table. It is not a cache, so no reindex, sweep or rebuild touches it.
+
+| Table or column | Meaning |
+| --- | --- |
+| `script_approvals` | `path` (primary key), `sha256`, `approved_at` |
+| `path` | the script's path relative to the hall root, `/`-separated, e.g. `.ivar/scripts/deploy.sh` |
+| `sha256` | lowercase hex SHA-256 of the file's bytes when it was approved. The content is never stored |
+| `approved_at` | RFC 3339 time of the approval |
+
+Approving a path again replaces its row, so a path has at most one approval. A script is
+**approved** while its current SHA-256 equals the row's and **unreviewed** otherwise. Reading
+approvals (`ivar script check`, `ivar script list`, the session brief) never creates or
+migrates the file: a missing or older `memory.db` means nothing is approved.
+`ivar memory clean` deletes the whole database, approvals included, and every script is
+unreviewed afterwards.
 
 ### Moving a legacy graph
 
