@@ -161,6 +161,21 @@ pub fn session_has_activity(conn: &Connection, session: &str) -> rusqlite::Resul
     )
 }
 
+/// The bodies of the `session.tool` observations of one session (matched on
+/// `session_id`), oldest first. Read-only.
+///
+/// # Errors
+///
+/// Returns the `SQLite` error when the query fails.
+pub fn session_tool_bodies(conn: &Connection, session: &str) -> rusqlite::Result<Vec<String>> {
+    conn.prepare_cached(
+        "SELECT body FROM observations
+          WHERE session_id = ?1 AND source_event = 'session.tool' ORDER BY id",
+    )?
+    .query_map([session], |row| row.get(0))?
+    .collect()
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FeatureObservation {
     pub id: i64,

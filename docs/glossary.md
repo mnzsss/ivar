@@ -370,10 +370,37 @@ deletes it once no request fingerprint of the last 90 days matches any of its te
 a date. `--until` gives it as `YYYY-MM-DD`, 30 days from now by default. It holds through that
 day, and the sweep deletes it the day after.
 
-**Feature cut** — `ivar automation scan --feature <name>`: the scan keeps only the groups with
-at least one fingerprint in a session of that feature or of one of its descendants, resolved the
-way `ivar memory review` resolves a feature's observations. A kept group is reported whole, with
-its sessions outside the feature too.
+**Existing automation** — an `accepted` **Automation decision** whose artifact still exists, as
+`ivar automation scan` reports it under `existing_automations`: intent, form, artifact, scope
+(`personal` when the artifact is in `.ivar/scripts-local/` or `.ivar/skills-local/`, `team`
+otherwise), **Automation state**, **Retirable** mark, and the ids of the sessions with and
+without use. A decision whose artifact is gone is not one: its group is a candidate again. All of it is derived from the request fingerprints and
+the tool observations in `memory.db`; nothing is stored. A session of the last 30 days whose
+request matches the decision *uses* the artifact when one of its `session.tool` observations
+cites it in the tool's input: a script or procedure by its hall-relative path, a skill or agent by
+its name (the file stem). Reading the file counts only for a procedure, which is followed by
+reading it. The human output lists the unused and the retirable ones after the candidates.
+
+**Automation state** — the one state of an **Existing automation**: `in use` (at least one use
+in the last 30 days), `unused` (a matching request in the last 30 days and no use) or
+`no requests` (no matching request in the last 30 days).
+
+**Retirable** — the mark on an **Existing automation** whose form is `script`, `skill` or
+`procedure` and that nothing asked for in 90 days: the decision was made (or last renewed) at
+least 90 days ago and no request fingerprint of those 90 days matches it. `unused` alone never
+makes it retirable, and an `agent` never is. `ivar automation renew` clears the mark for another
+90 days. A feature cut hides it, since it has no fingerprint to keep.
+
+**Retire** — acting on a **Retirable** automation by removing it: the agent deletes the
+artifact in a session, then runs `ivar automation undo` with its id. `ivar` never deletes the
+artifact.
+
+**Keep** — acting on a **Retirable** automation by leaving it: `ivar automation renew` with its id.
+
+**Feature cut** — `ivar automation scan --feature <name>`: the scan keeps only the groups, and
+the **Existing automations**, with at least one fingerprint in a session of that feature or of
+one of its descendants, resolved the way `ivar memory review` resolves a feature's observations.
+A kept group is reported whole, with its sessions outside the feature too.
 
 **Sync** — reconciling the local hall against `ivar.json`: clone missing repos,
 materialise per-harness config (managed block, MCP, official workflow

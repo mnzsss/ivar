@@ -10,7 +10,10 @@ use std::os::unix::fs::PermissionsExt;
 use rusqlite::params;
 
 use super::*;
+use crate::action::automation::decision::renew_in;
 use crate::action::feature::create::{CreateInput, create};
+use crate::domain::existing_automation::State;
+use crate::domain::script::ScriptScope;
 use crate::domain::session::rfc3339_from_epoch_secs;
 use crate::store::memory::db::MemoryDb;
 use crate::test_support::seeded_hall;
@@ -49,6 +52,7 @@ fn prompt<'a>(session: &'a str, days_ago: u64, text: &'a str) -> Prompt<'a> {
 fn plant(layout: &Layout, prompts: &[Prompt<'_>]) -> Vec<i64> {
     let db = MemoryDb::open(layout.memory_db().as_std_path()).unwrap();
     let mut observation_ids = Vec::new();
+    let base = next_event_number(&db);
     for (n, p) in prompts.iter().enumerate() {
         let occurred_at = at(p.days_ago);
         db.conn()
@@ -57,7 +61,7 @@ fn plant(layout: &Layout, prompts: &[Prompt<'_>]) -> Vec<i64> {
                    (event_id, source_event, occurred_at, session_id, native_session_id, provider,
                     ivar_version, feature, parent_feature, repo, origin, importance, attempt_id, body)
                  VALUES (?1, 'session.prompted', ?2, ?3, '', '', '', ?4, '', '', 'user', 1, '', ?5)",
-                params![format!("e{n}"), occurred_at, p.session, p.feature, p.text],
+                params![format!("e{}", base + n as i64), occurred_at, p.session, p.feature, p.text],
             )
             .unwrap();
         let observation_id = db.conn().last_insert_rowid();
@@ -924,4 +928,639 @@ fn a_scan_never_writes_the_decisions() {
 
     assert_eq!(snapshot(&layout), before);
     assert_eq!(before.len(), 2);
+}
+
+/// A hall can be planted more than once: event ids must not repeat, so each
+/// planting numbers its events after the observations already stored.
+fn next_event_number(db: &MemoryDb) -> i64 {
+    db.conn()
+        .query_row("SELECT count(*) FROM observations", [], |row| row.get(0))
+        .unwrap()
+}
+
+/// An accepted decision, with its artifact written to the hall: a decision
+/// whose artifact is gone is not in force.
+fn accepted(
+    layout: &Layout,
+    intent: &str,
+    form: &str,
+    artifact: &str,
+    updated_days_ago: u64,
+    texts: &[&str],
+) -> i64 {
+    let path = layout.root().join(artifact);
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(&path, "").unwrap();
+    let db = MemoryDb::open(layout.memory_db().as_std_path()).unwrap();
+    let updated = at(updated_days_ago);
+    db.conn()
+        .execute(
+            "INSERT INTO automation_decisions (kind, intent, form, artifact, until, created_at, updated_at)
+             VALUES ('accepted', ?1, ?2, ?3, NULL, ?4, ?4)",
+            params![intent, form, artifact, updated],
+        )
+        .unwrap();
+    let id = db.conn().last_insert_rowid();
+    for text in texts {
+        db.conn()
+            .execute(
+                "INSERT INTO automation_decision_texts (decision_id, normalized) VALUES (?1, ?2)",
+                params![id, text],
+            )
+            .unwrap();
+    }
+    id
+}
+
+/// A `session.tool` observation whose input is `input`.
+fn tool(layout: &Layout, session: &str, days_ago: u64, input: &serde_json::Value) {
+    tool_body(
+        layout,
+        session,
+        days_ago,
+        &serde_json::json!({ "tool": "Bash", "input": input, "result": "" }),
+    );
+}
+
+/// A `session.tool` observation with this whole `body`.
+fn tool_body(layout: &Layout, session: &str, days_ago: u64, body: &serde_json::Value) {
+    let db = MemoryDb::open(layout.memory_db().as_std_path()).unwrap();
+    let event_id = next_event_number(&db);
+    db.conn()
+        .execute(
+            "INSERT INTO observations
+               (event_id, source_event, occurred_at, session_id, native_session_id, provider,
+                ivar_version, feature, parent_feature, repo, origin, importance, attempt_id, body)
+             VALUES (?1, 'session.tool', ?2, ?3, '', '', '', '', '', '', '', 3, '', ?4)",
+            params![
+                format!("tool{event_id}"),
+                at(days_ago),
+                session,
+                body.to_string(),
+            ],
+        )
+        .unwrap();
+}
+
+fn bash(command: &str) -> serde_json::Value {
+    serde_json::json!({ "command": command })
+}
+
+fn existing<'a>(outcome: &'a ScanOutcome, intent: &str) -> &'a ExistingAutomation {
+    outcome
+        .existing_automations
+        .iter()
+        .find(|entry| entry.intent == intent)
+        .unwrap_or_else(|| panic!("no existing automation `{intent}`"))
+}
+
+/// One request that came back on the given days, one session each.
+fn asked(layout: &Layout, prefix: &str, text: &str, days_ago: &[u64]) {
+    let sessions: Vec<String> = (0..days_ago.len())
+        .map(|n| format!("{prefix}{n}"))
+        .collect();
+    let prompts: Vec<Prompt<'_>> = sessions
+        .iter()
+        .zip(days_ago)
+        .map(|(session, days)| prompt(session, *days, text))
+        .collect();
+    plant(layout, &prompts);
+}
+
+const CHANGELOG: &str = "update the changelog entry";
+const FIXTURES: &str = "refresh the integration fixtures";
+const DEPLOY: &str = "deploy the staging build";
+
+#[test]
+fn an_accepted_decision_is_in_use_unused_or_without_requests() {
+    let (_guard, layout) = hall();
+    asked(&layout, "c", CHANGELOG, &[5, 3]);
+    asked(&layout, "f", FIXTURES, &[6, 2]);
+    asked(&layout, "d", DEPLOY, &[60]);
+    accepted(
+        &layout,
+        "changelog",
+        "script",
+        ".ivar/scripts/changelog.sh",
+        100,
+        &[CHANGELOG],
+    );
+    accepted(
+        &layout,
+        "fixtures",
+        "script",
+        ".ivar/scripts/fixtures.sh",
+        100,
+        &[FIXTURES],
+    );
+    accepted(
+        &layout,
+        "deploy",
+        "script",
+        ".ivar/scripts/deploy.sh",
+        100,
+        &[DEPLOY],
+    );
+    tool(&layout, "c1", 3, &bash("bash .ivar/scripts/changelog.sh"));
+    // A script of the same name elsewhere is not this one.
+    tool(
+        &layout,
+        "f0",
+        6,
+        &bash("bash other/.ivar/scripts/fixtures.sh.bak"),
+    );
+
+    let outcome = scanned(&layout);
+
+    let in_use = existing(&outcome, "changelog");
+    assert_eq!(in_use.state, State::InUse);
+    assert_eq!(in_use.sessions_with_use, ["c1"]);
+    assert_eq!(in_use.sessions_without_use, ["c0"]);
+    assert!(!in_use.retirable);
+    let unused = existing(&outcome, "fixtures");
+    assert_eq!(unused.state, State::Unused);
+    assert!(unused.sessions_with_use.is_empty());
+    assert_eq!(unused.sessions_without_use, ["f0", "f1"]);
+    assert!(!unused.retirable, "unused alone never retires");
+    let quiet = existing(&outcome, "deploy");
+    assert_eq!(quiet.state, State::NoRequests);
+    assert!(!quiet.retirable, "a request 60 days ago is inside 90");
+    assert_eq!(outcome.existing_automations.len(), 3);
+}
+
+#[test]
+fn a_use_counts_only_in_a_session_that_asked_for_the_request() {
+    let (_guard, layout) = hall();
+    asked(&layout, "c", CHANGELOG, &[5]);
+    accepted(
+        &layout,
+        "changelog",
+        "script",
+        ".ivar/scripts/changelog.sh",
+        100,
+        &[CHANGELOG],
+    );
+    tool(
+        &layout,
+        "elsewhere",
+        3,
+        &bash("bash .ivar/scripts/changelog.sh"),
+    );
+
+    let outcome = scanned(&layout);
+
+    assert_eq!(existing(&outcome, "changelog").state, State::Unused);
+}
+
+#[test]
+fn a_skill_and_an_agent_are_used_when_a_tool_cites_their_name() {
+    let (_guard, layout) = hall();
+    asked(&layout, "c", CHANGELOG, &[5]);
+    asked(&layout, "f", FIXTURES, &[4]);
+    accepted(
+        &layout,
+        "skill",
+        "skill",
+        ".ivar/skills/changelog/SKILL.md",
+        100,
+        &[CHANGELOG],
+    );
+    accepted(
+        &layout,
+        "agent",
+        "agent",
+        "agents/fixer.md",
+        100,
+        &[FIXTURES],
+    );
+    tool(
+        &layout,
+        "c0",
+        5,
+        &serde_json::json!({ "skill": "changelog" }),
+    );
+    tool(
+        &layout,
+        "f0",
+        4,
+        &serde_json::json!({ "subagent_type": "fixer", "prompt": "go" }),
+    );
+
+    let outcome = scanned(&layout);
+
+    assert_eq!(existing(&outcome, "skill").state, State::InUse);
+    assert_eq!(existing(&outcome, "agent").state, State::InUse);
+}
+
+#[test]
+fn a_request_that_did_not_recur_enough_to_be_a_candidate_still_counts() {
+    let (_guard, layout) = hall();
+    asked(&layout, "c", CHANGELOG, &[5]);
+    accepted(
+        &layout,
+        "changelog",
+        "script",
+        ".ivar/scripts/changelog.sh",
+        100,
+        &[CHANGELOG],
+    );
+
+    let outcome = scanned(&layout);
+
+    assert!(outcome.candidates.is_empty());
+    assert_eq!(existing(&outcome, "changelog").state, State::Unused);
+}
+
+#[test]
+fn a_new_wording_of_the_request_matches_through_its_group() {
+    let (_guard, layout) = hall();
+    plant(
+        &layout,
+        &[
+            prompt("s1", 5, "update the changelog entry"),
+            prompt("s2", 3, "update the changelog entry typo"),
+        ],
+    );
+    accepted(
+        &layout,
+        "changelog",
+        "script",
+        ".ivar/scripts/changelog.sh",
+        100,
+        &["update the changelog entry"],
+    );
+
+    let outcome = scanned(&layout);
+
+    assert_eq!(
+        existing(&outcome, "changelog").sessions_without_use,
+        ["s1", "s2"]
+    );
+}
+
+#[test]
+fn a_script_accepted_long_ago_and_never_asked_for_again_is_retirable_but_an_agent_is_not() {
+    let (_guard, layout) = hall();
+    accepted(
+        &layout,
+        "old script",
+        "script",
+        ".ivar/scripts/old.sh",
+        100,
+        &[CHANGELOG],
+    );
+    accepted(
+        &layout,
+        "old skill",
+        "skill",
+        ".ivar/skills/old/SKILL.md",
+        100,
+        &[CHANGELOG],
+    );
+    accepted(
+        &layout,
+        "old procedure",
+        "procedure",
+        "docs/old.md",
+        100,
+        &[CHANGELOG],
+    );
+    accepted(
+        &layout,
+        "old agent",
+        "agent",
+        "agents/old.md",
+        100,
+        &[CHANGELOG],
+    );
+    accepted(
+        &layout,
+        "young script",
+        "script",
+        ".ivar/scripts/young.sh",
+        20,
+        &[CHANGELOG],
+    );
+    asked(&layout, "d", DEPLOY, &[95]);
+
+    let outcome = scanned(&layout);
+
+    for intent in ["old script", "old skill", "old procedure"] {
+        let entry = existing(&outcome, intent);
+        assert_eq!(entry.state, State::NoRequests, "{intent}");
+        assert!(entry.retirable, "{intent}");
+    }
+    assert!(!existing(&outcome, "old agent").retirable);
+    assert!(!existing(&outcome, "young script").retirable);
+}
+
+#[test]
+fn a_fingerprint_in_the_90_days_keeps_a_decision_from_being_retirable() {
+    let (_guard, layout) = hall();
+    asked(&layout, "c", CHANGELOG, &[80]);
+    accepted(
+        &layout,
+        "changelog",
+        "script",
+        ".ivar/scripts/changelog.sh",
+        100,
+        &[CHANGELOG],
+    );
+
+    let entry = &scanned(&layout).existing_automations[0];
+
+    assert_eq!(entry.state, State::NoRequests);
+    assert!(!entry.retirable);
+}
+
+#[test]
+fn renewing_a_retirable_decision_clears_the_mark() {
+    let (_guard, layout) = hall();
+    let id = accepted(
+        &layout,
+        "old script",
+        "script",
+        ".ivar/scripts/old.sh",
+        100,
+        &[CHANGELOG],
+    );
+    assert!(scanned(&layout).existing_automations[0].retirable);
+
+    renew_in(&layout, id, NOW).unwrap();
+
+    assert!(!scanned(&layout).existing_automations[0].retirable);
+    // Another 90 days later it is retirable again.
+    let later = scan_in(
+        &layout,
+        &ScanInput {
+            feature: None,
+            drain: false,
+        },
+        NOW + 91 * DAY,
+    )
+    .unwrap()
+    .value;
+    assert!(later.existing_automations[0].retirable);
+}
+
+#[test]
+fn a_feature_cut_keeps_the_automations_a_session_of_the_feature_asked_for() {
+    let (_guard, layout) = hall();
+    create_feature(&layout, "checkout", None);
+    plant(
+        &layout,
+        &[
+            Prompt {
+                feature: "checkout",
+                ..prompt("c1", 5, CHANGELOG)
+            },
+            prompt("o1", 5, FIXTURES),
+        ],
+    );
+    accepted(
+        &layout,
+        "changelog",
+        "script",
+        ".ivar/scripts/changelog.sh",
+        100,
+        &[CHANGELOG],
+    );
+    accepted(
+        &layout,
+        "fixtures",
+        "script",
+        ".ivar/scripts/fixtures.sh",
+        100,
+        &[FIXTURES],
+    );
+    accepted(
+        &layout,
+        "retired",
+        "script",
+        ".ivar/scripts/retired.sh",
+        100,
+        &[DEPLOY],
+    );
+
+    let all = scanned(&layout);
+    let cut = scan_with(&layout, Some("checkout"), false).value;
+
+    assert_eq!(all.existing_automations.len(), 3);
+    assert!(existing(&all, "retired").retirable);
+    assert_eq!(cut.existing_automations.len(), 1);
+    assert_eq!(cut.existing_automations[0].intent, "changelog");
+    assert!(
+        cut.existing_automations
+            .iter()
+            .all(|entry| !entry.retirable)
+    );
+}
+
+#[test]
+fn only_accepted_decisions_are_existing_automations_and_the_scope_is_derived() {
+    let (_guard, layout) = hall();
+    accepted(
+        &layout,
+        "shared",
+        "script",
+        ".ivar/scripts/a.sh",
+        1,
+        &[CHANGELOG],
+    );
+    accepted(
+        &layout,
+        "mine",
+        "script",
+        ".ivar/scripts-local/b.sh",
+        1,
+        &[CHANGELOG],
+    );
+    decision(&layout, "'declined', 'no', NULL, NULL, NULL", &[CHANGELOG]);
+
+    let outcome = scanned(&layout);
+
+    assert_eq!(outcome.existing_automations.len(), 2);
+    assert_eq!(existing(&outcome, "shared").scope, ScriptScope::Team);
+    assert_eq!(existing(&outcome, "mine").scope, ScriptScope::Personal);
+}
+
+#[test]
+fn the_json_outcome_names_every_field_of_an_existing_automation() {
+    let (_guard, layout) = hall();
+    asked(&layout, "c", CHANGELOG, &[5, 3]);
+    accepted(
+        &layout,
+        "changelog",
+        "script",
+        ".ivar/scripts/changelog.sh",
+        100,
+        &[CHANGELOG],
+    );
+    tool(&layout, "c1", 3, &bash("bash .ivar/scripts/changelog.sh"));
+
+    let json = serde_json::to_value(scan_with(&layout, None, false)).unwrap();
+
+    let entry = &json["existing_automations"][0];
+    assert_eq!(entry["intent"], "changelog");
+    assert_eq!(entry["form"], "script");
+    assert_eq!(entry["artifact"], ".ivar/scripts/changelog.sh");
+    assert_eq!(entry["scope"], "team");
+    assert_eq!(entry["state"], "in use");
+    assert_eq!(entry["retirable"], false);
+    assert_eq!(entry["sessions_with_use"], serde_json::json!(["c1"]));
+    assert_eq!(entry["sessions_without_use"], serde_json::json!(["c0"]));
+    assert_eq!(entry["decision_id"], 1);
+}
+
+#[test]
+fn the_human_output_lists_unused_and_retirable_automations_after_the_candidates() {
+    let (_guard, layout) = hall();
+    recurring_changelog(&layout);
+    asked(&layout, "f", FIXTURES, &[5]);
+    asked(&layout, "u", "deploy the staging build", &[4, 3]);
+    accepted(
+        &layout,
+        "fixtures",
+        "script",
+        ".ivar/scripts/fixtures.sh",
+        100,
+        &[FIXTURES],
+    );
+    accepted(
+        &layout,
+        "deploy",
+        "script",
+        ".ivar/scripts/deploy.sh",
+        100,
+        &["deploy the staging build"],
+    );
+    accepted(
+        &layout,
+        "retired",
+        "script",
+        ".ivar/scripts/retired.sh",
+        100,
+        &["gone"],
+    );
+    tool(&layout, "u0", 4, &bash(".ivar/scripts/deploy.sh"));
+    let mut out = Vec::new();
+
+    scanned(&layout).write_human(&mut out).unwrap();
+
+    let text = String::from_utf8(out).unwrap();
+    let candidate = text.find("candidate ").unwrap();
+    let summary = text
+        .find("3 existing automation(s): 1 in use, 1 unused, 1 no requests; 1 retirable")
+        .unwrap_or_else(|| panic!("{text}"));
+    let unused = text.find("unused: asked for").unwrap();
+    let retirable = text.find("retirable: not asked for in 90 days").unwrap();
+    assert!(
+        candidate < summary && summary < unused && unused < retirable,
+        "{text}"
+    );
+    assert!(
+        text.contains("decision 1: fixtures as script `.ivar/scripts/fixtures.sh` (team, unused)")
+    );
+    assert!(
+        text.contains(
+            "decision 1: fixtures as script `.ivar/scripts/fixtures.sh` (team, unused), not used in: f0\n"
+        ),
+        "{text}"
+    );
+    assert!(
+        text.contains(
+            "decision 3: retired as script `.ivar/scripts/retired.sh` (team, no requests)"
+        )
+    );
+    assert!(
+        !text.contains("decision 2:"),
+        "an automation in use is only counted"
+    );
+}
+
+#[test]
+fn a_hall_with_no_accepted_decision_prints_no_automation_section() {
+    let (_guard, layout) = hall();
+    let mut out = Vec::new();
+
+    scanned(&layout).write_human(&mut out).unwrap();
+
+    assert!(
+        !String::from_utf8(out)
+            .unwrap()
+            .contains("existing automation")
+    );
+}
+
+#[test]
+fn an_accepted_decision_whose_artifact_is_gone_is_not_an_existing_automation() {
+    let (_guard, layout) = hall();
+    recurring_changelog(&layout);
+    accepted(
+        &layout,
+        "changelog",
+        "script",
+        ".ivar/scripts/changelog.sh",
+        100,
+        &["update changelog entry"],
+    );
+    accepted(
+        &layout,
+        "old script",
+        "script",
+        ".ivar/scripts/old.sh",
+        100,
+        &["gone"],
+    );
+    std::fs::remove_file(layout.root().join(".ivar/scripts/changelog.sh")).unwrap();
+    std::fs::remove_file(layout.root().join(".ivar/scripts/old.sh")).unwrap();
+
+    let outcome = scanned(&layout);
+
+    assert!(outcome.existing_automations.is_empty());
+    assert_eq!(
+        outcome.candidates.len(),
+        1,
+        "its group is a candidate again"
+    );
+}
+
+#[test]
+fn reading_a_script_is_not_a_use_but_reading_a_procedure_is() {
+    let (_guard, layout) = hall();
+    asked(&layout, "c", CHANGELOG, &[5]);
+    asked(&layout, "f", FIXTURES, &[4]);
+    accepted(
+        &layout,
+        "changelog",
+        "script",
+        ".ivar/scripts/changelog.sh",
+        100,
+        &[CHANGELOG],
+    );
+    accepted(
+        &layout,
+        "fixtures",
+        "procedure",
+        "docs/procedures/fixtures.md",
+        100,
+        &[FIXTURES],
+    );
+    tool_body(
+        &layout,
+        "c0",
+        5,
+        &serde_json::json!({ "tool": "Read", "path": ".ivar/scripts/changelog.sh" }),
+    );
+    tool_body(
+        &layout,
+        "f0",
+        4,
+        &serde_json::json!({ "tool": "Read", "path": "docs/procedures/fixtures.md" }),
+    );
+
+    let outcome = scanned(&layout);
+
+    assert_eq!(existing(&outcome, "changelog").state, State::Unused);
+    assert_eq!(existing(&outcome, "fixtures").state, State::InUse);
 }

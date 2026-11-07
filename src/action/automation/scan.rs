@@ -1,5 +1,6 @@
 //! `ivar automation scan`: groups the request fingerprints of the last 90 days
-//! and reports the groups that recurred, with the evidence to cite.
+//! and reports the groups that recurred, with the evidence to cite, and the
+//! existing automations (the `accepted` decisions) with their state.
 //!
 //! Read-only. The only write is the drain of the capture spool, which
 //! `--no-drain` skips; the database itself is opened read-only and never
@@ -9,11 +10,16 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde::Serialize;
 
+mod existing;
+
+pub use existing::ExistingAutomation;
+
 use super::{artifact_exists, open_read_only};
 use crate::action::feature::relations;
 use crate::action::memory::drain::{self, epoch_secs_now};
 use crate::action::{Ctx, discover_hall};
 use crate::domain::automation::{Decision, DecisionKind, utc_day};
+use crate::domain::existing_automation::{Days, RETIRE_DAYS, STATE_DAYS};
 use crate::domain::name::FeatureName;
 use crate::domain::repetition::{
     Group, MAX_SAMPLES, MIN_DAYS, MIN_SESSIONS, MIN_SIMILARITY, WINDOW_DAYS,
@@ -90,6 +96,10 @@ pub struct ScanOutcome {
     /// By distinct sessions, most first, then by most recent prompt.
     pub candidates: Vec<Candidate>,
     pub suppressed: Vec<Suppressed>,
+    /// Every `accepted` decision in force, oldest first; one whose artifact is
+    /// gone is not. With a feature cut, only those that a session of the
+    /// feature asked for.
+    pub existing_automations: Vec<ExistingAutomation>,
 }
 
 impl ScanOutcome {
@@ -105,6 +115,7 @@ impl ScanOutcome {
             fingerprints: 0,
             candidates: Vec::new(),
             suppressed: Vec::new(),
+            existing_automations: Vec::new(),
         }
     }
 }
@@ -169,7 +180,7 @@ impl WriteHuman for ScanOutcome {
                 )?;
             }
         }
-        Ok(())
+        existing::write_human(&self.existing_automations, out)
     }
 }
 
@@ -210,24 +221,21 @@ pub fn scan_in(layout: &Layout, input: &ScanInput, now_epoch_secs: u64) -> Outco
     let path = layout.memory_db();
     if let Some(conn) = open_read_only(layout)? {
         let today = utc_day(now_epoch_secs);
-        let in_force: Vec<Decision> = decisions_store::list(&conn)
-            .map_err(|error| {
-                Failure::failed(
-                    "automation.scan_failed",
-                    format!("could not read the automation decisions in `{path}`: {error}"),
-                )
-            })?
+        let decisions = decisions_store::list(&conn).map_err(|error| {
+            Failure::failed(
+                "automation.scan_failed",
+                format!("could not read the automation decisions in `{path}`: {error}"),
+            )
+        })?;
+        let in_force: Vec<Decision> = decisions
             .into_iter()
             .filter(|decision| decision.is_in_force(&today, artifact_exists(layout, decision)))
             .collect();
-        read(
-            &conn,
-            features.as_deref(),
-            &cutoff_day_before(now_epoch_secs, WINDOW_DAYS),
-            &in_force,
-            &mut outcome,
-        )
-        .map_err(|error| {
+        let bounds = Bounds {
+            features: features.as_deref(),
+            now_epoch_secs,
+        };
+        read(&conn, &bounds, &in_force, &mut outcome).map_err(|error| {
             Failure::failed(
                 "automation.scan_failed",
                 format!("could not read the request fingerprints in `{path}`: {error}"),
@@ -249,29 +257,60 @@ fn feature_subtree(layout: &Layout, name: &FeatureName) -> Result<Vec<String>, F
     Ok(names)
 }
 
+/// What a scan is cut to and when it ran.
+struct Bounds<'a> {
+    /// The feature subtree of `--feature`.
+    features: Option<&'a [String]>,
+    now_epoch_secs: u64,
+}
+
+/// The sessions and features a feature cut keeps a fingerprint for.
+pub(super) struct FeatureCut<'a> {
+    sessions: BTreeSet<String>,
+    features: &'a [String],
+}
+
+impl FeatureCut<'_> {
+    /// A fingerprint outlives its observation, so the feature it recorded is
+    /// the other way in for a session whose observations are gone.
+    fn keeps(&self, member: &crate::domain::repetition::Fingerprint) -> bool {
+        self.sessions.contains(&member.session_id) || self.features.contains(&member.feature)
+    }
+}
+
+/// Fills `outcome` from the fingerprints of the window and the `decisions` in
+/// force.
 fn read(
     conn: &rusqlite::Connection,
-    features: Option<&[String]>,
-    since_day: &str,
+    bounds: &Bounds<'_>,
     decisions: &[Decision],
     outcome: &mut ScanOutcome,
 ) -> rusqlite::Result<()> {
-    let (count, mut groups) = fingerprints::grouped_since(conn, since_day)?;
+    let since_day = cutoff_day_before(bounds.now_epoch_secs, WINDOW_DAYS);
+    let (count, mut groups) = fingerprints::grouped_since(conn, &since_day)?;
     outcome.fingerprints = count;
+    let cut = match bounds.features {
+        Some(features) => Some(FeatureCut {
+            sessions: feature_observations_on(conn, features)?
+                .into_iter()
+                .map(|row| row.session_id)
+                .filter(|session| !session.is_empty())
+                .collect(),
+            features,
+        }),
+        None => None,
+    };
+    let state_since = cutoff_day_before(bounds.now_epoch_secs, STATE_DAYS);
+    let window_since = cutoff_day_before(bounds.now_epoch_secs, RETIRE_DAYS);
+    let days = Days {
+        state_since: &state_since,
+        window_since: &window_since,
+    };
+    outcome.existing_automations =
+        existing::existing_automations(conn, &groups, decisions, cut.as_ref(), days)?;
     groups.retain(Group::is_candidate);
-    if let Some(features) = features {
-        let sessions: BTreeSet<String> = feature_observations_on(conn, features)?
-            .into_iter()
-            .map(|row| row.session_id)
-            .filter(|session| !session.is_empty())
-            .collect();
-        // A fingerprint outlives its observation, so the feature it recorded
-        // is the other way in for a session whose observations are gone.
-        groups.retain(|group| {
-            group.members().iter().any(|member| {
-                sessions.contains(&member.session_id) || features.contains(&member.feature)
-            })
-        });
+    if let Some(cut) = &cut {
+        groups.retain(|group| group.members().iter().any(|member| cut.keeps(member)));
     }
     groups.sort_by(|a, b| {
         let recency = |group: &Group| group.latest().map(|f| (f.day.clone(), f.id));

@@ -244,6 +244,9 @@ it never migrates `memory.db` (an older schema exits 2, naming `ivar memory stat
 `decide`, `renew`, `decisions` and `undo` keep your answers
 ([Automation decision](../glossary.md#health-and-state)); `scan` hides declined and deferred groups.
 
+`scan` also lists accepted decisions as [existing automations](../glossary.md#health-and-state):
+`in use`, `unused` or `no requests`, plus `retirable`.
+
 **`ivar session start` is the one verb that takes over your terminal.** It opens
 a TUI. Everything else prints and exits.
 
