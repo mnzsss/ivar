@@ -14,11 +14,12 @@ use crate::action::feature::{base, relations};
 use crate::action::{Ctx, discover_hall, read_manifest};
 use crate::domain::feature::{Feature, Gate, GateState, WorktreeState};
 use crate::domain::memory_review::{
-    Gap, ObservationFact, StalePage, Verdict, WrittenPage, gaps, is_durable_page, missing_verdicts,
-    stale_pages, written_pages,
+    Gap, ObservationFact, StalePage, USAGE_EVENT, Verdict, WrittenPage, gaps, is_durable_page,
+    missing_verdicts, stale_pages, written_pages,
 };
 use crate::domain::name::FeatureName;
 use crate::domain::observation::SourceEvent;
+use crate::domain::session::rfc3339_from_epoch_secs;
 use crate::error::{Failure, FixAction, Outcome, Report, WriteHuman};
 use crate::git::{self, Git};
 use crate::store::layout::Layout;
@@ -27,6 +28,7 @@ use crate::store::memory::anchors::{
 };
 use crate::store::memory::db::MemoryDb;
 use crate::store::memory::observations::{FeatureObservation, feature_observations};
+use crate::store::memory::usage::session_queries;
 
 const MAX_RECORDED_ENTRIES: usize = 50;
 
@@ -121,7 +123,8 @@ pub fn review_in(layout: &Layout, name: &FeatureName) -> Result<Report<ReviewRep
         ));
     }
     let rows = observations(layout, &feature, &mut notes)?;
-    let facts: Vec<ObservationFact> = rows.iter().map(fact).collect();
+    let mut facts: Vec<ObservationFact> = rows.iter().map(fact).collect();
+    facts.extend(usage_facts(layout, &rows, &mut notes));
     let written = written_pages(&facts, layout.root().as_str());
     let analysis_approved =
         crate::action::plan::effective_gate(layout, name, Gate::Analysis)? == GateState::Approved;
@@ -300,6 +303,42 @@ fn fact(row: &FeatureObservation) -> ObservationFact {
         occurred_at: row.occurred_at.clone(),
         importance: row.importance,
         body: serde_json::from_str(&row.body).unwrap_or_else(|_| Value::String(row.body.clone())),
+    }
+}
+
+/// The `memory_usage` rows of the feature's sessions, as facts: a query served
+/// through MCP or the CLI by a client no hook captures is recorded only there.
+fn usage_facts(
+    layout: &Layout,
+    rows: &[FeatureObservation],
+    notes: &mut Notes,
+) -> Vec<ObservationFact> {
+    let sessions: Vec<String> = rows
+        .iter()
+        .filter(|row| !row.session_id.is_empty())
+        .map(|row| row.session_id.clone())
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    if sessions.is_empty() {
+        return Vec::new();
+    }
+    let queries = open(layout)
+        .and_then(|db| session_queries(db.conn(), &sessions).map_err(|error| unreadable(&error)));
+    match queries {
+        Ok(queries) => queries
+            .into_iter()
+            .map(|ts| ObservationFact {
+                source_event: USAGE_EVENT.to_owned(),
+                occurred_at: rfc3339_from_epoch_secs(ts as f64),
+                importance: 0,
+                body: Value::Null,
+            })
+            .collect(),
+        Err(failure) => {
+            notes.warn(format!("memory usage could not be read: {}", failure.what));
+            Vec::new()
+        }
     }
 }
 

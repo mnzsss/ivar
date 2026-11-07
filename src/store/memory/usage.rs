@@ -135,6 +135,23 @@ pub fn last_query(conn: &Connection, session: &str) -> rusqlite::Result<Option<L
     rows.next().transpose()
 }
 
+/// The `ts` of every usage row of any of `sessions`, oldest first.
+///
+/// # Errors
+///
+/// When the lookup fails.
+pub fn session_queries(conn: &Connection, sessions: &[String]) -> rusqlite::Result<Vec<i64>> {
+    if sessions.is_empty() {
+        return Ok(Vec::new());
+    }
+    let list = serde_json::to_string(sessions).unwrap_or_else(|_| "[]".to_owned());
+    let mut stmt = conn.prepare(
+        "SELECT ts FROM memory_usage
+         WHERE session IN (SELECT value FROM json_each(?1)) ORDER BY ts, id",
+    )?;
+    stmt.query_map([list], |row| row.get(0))?.collect()
+}
+
 /// # Errors
 ///
 /// When the lookup fails.
