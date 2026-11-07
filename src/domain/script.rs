@@ -34,7 +34,9 @@
 
 use serde::Serialize;
 
-/// Which folder defines a script.
+/// Which folder defines a script: personal or shared with the team. Skills
+/// have the same split (`.ivar/skills-local/` and `.ivar/skills/`), so an
+/// existing automation of any form reports its scope with this type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ScriptScope {

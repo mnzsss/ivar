@@ -723,3 +723,143 @@ fn memory_reindex_leaves_the_decisions_alone() {
     );
     assert_eq!(scan(&root)["suppressed"].as_array().unwrap().len(), 1);
 }
+
+fn accept(root: &Utf8Path, text: &str, intent: &str, artifact: &str) {
+    let path = root.join(artifact);
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(path, "").unwrap();
+    let reference = group_ref(root, text);
+    json_of(
+        root,
+        &[
+            "decide",
+            &reference,
+            "--accepted",
+            "--intent",
+            intent,
+            "--form",
+            "script",
+            "--artifact",
+            artifact,
+        ],
+    );
+}
+
+fn existing(root: &Utf8Path) -> Value {
+    scan(root)["existing_automations"].clone()
+}
+
+#[test]
+fn scan_reports_existing_automations_with_state_and_retirable_mark() {
+    let (_guard, root) = hall();
+    recurring(&root);
+    accept(
+        &root,
+        "update changelog entry",
+        "changelog",
+        ".ivar/scripts/changelog.sh",
+    );
+    accept(
+        &root,
+        "rotate signing keys",
+        "keys",
+        ".ivar/scripts/keys.sh",
+    );
+    accept(
+        &root,
+        "refresh test fixtures",
+        "fixtures",
+        ".ivar/scripts/fixtures.sh",
+    );
+    let db = MemoryDb::open(root.join(".ivar/memory.db").as_std_path()).unwrap();
+    db.conn()
+        .execute(
+            "INSERT INTO observations
+               (event_id, source_event, occurred_at, session_id, native_session_id, provider,
+                ivar_version, feature, parent_feature, repo, origin, importance, attempt_id, body)
+             VALUES ('tool1', 'session.tool', ?1, 's3', '', '', '', '', '', '', '', 3, '', ?2)",
+            rusqlite::params![
+                format!("{}T11:00:00Z", day(-2)),
+                json!({
+                    "tool": "Bash",
+                    "input": { "command": "bash .ivar/scripts/changelog.sh" },
+                    "result": ""
+                })
+                .to_string()
+            ],
+        )
+        .unwrap();
+    // Nobody asked for the fixtures any more, and the decision is old.
+    db.conn()
+        .execute(
+            "DELETE FROM request_fingerprints WHERE normalized = 'refresh test fixtures'",
+            [],
+        )
+        .unwrap();
+    db.conn()
+        .execute(
+            "UPDATE automation_decisions SET updated_at = '2020-01-01T00:00:00.000000000Z'
+              WHERE intent = 'fixtures'",
+            [],
+        )
+        .unwrap();
+    drop(db);
+
+    let entries = existing(&root);
+
+    let by_intent = |intent: &str| {
+        entries
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|entry| entry["intent"] == intent)
+            .unwrap()
+            .clone()
+    };
+    let changelog = by_intent("changelog");
+    assert_eq!(changelog["state"], "in use");
+    assert_eq!(changelog["form"], "script");
+    assert_eq!(changelog["artifact"], ".ivar/scripts/changelog.sh");
+    assert_eq!(changelog["scope"], "team");
+    assert_eq!(changelog["retirable"], false);
+    assert_eq!(changelog["sessions_with_use"], json!(["s3"]));
+    assert_eq!(changelog["sessions_without_use"], json!(["s1", "s2"]));
+    let keys = by_intent("keys");
+    assert_eq!(keys["state"], "unused");
+    assert_eq!(keys["retirable"], false);
+    assert_eq!(keys["sessions_with_use"], json!([]));
+    let fixtures = by_intent("fixtures");
+    assert_eq!(fixtures["state"], "no requests");
+    assert_eq!(fixtures["retirable"], true);
+
+    let text = human(&root, &["scan", "--no-drain"]);
+    assert!(
+        text.contains("3 existing automation(s): 1 in use, 1 unused, 1 no requests; 1 retirable"),
+        "{text}"
+    );
+    assert!(text.contains("(team, unused)"), "{text}");
+    assert!(
+        text.contains("fixtures as script `.ivar/scripts/fixtures.sh` (team, no requests)"),
+        "{text}"
+    );
+
+    // Keep it: a renewal clears the mark for another 90 days.
+    let id = fixtures["decision_id"].to_string();
+    json_of(&root, &["renew", &id]);
+    let renewed = existing(&root);
+    assert!(
+        renewed
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|entry| entry["retirable"] == false)
+    );
+}
+
+#[test]
+fn scan_reports_no_existing_automations_when_nothing_was_accepted() {
+    let (_guard, root) = hall();
+    recurring(&root);
+
+    assert_eq!(existing(&root), json!([]));
+}

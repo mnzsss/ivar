@@ -15,6 +15,7 @@ pub mod capability;
 pub mod coordination;
 pub mod delivery_event;
 pub mod discovery;
+pub mod existing_automation;
 pub mod feature;
 pub mod feedback;
 pub mod fingerprint;

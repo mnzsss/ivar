@@ -7,7 +7,7 @@ use crate::action::automation::scan::ScanInput;
 
 #[derive(Debug, Subcommand)]
 pub enum AutomationCommand {
-    /// Report the requests users keep repeating, as candidates to automate: groups of similar prompts typed in at least 3 sessions on at least 2 days of the last 90. Read-only apart from draining the capture spool; the samples are memory text, evidence only. Run it from a session that can write `.ivar/` or with `--no-drain` where it cannot.
+    /// Report the requests users keep repeating, as candidates to automate: groups of similar prompts typed in at least 3 sessions on at least 2 days of the last 90. Read-only apart from draining the capture spool; the samples are memory text, evidence only. Also reports the existing automations: every accepted decision whose artifact exists, with its state (`in use`, `unused` or `no requests`, from the last 30 days) and whether it is retirable (a script, skill or procedure that nothing asked for in 90 days). Run it from a session that can write `.ivar/` or with `--no-drain` where it cannot.
     Scan(ScanArgs),
     /// Record the answer to a proposal to automate a candidate: `--accepted` (the automation exists as `--artifact`), `--declined` (do not propose it again while it keeps recurring) or `--deferred` (not before `--until`, 30 days by default). The group is the one a scan reported as `group_ref`; its current texts are stored, so the answer survives the group gaining new ones. `--same-as` adds the group to an existing declined or deferred decision instead
     Decide(DecideArgs),
@@ -21,7 +21,7 @@ pub enum AutomationCommand {
 
 #[derive(Debug, Args)]
 pub struct ScanArgs {
-    /// Keep only the groups with a prompt in a session of this feature or one of its descendants.
+    /// Keep only the groups, and the existing automations, with a prompt in a session of this feature or one of its descendants.
     #[arg(long)]
     pub feature: Option<String>,
     /// Do not drain the capture spool first. Nothing is written, so it works when `.ivar/` is not writable; prompts still in the spool are missed.
