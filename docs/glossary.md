@@ -325,6 +325,18 @@ and never writes, moves or deletes one.
 format as a team script. When both folders hold the same name, the brief and
 `ivar script list` show both.
 
+**Execution approval** — a human's record that the exact content of a **Script**
+is safe to run: its hall-relative path and SHA-256, in `memory.db`, written by
+`ivar script approve` and never edited by hand. It approves content, not a name,
+so editing the file ends it. `approve` refuses content that matches a secret
+pattern. See [`ivar script`](reference/commands.md).
+
+**Unreviewed script** — a **Script** whose current content has no **Execution
+approval**: it was never approved, or it changed since. `ivar script check` exits
+`3` for it, `ivar script list` shows `unreviewed`, and the session brief marks its
+line `[unreviewed]`. An agent shows its content (or the diff against the approved
+version) and asks the human before running it.
+
 **Workflow Command** — an instruction workflow shipped inside the `ivar` binary
 and materialised into each available Provider as `/ivar-<name>`. Workflow
 Commands are local derived state: `ivar init`, `ivar provider add`, and

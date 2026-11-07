@@ -172,3 +172,46 @@ fn redact_text_redacts_like_an_observation_body_under_its_own_limit() {
     assert!(!text.contains("ghp_0123"));
     assert!(redact_text(&"é".repeat(20), &context, 8).unwrap().len() < "é".repeat(20).len());
 }
+
+#[test]
+fn find_secrets_names_the_line_and_pattern_and_never_the_secret() {
+    let text = "echo start\nexport TOKEN=ghp_0123456789abcdefghijklmnopqrstuvwxyzAB\necho end\n";
+
+    let found = find_secrets(text);
+
+    assert_eq!(
+        found,
+        vec![SecretFinding {
+            line: 2,
+            pattern: "github_token"
+        }]
+    );
+    assert!(!format!("{found:?}").contains("ghp_0123"));
+}
+
+#[test]
+fn find_secrets_reports_the_first_line_of_a_multi_line_private_key_once() {
+    let text =
+        "a\nb\n-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEA\n-----END RSA PRIVATE KEY-----\n";
+
+    let found = find_secrets(text);
+
+    assert_eq!(
+        found,
+        vec![SecretFinding {
+            line: 3,
+            pattern: "private_key"
+        }]
+    );
+}
+
+#[test]
+fn find_secrets_is_empty_for_clean_text_and_unbounded_for_long_text() {
+    assert!(find_secrets("echo hello\nls -la\n").is_empty());
+    let long = format!("{}\nkey sk-{}\n", "x\n".repeat(50_000), "a".repeat(30));
+
+    let found = find_secrets(&long);
+
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert_eq!(found.first().unwrap().line, 50_002);
+}

@@ -171,6 +171,23 @@ pub fn open_current_read_only(path: &Path) -> Result<ReadOnlyOpen, MemoryDbError
     Ok(ReadOnlyOpen::Current(conn))
 }
 
+/// The first schema with the `script_approvals` table.
+const APPROVALS_SCHEMA_VERSION: i64 = 8;
+
+/// Opens an existing `memory.db` read-only for its script approvals: `None`
+/// when the file is absent or predates them, since a read never migrates.
+///
+/// # Errors
+///
+/// Returns the `SQLite` error when the file exists but cannot be read.
+pub fn open_approvals_read_only(path: &Path) -> rusqlite::Result<Option<Connection>> {
+    if !path.exists() {
+        return Ok(None);
+    }
+    let conn = open_for_reading(path)?;
+    Ok((stored_version(&conn)? >= APPROVALS_SCHEMA_VERSION).then_some(conn))
+}
+
 impl MemoryDb {
     /// Opens or creates the memory database at `path`, migrates it to
     /// [`MEMORY_SCHEMA_VERSION`] and drops objects an older ivar left in it.

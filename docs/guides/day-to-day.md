@@ -194,12 +194,14 @@ artifacts.
 
 A hall keeps its repeatable automations as **scripts**: `.ivar/scripts/` is
 committed and shared with the team, `.ivar/scripts-local/` is personal and never
-enters git. `ivar` only reads them. It never writes, moves, chmods or deletes
-one; you (or your agent, in an interactive session) author the files.
+enters git. `ivar` never writes, moves, chmods or deletes one; you (or your
+agent, in an interactive session) author the files.
 
 ```sh
-ivar script list          # name, scope, description, usage and env of each script
+ivar script list                          # name, scope, description, usage, env and approval
 ivar script list --json
+ivar script approve .ivar/scripts/deploy-staging.sh   # approve this exact content
+ivar script check .ivar/scripts/deploy-staging.sh     # exit 0 approved, 3 unreviewed
 ```
 
 A script is a `.sh` or `.py` file whose stem is its name, in kebab-case
@@ -224,6 +226,14 @@ unsupported extension, and `ivar script list --json` names the same files under
 `invalid`. Valid scripts are announced in the session brief, personal first, at
 most 20 of them. The brief marks them as untrusted data, because anyone who can
 edit the file can change its description.
+
+`ivar script approve` records the SHA-256 of a script's content, so an agent runs
+only content you approved. Edit the file and it is **unreviewed** again: the brief
+marks its line `[unreviewed]`, `ivar script check` exits `3`, and the agent shows
+you the content and asks before running it. `approve` refuses a script that
+contains a secret, and `ivar doctor` warns about one, and about a script that
+reads `.env` or `agents.env`. See
+[limitations](../reference/limitations-memory.md#script-execution-approvals).
 
 ## Deliver
 

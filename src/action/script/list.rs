@@ -7,11 +7,8 @@ use serde::Serialize;
 use crate::action::{Ctx, discover_hall};
 use crate::domain::script::{ScriptKind, ScriptScope};
 use crate::error::{Outcome, Report, WriteHuman};
+use crate::store::memory::approvals;
 use crate::store::script::{ScriptFile, scan};
-
-/// The execution-approval state of a script. Fixed to `unknown` until
-/// approvals exist: the field is reserved so consumers can rely on it.
-const APPROVAL_UNKNOWN: &str = "unknown";
 
 /// One valid script.
 #[derive(Debug, Clone, Serialize)]
@@ -30,7 +27,8 @@ pub struct ScriptSummary {
     pub usage: String,
     /// The environment variables the header names.
     pub env: Vec<String>,
-    /// Always `unknown` for now: execution approvals are not recorded yet.
+    /// `approved` when the current content is the one a human approved with
+    /// `ivar script approve`, `unreviewed` otherwise.
     pub approval: &'static str,
 }
 
@@ -98,19 +96,23 @@ impl WriteHuman for ListOutcome {
 /// List the scripts in both folders. Read-only.
 pub fn list(ctx: &Ctx) -> Outcome<ListOutcome> {
     let layout = discover_hall(ctx)?;
+    let recorded =
+        approvals::read_all(layout.memory_db().as_std_path()).map_err(super::store_failure)?;
     let mut scripts = Vec::new();
     let mut invalid = Vec::new();
     for file in scan(&layout)? {
+        let path = super::hall_relative(&layout, &file);
+        let approval = file.approval(recorded.get(&path)).as_str();
         match &file.parsed {
             Ok(script) => scripts.push(ScriptSummary {
                 name: script.name.clone(),
                 scope: file.scope,
                 kind: script.kind,
-                path: super::hall_relative(&layout, &file),
+                path,
                 description: script.description.clone(),
                 usage: script.usage.clone(),
                 env: script.env.clone(),
-                approval: APPROVAL_UNKNOWN,
+                approval,
             }),
             Err(problem) => invalid.push(invalid_script(&layout, &file, problem)),
         }

@@ -28,6 +28,7 @@ If you are looking for the shape of the tool rather than its surface, read
 | `0` | done, with nothing needing attention |
 | `1` | done, but something needs attention — the warnings are on stderr |
 | `2` | refused before starting, or broke mid-flight |
+| `3` | `ivar script check`: unreviewed |
 
 Exit `1` is the one worth designing around: a verb that crosses eight repos and
 hits a problem in one of them reports seven successes and a warning, and that is
@@ -65,7 +66,7 @@ Multi-repo worktrees for coding agents: one feature across repos, on one branch,
 | [`ivar plan`](commands/plan.md) | Manage SPDD plans |
 | [`ivar review`](commands/review.md) | Review a feature's local changes |
 | [`ivar skill`](commands/skill.md) | Manage skills |
-| [`ivar script`](commands/script.md) | List the hall's scripts |
+| [`ivar script`](commands/script.md) | List the hall's scripts, and approve or check their content |
 | [`ivar mcp`](commands/mcp.md) | Authenticate the hall's declared MCP servers |
 | [`ivar graph`](commands/graph.md) | Query and index the codebase dependency graph |
 | [`ivar memory`](commands/memory.md) | Inspect, query and maintain the hall memory: pages, handoffs and the session hooks |
@@ -215,25 +216,27 @@ Page findings of `ivar doctor`:
 | `memory.page_uncommitted` | page files under `docs/memory` have uncommitted changes | commit them |
 | `memory.index_failed` | the last page reindex failed | `ivar memory reindex` |
 
-**`ivar script list` lists the hall's scripts.** It reads `.ivar/scripts/` (scope `team`,
-committed) and `.ivar/scripts-local/` (scope `personal`, ignored by git) and prints each
-valid script's name, scope, description, usage and `env`, personal scripts first, then team,
-alphabetical within each group. `--json` adds `kind`, the hall-relative `path` and an
-`approval` field that is always `unknown` for now, and lists files that are not valid scripts
-under `invalid`. The command only reads: `ivar` never writes, chmods, moves or deletes a
-script. The format is in [day to day: hall scripts](../guides/day-to-day.md#hall-scripts).
+**`ivar script list`** prints each valid script in `.ivar/scripts/` (scope `team`) and
+`.ivar/scripts-local/` (scope `personal`, git-ignored): name, scope, description, usage and
+`env`. `--json` adds `kind`, `path`, `approval` and `invalid` files. `ivar` never changes a
+script; see [hall scripts](../guides/day-to-day.md#hall-scripts). **`ivar script approve
+<path>`** stores the content's SHA-256 in `memory.db`, or exits `2` on a secret (`script.secret_found`).
+**`ivar script check <path>`** exits `0` approved, `3` unreviewed
+([limits](limitations-memory.md#script-execution-approvals)).
 
-Script findings of `ivar doctor` (a warning-level finding, never an error):
+Script findings of `ivar doctor` (warnings):
 
 | Code | Meaning | Fix |
 | --- | --- | --- |
-| `script.unsupported_extension` | a file in a scripts folder is neither `.sh` nor `.py` | rename it, or move it out |
-| `script.bad_name` | the file stem is not kebab-case | rename it, e.g. `deploy-staging.sh` |
-| `script.missing_description` | the header has no `# description:` line | add it right after the shebang |
-| `script.missing_usage` | the header has no `# usage:` line | add it right after the shebang |
-| `script.duplicate_field` | the header repeats `description`, `usage` or `env` | keep one line per field |
-| `script.bad_env_name` | `# env:` lists something that is not an environment variable name | list names separated by commas |
-| `script.unreadable` | the file is not readable UTF-8 text | make it readable text |
+| `script.unsupported_extension` | a script file is neither `.sh` nor `.py` | rename or move it |
+| `script.bad_name` | the stem is not kebab-case | rename it, e.g. `deploy-staging.sh` |
+| `script.missing_description` | no `# description:` line | add it after the shebang |
+| `script.missing_usage` | no `# usage:` line | add it after the shebang |
+| `script.duplicate_field` | a header field repeats | keep one line per field |
+| `script.bad_env_name` | `# env:` lists an invalid name | list names, comma-separated |
+| `script.unreadable` | the file is not UTF-8 text | convert it to UTF-8 |
+| `script.secret_found` | it matches a secret pattern | read it from `# env:` |
+| `script.secret_file` | the script names `.env` or `agents.env` | use `# env:` |
 
 **`ivar automation scan` lists recurring requests as candidates.** A group of similar
 prompts from at least 3 sessions on 2 days of the last 90 (see

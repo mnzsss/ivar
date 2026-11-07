@@ -22,7 +22,8 @@
 use camino::{Utf8Path, Utf8PathBuf};
 
 use crate::domain::script::{self, Script, ScriptProblem, ScriptScope};
-use crate::infra::fs;
+use crate::domain::script_approval::{ApprovalState, UnreviewedReason, state as approval_state};
+use crate::infra::{fs, hash};
 use crate::store::layout::Layout;
 
 /// One file found in a scripts folder.
@@ -36,6 +37,9 @@ pub struct ScriptFile {
     pub path: Utf8PathBuf,
     /// The parsed script, or why the file is not one.
     pub parsed: Result<Script, ScriptProblem>,
+    /// SHA-256 (lowercase hex) of the file's bytes, `None` when the file was
+    /// not read: a bad name, or unreadable text.
+    pub sha256: Option<String>,
 }
 
 impl ScriptFile {
@@ -46,6 +50,18 @@ impl ScriptFile {
         match &self.parsed {
             Ok(script) => &script.name,
             Err(_) => stem(&self.file_name),
+        }
+    }
+}
+
+impl ScriptFile {
+    /// Whether the content on disk is the one `recorded` approved. A file
+    /// whose content was not read has no hash to match, so it is unreviewed.
+    #[must_use]
+    pub fn approval(&self, recorded: Option<&String>) -> ApprovalState {
+        match &self.sha256 {
+            Some(current) => approval_state(recorded.map(String::as_str), current),
+            None => ApprovalState::Unreviewed(UnreviewedReason::NoApproval),
         }
     }
 }
@@ -88,12 +104,15 @@ fn read_folder(
         if file_name.starts_with('.') || !fs::is_file(&path)? {
             continue;
         }
-        let parsed = match script::classify(&file_name) {
+        let (parsed, sha256) = match script::classify(&file_name) {
             // Reject on the name before reading: a stray `notes.txt` is never opened.
-            Err(problem) => Err(problem),
+            Err(problem) => (Err(problem), None),
             Ok(_) => match fs::read_text(&path) {
-                Ok(Some(source)) => script::parse(&file_name, &source),
-                Ok(None) | Err(_) => Err(ScriptProblem::Unreadable),
+                Ok(Some(source)) => (
+                    script::parse(&file_name, &source),
+                    Some(hash::text(&source)),
+                ),
+                Ok(None) | Err(_) => (Err(ScriptProblem::Unreadable), None),
             },
         };
         files.push(ScriptFile {
@@ -101,6 +120,7 @@ fn read_folder(
             file_name,
             path,
             parsed,
+            sha256,
         });
     }
     Ok(())

@@ -127,7 +127,7 @@ pub enum Command {
     /// Manage skills.
     #[command(subcommand)]
     Skill(SkillCommand),
-    /// List the hall's scripts.
+    /// List the hall's scripts, and approve or check their content.
     #[command(subcommand)]
     Script(ScriptCommand),
     /// Authenticate the hall's declared MCP servers.

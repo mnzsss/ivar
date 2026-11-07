@@ -197,11 +197,39 @@ The tools are in [MCP tools](mcp-tools.md#handoffs-and-messages).
   alphabetical within each group, at most 20 lines and then `+N: ivar script list`. Scripts
   with a malformed header are omitted, and a name in both folders shows twice. The section
   is marked as untrusted data and opens with fixed lines on how to run a script. With no
-  handoffs, no messages and no scripts, the brief is silent.
+  handoffs, no messages and no scripts, the brief is silent. A script without a current
+  [execution approval](../glossary.md) ends its line with ` [unreviewed]`; if `memory.db`
+  cannot be read, every script shows as unreviewed.
 - The brief reads `memory.db` read-only and never drains the spool. It prints nothing on
   any failure and always exits 0. Measured with 1000 handoffs, its p95 was 13.46 ms.
 - `ivar session stop` warns `session.handoff_missing` when the session worked and opened
   no handoff. It does not block the stop.
+
+## Script execution approvals
+
+`ivar script approve` and `ivar script check` decide whether an agent runs a script
+without asking. They narrow the risk; they are not a sandbox.
+
+- `approve` takes a UTF-8 file inside the hall (`script.unreadable`, `script.not_found`,
+  `script.outside_hall` otherwise) and keys the approval by its hall-relative path.
+- An approval vouches for content, by SHA-256, as of the moment a human approved it. It says
+  nothing about what the script does with the files, network or credentials it can reach.
+- `ivar` has no `script run` and no wrapper. The agent runs a script as a subprocess of its
+  own shell, and `check` is a step the agent is told to take, not one `ivar` enforces.
+- A script runs with the sandbox of the session that runs it. Inside an `ivar session` that
+  is the session's write sandbox where one applies; a session opened with the `t3` provider
+  has no kernel sandbox on any platform (see
+  [limitations of sessions](limitations-sessions.md#execution-sandboxing-and-provider-control)).
+- `approve` refuses content that matches the capture sanitizer's secret patterns, and
+  `ivar doctor` repeats that search on every script. A pattern can miss a secret in a format
+  it does not know, or one that is split or encoded in the file.
+- The `.env` check of `ivar doctor` is lexical: it reads words, so a read that is
+  obfuscated, built at run time (`"$d/.e""nv"`, a path assembled in a variable) or reached
+  through another file is not seen. It also flags a mention in a comment.
+- Only the hash is stored. The "diff against the approved version" an agent shows comes from
+  git, so it exists only for a script that was committed at the time.
+- Approvals live in `memory.db`, local to the machine. A teammate, a fresh clone or
+  `ivar memory clean` starts with every script unreviewed.
 
 ## Older `ivar`
 

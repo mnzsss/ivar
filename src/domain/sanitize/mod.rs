@@ -118,6 +118,27 @@ pub fn redact_text(
     clean(text, ctx, limit, patterns::redact_secrets)
 }
 
+/// One place a secret pattern matched in a text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SecretFinding {
+    /// The 1-based line where the match starts.
+    pub line: usize,
+    /// The pattern's name (`api_key`, `private_key`, …). Never the secret.
+    pub pattern: &'static str,
+}
+
+/// Every place `text` matches one of the secret patterns [`redact_text`]
+/// redacts, in line order. The whole text is searched (no bound), and the
+/// matched text is never returned: callers refuse the content instead of
+/// redacting it.
+#[must_use]
+pub fn find_secrets(text: &str) -> Vec<SecretFinding> {
+    patterns::find_secrets(text)
+        .into_iter()
+        .map(|(line, pattern)| SecretFinding { line, pattern })
+        .collect()
+}
+
 #[cfg(test)]
 #[path = "../../../tests/unit/domain/sanitize.rs"]
 mod tests;
