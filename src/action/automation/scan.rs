@@ -5,20 +5,22 @@
 //! `--no-drain` skips; the database itself is opened read-only and never
 //! migrated, so the scan works where `.ivar/` is not writable.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde::Serialize;
 
+use super::{artifact_exists, open_read_only};
 use crate::action::feature::relations;
 use crate::action::memory::drain::{self, epoch_secs_now};
 use crate::action::{Ctx, discover_hall};
+use crate::domain::automation::{Decision, DecisionKind, utc_day};
 use crate::domain::name::FeatureName;
 use crate::domain::repetition::{
-    Group, MAX_SAMPLES, MIN_DAYS, MIN_SESSIONS, MIN_SIMILARITY, WINDOW_DAYS, group,
+    Group, MAX_SAMPLES, MIN_DAYS, MIN_SESSIONS, MIN_SIMILARITY, WINDOW_DAYS,
 };
-use crate::error::{Failure, FixAction, Outcome, Report, Warning, WriteHuman};
+use crate::error::{Failure, Outcome, Report, Warning, WriteHuman};
 use crate::store::layout::Layout;
-use crate::store::memory::db::{MemoryDbError, ReadOnlyOpen, open_current_read_only};
+use crate::store::memory::automation as decisions_store;
 use crate::store::memory::fingerprints;
 use crate::store::memory::observations::feature_observations_on;
 use crate::store::memory::retention::cutoff_day_before;
@@ -66,10 +68,15 @@ pub struct Candidate {
     pub observation_ids: Vec<i64>,
 }
 
-/// A group left out because of a decision. Nothing records one yet.
+/// The groups left out because of one declined or deferred decision. Only the
+/// count and the decision's intent are reported, never the groups.
 #[derive(Debug, Clone, Serialize)]
 pub struct Suppressed {
-    pub group_ref: i64,
+    pub decision_id: i64,
+    pub kind: DecisionKind,
+    pub intent: String,
+    /// How many candidate groups the decision covers.
+    pub groups: usize,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -152,7 +159,15 @@ impl WriteHuman for ScanOutcome {
             }
         }
         if !self.suppressed.is_empty() {
-            writeln!(out, "\n{} group(s) suppressed", self.suppressed.len())?;
+            let groups: usize = self.suppressed.iter().map(|entry| entry.groups).sum();
+            writeln!(out, "\n{groups} group(s) suppressed by a decision:")?;
+            for entry in &self.suppressed {
+                writeln!(
+                    out,
+                    "  decision {} ({}): {} - {} group(s)",
+                    entry.decision_id, entry.kind, entry.intent, entry.groups
+                )?;
+            }
         }
         Ok(())
     }
@@ -193,19 +208,23 @@ pub fn scan_in(layout: &Layout, input: &ScanInput, now_epoch_secs: u64) -> Outco
     }
     let mut outcome = ScanOutcome::empty(input.feature.clone());
     let path = layout.memory_db();
-    // A file with no bytes is what an interrupted first open leaves: no database yet.
-    if std::fs::metadata(&path).is_ok_and(|meta| meta.len() > 0) {
-        let conn = match open_current_read_only(path.as_std_path()) {
-            Ok(ReadOnlyOpen::Current(conn)) => conn,
-            Ok(ReadOnlyOpen::Outdated { found, current }) => {
-                return Err(outdated(found, current));
-            }
-            Err(error) => return Err(unreadable(&path, &error)),
-        };
+    if let Some(conn) = open_read_only(layout)? {
+        let today = utc_day(now_epoch_secs);
+        let in_force: Vec<Decision> = decisions_store::list(&conn)
+            .map_err(|error| {
+                Failure::failed(
+                    "automation.scan_failed",
+                    format!("could not read the automation decisions in `{path}`: {error}"),
+                )
+            })?
+            .into_iter()
+            .filter(|decision| decision.is_in_force(&today, artifact_exists(layout, decision)))
+            .collect();
         read(
             &conn,
             features.as_deref(),
             &cutoff_day_before(now_epoch_secs, WINDOW_DAYS),
+            &in_force,
             &mut outcome,
         )
         .map_err(|error| {
@@ -230,41 +249,15 @@ fn feature_subtree(layout: &Layout, name: &FeatureName) -> Result<Vec<String>, F
     Ok(names)
 }
 
-fn outdated(found: i64, current: i64) -> Failure {
-    Failure::blocked(
-        "automation.memory_outdated",
-        format!(
-            "memory.db has schema {found} and this ivar reads schema {current}; \
-             a scan never migrates it"
-        ),
-    )
-    .fix(
-        FixAction::safe(
-            "automation.migrate_memory",
-            "Migrate memory.db from a session that can write `.ivar/`, then scan again.",
-        )
-        .command("ivar memory status"),
-    )
-}
-
-fn unreadable(path: &camino::Utf8Path, error: &MemoryDbError) -> Failure {
-    Failure::failed(
-        "automation.memory_unreadable",
-        format!("could not read `{path}`: {error}"),
-    )
-}
-
 fn read(
     conn: &rusqlite::Connection,
     features: Option<&[String]>,
     since_day: &str,
+    decisions: &[Decision],
     outcome: &mut ScanOutcome,
 ) -> rusqlite::Result<()> {
-    let prints = fingerprints::since(conn, since_day)?;
-    outcome.fingerprints = prints.len();
-    let mut groups = group(prints, |tokens| {
-        fingerprints::sharing_a_token(conn, tokens, since_day)
-    })?;
+    let (count, mut groups) = fingerprints::grouped_since(conn, since_day)?;
+    outcome.fingerprints = count;
     groups.retain(Group::is_candidate);
     if let Some(features) = features {
         let sessions: BTreeSet<String> = feature_observations_on(conn, features)?
@@ -287,11 +280,35 @@ fn read(
             .cmp(&a.sessions().len())
             .then_with(|| recency(b).cmp(&recency(a)))
     });
+    // A declined or deferred decision suppresses its groups and says so; an
+    // accepted one only stops them being candidates.
+    let mut suppressed: BTreeMap<i64, Suppressed> = BTreeMap::new();
     for group in &groups {
+        let texts = group.texts();
+        let covers = |decision: &&Decision| decision.matches(texts.iter().copied());
+        if let Some(decision) = decisions
+            .iter()
+            .find(|decision| decision.kind != DecisionKind::Accepted && covers(decision))
+        {
+            suppressed
+                .entry(decision.id)
+                .or_insert_with(|| Suppressed {
+                    decision_id: decision.id,
+                    kind: decision.kind,
+                    intent: decision.intent.clone(),
+                    groups: 0,
+                })
+                .groups += 1;
+            continue;
+        }
+        if decisions.iter().any(|decision| covers(&decision)) {
+            continue;
+        }
         if let Some(candidate) = candidate(conn, group)? {
             outcome.candidates.push(candidate);
         }
     }
+    outcome.suppressed = suppressed.into_values().collect();
     Ok(())
 }
 

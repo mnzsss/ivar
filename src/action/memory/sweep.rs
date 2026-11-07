@@ -1,6 +1,6 @@
 //! Deletes `session.*` observations whose session ended more than the
 //! retention window ago, request fingerprints older than 90 days, expires overdue handoffs and messages and prunes
-//! their terminal rows. Runs under a non-waiting `memory.lock` held for the
+//! their terminal rows, and maintains the automation decisions. Runs under a non-waiting `memory.lock` held for the
 //! whole sweep and never creates `memory.db`.
 
 use std::time::SystemTime;
@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use camino::Utf8Path;
 
+use crate::action::automation::sweep::{DecisionsSwept, sweep_decisions};
 use crate::action::memory::consolidate;
 use crate::action::memory::events::{MemoryEventScope, report_memory_event};
 use crate::action::memory::page_file::SESSION_PAGES_DIR;
@@ -45,6 +46,10 @@ pub struct SweepReport {
     pub pages_removed: usize,
     pub usage_pruned: usize,
     pub fingerprints_pruned: usize,
+    /// Declined decisions nothing matches any more and deferrals past their date.
+    pub decisions_expired: usize,
+    /// Decisions that took the texts of the groups that now match them.
+    pub decisions_extended: usize,
     pub handoffs_expired: usize,
     pub messages_expired: usize,
     pub coordination_pruned: usize,
@@ -80,9 +85,13 @@ pub fn sweep(layout: &Layout, now_epoch_secs: u64) -> Result<SweepReport, Failur
         Err(error) => return Err(record_failure(layout, &mut state, error.to_string())),
     };
     let cutoff = cutoff_before(now_epoch_secs, SESSION_RETENTION_DAYS);
-    let (deleted, usage_pruned, fingerprints_pruned) =
-        delete_all_expired(layout, &cutoff, now_epoch_secs)
-            .map_err(|error| record_failure(layout, &mut state, error))?;
+    let Expired {
+        deleted,
+        usage_pruned,
+        fingerprints_pruned,
+        decisions,
+    } = delete_all_expired(layout, &cutoff, now_epoch_secs)
+        .map_err(|error| record_failure(layout, &mut state, error))?;
     let pages_removed = expire_session_pages(layout, now_epoch_secs)
         .map_err(|error| record_failure(layout, &mut state, error))?;
     let coordination = expire_coordination(layout, now_epoch_secs)
@@ -96,6 +105,8 @@ pub fn sweep(layout: &Layout, now_epoch_secs: u64) -> Result<SweepReport, Failur
         pages_removed,
         usage_pruned,
         fingerprints_pruned,
+        decisions_expired: decisions.expired,
+        decisions_extended: decisions.extended,
         handoffs_expired: coordination.handoffs_expired,
         messages_expired: coordination.messages_expired,
         coordination_pruned: coordination.pruned,
@@ -135,13 +146,21 @@ fn write_state(layout: &Layout, state: &SweepState) -> Result<(), Box<dyn std::e
     Ok(())
 }
 
+#[derive(Debug, Default)]
+struct Expired {
+    deleted: usize,
+    usage_pruned: usize,
+    fingerprints_pruned: usize,
+    decisions: DecisionsSwept,
+}
+
 fn delete_all_expired(
     layout: &Layout,
     cutoff: &str,
     now_epoch_secs: u64,
-) -> Result<(usize, usize, usize), String> {
+) -> Result<Expired, String> {
     if !layout.memory_db().exists() {
-        return Ok((0, 0, 0));
+        return Ok(Expired::default());
     }
     let mut db = MemoryDb::open(layout.memory_db().as_std_path()).map_err(|e| e.to_string())?;
     let mut total = 0;
@@ -160,12 +179,18 @@ fn delete_all_expired(
         &cutoff_day_before(now_epoch_secs, FINGERPRINT_RETENTION_DAYS),
     )
     .map_err(|e| e.to_string())?;
+    let decisions = sweep_decisions(&mut db, now_epoch_secs).map_err(|e| e.to_string())?;
     if total > 0 || fingerprints_pruned > 0 {
         db.conn()
             .query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()))
             .map_err(|e| e.to_string())?;
     }
-    Ok((total, usage_pruned, fingerprints_pruned))
+    Ok(Expired {
+        deleted: total,
+        usage_pruned,
+        fingerprints_pruned,
+        decisions,
+    })
 }
 
 fn expire_coordination(layout: &Layout, now_epoch_secs: u64) -> Result<CoordinationSwept, String> {

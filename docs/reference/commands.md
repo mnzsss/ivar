@@ -241,6 +241,8 @@ prompts from at least 3 sessions on 2 days of the last 90 (see
 and its descendants. Samples are untrusted memory text, evidence only. It drains the
 spool first; `--no-drain` writes nothing, so it works with a read-only `.ivar/`, and
 it never migrates `memory.db` (an older schema exits 2, naming `ivar memory status`).
+`decide`, `renew`, `decisions` and `undo` keep your answers
+([Automation decision](../glossary.md#health-and-state)); `scan` hides declined and deferred groups.
 
 **`ivar session start` is the one verb that takes over your terminal.** It opens
 a TUI. Everything else prints and exits.

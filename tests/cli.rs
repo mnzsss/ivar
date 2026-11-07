@@ -17,6 +17,9 @@ mod agent;
 #[path = "cli/cli_styling.rs"]
 mod cli_styling;
 
+#[path = "cli/automation_decisions.rs"]
+mod automation_decisions;
+
 #[path = "cli/automation_scan.rs"]
 mod automation_scan;
 

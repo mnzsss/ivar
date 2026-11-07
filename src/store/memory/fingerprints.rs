@@ -10,7 +10,7 @@ use rusqlite::{Connection, params};
 
 use crate::domain::fingerprint::normalize;
 use crate::domain::observation::{Origin, SourceEvent};
-use crate::domain::repetition::Fingerprint;
+use crate::domain::repetition::{Fingerprint, Group, group};
 use crate::domain::session::rfc3339_now;
 
 /// Only a prompt the user typed has a fingerprint; a `harness` prompt (a hook
@@ -106,6 +106,19 @@ pub fn since(conn: &Connection, since_day: &str) -> rusqlite::Result<Vec<Fingerp
         })
     })?
     .collect()
+}
+
+/// How many fingerprints were made on `since_day` or later, and the groups
+/// they form: every group, whether or not it recurred enough to be a candidate.
+///
+/// # Errors
+///
+/// When a query fails.
+pub fn grouped_since(conn: &Connection, since_day: &str) -> rusqlite::Result<(usize, Vec<Group>)> {
+    let prints = since(conn, since_day)?;
+    let count = prints.len();
+    let groups = group(prints, |tokens| sharing_a_token(conn, tokens, since_day))?;
+    Ok((count, groups))
 }
 
 /// The `OR` query that matches a text sharing any of `tokens`; `None` when no

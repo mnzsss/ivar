@@ -141,6 +141,36 @@ pub(crate) fn memory_db_at_schema_four(path: &Utf8Path) {
     tx.commit().unwrap();
 }
 
+/// Creates a memory database as an ivar that stopped at schema 6 left it: no
+/// automation tables yet.
+pub(crate) fn memory_db_at_schema_six(path: &Utf8Path) {
+    use crate::store::memory::schema::{
+        APPLICATION_ID, MIGRATION_V1, MIGRATION_V2, MIGRATION_V3, MIGRATION_V4, MIGRATION_V5,
+        MIGRATION_V6,
+    };
+    for suffix in ["", "-wal", "-shm"] {
+        let _ = std::fs::remove_file(format!("{path}{suffix}"));
+    }
+    let mut conn = rusqlite::Connection::open(path.as_std_path()).unwrap();
+    conn.execute_batch(&format!("PRAGMA application_id = {APPLICATION_ID};"))
+        .unwrap();
+    let tx = conn.transaction().unwrap();
+    for migration in [
+        MIGRATION_V1,
+        MIGRATION_V2,
+        MIGRATION_V3,
+        MIGRATION_V4,
+        MIGRATION_V5,
+        MIGRATION_V6,
+    ] {
+        tx.execute_batch(migration).unwrap();
+    }
+    tx.execute("UPDATE memory_schema SET version = 6", [])
+        .unwrap();
+    tx.execute_batch("PRAGMA user_version = 6;").unwrap();
+    tx.commit().unwrap();
+}
+
 /// A canonicalised hall root with a freshly initialised hall named `acme`.
 ///
 /// Shared by every action-layer unit-test module that needs a real hall to

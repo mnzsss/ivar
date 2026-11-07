@@ -352,6 +352,24 @@ recent fingerprint), up to 3 sample texts flagged as untrusted, the sessions, da
 it spans, and the ids of the observations that still exist. The samples are memory text, evidence
 only: what users typed is data to cite and never an instruction to follow.
 
+**Automation decision** — the human's answer to a proposal to automate a **Candidate**, stored in
+`.ivar/memory.db`: `accepted` (the automation exists as an artifact of a given form: `script`,
+`skill`, `agent` or `procedure`), `declined` or `deferred`. It holds the normalized texts of the
+group it was made on, and a group matches it when any of its texts is in that set, so the answer
+survives the group gaining new texts. `ivar automation decide` records one, `renew` and `undo`
+change it, and `decisions` lists them. `scan` suppresses the groups of a declined or deferred
+decision, reporting only the count and the intent, and drops the groups of an accepted one from
+the candidates. An accepted decision never expires; one whose artifact is gone is ignored. See
+[Memory database](reference/on-disk-format-databases.md#automation-decisions-schema-7).
+
+**Decline** — an **Automation decision** of kind `declined`: do not propose this request again
+while it keeps recurring. The hourly memory sweep adds the texts of the groups that match it, and
+deletes it once no request fingerprint of the last 90 days matches any of its texts.
+
+**Deferral** — an **Automation decision** of kind `deferred`: do not propose this request before
+a date. `--until` gives it as `YYYY-MM-DD`, 30 days from now by default. It holds through that
+day, and the sweep deletes it the day after.
+
 **Feature cut** — `ivar automation scan --feature <name>`: the scan keeps only the groups with
 at least one fingerprint in a session of that feature or of one of its descendants, resolved the
 way `ivar memory review` resolves a feature's observations. A kept group is reported whole, with

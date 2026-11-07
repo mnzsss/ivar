@@ -153,6 +153,12 @@ impl Group {
             .collect()
     }
 
+    /// Every distinct normalized text of the group, sorted.
+    #[must_use]
+    pub fn texts(&self) -> BTreeSet<&str> {
+        self.members.iter().map(|f| f.normalized.as_str()).collect()
+    }
+
     /// At most `max` distinct normalized texts, most recent first.
     #[must_use]
     pub fn samples(&self, max: usize) -> Vec<&str> {

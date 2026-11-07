@@ -8,7 +8,7 @@ use super::fingerprints;
 pub const APPLICATION_ID: i32 = 0x6976_6d31;
 
 /// The memory schema this binary migrates to.
-pub const MEMORY_SCHEMA_VERSION: i64 = 6;
+pub const MEMORY_SCHEMA_VERSION: i64 = 7;
 
 /// Every schema object a memory database up to [`MEMORY_SCHEMA_VERSION`]
 /// owns. Anything else in the file was put there by another program.
@@ -61,6 +61,9 @@ pub(crate) const MEMORY_OBJECTS: &[&str] = &[
     "request_fingerprints_fts_config",
     "request_fingerprints_fts_insert",
     "request_fingerprints_fts_delete",
+    "automation_decisions",
+    "automation_decision_texts",
+    "automation_decision_texts_normalized",
 ];
 
 pub(crate) const OBSERVATIONS_TABLE: &str = "observations";
@@ -247,6 +250,34 @@ CREATE TRIGGER request_fingerprints_fts_delete AFTER DELETE ON request_fingerpri
 END;
 ";
 
+// What the human answered to a proposal to automate a recurring request. Personal
+// data, not a cache: no reindex rebuilds it, and the sweep only maintains it.
+// `until` is the last day a deferral holds, `YYYY-MM-DD`. The CHECKs keep the
+// fields of each kind: `form` and `artifact` only on `accepted`, `until` only on
+// `deferred`. `automation_decision_texts` is the set of normalized texts the
+// decision covers; a decision is deleted with its texts.
+pub(crate) const MIGRATION_V7: &str = "
+CREATE TABLE automation_decisions (
+    id         INTEGER PRIMARY KEY,
+    kind       TEXT NOT NULL CHECK (kind IN ('accepted', 'declined', 'deferred')),
+    intent     TEXT NOT NULL,
+    form       TEXT CHECK (form IN ('script', 'skill', 'agent', 'procedure')),
+    artifact   TEXT,
+    until      TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    CHECK ((kind = 'accepted') = (form IS NOT NULL AND artifact IS NOT NULL)),
+    CHECK ((kind = 'accepted') OR (form IS NULL AND artifact IS NULL)),
+    CHECK ((kind = 'deferred') = (until IS NOT NULL))
+);
+CREATE TABLE automation_decision_texts (
+    decision_id INTEGER NOT NULL REFERENCES automation_decisions (id) ON DELETE CASCADE,
+    normalized  TEXT NOT NULL,
+    PRIMARY KEY (decision_id, normalized)
+);
+CREATE INDEX automation_decision_texts_normalized ON automation_decision_texts (normalized);
+";
+
 pub(crate) fn migrate(tx: &Transaction<'_>, from: i64) -> rusqlite::Result<()> {
     if from < 1 {
         tx.execute_batch(MIGRATION_V1)?;
@@ -266,6 +297,9 @@ pub(crate) fn migrate(tx: &Transaction<'_>, from: i64) -> rusqlite::Result<()> {
     if from < 6 {
         tx.execute_batch(MIGRATION_V6)?;
         fingerprints::backfill(tx)?;
+    }
+    if from < 7 {
+        tx.execute_batch(MIGRATION_V7)?;
     }
     tx.execute(
         "UPDATE memory_schema SET version = ?1",

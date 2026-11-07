@@ -58,6 +58,10 @@ the new rules apply to prompts captured from then on and to a migration's backfi
 observations still retained (the last 30 days), and every older fingerprint keeps the form
 it was written in. Until those age out, the same request can have two forms.
 
+The sweep also maintains the automation decisions: it deletes a declined decision that no
+fingerprint of the 90 days matches any more and a deferral the day after its `until`, and
+never an accepted one.
+
 `ivar automation scan` matches words, not meaning: two prompts that ask the same thing in
 different words are two requests, and a request typed outside an `ivar` session counts for
 no session. It sees only fingerprints already in `memory.db`, so with `--no-drain`, or when
