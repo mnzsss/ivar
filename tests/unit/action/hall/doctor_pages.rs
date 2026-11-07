@@ -20,6 +20,7 @@ fn codes(root: &Utf8Path) -> Vec<&'static str> {
         .filter(|code| {
             code.starts_with("memory.page")
                 || *code == "memory.legacy_docs"
+                || *code == "memory.legacy_hall_index"
                 || *code == "memory.index_failed"
         })
         .collect()
@@ -262,4 +263,31 @@ fn uncommitted_pages_are_one_finding_that_clears_after_a_commit() {
     git(&["add", "-A"]);
     git(&["commit", "-q", "-m", "pages"]);
     assert!(!codes(&root).contains(&"memory.page_uncommitted"));
+}
+
+#[rstest]
+#[case::product_docs("ivar:product-docs")]
+#[case::updates("ivar:updates")]
+fn dead_hall_index_regions_are_flagged(#[case] region: &str) {
+    let (_guard, root) = seeded_hall();
+    let hall_md = root.join("HALL.md");
+    let before = std::fs::read_to_string(&hall_md).unwrap_or_default();
+    std::fs::write(
+        &hall_md,
+        format!("{before}\n<!-- {region}:start -->\n- old line\n<!-- {region}:end -->\n"),
+    )
+    .unwrap();
+    let report = doctor(&Ctx::new(root.clone())).unwrap().value;
+    let found = finding(&report, "memory.legacy_hall_index");
+    assert!(found.what.contains(region), "{}", found.what);
+    assert!(found.fix.contains("memory_query"), "{}", found.fix);
+}
+
+#[test]
+fn a_hall_md_without_the_dead_regions_is_not_flagged() {
+    let (_guard, root) = seeded_hall();
+    let hall_md = root.join("HALL.md");
+    let before = std::fs::read_to_string(&hall_md).unwrap_or_default();
+    std::fs::write(&hall_md, format!("{before}\n# Notes\n\nNothing legacy.\n")).unwrap();
+    assert!(!codes(&root).contains(&"memory.legacy_hall_index"));
 }

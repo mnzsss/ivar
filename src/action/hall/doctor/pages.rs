@@ -14,11 +14,14 @@ const LEGACY_FOLDERS: [(&str, &str); 2] = [
     ("docs/product", "docs/memory/product"),
     ("docs/updates", "docs/memory/update"),
 ];
+/// Regions `ivar feature cleanup` used to maintain in `HALL.md` before memory pages.
+const LEGACY_HALL_REGIONS: [&str; 2] = ["ivar:product-docs", "ivar:updates"];
 const UNCOMMITTED_EXAMPLES: usize = 5;
 
 pub(super) fn page_diagnoses(layout: &Layout, hall_is_git: bool) -> Vec<Diagnosis> {
     let mut findings = Vec::new();
     findings.extend(legacy_docs(layout, hall_is_git));
+    findings.extend(legacy_hall_index(layout));
     findings.extend(uncommitted(layout));
     findings.extend(index_failed(layout));
     findings.extend(page_issues(layout));
@@ -93,6 +96,30 @@ fn legacy_docs(layout: &Layout, hall_is_git: bool) -> Option<Diagnosis> {
         code: "memory.legacy_docs",
         what: "pages still live in docs/product or docs/updates".to_owned(),
         fix: format!("mkdir -p docs/memory && {}", moves.join(" && ")),
+    })
+}
+
+/// `HALL.md` still carrying a region ivar no longer writes or reads. It reaches
+/// every session through the generated root instructions file.
+fn legacy_hall_index(layout: &Layout) -> Option<Diagnosis> {
+    let text = std::fs::read_to_string(layout.hall_instructions()).ok()?;
+    let found: Vec<&str> = LEGACY_HALL_REGIONS
+        .into_iter()
+        .filter(|region| text.contains(&format!("<!-- {region}:start -->")))
+        .collect();
+    (!found.is_empty()).then(|| Diagnosis {
+        code: "memory.legacy_hall_index",
+        what: format!(
+            "HALL.md still has the dead {} region(s), which ivar no longer reads or writes",
+            found
+                .iter()
+                .map(|region| format!("`{region}`"))
+                .collect::<Vec<_>>()
+                .join(" and ")
+        ),
+        fix: "Delete the `ivar:product-docs` and `ivar:updates` regions from HALL.md, markers \
+              included; find the pages with `memory_query`."
+            .to_owned(),
     })
 }
 
