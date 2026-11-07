@@ -30,6 +30,7 @@ fn merged_repo_is_eligible() {
         repos: vec![repo_facts()],
         live_sessions: Vec::new(),
         session_inspection_error: None,
+        memory_reviewed: false,
     });
 
     assert!(verdict.blockers.is_empty());
@@ -46,6 +47,7 @@ fn collects_all_repository_blockers() {
         repos: vec![facts],
         live_sessions: vec![SessionId::new("2c6e6f1e-2d8a-4b3a-9c2a-6a7f6f9a1b2c").unwrap()],
         session_inspection_error: None,
+        memory_reviewed: false,
     });
 
     assert_eq!(verdict.blockers.len(), 5);
@@ -82,14 +84,47 @@ fn collects_all_repository_blockers() {
 }
 
 #[test]
-fn empty_feature_is_explicitly_eligible() {
+fn a_feature_without_repos_or_review_stays_blocked() {
     let verdict = classify_cleanup(&CleanupFacts {
         repos: Vec::new(),
         live_sessions: Vec::new(),
         session_inspection_error: None,
+        memory_reviewed: false,
     });
 
     assert_eq!(verdict.blockers, vec![CleanupBlocker::EmptyFeature]);
+    assert!(
+        CleanupBlocker::EmptyFeature
+            .to_string()
+            .contains("ivar feature delete")
+    );
+}
+
+#[test]
+fn a_hall_only_feature_with_a_memory_review_is_eligible() {
+    let verdict = classify_cleanup(&CleanupFacts {
+        repos: Vec::new(),
+        live_sessions: Vec::new(),
+        session_inspection_error: None,
+        memory_reviewed: true,
+    });
+
+    assert!(verdict.blockers.is_empty());
+}
+
+#[test]
+fn a_hall_only_feature_with_a_live_session_stays_blocked() {
+    let verdict = classify_cleanup(&CleanupFacts {
+        repos: Vec::new(),
+        live_sessions: vec![SessionId::new("2c6e6f1e-2d8a-4b3a-9c2a-6a7f6f9a1b2c").unwrap()],
+        session_inspection_error: None,
+        memory_reviewed: true,
+    });
+
+    assert!(matches!(
+        verdict.blockers.as_slice(),
+        [CleanupBlocker::LiveSessions { .. }]
+    ));
 }
 
 #[test]
@@ -100,6 +135,7 @@ fn repo_absent_from_manifest_blocks_cleanup() {
         repos: vec![facts],
         live_sessions: Vec::new(),
         session_inspection_error: None,
+        memory_reviewed: false,
     });
     assert_eq!(
         verdict.blockers,
@@ -324,6 +360,7 @@ fn facts_with(repo: CleanupRepoFacts) -> CleanupFacts {
         repos: vec![repo],
         live_sessions: Vec::new(),
         session_inspection_error: None,
+        memory_reviewed: false,
     }
 }
 #[test]

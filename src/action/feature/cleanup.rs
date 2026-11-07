@@ -149,6 +149,8 @@ pub fn cleanup(ctx: &Ctx, input: CleanupInput) -> Outcome<CleanupOutcome> {
         )
     })?;
     let git = git::System;
+    // Before the preview: it reads the review of a feature with no repo.
+    let (_, memory_warning) = memory_review(&layout, &name);
     let previewed = preview_cleanup(
         &git,
         &layout,
@@ -158,7 +160,6 @@ pub fn cleanup(ctx: &Ctx, input: CleanupInput) -> Outcome<CleanupOutcome> {
     )?;
     emit_merged(&emitter, &feature, &previewed.merged);
 
-    let (_, memory_warning) = memory_review(&layout, &name);
     Ok(Report::with_warnings(
         CleanupOutcome {
             root: layout.root().to_path_buf(),

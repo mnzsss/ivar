@@ -101,6 +101,11 @@ pub(super) fn preview_cleanup(
         repos: repo_facts,
         live_sessions,
         session_inspection_error,
+        memory_reviewed: feature.promotions.is_empty()
+            && matches!(
+                review_state(layout, &feature.name),
+                Ok(ReviewState::Reviewed { .. } | ReviewState::Skipped)
+            ),
     };
     let verdict = classify_cleanup(&facts);
     let repos = facts

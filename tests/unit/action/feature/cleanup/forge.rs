@@ -85,6 +85,7 @@ fn forge_answer_text_does_not_move_the_cleanup_fingerprint() {
             }],
             live_sessions: Vec::new(),
             session_inspection_error: None,
+            memory_reviewed: false,
         };
         let blockers = classify_cleanup(&facts).blockers;
         let repos: Vec<_> = facts.repos.iter().filter_map(cleanup_repo).collect();

@@ -156,3 +156,80 @@ fn a_parent_and_its_abandoned_subfeature_are_cleaned_up_with_one_record() {
     assert!(!root.join(".ivar/features/child").exists());
     drop(guard);
 }
+
+fn hall_only_cleanup(root: &camino::Utf8Path, args: &[&str]) -> serde_json::Value {
+    let output = crate::common::ivar()
+        .current_dir(root)
+        .args(["feature", "cleanup", "hall-md-slim"])
+        .args(args)
+        .arg("--json")
+        .output()
+        .unwrap();
+    serde_json::from_slice(&output.stdout).expect("valid json")
+}
+
+#[test]
+fn a_reviewed_hall_only_feature_is_cleaned_up_without_repos() {
+    let (guard, root) = hall_root();
+    crate::common::ivar()
+        .current_dir(&root)
+        .arg("init")
+        .assert()
+        .success();
+    crate::common::ivar()
+        .current_dir(&root)
+        .args(["feature", "create", "hall-md-slim"])
+        .assert()
+        .success();
+
+    // Without a review the feature has no recorded work: still blocked.
+    let blocked = hall_only_cleanup(&root, &["--preview"]);
+    assert_eq!(blocked["preview"]["blockers"][0]["kind"], "empty_feature");
+
+    crate::common::record_memory_review(&root, "hall-md-slim");
+    let value = hall_only_cleanup(&root, &["--preview"]);
+    let preview = &value["preview"];
+    assert_eq!(value["ok"], true);
+    assert!(
+        preview.get("blockers").is_none(),
+        "a reviewed hall-only feature is eligible: {preview}"
+    );
+    assert_eq!(preview["repos"], serde_json::json!([]));
+
+    let record_dir = root.join("docs/memory/update");
+    std::fs::create_dir_all(&record_dir).unwrap();
+    let record_path = record_dir.join("001-hall-md-slim.cleanup.json");
+    std::fs::write(
+        &record_path,
+        serde_json::to_string_pretty(&serde_json::json!({
+            "schema_version": 2,
+            "feature": "hall-md-slim",
+            "branch": "hall-md-slim",
+            "fingerprint": preview["fingerprint"],
+            "approvals": {
+                "delivery": { "approved": true, "at": "2026-08-28T12:00:00Z" },
+                "teardown": { "approved": true, "at": "2026-08-28T12:10:00Z" }
+            },
+            "outcome": null
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+
+    hall_only_cleanup(
+        &root,
+        &[
+            "--record",
+            "docs/memory/update/001-hall-md-slim.cleanup.json",
+        ],
+    );
+
+    assert!(!root.join(".ivar/features/hall-md-slim").exists());
+    let record: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&record_path).unwrap()).unwrap();
+    assert_eq!(record["schema_version"], 2);
+    assert_eq!(record["outcome"]["feature_removed"], true);
+    assert_eq!(record["outcome"]["worktrees"], serde_json::json!([]));
+    assert_eq!(record["outcome"]["branches"], serde_json::json!([]));
+    drop(guard);
+}
