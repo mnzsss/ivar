@@ -546,6 +546,19 @@ fn accepted_http_mcp_value_structurally() {
 }
 
 #[test]
+fn the_http_branch_declares_auth_as_an_oauth_enum() {
+    let s = schema();
+    let http_branch = find_mcp_branch(&s, "http");
+
+    let auth = http_branch.pointer("/properties/auth").unwrap();
+    assert_eq!(auth.get("enum"), Some(&json!(["oauth"])));
+    assert!(
+        s.pointer("/$defs/McpAuth").is_none(),
+        "the inlined `auth` must not leave a dead McpAuth definition"
+    );
+}
+
+#[test]
 fn accepted_local_mcp_value_structurally() {
     let s = schema();
     let local_branch = find_mcp_branch(&s, "local");

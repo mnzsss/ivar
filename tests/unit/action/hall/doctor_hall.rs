@@ -301,6 +301,31 @@ fn doctor_diagnoses_missing_mcp_auth() {
 }
 
 #[test]
+fn doctor_diagnoses_missing_auth_for_a_server_marked_oauth_without_a_client() {
+    let (_guard, root) = hall_root();
+    let ctx = Ctx::new(root.clone());
+    init(&ctx, &fresh_input()).unwrap();
+
+    let layout = Layout::at(root.clone());
+    let manifest = Manifest::read(&layout).unwrap().unwrap();
+    let updated = manifest
+        .with_mcp_servers(vec![
+            McpServerDef::new("prisda", "http")
+                .url("https://mcp.prisda.test/mcp")
+                .auth(crate::domain::mcp::McpAuth::Oauth),
+        ])
+        .unwrap();
+
+    let mock_state =
+        |_p: Provider, _name: &str, _url: &str| -> CredentialState { CredentialState::Missing };
+
+    let diagnoses = diagnose_mcp_auth(&updated, &mock_state);
+    assert_eq!(diagnoses.len(), updated.providers().available().len());
+    assert!(diagnoses.iter().all(|d| d.code == "mcp.auth_missing"));
+    assert!(diagnoses[0].what.contains("prisda"));
+}
+
+#[test]
 fn doctor_ignores_mcp_servers_not_requiring_auth() {
     let (_guard, root) = hall_root();
     let ctx = Ctx::new(root.clone());

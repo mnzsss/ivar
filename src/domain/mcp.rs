@@ -183,6 +183,22 @@ pub struct McpServerDef {
     /// client, which is the common case.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub oauth: Option<McpOauth>,
+    /// The authentication scheme the server is known to require, recorded once
+    /// `ivar mcp auth` has left a credential behind. Separate from
+    /// [`Self::oauth`]: this says the server *needs* OAuth, `oauth` says a
+    /// client was *pre-registered*. A server that authenticates itself (CIMD,
+    /// or a provider-owned login) never gets an `oauth` block, yet still
+    /// needs a token. Absent when nothing has shown the server needs auth.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auth: Option<McpAuth>,
+}
+
+/// The authentication scheme an MCP server is recorded as requiring.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum McpAuth {
+    /// The server requires OAuth.
+    Oauth,
 }
 
 impl McpServerDef {
@@ -265,6 +281,7 @@ impl McpServerDef {
             url: None,
             env: None,
             oauth: None,
+            auth: None,
         }
     }
 
@@ -303,6 +320,13 @@ impl McpServerDef {
         self
     }
 
+    /// Record the authentication scheme the server requires.
+    #[must_use]
+    pub fn auth(mut self, auth: McpAuth) -> Self {
+        self.auth = Some(auth);
+        self
+    }
+
     /// The name a provider boundary keys this server by: `<hall>-<server>`.
     ///
     /// [`Self::name`] is the canonical, hall-portable identity the manifest
@@ -321,7 +345,7 @@ impl McpServerDef {
     pub fn auth_requirement(&self) -> AuthRequirement {
         if self.type_ == "local" {
             AuthRequirement::NotApplicable
-        } else if self.oauth.is_some() {
+        } else if self.oauth.is_some() || self.auth == Some(McpAuth::Oauth) {
             AuthRequirement::Required
         } else {
             AuthRequirement::NotRequired

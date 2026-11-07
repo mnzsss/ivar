@@ -8,7 +8,7 @@
 use super::*;
 use crate::action::Ctx;
 use crate::action::mcp::add::{AddInput, add};
-use crate::domain::mcp::McpOauth;
+use crate::domain::mcp::{McpAuth, McpOauth};
 use crate::domain::provider::Provider;
 use crate::store::layout::Layout;
 use crate::store::manifest::Manifest;
@@ -178,4 +178,74 @@ fn an_unchanged_edit_keeps_the_secret() {
         McpSecrets::read(&layout).unwrap().get("IVAR_MCP_X_SECRET"),
         Some("secret-value")
     );
+}
+
+fn with_auth(root: &camino::Utf8PathBuf, name: &str) {
+    let layout = Layout::at(root.clone());
+    let manifest = Manifest::read(&layout).unwrap().unwrap();
+    let servers = manifest
+        .mcp_servers()
+        .iter()
+        .cloned()
+        .map(|s| {
+            if s.name == name {
+                s.auth(McpAuth::Oauth)
+            } else {
+                s
+            }
+        })
+        .collect();
+    Manifest::write(&layout, &manifest.with_mcp_servers(servers).unwrap()).unwrap();
+}
+
+#[test]
+fn an_edit_to_the_same_url_keeps_the_recorded_auth() {
+    let (_guard, root) = seeded_hall();
+    let ctx = Ctx::new(root.clone());
+    add(&ctx, &http("x", "https://same.test/mcp")).unwrap();
+    with_auth(&root, "x");
+
+    let report = edit(&ctx, &to_url("x", "https://same.test/mcp")).unwrap();
+
+    assert!(!report.value.changed);
+    assert_eq!(server(&root, "x").auth, Some(McpAuth::Oauth));
+}
+
+#[test]
+fn an_edit_keeping_the_origin_carries_auth_across_the_rewrite() {
+    let (_guard, root) = seeded_hall();
+    let ctx = Ctx::new(root.clone());
+    let local = |command: &str| EditInput {
+        name: "x".to_owned(),
+        url: None,
+        command: Some(command.to_owned()),
+        args: vec![],
+    };
+    edit_to_local(&ctx, &root, &local("first"));
+    with_auth(&root, "x");
+
+    let report = edit(&ctx, &local("second")).unwrap();
+
+    assert!(report.value.changed);
+    assert_eq!(server(&root, "x").command.as_deref(), Some("second"));
+    assert_eq!(server(&root, "x").auth, Some(McpAuth::Oauth));
+}
+
+fn edit_to_local(ctx: &Ctx, root: &camino::Utf8PathBuf, input: &EditInput) {
+    add(ctx, &http("x", "https://old.test/mcp")).unwrap();
+    edit(ctx, input).unwrap();
+    assert_eq!(server(root, "x").type_, "local");
+}
+
+#[test]
+fn an_edit_to_a_different_url_drops_the_recorded_auth() {
+    let (_guard, root) = seeded_hall();
+    let ctx = Ctx::new(root.clone());
+    add(&ctx, &http("x", "https://old.test/mcp")).unwrap();
+    with_auth(&root, "x");
+
+    let report = edit(&ctx, &to_url("x", "https://new.test/mcp")).unwrap();
+
+    assert!(report.value.changed);
+    assert_eq!(server(&root, "x").auth, None);
 }

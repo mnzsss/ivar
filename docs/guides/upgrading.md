@@ -141,6 +141,14 @@ own is the one thing the format contract forbids outright.
 
 See [On-disk format](../reference/on-disk-format.md) for the full contract.
 
+## `mcp[].auth` needs no migration
+
+`ivar mcp auth` now records `"auth": "oauth"` on a server that left a credential behind, so
+`ivar mcp status` and `ivar doctor` can report its token. The field is optional and the
+manifest version does not change. Servers authenticated before the upgrade keep reporting
+`not-required` until you run `ivar mcp auth <server>` again. An older `ivar` rejects a file
+carrying the field, so upgrade teammates before committing it.
+
 ## MCP transport rename is a content edit, not a migration
 
 Upgrading `ivar` also introduces a **breaking change** to the `mcp[].type`

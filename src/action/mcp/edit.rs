@@ -118,6 +118,7 @@ pub fn edit(ctx: &Ctx, input: &EditInput) -> Outcome<McpEdited> {
     let oauth_dropped = existing.oauth.is_some() && !same_origin;
     if same_origin {
         new_def.oauth.clone_from(&existing.oauth);
+        new_def.auth = existing.auth;
     }
     let servers: Vec<McpServerDef> = manifest
         .mcp_servers()

@@ -240,6 +240,13 @@
             "additionalProperties": false,
             "description": "A remote MCP server reached over HTTP.",
             "properties": {
+              "auth": {
+                "description": "The authentication scheme the server is known to require, recorded once `ivar mcp auth` has left a credential behind. Unlike `oauth`, it carries no client registration.",
+                "enum": [
+                  "oauth"
+                ],
+                "type": "string"
+              },
               "name": {
                 "description": "The server's name, unique within the hall's manifest.",
                 "type": "string"
