@@ -86,6 +86,29 @@ must rename it to the canonical form by hand and re-run `ivar sync`, and
 re-export any `client_secret_env` secret under the new variable name — `ivar`
 will not rewrite a committed, hand-edited file by guessing at intent.
 
+### `ivar.json` `mcp[].auth` key
+
+`auth` is an optional field on an `http` `mcp` entry. Its only value is `"oauth"`: the
+server is known to require OAuth. `ivar mcp auth` writes it after a login that left a
+credential in the provider's store, so `ivar mcp status` and `ivar doctor` report the
+server as `authenticated`, `expired` or `missing` instead of `not-required`.
+
+It is separate from `oauth`. `oauth` is a pre-registered client (`client_id`); `auth` carries
+no client and no secret, and exists for servers that register or authenticate themselves
+(CIMD, or a provider-owned login) and so never get an `oauth` block. A server that carries
+`oauth` is already treated as requiring auth.
+
+```json
+{ "name": "prisda", "type": "http", "url": "https://mcp.example.com/mcp", "auth": "oauth" }
+```
+
+It adds no `ivar.json` version, and `schema/5.json` gains the property in place, the way the
+other additive `mcp` fields did. An `ivar` older than the field rejects the whole file as having
+an unknown field, so a hall that records it needs every teammate on a release that knows it.
+A hall written before the field existed keeps reporting such servers as `not-required` until
+`ivar mcp auth` runs for them again; `status` makes no network call to find out sooner. A server
+that needs no auth (a login that stored no credential) is never marked.
+
 ### MCP transport migration (v2 → v3 vocabulary change)
 
 The MCP `type` field uses the canonical names `http` (a remote server reached

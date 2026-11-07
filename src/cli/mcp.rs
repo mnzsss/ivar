@@ -20,7 +20,7 @@ pub enum McpCommand {
     Add(McpAddArgs),
     /// Replace a declared MCP server's definition — its HTTP URL or its stdio
     /// command — and rewrite every provider's MCP config. Changing the URL or
-    /// the transport drops the server's OAuth registration, so run
+    /// the transport drops the server's OAuth registration and recorded `auth`, so run
     /// `ivar mcp auth` again; an identical definition changes nothing.
     Edit(McpEditArgs),
     /// Remove a declared MCP server from `ivar.json` and from every provider's
@@ -41,7 +41,12 @@ pub enum McpCommand {
     /// auth-broker, and renders the `auth` block in `.omp/mcp.json` so OMP can
     /// natively refresh credentials. Then hands off to each provider's login path
     /// (`claude mcp login <name>`, `opencode mcp auth <name>`, or ivar's internal flow),
-    /// which prints a URL and waits on a browser. With `--all-providers`, every
+    /// which prints a URL and waits on a browser. After a login that left a
+    /// credential in a provider's store (present or refreshable), writes
+    /// `"auth": "oauth"` into the server's `ivar.json` entry, so `ivar mcp status`
+    /// and `ivar doctor` track its token even without a pre-registered client; a
+    /// server that needs no auth is never marked, and one that already carries
+    /// `oauth` or `auth` is not rewritten. With `--all-providers`, every
     /// provider is attempted even after an earlier one fails, and the command
     /// reports which succeeded and which failed rather than stopping at the first problem.
     Auth(McpAuthArgs),

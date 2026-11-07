@@ -73,6 +73,9 @@ pub fn generate() -> Value {
         && let Some(obj) = defs.as_object_mut()
     {
         obj.remove("McpServerDef");
+        // `McpAuth` was reachable only through `McpServerDef`; the hand-built
+        // `http` branch inlines it, so the definition would be dead too.
+        obj.remove("McpAuth");
     }
 
     schema
@@ -135,7 +138,14 @@ fn mcp_http_branch(oauth_schema: &Value) -> Value {
                 "type": "string",
                 "description": "The URL the server is reached at. Must start with http:// or https://."
             },
-            "oauth": oauth_schema
+            "oauth": oauth_schema,
+            "auth": {
+                "type": "string",
+                "enum": ["oauth"],
+                "description": "The authentication scheme the server is known to require, \
+                    recorded once `ivar mcp auth` has left a credential behind. Unlike \
+                    `oauth`, it carries no client registration."
+            }
         }
     })
 }

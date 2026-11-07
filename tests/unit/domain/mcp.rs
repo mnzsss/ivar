@@ -325,6 +325,40 @@ fn server_def_auth_requirement_classification() {
     );
 }
 
+#[test]
+fn an_http_server_marked_oauth_requires_auth_without_a_client_registration() {
+    let marked = McpServerDef::new("prisda", "http")
+        .url("https://mcp.prisda.test/mcp")
+        .auth(McpAuth::Oauth);
+    assert!(marked.oauth.is_none());
+    assert_eq!(marked.auth_requirement(), AuthRequirement::Required);
+
+    let unmarked = McpServerDef::new("context7", "http").url("https://mcp.context7.com/mcp");
+    assert_eq!(unmarked.auth_requirement(), AuthRequirement::NotRequired);
+
+    let local = McpServerDef::new("docs", "local").command("npx");
+    assert_eq!(local.auth_requirement(), AuthRequirement::NotApplicable);
+}
+
+#[test]
+fn auth_round_trips_through_serde_and_is_absent_when_none() {
+    let plain = McpServerDef::new("sentry", "http").url("https://sentry.io/mcp");
+    let rendered = serde_json::to_value(&plain).unwrap();
+    assert!(rendered.get("auth").is_none(), "{rendered}");
+
+    let marked = plain.auth(McpAuth::Oauth);
+    let rendered = serde_json::to_value(&marked).unwrap();
+    assert_eq!(rendered["auth"], serde_json::json!("oauth"));
+    let parsed: McpServerDef = serde_json::from_value(rendered).unwrap();
+    assert_eq!(parsed, marked);
+}
+
+#[test]
+fn an_unknown_auth_scheme_is_rejected() {
+    let raw = r#"{"name":"x","type":"http","url":"https://x.test/mcp","auth":"basic"}"#;
+    assert!(serde_json::from_str::<McpServerDef>(raw).is_err());
+}
+
 // -- presets -------------------------------------------------------------
 
 #[test]

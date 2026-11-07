@@ -10,7 +10,7 @@ use std::collections::BTreeMap;
 use crate::action::mcp::status::{
     StateSource, StatusOutcome, StatusRow, apply_live, local_rows, status_report,
 };
-use crate::domain::mcp::{CredentialState, McpOauth, McpServerDef};
+use crate::domain::mcp::{CredentialState, McpAuth, McpOauth, McpServerDef};
 use crate::domain::provider::Provider;
 use crate::error::WriteHuman;
 
@@ -62,6 +62,32 @@ fn local_rows_builds_matrix_respecting_auth_requirement() {
     assert_eq!(r5.server, "figma");
     assert_eq!(r5.provider, Provider::OpenCode);
     assert_eq!(r5.state, CredentialState::Missing);
+}
+
+#[test]
+fn local_rows_reads_the_credential_of_a_server_marked_oauth_without_a_client() {
+    let marked = McpServerDef::new("prisda", "http")
+        .url("https://mcp.prisda.test/mcp")
+        .auth(McpAuth::Oauth);
+    let servers = vec![&marked];
+    let providers = vec![Provider::ClaudeCode, Provider::OpenCode];
+    let state_of = |p: Provider, name: &str, url: &str| -> CredentialState {
+        assert_eq!(name, "acme-prisda");
+        assert_eq!(url, "https://mcp.prisda.test/mcp");
+        if p == Provider::ClaudeCode {
+            CredentialState::Expired
+        } else {
+            CredentialState::Missing
+        }
+    };
+
+    let rows = local_rows("acme", &servers, &providers, &state_of);
+
+    let states: Vec<CredentialState> = rows.iter().map(|r| r.state).collect();
+    assert_eq!(
+        states,
+        vec![CredentialState::Expired, CredentialState::Missing]
+    );
 }
 
 #[test]
