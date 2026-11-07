@@ -24,7 +24,10 @@ mod status;
 pub use cleanup::CleanupOutcome;
 pub use cleanup::cleanup;
 pub(crate) use doctor::feature_worktrees;
-pub use doctor::{Diagnosis, DoctorOutcome, diagnose_mcp_auth, doctor};
+pub use doctor::{
+    BranchPullRequest, Diagnosis, DoctorInput, DoctorOutcome, GhLookup, PullRequestLookup,
+    PullRequestState, diagnose_mcp_auth, doctor, doctor_with,
+};
 pub use init::InitInput;
 pub use init::InitOutcome;
 pub use init::init;

@@ -475,6 +475,32 @@ fn changed_paths_names_both_ends_of_a_rename() {
     );
 }
 
+/// What the branch did since it forked: a file `main` gained afterwards is not
+/// the branch's, and a renamed file names the path it emptied too.
+#[test]
+fn paths_changed_since_fork_names_the_branchs_own_changes_with_both_ends_of_a_rename() {
+    let (_guard, dir) = utf8_temp_dir();
+    let origin = seeded_repo(&dir.join("origin"), "main");
+    let bare = dir.join("api.bare");
+    System.clone_bare(origin.as_str(), &bare).unwrap();
+    git(&bare, &["branch", "feat/x"]);
+    let worktree = dir.join("feat-x");
+    System.add_worktree(&bare, &worktree, "feat/x").unwrap();
+    git(&worktree, &["mv", "README.md", "READYOU.md"]);
+    git(&worktree, &["commit", "-m", "rename"]);
+    std::fs::write(origin.join("later.txt"), "main moved on\n").unwrap();
+    git(&origin, &["add", "later.txt"]);
+    git(&origin, &["commit", "-m", "later"]);
+    System.fetch(&bare).unwrap();
+
+    let mut changed = System
+        .paths_changed_since_fork(&worktree, "refs/remotes/origin/main")
+        .unwrap();
+
+    changed.sort();
+    assert_eq!(changed, ["README.md", "READYOU.md"]);
+}
+
 // -- commits_ahead ---------------------------------------------------------
 
 /// A feature branch created off `main` with one new commit is one ahead of

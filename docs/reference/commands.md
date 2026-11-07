@@ -194,8 +194,8 @@ Misses and usage rows are kept for 30 days, so `ivar graph stats` reports a 30-d
 | `memory.consolidate_failed` | the last consolidation of session pages failed | `ivar memory status`; if the error repeats, read the database findings of `ivar doctor` |
 | `memory.retention_overdue` | session observations older than 37 days are still stored | keep `ivar graph mcp` running; its leader deletes expired session observations hourly |
 | `provider.capture_hook_missing` | `memory.capture` is on and a provider has no capture hook | `ivar sync`, or set `memory.capture` to false in `ivar.json` |
-| `repo.worktree_orphaned` | a worktree of a repo on a branch no feature owns, such as a checkout of a former default branch | inspect it; if nothing is needed, `git worktree remove` it (preceded by `chmod u+w` when its root is read-only) |
-| `repo.worktree_unregistered` | a directory under `repos/<repo>/` holds a checkout that git does not list as a worktree, often left by a removal that failed part-way | inspect it; if nothing is needed, `rm -rf` it (preceded by `chmod u+w` when its root is read-only) |
+| `repo.worktree_orphaned` | a worktree on a branch no feature owns | classified safe to remove (clean, nothing unpushed, already on the default branch) or needs a look; `--github` asks `gh` about its PR, `--fix` removes only those: [rules](doctor-worktrees.md) |
+| `repo.worktree_unregistered` | a directory under `repos/<repo>/` holds a checkout git does not list as a worktree, often left by a failed removal | inspect it; if nothing is needed, `rm -rf` it (`chmod u+w` first when its root is read-only) |
 
 **`ivar memory query` searches the pages under `docs/memory/`.** `ivar memory query <TEXT>`
 takes `--kind` (repeatable), `--tier`, `--tag`, `--limit` (default 10, at most 20),

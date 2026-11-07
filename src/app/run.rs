@@ -143,7 +143,12 @@ pub fn run(cli: Cli) -> ExitCode {
             &mut stderr,
         ),
         Command::Status => respond(hall::status(&ctx), json, &mut stdout, &mut stderr),
-        Command::Doctor => respond(hall::doctor(&ctx), json, &mut stdout, &mut stderr),
+        Command::Doctor(args) => respond(
+            hall::doctor_with(&ctx, &args.into(), &hall::GhLookup),
+            json,
+            &mut stdout,
+            &mut stderr,
+        ),
         Command::Cleanup => respond(hall::cleanup(&ctx), json, &mut stdout, &mut stderr),
         Command::Migrate => respond(hall::migrate(&ctx), json, &mut stdout, &mut stderr),
         Command::Repo(cmd) => match cmd {
