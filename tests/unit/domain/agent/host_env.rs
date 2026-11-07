@@ -48,6 +48,8 @@ fn the_host_environment_keeps_the_login_and_drops_every_git_credential() {
             "LANG",
             "LC_ALL",
             "TMPDIR",
+            "TMP",
+            "TEMP",
             "GIT_CONFIG_GLOBAL",
             "GIT_CONFIG_NOSYSTEM",
             "GIT_TERMINAL_PROMPT",
@@ -58,10 +60,12 @@ fn the_host_environment_keeps_the_login_and_drops_every_git_credential() {
             "CODEX_HOME"
         ]
     );
-    assert!(env.contains(&(
-        "TMPDIR".to_owned(),
-        "/hall/.ivar/agents/tmp/r1/tmp".to_owned()
-    )));
+    for key in ["TMPDIR", "TMP", "TEMP"] {
+        assert!(
+            env.contains(&(key.to_owned(), "/hall/.ivar/agents/tmp/r1/tmp".to_owned())),
+            "{key} must point at the run scratch"
+        );
+    }
     assert!(env.contains(&("GIT_CONFIG_GLOBAL".to_owned(), "/dev/null".to_owned())));
     assert!(env.contains(&("GIT_CONFIG_NOSYSTEM".to_owned(), "1".to_owned())));
     assert!(env.contains(&(
@@ -124,4 +128,29 @@ fn the_agents_env_is_added_once_and_replaces_tmpdir_and_kept_names() {
     assert_eq!(values("LANG"), ["pt_BR.UTF-8"]);
     assert_eq!(values("XDG_CURRENT_DESKTOP"), ["KDE"]);
     assert_eq!(values("CLAUDE_CONFIG_DIR"), ["/state"]);
+}
+
+#[test]
+fn the_agents_env_can_replace_tmp_and_temp_independently() {
+    let extra: BTreeMap<String, String> = [("TMP", "/var/tmp")]
+        .into_iter()
+        .map(|(k, v)| (k.to_owned(), v.to_owned()))
+        .collect();
+    let env = host_env(
+        &[],
+        "/t",
+        &extra,
+        &[],
+        Tool::Claude,
+        camino::Utf8Path::new("/state"),
+    );
+    let values = |key: &str| {
+        env.iter()
+            .filter(|(k, _)| k == key)
+            .map(|(_, v)| v.as_str())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(values("TMPDIR"), ["/t"]);
+    assert_eq!(values("TMP"), ["/var/tmp"]);
+    assert_eq!(values("TEMP"), ["/t"]);
 }

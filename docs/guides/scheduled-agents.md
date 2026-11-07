@@ -33,7 +33,7 @@ ivar runs no process of its own between runs. Linux with systemd only.
 | `runtime` | `docker` | `docker`: the container below. `host`: the installed `tool` under your own login, confined by Landlock; needs `tool`, refuses `image`, `command` and `network` |
 | `workdir` | `/workspace` | relative path under the hall's repos, first segment is the repo; required for `access: feature` |
 | `write` | `[]` | `runtime: host` only. Extra writable paths: absolute (`/srv/out`), home-relative (`~/.cache/x`) or hall-relative (`brand/metricas`); no `..`. Each must exist when the run starts |
-| `env` | `{}` | `runtime: host` only. Literal variables for the tool's process, such as `{TMPDIR: /tmp, XDG_CURRENT_DESKTOP: KDE}` (with `/tmp` also in `write`: the run writes only its scratch, its state directory and the `write` paths). Names match `^[A-Z_][A-Z0-9_]*$`; `PATH`, `HOME`, any `GIT_*`, the state variables of every tool (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `XDG_DATA_HOME`, `XDG_STATE_HOME`, `XDG_CONFIG_HOME`, `XDG_CACHE_HOME`) whatever `tool` is set, `OPENCODE_CONFIG_CONTENT` and names in `secrets` are refused. Values stay in the agent file as written and are not redacted: never put a secret here |
+| `env` | `{}` | `runtime: host` only. Literal variables for the tool's process, such as `{TMPDIR: /tmp, XDG_CURRENT_DESKTOP: KDE}` (with `/tmp` also in `write`: the run writes only its scratch, its state directory and the `write` paths; a `TMPDIR`, `TMP` or `TEMP` pointing elsewhere makes `mktemp` and `os.tmpdir()` fail with `Permission denied`). Names match `^[A-Z_][A-Z0-9_]*$`; `PATH`, `HOME`, any `GIT_*`, the state variables of every tool (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `XDG_DATA_HOME`, `XDG_STATE_HOME`, `XDG_CONFIG_HOME`, `XDG_CACHE_HOME`) whatever `tool` is set, `OPENCODE_CONFIG_CONTENT` and names in `secrets` are refused. Values stay in the agent file as written and are not redacted: never put a secret here |
 | `network` | `[]` | bare hostnames the egress proxy allows; everything else fails |
 | `secrets` | `[]` | names (`^[A-Z][A-Z0-9_]*$`) read from `.ivar/secrets/agents.env` |
 | `notify` | — | `http(s)://` URL that receives a JSON run summary, or `telegram:<chat_id>` to message a Telegram chat (see [Telegram](#telegram)) |
@@ -171,8 +171,8 @@ login is written back to your copy, and nothing else is.
 
 Landlock limits its writes to a per-run scratch directory, the agent's
 private state directory and, with `access: feature`, the `agent-<name>`
-worktree. Its environment starts empty: `PATH`, `HOME`, locale, the
-variables that point the tool at its private state, the secrets it lists,
+worktree. Its environment starts empty: `PATH`, `HOME`, locale, `TMPDIR`,
+`TMP` and `TEMP` (all three point at the scratch directory), the variables that point the tool at its private state, the secrets it lists,
 and git pointed at an empty config with no credential helper. No
 credential variable is passed. When the run ends, its whole process group
 is stopped.
@@ -194,7 +194,7 @@ config other programs read: keep the list to the directories the run must
 produce.
 
 `env` adds literal variables after ivar's own and before the secrets, so it
-can replace `TMPDIR` or a kept variable such as `LANG`, but never one that
+can replace `TMPDIR`, `TMP`, `TEMP` or a kept variable such as `LANG`, but never one that
 confines the tool. Use it for what a desktop program needs from your
 session. Chrome decrypts saved logins only when it reaches your keyring,
 which on KDE takes `XDG_CURRENT_DESKTOP`, `DESKTOP_SESSION`,

@@ -110,6 +110,8 @@ fn a_host_run_writes_its_private_state_dir_and_scratch_but_not_home() {
         "#!/bin/sh\n\
          printf x > \"$CLAUDE_CONFIG_DIR/.tmp\" && mv \"$CLAUDE_CONFIG_DIR/.tmp\" \"$CLAUDE_CONFIG_DIR/state\" && echo state-ok\n\
          printf x > \"$TMPDIR/t\" && echo tmp-ok\n\
+         [ \"$TMP\" = \"$TMPDIR\" ] && [ \"$TEMP\" = \"$TMPDIR\" ] && echo tmp-vars-ok\n\
+         printf x > \"$(mktemp)\" && echo mktemp-ok\n\
          (printf x > \"$HOME/x\") 2>/dev/null && echo home-WRITTEN || echo home-denied\n\
          (printf x > \"$HOME/.claude/settings.json\") 2>/dev/null && echo config-WRITTEN || echo config-denied\n",
     )
@@ -136,7 +138,14 @@ fn a_host_run_writes_its_private_state_dir_and_scratch_but_not_home() {
         return;
     }
     assert_eq!(value["outcome"], "succeeded", "{value}");
-    for line in ["state-ok", "tmp-ok", "home-denied", "config-denied"] {
+    for line in [
+        "state-ok",
+        "tmp-ok",
+        "tmp-vars-ok",
+        "mktemp-ok",
+        "home-denied",
+        "config-denied",
+    ] {
         assert!(text.contains(line), "{line} missing from {text}");
     }
     assert!(
