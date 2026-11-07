@@ -233,3 +233,25 @@ fn plan_consults_memory_at_the_start_of_analysis_and_never_blocks_on_it() {
     assert!(analysis.contains("memória indisponível"), "was: {analysis}");
     assert!(!analysis.contains("docs/product") && !analysis.contains("docs/updates"));
 }
+
+#[test]
+fn the_packet_brief_pins_what_a_child_must_be_given() {
+    let text = plan_text();
+    for needle in [
+        "Interfaces** section of `../../plan.md`",
+        "session view dir",
+        "`Create:` only for a file that does not exist",
+        "at or above 20,000 bytes",
+        "test helper",
+        "exits `0` when clean, `1`",
+        "Step 1 is test code and Step 3 is code",
+        "wave by wave",
+        "`| Signature | Produced by | Consumed by |`",
+    ] {
+        assert!(text.contains(needle), "missing: {needle}");
+    }
+    let phase3 = text.split("## Phase 3").nth(1).unwrap();
+    let lint = phase3.find("Run `ivar plan lint <feature>`").unwrap();
+    let review = phase3.find("dispatch a plan-document reviewer").unwrap();
+    assert!(lint < review, "lint runs before the reviewer is called");
+}

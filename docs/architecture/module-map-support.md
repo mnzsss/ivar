@@ -25,6 +25,9 @@ The first part of the map is in [module-map.md](module-map.md).
     plan_commands.rs  the shell commands a plan's fenced blocks would run
                    (`cd`, `mkdir`, `npm|pnpm run <script>`), scanned so
                    `plan approve` can refuse the ones that cannot resolve
+    plan_lint/     the mechanical rules over a feature's task packets (placeholders,
+                   Readers, Create/Modify against the repo tree, interface
+                   dependencies); `plan lint` runs them
     session.rs     session state and identity
     discovery.rs   pure discovery types (DiscoveryDoc, status, frontmatter)
     provider.rs    which harnesses exist, and their capability flags

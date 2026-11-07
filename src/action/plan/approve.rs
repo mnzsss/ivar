@@ -52,7 +52,7 @@ use std::io;
 use camino::Utf8PathBuf;
 use serde::Serialize;
 
-use crate::domain::feature::{ApprovalState, Feature, Gate, GateState};
+use crate::domain::feature::{ApprovalState, Gate, GateState};
 use crate::domain::name::FeatureName;
 use crate::domain::plan_commands::{CommandFinding, CommandKind, scan_shell_commands};
 use crate::error::{Failure, FixAction, Outcome, Report, WriteHuman};
@@ -61,7 +61,6 @@ use crate::store::layout::Layout;
 
 use super::super::{discover_hall, read_manifest};
 use crate::action::Ctx;
-use crate::action::session::base_view;
 use crate::store::manifest::Repo;
 
 /// What `ivar plan approve` needs.
@@ -279,7 +278,7 @@ fn open_approvals(
     Ok((feature, gate, approvals))
 }
 
-fn require_feature(layout: &Layout, feature: &FeatureName) -> Result<(), Failure> {
+pub(super) fn require_feature(layout: &Layout, feature: &FeatureName) -> Result<(), Failure> {
     if fs::is_dir(&layout.feature_dir(feature))? {
         return Ok(());
     }
@@ -341,17 +340,10 @@ fn require_runnable_commands(
     feature: &FeatureName,
     repos: &[Repo],
 ) -> Result<(), Failure> {
-    let record = Feature::read(layout, feature)?;
-    let mut roots = Vec::new();
-    for repo in repos {
-        let root = match &record {
-            Some(record) => base_view::resolve_on_disk(layout, repo, record)?.1,
-            None => layout.repo_worktree(repo.name(), repo.default_branch()),
-        };
-        if fs::is_dir(&root)? {
-            roots.push(root);
-        }
-    }
+    let roots: Vec<Utf8PathBuf> = super::base_view_roots(layout, feature, repos)?
+        .into_iter()
+        .map(|(_, root)| root)
+        .collect();
     if roots.is_empty() {
         return Ok(());
     }

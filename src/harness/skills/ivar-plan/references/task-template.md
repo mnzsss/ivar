@@ -1,5 +1,8 @@
 # Task packet template
 
+When Phase 3 delegates packet generation, `packet-brief.md` is mandatory and
+`ivar plan lint <feature>` must pass before the review.
+
 Generate one packet into `../../tasks/NN-<semantic-task-name>.md` for every
 task in `plan.md`. Name files with a two-digit order prefix (e.g.
 `01-pin-scaffold.md`). Each task packet must follow this structure:

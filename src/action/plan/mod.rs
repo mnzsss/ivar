@@ -16,15 +16,18 @@
 
 use camino::Utf8PathBuf;
 
-use crate::domain::feature::{ApprovalState, Gate, GateState};
+use crate::action::session::base_view;
+use crate::domain::feature::{ApprovalState, Feature, Gate, GateState};
 use crate::domain::name::{FeatureName, RepoName};
 use crate::domain::plan::PlanFrontmatter;
 use crate::error::Failure;
 use crate::infra::{frontmatter, fs, hash};
 use crate::store::layout::Layout;
+use crate::store::manifest::Repo;
 
 pub mod approve;
 pub mod create;
+pub mod lint;
 pub mod list;
 pub mod show;
 pub mod status;
@@ -279,4 +282,27 @@ pub(super) fn plan_declared_repos(
         .into_iter()
         .map(|name| RepoName::new(name).map_err(Failure::from))
         .collect()
+}
+
+/// The worktree each of `repos` is read from while `feature` is planned: the
+/// base view a feature session links it at, or the default worktree when the
+/// feature has no record. A repo with no worktree on disk is left out — there
+/// is nothing to resolve a path against.
+pub(super) fn base_view_roots(
+    layout: &Layout,
+    feature: &FeatureName,
+    repos: &[Repo],
+) -> Result<Vec<(RepoName, Utf8PathBuf)>, Failure> {
+    let record = Feature::read(layout, feature)?;
+    let mut roots = Vec::new();
+    for repo in repos {
+        let root = match &record {
+            Some(record) => base_view::resolve_on_disk(layout, repo, record)?.1,
+            None => layout.repo_worktree(repo.name(), repo.default_branch()),
+        };
+        if fs::is_dir(&root)? {
+            roots.push((repo.name().clone(), root));
+        }
+    }
+    Ok(roots)
 }

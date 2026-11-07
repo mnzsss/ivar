@@ -13,7 +13,8 @@ use crate::action::discovery::show as discovery_show;
 use crate::action::feature::select::resolve_single_feature;
 use crate::action::plan::approve::{self as plan_approve};
 use crate::action::plan::{
-    create as plan_create, list as plan_list, show as plan_show, status as plan_status,
+    create as plan_create, lint as plan_lint, list as plan_list, show as plan_show,
+    status as plan_status,
 };
 use crate::cli::root::{DiscoveryCommand, PlanCommand};
 use crate::domain::discovery::DiscoveryStatus;
@@ -172,6 +173,17 @@ pub(super) fn dispatch_plan(
                             gate: args.gate,
                         },
                     ),
+                    json,
+                    stdout,
+                    stderr,
+                ),
+                Err(failure) => respond_failure(&failure, json, stdout, stderr),
+            }
+        }
+        PlanCommand::Lint(args) => {
+            match resolve_single_feature(ctx, args.feature, "Select a feature to lint") {
+                Ok(feature) => respond(
+                    plan_lint::lint(ctx, plan_lint::LintInput { feature }),
                     json,
                     stdout,
                     stderr,
