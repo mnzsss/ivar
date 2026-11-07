@@ -553,3 +553,18 @@ fn deliver_skill_reviews_memory_before_the_preview_and_never_skips_on_its_own() 
     assert!(content.contains("Never pass it on your own"));
     assert!(content.find("## Review memory before apply") < content.find("## What happens"));
 }
+
+#[test]
+fn ivar_plan_ships_the_packet_brief_and_cites_it_with_the_lint() {
+    let plan = catalog().iter().find(|s| s.id == "plan").unwrap();
+    let brief = plan
+        .files
+        .iter()
+        .find(|file| file.path == "references/packet-brief.md")
+        .expect("ivar-plan ships references/packet-brief.md");
+    assert!(brief.content.contains("git grep -n"));
+
+    let phase3 = plan.skill_md().split("## Phase 3").nth(1).unwrap();
+    assert!(phase3.contains("references/packet-brief.md"));
+    assert!(phase3.contains("ivar plan lint"));
+}

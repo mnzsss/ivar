@@ -71,6 +71,9 @@ mod memory_review_contract;
 #[path = "cli/nested_subfeatures.rs"]
 mod nested_subfeatures;
 
+#[path = "cli/plan_lint.rs"]
+mod plan_lint;
+
 #[path = "cli/provider_default.rs"]
 mod provider_default;
 

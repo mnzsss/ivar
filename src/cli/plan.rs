@@ -1,6 +1,7 @@
 use clap::{Args, Subcommand};
 
 use crate::action::plan::approve as plan_approve;
+use crate::action::plan::lint as plan_lint;
 use crate::action::plan::{create as plan_create, show as plan_show};
 
 /// The `ivar plan` surface: the SPDD artifacts, committed per feature, and
@@ -28,6 +29,21 @@ pub enum PlanCommand {
     /// artifact and was never approved; a gate that was approved and whose
     /// artifact then vanished is still shown, as needs-revision.
     Status(PlanStatusArgs),
+    /// Check a feature's task packets (`tasks/*.md`) mechanically before the
+    /// plan review: placeholders, Readers without `git grep` output, a
+    /// `**Sketch:**` with no reason, `Modify:` of a missing file, `Create:`
+    /// of an existing one, a new test in a file at or above the 20,000-byte
+    /// hook limit, and a consumer that does not wait for the producer of an
+    /// interface it uses. Exits `0` when the packets are clean and `1` when
+    /// any problem is found, one warning with its own code per problem.
+    Lint(PlanLintArgs),
+}
+
+/// Arguments for `ivar plan lint`.
+#[derive(Debug, Args)]
+pub struct PlanLintArgs {
+    /// The feature whose task packets to check.
+    pub feature: Option<String>,
 }
 
 /// Arguments for `ivar plan create`.
@@ -114,6 +130,14 @@ impl From<PlanInvalidateArgs> for plan_approve::InvalidateInput {
         Self {
             feature: feature.unwrap_or_default(),
             gate,
+        }
+    }
+}
+
+impl From<PlanLintArgs> for plan_lint::LintInput {
+    fn from(args: PlanLintArgs) -> Self {
+        Self {
+            feature: args.feature.unwrap_or_default(),
         }
     }
 }

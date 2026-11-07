@@ -95,7 +95,7 @@ The graph index covers every Git-tracked UTF-8 textual file across all declared 
 (including configuration, workflows, documentation, schema files, and dotfiles) regardless of
 extension, up to 256 KiB of searchable content per file. Files with recognized tree-sitter grammars
 receive structural symbols and call edges; other plain-text files are indexed for path, basename, and
-full-text content search without synthetic AST symbols. Binary files (containing NUL bytes or invalid
+full-text search without synthetic AST symbols. Binary files (containing NUL bytes or invalid
 UTF-8), untracked files, Git-ignored files, and ignored build/dependency directories are excluded.
 When no `mcp` entry in `ivar.json` already runs `ivar graph mcp`, it adds
 `{"name":"ivar","type":"local","command":"ivar","args":["graph","mcp"]}` and
@@ -143,14 +143,11 @@ in `output.truncated`; `next` then names `path:start-end` from the following
 line to the end of the range, so repeating the call advances without gaps or
 overlap. See `docs/product/012-graph-explore-precision.md`.
 
-Follow the returned `graph_explore` arguments: they name an actual repository and
-source interval using Markdown, rather than repeating the broad query. This is
-targeted evidence inspection, not cursor pagination of every graph relation.
-Oversized source-less scalar text can be omitted without inventing a source
-follow-up. An unrepresentable evidence identity is an explicit rendering error,
-not silent truncation. Machine-readable `ivar graph explore --json` and
-`--compact` keep their complete output contract; only MCP structured responses
-use this budget.
+Follow the returned `graph_explore` arguments: they name a real repository and
+source interval, rather than repeating the broad query. This is targeted
+evidence inspection, not cursor pagination. An unrepresentable evidence identity
+is a rendering error, not silent truncation. `ivar graph explore --json` and
+`--compact` keep their complete output contract; only MCP responses use this budget.
 
 **`ivar graph misses` shows where the graph fell short.** The guard records a
 `skipped` miss when a session greps (Grep, Glob, or an `rg`/`grep` Bash
@@ -164,8 +161,7 @@ not help. `graph_explore` itself records a `weak` miss, with the query and the r
 `--kind skipped|followup|feedback|weak` filters by kind; `--since` takes a
 Unix timestamp or `Nm`/`Nh`/`Nd`. `--limit <N>` (default 10, 0 for all) bounds
 the returned rows. `--json` prints a bare array of misses, newest first, not the usual report object.
-Misses and usage rows are kept for 30 days, so `ivar graph stats` reports a 30-day window; `ivar graph misses`,
-`ivar graph stats`, and the MCP server at startup prune older rows.
+Misses and usage rows are pruned after 30 days, the window `ivar graph stats` reports.
 
 **`ivar doctor` reports graph and memory database findings by code.** Findings and their fixes:
 
@@ -176,7 +172,7 @@ Misses and usage rows are kept for 30 days, so `ivar graph stats` reports a 30-d
 | `graph.watch_scope_orphaned` | a watcher scope with no repo, feature or path behind it | `ivar graph index` |
 | `graph.watch_scope_failed` | a scope with a live target the watcher could not reindex | `ivar graph index`; a leader retries once the scope is watched again |
 | `graph.repo_stale` | a repo indexed behind its worktree HEAD | `ivar graph index --repo <name>` |
-| `graph.hall_paths_unset` | the hall has `docs`, `brand` or `.ivar/skills` with files and `graph.paths` is empty | `ivar graph index --path <dir>` lists the directory in `graph.paths` and indexes it |
+| `graph.hall_paths_unset` | the hall has `docs`, `brand` or `.ivar/skills` with files and `graph.paths` is empty | `ivar graph index --path <dir>` lists and indexes it |
 | `graph.schema_mismatch` | database schema older or newer than the binary | `ivar graph index` or `ivar upgrade` |
 | `graph.open_failed` | `.ivar/graph.db` exists but cannot be opened | remove it, then `ivar graph index` rebuilds it |
 | `graph.watch_catchup_pending` | no watcher leader is running and a scope has changes nobody indexed | `ivar graph index`, or start `ivar graph mcp` to catch up |
@@ -186,16 +182,16 @@ Misses and usage rows are kept for 30 days, so `ivar graph stats` reports a 30-d
 | `memory.schema_newer` | memory schema newer than the binary | `ivar upgrade` |
 | `memory.db_polluted` | an older `ivar` created graph tables inside `.ivar/memory.db` | stop the older `ivar`, then `ivar memory status` repairs it |
 | `memory.split_busy` | a legacy graph at `.ivar/memory.db` is open in another process, so it was not moved | stop sessions and MCP servers of an older `ivar`, then `ivar doctor` |
-| `memory.split_failed` | moving the legacy graph failed for another reason | check `.ivar/` permissions and free space, then `ivar doctor` |
+| `memory.split_failed` | moving the legacy graph failed for another reason | check `.ivar/` permissions and space, then `ivar doctor` |
 | `memory.spool_orphan` | a capture spool file has waited over an hour to be drained | `ivar memory status` drains it |
-| `memory.spool_dropped` | events were dropped because a session spool reached 8 MiB, and the last drop was within 7 days | `ivar memory status`, or keep `ivar graph mcp` running, so a drain acknowledges them; the finding clears after 7 days without new drops |
-| `memory.drain_failed` | the last drain of the capture spool failed | `ivar memory status`; if the error repeats, read the database findings of `ivar doctor` |
-| `memory.sweep_failed` | the last retention sweep failed | `ivar memory status`; if the error repeats, read the database findings of `ivar doctor` |
-| `memory.consolidate_failed` | the last consolidation of session pages failed | `ivar memory status`; if the error repeats, read the database findings of `ivar doctor` |
+| `memory.spool_dropped` | events were dropped because a session spool reached 8 MiB, and the last drop was within 7 days | `ivar memory status`, or keep `ivar graph mcp` running; it clears after 7 days without new drops |
+| `memory.drain_failed` | the last drain of the capture spool failed | `ivar memory status`; if it repeats, read the `ivar doctor` database findings |
+| `memory.sweep_failed` | the last retention sweep failed | `ivar memory status`; if it repeats, read the `ivar doctor` database findings |
+| `memory.consolidate_failed` | the last consolidation of session pages failed | `ivar memory status`; if it repeats, read the `ivar doctor` database findings |
 | `memory.retention_overdue` | session observations older than 37 days are still stored | keep `ivar graph mcp` running; its leader deletes expired session observations hourly |
 | `provider.capture_hook_missing` | `memory.capture` is on and a provider has no capture hook | `ivar sync`, or set `memory.capture` to false in `ivar.json` |
-| `repo.worktree_orphaned` | a worktree on a branch no feature owns | classified safe to remove (clean, nothing unpushed, already on the default branch) or needs a look; `--github` asks `gh` about its PR, `--fix` removes only those: [rules](doctor-worktrees.md) |
-| `repo.worktree_unregistered` | a directory under `repos/<repo>/` holds a checkout git does not list as a worktree, often left by a failed removal | inspect it; if nothing is needed, `rm -rf` it (`chmod u+w` first when its root is read-only) |
+| `repo.worktree_orphaned` | a worktree on a branch no feature owns | safe to remove (clean, pushed, on the default branch) or needs a look; `--github` checks its PR, `--fix` removes safe ones: [rules](doctor-worktrees.md) |
+| `repo.worktree_unregistered` | a checkout under `repos/<repo>/` that git does not list as a worktree, often from a failed removal | if unneeded, `rm -rf` it (`chmod u+w` first if read-only) |
 
 **`ivar memory query` searches the pages under `docs/memory/`.** `ivar memory query <TEXT>`
 takes `--kind` (repeatable), `--tier`, `--tag`, `--limit` (default 10, at most 20),
@@ -208,8 +204,8 @@ Page findings of `ivar doctor`:
 
 | Code | Meaning | Fix |
 | --- | --- | --- |
-| `memory.legacy_docs` | `docs/product` or `docs/updates` holds a Markdown page (any depth) (an empty folder is not reported) | the printed commands: `git mv` (`mv` without git) on the folder, or on its contents (`mv -n …` without git) when the destination exists. Nothing is overwritten: an existing destination page stays; resolve by hand. Hidden entries are skipped |
-| `memory.legacy_hall_index` | `HALL.md` still has an `ivar:product-docs` or `ivar:updates` region, unused by `ivar` | delete both regions; find pages with `memory_query` |
+| `memory.legacy_docs` | `docs/product` or `docs/updates` holds a Markdown page at any depth; empty folders are not reported | the printed `git mv` (`mv -n` without git) on the folder, or its contents if the destination exists. Nothing is overwritten: a page already there stays; resolve by hand. Hidden entries are skipped |
+| `memory.legacy_hall_index` | `HALL.md` still has an unused `ivar:product-docs` or `ivar:updates` region | delete them; find pages with `memory_query` |
 | `memory.page_invalid` | front matter does not parse, `kind` differs from the directory, or `expires_at` is not `YYYY-MM-DDTHH:MM:SSZ` | edit the page |
 | `memory.page_kind_unknown` | a directory under `docs/memory/` or `.ivar/memory/` is not a kind of that root | rename or move it |
 | `memory.page_misplaced` | a page is outside `<kind>/`, nested, has a non-kebab slug, or does not end in lowercase `.md` (or no `NNN-` for `product` and `update`) | move or rename it |
@@ -250,6 +246,15 @@ it never migrates `memory.db` (an older schema exits 2, naming `ivar memory stat
 
 `scan` also lists accepted decisions as [existing automations](../glossary.md#health-and-state):
 `in use`, `unused` or `no requests`, plus `retirable`.
+
+**`ivar plan lint <feature>` checks task packets before plan review.** It reads
+`plan.md`, `tasks/*.md` and the repos' base views, exiting `0` when clean or
+`1` with one coded warning per problem: `plan.lint.placeholder`,
+`.number_placeholder` (`<NNN>`), `.readers_missing`, `.readers_without_output`,
+`.sketch_without_reason`, `.modify_missing`, `.create_exists`,
+`.test_in_oversized_file` (new test in a 20,000+ byte file) and
+`.missing_dependency` (a consumer not waiting on its producer). No
+`plan.md` or no packets exits `2`.
 
 **`ivar session start` is the one verb that takes over your terminal.** It opens
 a TUI. Everything else prints and exits.

@@ -141,7 +141,17 @@ never blocks approval of this artifact. This checkpoint never edits `HALL.md`;
 
 3. Generate task packets into `../../tasks/NN-<semantic-task-name>.md` following `references/task-template.md`.
 
-4. Dispatch a plan-document reviewer subagent to review `../../plan.md` and `../../tasks/`.
+   Before delegating any packet to a child agent, lock the **Interfaces** table
+   in `plan.md` (every signature a packet produces or consumes, with its
+   producer and consumers; see `references/plan-template.md`). When you
+   delegate, `references/packet-brief.md` is mandatory: fill it in and give it
+   to the child, and generate the packets wave by wave. Run `ivar plan lint
+   <feature>` after each wave and fix what it reports before generating the
+   next.
+
+4. Run `ivar plan lint <feature>` and fix every problem it reports before calling the reviewer. It exits `1` with one coded warning per problem and `0` when the packets are clean.
+
+   Then dispatch a plan-document reviewer subagent to review `../../plan.md` and `../../tasks/`.
    **Run it on the smallest capable model this harness offers, never the
    coordinator's.** The pass reads finished documents against a checklist, so
    it does not need the model that wrote them. On Claude Code, set the subagent
