@@ -43,7 +43,7 @@ pub(crate) use self::remote::{
 };
 pub(crate) use self::status::{
     changed_paths, commit_patch_id, diff_patch_id, diff_worktree, head_commit,
-    paths_committed_since, worktree_dirty,
+    paths_changed_since_fork, paths_committed_since, worktree_dirty,
 };
 pub(crate) use self::worktree::{
     add_detached_worktree, add_worktree, create_branch_and_worktree, fetch_branch, list_worktrees,

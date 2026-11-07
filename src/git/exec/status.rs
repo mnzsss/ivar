@@ -129,6 +129,30 @@ pub(crate) fn paths_committed_since(
         .collect())
 }
 
+/// `git -C <worktree> diff --name-only --no-renames -z <base>...HEAD` — every
+/// path the worktree's branch changed since it forked from `base`.
+///
+/// `-z` for the reason [`changed_paths`] has it. `--no-renames` so a moved file
+/// names its old path too: a caller asking whether the branch's changes are
+/// already upstream must look at the path the branch emptied as well.
+pub(crate) fn paths_changed_since_fork(
+    path: &Utf8Path,
+    base: &str,
+) -> Result<Vec<Utf8PathBuf>, Error> {
+    let stdout = run(&git()
+        .cwd(path)
+        .arg("diff")
+        .arg("--name-only")
+        .arg("--no-renames")
+        .arg("-z")
+        .arg(format!("{base}...HEAD")))?;
+    Ok(stdout
+        .split('\0')
+        .filter(|record| !record.is_empty())
+        .map(Utf8PathBuf::from)
+        .collect())
+}
+
 /// `git -C <worktree> diff HEAD` — the worktree's uncommitted divergence from
 /// its last commit, staged and unstaged.
 ///

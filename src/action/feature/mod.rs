@@ -27,7 +27,7 @@ mod mutation;
 mod parent_promotion;
 pub mod promote;
 pub mod prune;
-mod pull_requests;
+pub(crate) mod pull_requests;
 pub mod rebase;
 pub(crate) mod relations;
 pub mod rename;

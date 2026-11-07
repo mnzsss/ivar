@@ -476,6 +476,24 @@ pub trait Git {
         since: &str,
     ) -> Result<Vec<Utf8PathBuf>, Error>;
 
+    /// Every path the worktree at `path`'s `HEAD` changed since it forked
+    /// from `base` — `git diff --name-only --no-renames <base>...HEAD`.
+    ///
+    /// The merge-base diff, not a diff against `base`'s tip: it names what the
+    /// branch itself did and leaves out what `base` gained since. Renames are
+    /// not collapsed, so a moved file names both its old and its new path.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error`] if `base` does not exist or shares no history with `HEAD`.
+    fn paths_changed_since_fork(
+        &self,
+        path: &Utf8Path,
+        base: &str,
+    ) -> Result<Vec<Utf8PathBuf>, Error> {
+        exec::paths_changed_since_fork(path, base)
+    }
+
     /// What `path` held in `commit`, in the repository at `worktree`.
     /// `Ok(None)` when the commit's tree has nothing at that path.
     ///

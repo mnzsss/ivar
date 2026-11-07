@@ -40,6 +40,7 @@ mod graph;
 mod harness;
 pub(crate) mod mcp;
 mod memory;
+mod orphans;
 mod pages;
 mod repos;
 mod scripts;
@@ -54,6 +55,8 @@ pub use harness::diagnose_mcp_auth;
 use harness::{
     diagnose_instructions, diagnose_provider_commands, diagnose_provider_skills, diagnose_t3_host,
 };
+pub use orphans::{BranchPullRequest, DoctorInput, GhLookup, PullRequestLookup, PullRequestState};
+use orphans::{OrphanScan, OrphanSite, orphan_diagnosis};
 use repos::diagnose_repos;
 
 /// One diagnosed problem.
@@ -77,10 +80,19 @@ pub struct DoctorOutcome {
     /// PID of the live graph watch leader, if one is running.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub graph_watch_leader: Option<u32>,
+    /// Orphan worktrees `--fix` removed. Empty without `--fix`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub removed: Vec<Utf8PathBuf>,
 }
 
 impl WriteHuman for DoctorOutcome {
     fn write_human(&self, w: &mut impl io::Write) -> io::Result<()> {
+        if !self.removed.is_empty() {
+            writeln!(w, "Removed orphan worktrees:")?;
+            for path in &self.removed {
+                writeln!(w, "  - {path}")?;
+            }
+        }
         if self.findings.is_empty() {
             writeln!(w, "No problems found in {}.", self.root)?;
             if let Some(pid) = self.graph_watch_leader {
@@ -100,10 +112,24 @@ impl WriteHuman for DoctorOutcome {
     }
 }
 
-/// Diagnose the hall. `status` says *how healthy*; `doctor` says *what is
-/// wrong and what to do about it*. The one write is moving a legacy graph
-/// out of `memory.db`; every other check is read-only.
+/// Diagnose the hall with no network and no removals: [`doctor_with`] on the
+/// default [`DoctorInput`].
 pub fn doctor(ctx: &Ctx) -> Outcome<DoctorOutcome> {
+    doctor_with(ctx, &DoctorInput::default(), &GhLookup)
+}
+
+/// Diagnose the hall. `status` says *how healthy*; `doctor` says *what is
+/// wrong and what to do about it*. Without `input.fix` the one write is
+/// moving a legacy graph out of `memory.db`; every other check is read-only.
+/// With it, orphan worktrees classified safe are removed too.
+///
+/// `prs` is asked about orphan branches only when `input.github` is set — it
+/// is a network call, and the user has to have asked for it.
+pub fn doctor_with(
+    ctx: &Ctx,
+    input: &DoctorInput,
+    prs: &impl PullRequestLookup,
+) -> Outcome<DoctorOutcome> {
     let layout = discover_hall(ctx)?;
     let manifest = read_manifest(&layout)?;
     let git = git::System;
@@ -120,7 +146,12 @@ pub fn doctor(ctx: &Ctx) -> Outcome<DoctorOutcome> {
     findings.extend(automation::automation_diagnoses(&layout));
     findings.extend(graph_diagnoses(&layout, &manifest, &git));
     findings.extend(diagnose_orphaned_runs(&layout)?);
-    findings.extend(diagnose_orphan_worktrees(&layout, &manifest, &git));
+    let scan = OrphanScan {
+        prs: input.github.then_some(prs),
+        fix: input.fix,
+    };
+    let orphans = diagnose_orphan_worktrees(&layout, &manifest, &git, &scan);
+    findings.extend(orphans.findings);
     findings.extend(diagnose_feature_state(&layout, &git));
     findings.extend(diagnose_mcp_auth(&manifest, &providers::credential_state));
     findings.extend(mcp::mcp_name_diagnoses(&layout, &manifest));
@@ -142,5 +173,6 @@ pub fn doctor(ctx: &Ctx) -> Outcome<DoctorOutcome> {
         root: layout.root().to_path_buf(),
         findings,
         graph_watch_leader,
+        removed: orphans.removed,
     }))
 }
