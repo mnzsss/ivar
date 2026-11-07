@@ -25,3 +25,7 @@ mod tests;
 #[cfg(test)]
 #[path = "../../../tests/unit/action/memory/provider_matrix.rs"]
 mod provider_matrix;
+
+#[cfg(test)]
+#[path = "../../../tests/unit/action/memory/review.rs"]
+mod review_tests;

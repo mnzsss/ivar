@@ -11,6 +11,9 @@ use super::memory_page::PageKind;
 const MEMORY_DIR: &str = "docs/memory/";
 const WRITE_IMPORTANCE: u8 = 4;
 const FAILURE_IMPORTANCE: u8 = 6;
+/// The `source_event` of a fact built from a `memory_usage` row: a query the
+/// MCP server or the CLI answered, which no provider hook captured.
+pub const USAGE_EVENT: &str = "memory.usage";
 const WRITE_KEYS: [&str; 3] = ["file_path", "filePath", "path"];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -201,8 +204,10 @@ fn queried_before_approval(facts: &[ObservationFact], feature: &str) -> bool {
     let approved_at = tools()
         .find(|fact| command(&fact.body).is_some_and(|command| command.contains(&approval)))
         .map(|fact| fact.occurred_at.as_str());
-    tools()
-        .filter(|fact| is_memory_query(&fact.body))
+    let captured = tools().filter(|fact| is_memory_query(&fact.body));
+    let served = facts.iter().filter(|fact| fact.source_event == USAGE_EVENT);
+    captured
+        .chain(served)
         .any(|fact| approved_at.is_none_or(|at| fact.occurred_at.as_str() < at))
 }
 
