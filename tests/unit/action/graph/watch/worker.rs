@@ -112,9 +112,6 @@ fn the_worker_catches_up_then_reindexes_a_commit_without_any_command() {
     std::fs::write(repo.join("src/lib.rs"), "pub fn beta() {}\n").unwrap();
     git(&repo, &["commit", "-am", "rename"]);
 
-    wait_for("reindex", || {
-        names(&db) == vec!["beta"] && db.watch_settled(&["base:api"]).unwrap()
-    });
     let head = String::from_utf8(
         std::process::Command::new("git")
             .args(["rev-parse", "HEAD"])
@@ -124,6 +121,13 @@ fn the_worker_catches_up_then_reindexes_a_commit_without_any_command() {
             .stdout,
     )
     .unwrap();
+    // The edit alone reindexes `beta` before the commit event is handled, so
+    // wait for the recorded commit too instead of racing it.
+    wait_for("reindex", || {
+        names(&db) == vec!["beta"]
+            && db.watch_settled(&["base:api"]).unwrap()
+            && db.get_repo_last_commit("api").unwrap().as_deref() == Some(head.trim())
+    });
     assert_eq!(
         db.get_repo_last_commit("api").unwrap().as_deref(),
         Some(head.trim())
