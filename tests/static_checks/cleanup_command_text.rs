@@ -1,3 +1,12 @@
+//! Text checks over the shipped `feature-cleanup` command.
+
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing
+)]
+
 use crate::shipped::shipped;
 
 #[test]
