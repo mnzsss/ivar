@@ -1,6 +1,6 @@
 //! `memory_usage` and `memory_misses`: what `memory_query` was asked and what it failed to answer.
 
-use rusqlite::{Connection, params};
+use rusqlite::{Connection, Transaction, TransactionBehavior, params};
 use serde::Serialize;
 
 use crate::domain::graph::truncate_for_storage;
@@ -172,6 +172,24 @@ pub fn has_skipped(conn: &Connection, session: &str) -> rusqlite::Result<bool> {
         params![session, MemoryMissKind::Skipped.as_str()],
         |row| row.get(0),
     )
+}
+
+/// Records a skipped miss and says whether it is the first of its session,
+/// deciding and inserting under one write lock so concurrent reads cannot both
+/// be first.
+///
+/// # Errors
+///
+/// When the write lock, the lookup or the insert fails.
+pub fn record_skipped(conn: &Connection, miss: &MemoryMiss) -> rusqlite::Result<bool> {
+    let tx = Transaction::new_unchecked(conn, TransactionBehavior::Immediate)?;
+    let first = match &miss.session {
+        Some(session) => !has_skipped(&tx, session)?,
+        None => false,
+    };
+    record_miss(&tx, miss)?;
+    tx.commit()?;
+    Ok(first)
 }
 
 /// # Errors

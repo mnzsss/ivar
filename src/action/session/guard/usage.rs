@@ -233,10 +233,8 @@ pub(super) fn record_memory_read_at(
             }
             false
         }
-        Ok(_) => {
-            let first = !matches!(usage::has_skipped(&conn, &session), Ok(true) | Err(_));
-            usage::record_miss(&conn, &miss(MemoryMissKind::Skipped, None, None)).is_ok() && first
-        }
+        Ok(_) => usage::record_skipped(&conn, &miss(MemoryMissKind::Skipped, None, None))
+            .unwrap_or(false),
         Err(_) => false,
     }
 }
