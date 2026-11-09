@@ -235,6 +235,29 @@ contains a secret, and `ivar doctor` warns about one, and about a script that
 reads `.env` or `agents.env`. See
 [limitations](../reference/limitations-memory.md#script-execution-approvals).
 
+## Automation
+
+`ivar` notices the requests you keep typing: groups of similar prompts in at
+least 3 sessions on at least 2 days of the last 90. It never acts on them by
+itself. In an interactive session, ask your agent for automation proposals ("what
+do I keep repeating?") and the `ivar-automate` skill takes over: it proposes one
+automation at a time (a script, a skill, a scheduled agent or a procedure), and
+creates it only after your yes. Each answer is recorded, so a declined request is
+not proposed again while it keeps recurring and a deferred one waits 30 days.
+
+```sh
+ivar automation scan              # the candidates and the existing automations, read-only
+ivar automation decisions         # what you accepted, declined and deferred
+ivar automation renew <id>        # keep an accepted automation
+ivar automation undo <id>         # forget a decision
+```
+
+The same session reviews the automations you already have: one that was asked
+for but not used, and one nothing asked for in 90 days (retire it or keep it).
+The skill can also offer a weekly agent that runs the scan and reports counts and
+ids, never your prompts. Scripts a proposal creates follow
+[Hall scripts](#hall-scripts). See [Skills](skills.md#shipped-skills-and-workflow-commands).
+
 ## Deliver
 
 Delivery is gated on the **plan** gate. A feature whose plan was never approved

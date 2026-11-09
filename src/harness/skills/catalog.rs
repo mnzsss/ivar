@@ -75,6 +75,14 @@ const SKILLS: &[ShippedSkill] = &[
         legacy_sha256: None,
     },
     ShippedSkill {
+        id: "automate",
+        files: &[
+            skill_file!("ivar-automate", "SKILL.md"),
+            skill_file!("ivar-automate", "references/continuous-detection-agent.md"),
+        ],
+        legacy_sha256: None,
+    },
+    ShippedSkill {
         id: "deliver",
         files: &[skill_file!("ivar-deliver", "SKILL.md")],
         legacy_sha256: None,

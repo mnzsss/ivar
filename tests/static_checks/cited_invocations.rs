@@ -87,13 +87,31 @@ fn argv(invocation: &str) -> Vec<String> {
                 return None;
             }
             let bare = token.trim_matches('"');
-            Some(if bare.starts_with('<') || bare.starts_with('$') {
+            Some(if let Some(inner) = bare.strip_prefix('<') {
+                placeholder_value(inner.trim_end_matches('>'))
+            } else if bare.starts_with('$') {
                 "x".to_owned()
             } else {
                 bare.to_owned()
             })
         })
         .collect()
+}
+
+/// The dummy value a `<placeholder>` stands for.
+///
+/// `<a|b>` lists the values the caller may pick from, so it stands for the
+/// first of them: a value-enum flag must still parse. A name ending in `id`
+/// or `ref` (`<decision-id>`, `<group_ref>`) stands for a number, which is
+/// what those arguments take. Anything else is free text.
+fn placeholder_value(name: &str) -> String {
+    if name.contains('|') {
+        return name.split('|').next().unwrap_or("x").to_owned();
+    }
+    if name.ends_with("id") || name.ends_with("ref") {
+        return "1".to_owned();
+    }
+    "x".to_owned()
 }
 
 /// Every Markdown file in the repository whose prose ships to a reader:
@@ -159,7 +177,7 @@ fn all_citations() -> Vec<Citation> {
     found.extend(
         ivar::harness::skills::catalog()
             .iter()
-            .filter(|skill| skill.id == "explore")
+            .filter(|skill| matches!(skill.id, "explore" | "automate"))
             .flat_map(|skill| {
                 skill.files.iter().flat_map(move |file| {
                     citations(

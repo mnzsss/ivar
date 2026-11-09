@@ -165,9 +165,11 @@ the sharing.
 
 ## Shipped skills and workflow commands
 
-Alongside hall skills, `ivar` ships built-in **shipped skills** (`ivar-explore`, `ivar-plan`, `ivar-execute`, `ivar-deliver`, `ivar-subfeatures`, `ivar-agent`, and `ivar-feedback`) and **workflow commands** (such as `/ivar-sync` and other official workflows).
+Alongside hall skills, `ivar` ships built-in **shipped skills** (`ivar-explore`, `ivar-plan`, `ivar-execute`, `ivar-deliver`, `ivar-subfeatures`, `ivar-agent`, `ivar-automate`, and `ivar-feedback`) and **workflow commands** (such as `/ivar-sync` and other official workflows).
 
 `ivar-agent` is a skill because the agent loads it from its description, both when you ask for a scheduled agent and when it notices work you repeat or keep watching by hand. It proposes the agent and writes nothing until you agree; installing the timers (`ivar agent sync`) and the first run (`ivar agent run`) each wait for your go-ahead too. See [Scheduled agents](scheduled-agents.md).
+
+`ivar-automate` drives the recurring-request flow in an interactive session, and only when you ask: for automation proposals, for what you keep repeating, or to review, retire or keep the automations you already have. `/ivar-feature-cleanup` can hand its checkpoint to it. It runs `ivar automation scan`, proposes one automation at a time (a script, a skill, a scheduled agent or a procedure) and records your answer with `ivar automation decide`. A script it writes is approved with `ivar script approve` only after you say yes to the exact file. It ships a reference agent, `references/continuous-detection-agent.md`, that it offers once per session so the scan runs weekly; the agent only reports counts and ids, and creates nothing. See [Day to day](day-to-day.md#automation).
 
 `ivar-execute` is distributed as an official shipped skill rather than a prompt command because complex wave execution, subagent dispatch, review barriers, and delivery gates require rich skill instructions and isolation.
 
