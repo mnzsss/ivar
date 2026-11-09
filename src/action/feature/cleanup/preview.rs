@@ -164,7 +164,6 @@ pub(super) fn preview_cleanup(
         &feature.name,
         &feature.branch,
         &repos,
-        &verdict.blockers,
         &paths_to_remove,
         &descendants,
     )?;
@@ -233,21 +232,12 @@ pub(super) fn cleanup_repo(facts: &CleanupRepoFacts) -> Option<CleanupRepo> {
     })
 }
 
-/// Forge answers are live network text (timeouts, auth prompts) that can differ
-/// between preview and apply; the blocker itself still enters the fingerprint.
-pub(super) fn without_forge_detail(blocker: &CleanupBlocker) -> CleanupBlocker {
-    let mut blocker = blocker.clone();
-    if let CleanupBlocker::UnmergedCommits { forge, .. } = &mut blocker {
-        *forge = None;
-    }
-    blocker
-}
-
+/// Blockers stay out: apply re-checks them live, so a blocker that clears
+/// between preview and apply must not stale the human's approval.
 pub(super) fn fingerprint_for(
     feature: &FeatureName,
     branch: &crate::domain::name::BranchName,
     repos: &[CleanupRepo],
-    blockers: &[CleanupBlocker],
     paths_to_remove: &[Utf8PathBuf],
     descendants: &[CleanupDescendant],
 ) -> Result<String, Failure> {
@@ -255,13 +245,13 @@ pub(super) fn fingerprint_for(
         feature: feature.clone(),
         branch: branch.clone(),
         repos: repos.to_vec(),
-        blockers: blockers.iter().map(without_forge_detail).collect(),
+        blockers: Vec::new(),
         paths_to_remove: paths_to_remove.to_vec(),
         fingerprint: String::new(),
         descendants: descendants
             .iter()
             .map(|node| CleanupDescendant {
-                blockers: node.blockers.iter().map(without_forge_detail).collect(),
+                blockers: Vec::new(),
                 ..node.clone()
             })
             .collect(),

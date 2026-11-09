@@ -15,7 +15,7 @@ use crate::action::{Ctx, discover_hall, read_manifest};
 use crate::domain::feature::{Feature, Gate, GateState, WorktreeState};
 use crate::domain::memory_review::{
     Gap, ObservationFact, StalePage, USAGE_EVENT, Verdict, WrittenPage, gaps, is_durable_page,
-    missing_verdicts, stale_pages, written_pages,
+    missing_verdicts, queried_before_approval, stale_pages, written_pages,
 };
 use crate::domain::name::FeatureName;
 use crate::domain::observation::SourceEvent;
@@ -107,6 +107,22 @@ impl WriteHuman for ReviewReport {
             None => writeln!(out, "last: never reviewed"),
         }
     }
+}
+
+/// Whether the feature's sessions ran a `memory_query`, or `None` when
+/// memory cannot tell: no database, or rows that could not be read.
+#[must_use]
+pub fn analysis_queried(layout: &Layout, name: &FeatureName) -> Option<bool> {
+    let _ = drain::try_drain(layout);
+    if !layout.memory_db().exists() {
+        return None;
+    }
+    let feature = relations::read_feature(layout, name).ok()?;
+    let mut notes = Notes::default();
+    let rows = observations(layout, &feature, &mut notes).ok()?;
+    let mut facts: Vec<ObservationFact> = rows.iter().map(fact).collect();
+    facts.extend(usage_facts(layout, &rows, &mut notes));
+    (!notes.incomplete).then(|| queried_before_approval(&facts, name.as_str()))
 }
 
 /// # Errors

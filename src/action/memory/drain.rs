@@ -51,6 +51,19 @@ pub fn drain(layout: &Layout) -> Result<DrainReport, Failure> {
     drain_locked(layout, usize::MAX)
 }
 
+/// Drains every spool file, or returns `None` instead of waiting when another
+/// process holds `memory.lock`.
+///
+/// # Errors
+///
+/// When the lock or the database cannot be used; the spool is left in place.
+pub fn try_drain(layout: &Layout) -> Result<Option<DrainReport>, Failure> {
+    let Some(_lock) = fs::try_lock_exclusive(&layout.memory_lock())? else {
+        return Ok(None);
+    };
+    drain_locked(layout, usize::MAX).map(Some)
+}
+
 /// Drains at most one spool file and returns an empty report instead of
 /// waiting when another process holds `memory.lock`.
 ///

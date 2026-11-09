@@ -267,3 +267,76 @@ fn a_bash_search_naming_a_relative_memory_dir_is_a_memory_read() {
         );
     }
 }
+
+#[test]
+fn only_a_sessions_first_skipped_read_asks_for_the_hint_and_a_queried_read_never_does() {
+    let (_guard, root) = hall();
+    assert!(record_memory_read_at(
+        &root,
+        None,
+        Some("s1".into()),
+        "docs/memory/a.md"
+    ));
+    assert!(!record_memory_read_at(
+        &root,
+        None,
+        Some("s1".into()),
+        "docs/memory/b.md"
+    ));
+    assert!(record_memory_read_at(
+        &root,
+        None,
+        Some("s2".into()),
+        "docs/memory/a.md"
+    ));
+    record_memory_call_at(&root, None, Some("s3".into()), Some("teardown"));
+    assert!(!record_memory_read_at(
+        &root,
+        None,
+        Some("s3".into()),
+        "docs/memory/a.md"
+    ));
+}
+
+#[test]
+fn the_hint_follows_the_repository_instructions() {
+    assert_eq!(with_hint(None, false), None);
+    assert_eq!(with_hint(None, true).as_deref(), Some(MEMORY_QUERY_HINT));
+    assert_eq!(
+        with_hint(Some("rules".to_owned()), true),
+        Some(format!("rules\n\n{MEMORY_QUERY_HINT}"))
+    );
+    assert_eq!(
+        with_hint(Some("rules".to_owned()), false).as_deref(),
+        Some("rules")
+    );
+    assert!(MEMORY_QUERY_HINT.contains("memory_query"));
+}
+
+#[test]
+fn a_claude_read_of_memory_carries_the_hint_only_on_the_sessions_first_skip() {
+    let (_guard, root) = hall();
+    let env = session_env_in_hall(&root, "6f0c9d5f-0000-4000-8000-0000000007a1");
+    crate::domain::session::SessionState::new(Provider::ClaudeCode, "2026-11-09T00:00:00Z")
+        .write(&env.view_dir)
+        .unwrap();
+    let read = |page: &str, call: &str| {
+        let payload = serde_json::json!({
+            "session_id": "sess-main",
+            "tool_use_id": call,
+            "tool_name": "Read",
+            "tool_input": { "file_path": root.join(page) },
+            "cwd": env.view_dir,
+        });
+        let out = guard(Provider::ClaudeCode, &payload.to_string(), None).unwrap();
+        let body: serde_json::Value = serde_json::from_str(&out.body).unwrap();
+        let output = body["hookSpecificOutput"].clone();
+        assert_eq!(output["permissionDecision"], "allow", "{output}");
+        output["additionalContext"].as_str().map(str::to_owned)
+    };
+
+    let first = read("docs/memory/gotcha/a.md", "toolu_1").unwrap_or_default();
+    assert!(first.contains(MEMORY_QUERY_HINT), "{first}");
+    let second = read("docs/memory/gotcha/b.md", "toolu_2").unwrap_or_default();
+    assert!(!second.contains(MEMORY_QUERY_HINT), "{second}");
+}

@@ -1,5 +1,7 @@
 use super::*;
 
+const FINGERPRINT_PREFIX: &str = "sha256:";
+
 pub(super) fn write_record_outcome(
     layout: &crate::store::layout::Layout,
     mut record: CleanupRecord,
@@ -100,7 +102,11 @@ pub(super) fn validate_record_against_preview(
         ));
     }
 
-    if record.fingerprint != preview.fingerprint {
+    let recorded = record
+        .fingerprint
+        .strip_prefix(FINGERPRINT_PREFIX)
+        .unwrap_or(&record.fingerprint);
+    if recorded != preview.fingerprint {
         let mut failure = Failure::blocked(
             "feature.cleanup_fingerprint_mismatch",
             format!(

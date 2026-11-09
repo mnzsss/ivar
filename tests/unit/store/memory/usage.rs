@@ -69,3 +69,22 @@ fn summary_counts_queries_without_hook_rows_and_misses_by_kind() {
     assert_eq!((s.empty, s.followup, s.skipped), (1, 0, 1));
     assert_eq!(prune(db.conn(), i64::MAX).unwrap(), 5);
 }
+
+#[test]
+fn has_skipped_answers_only_for_a_skipped_miss_of_that_session() {
+    let (_dir, db) = open();
+    record_miss(db.conn(), &miss(MemoryMissKind::Followup, None)).unwrap();
+    assert!(!has_skipped(db.conn(), "s1").unwrap());
+    record_miss(db.conn(), &miss(MemoryMissKind::Skipped, None)).unwrap();
+    assert!(has_skipped(db.conn(), "s1").unwrap());
+    assert!(!has_skipped(db.conn(), "s2").unwrap());
+}
+
+#[test]
+fn record_skipped_says_only_the_first_skipped_miss_of_a_session_is_first() {
+    let (_dir, db) = open();
+    record_miss(db.conn(), &miss(MemoryMissKind::Followup, None)).unwrap();
+    assert!(record_skipped(db.conn(), &miss(MemoryMissKind::Skipped, None)).unwrap());
+    assert!(!record_skipped(db.conn(), &miss(MemoryMissKind::Skipped, None)).unwrap());
+    assert_eq!(summary(db.conn(), 0).unwrap().skipped, 2);
+}

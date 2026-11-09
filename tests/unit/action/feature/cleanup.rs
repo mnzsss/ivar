@@ -13,7 +13,7 @@ use crate::action::feature::create::{CreateInput, create as create_feature};
 use crate::action::feature::promote::{PromoteInput, promote};
 use crate::action::hall::{self, InitInput};
 use crate::action::sync::{SyncInput, sync};
-use crate::domain::feature::{CleanupPreview, CleanupRecord};
+use crate::domain::feature::{CleanupBlocker, CleanupPreview, CleanupRecord};
 use crate::domain::memory_page::PageKind;
 use crate::domain::name::{BranchName, FeatureName, HallName, RepoName, SessionId};
 use crate::domain::provider::Provider;

@@ -60,6 +60,7 @@ pub fn guard(
     {
         record_graph_call_at(cwd, evaluation.session_env.as_ref(), ambient.clone());
     }
+    let mut memory_hint = false;
     if let Some(cwd) = evaluation.cwd.as_deref()
         && matches!(evaluation.decision, GuardDecision::Allow)
     {
@@ -72,7 +73,7 @@ pub fn guard(
             record_memory_call_at(cwd, evaluation.session_env.as_ref(), ambient.clone(), query);
         }
         if let Some(pattern) = memory_read_pattern(&evaluation.request, cwd) {
-            record_memory_read_at(
+            memory_hint = record_memory_read_at(
                 cwd,
                 evaluation.session_env.as_ref(),
                 ambient.clone(),
@@ -86,7 +87,7 @@ pub fn guard(
         record_search_miss_at(cwd, evaluation.session_env.as_ref(), ambient, pattern);
     }
 
-    let context = instructions_for(provider, &evaluation, 0);
+    let context = with_hint(instructions_for(provider, &evaluation, 0), memory_hint);
     Ok(crate::providers::render_decision(
         provider,
         &evaluation.decision,

@@ -8,17 +8,38 @@
 #[path = "static_checks/architecture.rs"]
 mod architecture;
 
+#[path = "static_checks/cited_invocations.rs"]
+mod cited_invocations;
+
+#[path = "static_checks/cleanup_command_text.rs"]
+mod cleanup_command_text;
+
+#[path = "static_checks/command_text.rs"]
+mod command_text;
+
+#[path = "static_checks/deliver_skill_text.rs"]
+mod deliver_skill_text;
+
 #[path = "static_checks/docs_reference.rs"]
 mod docs_reference;
+
+#[path = "static_checks/execute_skill_text.rs"]
+mod execute_skill_text;
 
 #[path = "static_checks/memory_mcp_docs.rs"]
 mod memory_mcp_docs;
 
-#[path = "static_checks/shipped_text.rs"]
-mod shipped_text;
+#[path = "static_checks/plan_template_text.rs"]
+mod plan_template_text;
+
+#[path = "static_checks/shipped.rs"]
+mod shipped;
 
 #[path = "static_checks/skill.rs"]
 mod skill;
+
+#[path = "static_checks/subfeatures_skill_text.rs"]
+mod subfeatures_skill_text;
 
 #[path = "static_checks/t3_boundary.rs"]
 mod t3_boundary;

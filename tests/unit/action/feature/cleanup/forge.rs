@@ -64,47 +64,6 @@ fn a_repo_with_nothing_ahead_never_asks_the_forge() {
 }
 
 #[test]
-fn forge_answer_text_does_not_move_the_cleanup_fingerprint() {
-    let feature = FeatureName::new("checkout").unwrap();
-    let branch = BranchName::new("checkout").unwrap();
-    let fingerprint_with = |forge: ForgeDelivery| {
-        let facts = CleanupFacts {
-            repos: vec![CleanupRepoFacts {
-                repo: RepoName::new("api").unwrap(),
-                effective_base: Some(BranchName::new("main").unwrap()),
-                feature_head: Some("abc".to_owned()),
-                base_head: Some("def".to_owned()),
-                local_branch_exists: true,
-                worktree_exists: true,
-                clone_exists: true,
-                dirty_worktree: Some(false),
-                unmerged_commits: Some(1),
-                in_manifest: true,
-                inspection_error: None,
-                forge_delivery: Some(forge),
-            }],
-            live_sessions: Vec::new(),
-            session_inspection_error: None,
-            memory_reviewed: false,
-        };
-        let blockers = classify_cleanup(&facts).blockers;
-        let repos: Vec<_> = facts.repos.iter().filter_map(cleanup_repo).collect();
-        let fingerprint = fingerprint_for(&feature, &branch, &repos, &blockers, &[], &[]).unwrap();
-        (blockers, fingerprint)
-    };
-
-    let (first_blockers, first) = fingerprint_with(ForgeDelivery::Unavailable {
-        reason: "gh: request timed out after 30s".to_owned(),
-    });
-    let (second_blockers, second) = fingerprint_with(ForgeDelivery::Unavailable {
-        reason: "gh: connection reset".to_owned(),
-    });
-
-    assert_ne!(first_blockers, second_blockers);
-    assert_eq!(first, second);
-}
-
-#[test]
 fn preview_and_cleanup_follow_a_worktree_whose_dir_differs_from_the_branch() {
     let (_guard, root) = hall_with_feature(&["api"], None);
     let bare = root.join(".ivar/repos/api/.bare");
