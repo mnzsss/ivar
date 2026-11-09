@@ -213,6 +213,44 @@ fn a_host_agent_that_writes_proc_syncs_with_a_warning() {
     assert!(warning.what.contains("ptrace"));
 }
 
+fn agent_with(root: &Utf8PathBuf, name: &str, runtime: &str, tool: &str, write: &str) {
+    std::fs::create_dir_all(root.join("agents")).unwrap();
+    std::fs::write(
+        root.join(format!("agents/{name}.md")),
+        format!(
+            "---\nschedule: \"@daily\"\nruntime: {runtime}\ntool: {tool}\nwrite: {write}\n---\nGo.\n"
+        ),
+    )
+    .unwrap();
+}
+
+#[test]
+fn a_host_claude_agent_without_tmp_syncs_with_a_warning() {
+    let (_guard, root) = seeded_hall();
+    let fake = FakeSystemctl::install(&root);
+    let _r = fake_systemctl_on_this_thread(&fake);
+    host_agent(&root, "bare", "[]");
+    host_agent(&root, "sub", "[/tmp/x]");
+    host_agent(&root, "exact", "[/tmp]");
+    host_agent(&root, "slash", "[/tmp/]");
+    host_agent(&root, "everything", "[/]");
+    agent_with(&root, "cdx", "host", "codex", "[]");
+    agent_with(&root, "opc", "host", "opencode", "[]");
+    agent_with(&root, "dock", "docker", "claude", "[]");
+    let report = sync_with(&Ctx::new(root.clone()), &env(root.join("units"))).unwrap();
+    let warned: Vec<_> = report
+        .warnings
+        .iter()
+        .filter(|w| w.code == "agent.host_claude_tmp")
+        .collect();
+    assert_eq!(warned.len(), 2, "{warned:?}");
+    for (warning, name) in warned.iter().zip(["bare", "sub"]) {
+        assert!(warning.what.contains(&format!("`{name}`")), "{warning:?}");
+        assert!(warning.what.contains("write: [/tmp]"));
+        assert!(warning.what.contains("TMPDIR: /tmp"));
+    }
+}
+
 fn task(root: &Utf8PathBuf, name: &str, at: &str) {
     let dir = root.join("agents");
     std::fs::create_dir_all(&dir).unwrap();

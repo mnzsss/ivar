@@ -10,7 +10,8 @@ use super::hall_hash;
 use super::requirements::{self, Probes};
 use super::scripts;
 use crate::action::{Ctx, discover_hall};
-use crate::domain::agent::spec::{AgentSpec, Runtime, WritePath};
+use crate::domain::agent::spec::{AgentSpec, Launch, Runtime, WritePath};
+use crate::domain::agent::tool::Tool;
 use crate::domain::agent::unit::{
     owned_by, render_service, render_spec_timer, unit_prefix, unit_stem,
 };
@@ -217,17 +218,9 @@ pub fn sync_with(ctx: &Ctx, env: &SyncEnv<'_>) -> Outcome<SyncOutcome> {
     outcome.fired = fire_due_tasks(&layout, &specs, &hash, &env.clock)?;
     let mut warnings =
         requirements::as_warnings(&requirements::diagnose_agents(&specs, &env.probes));
-    warnings.extend(specs.iter().filter(|s| s.runtime == Runtime::Host).map(|s| {
-        Warning::new(
-            "agent.host_ambient_read",
-            "agents",
-            format!(
-                "`{}` runs on the host: git gets no credential helper or credential variables, but it can read everything your user can (SSH keys, ~/.config/gh), reach sockets in /run/user/<uid>, and its network is not filtered, so it could push with a readable SSH key.",
-                s.name
-            ),
-        )
-    }));
+    warnings.extend(host_ambient_warnings(&specs));
     warnings.extend(proc_write_warnings(&specs));
+    warnings.extend(claude_tmp_warnings(&specs));
     warnings.extend(scripts::env_warnings(&layout, &specs));
     warnings.extend(build_dir_warning(&env.ivar_bin, specs.len()));
     Ok(Report::with_warnings(outcome, warnings))
@@ -279,6 +272,23 @@ fn build_dir_warning(ivar_bin: &Utf8Path, agents: usize) -> Option<Warning> {
     })
 }
 
+fn host_ambient_warnings(specs: &[AgentSpec]) -> Vec<Warning> {
+    specs
+        .iter()
+        .filter(|s| s.runtime == Runtime::Host)
+        .map(|s| {
+            Warning::new(
+                "agent.host_ambient_read",
+                "agents",
+                format!(
+                    "`{}` runs on the host: git gets no credential helper or credential variables, but it can read everything your user can (SSH keys, ~/.config/gh), reach sockets in /run/user/<uid>, and its network is not filtered, so it could push with a readable SSH key.",
+                    s.name
+                ),
+            )
+        })
+        .collect()
+}
+
 fn proc_write_warnings(specs: &[AgentSpec]) -> Vec<Warning> {
     specs
         .iter()
@@ -294,6 +304,39 @@ fn proc_write_warnings(specs: &[AgentSpec]) -> Vec<Warning> {
             )
         })
         .collect()
+}
+
+/// A host `claude` agent whose Bash tool may not inherit the scratch `TMPDIR`
+/// falls back to `/tmp`, which Landlock denies unless `write` covers it.
+fn claude_tmp_warnings(specs: &[AgentSpec]) -> Vec<Warning> {
+    specs
+        .iter()
+        .filter(|s| {
+            s.runtime == Runtime::Host
+                && matches!(
+                    s.launch,
+                    Launch::Tool {
+                        tool: Tool::Claude,
+                        ..
+                    }
+                )
+                && !s.write.iter().any(covers_tmp)
+        })
+        .map(|s| {
+            Warning::new(
+                "agent.host_claude_tmp",
+                "agents",
+                format!(
+                    "`{}` runs claude on the host without write access to /tmp. If the agent creates temporary files (mktemp, Node, tsx), the Bash tool may not inherit the scratch TMPDIR and fall back to /tmp, where Landlock denies the write and the run ends blocked; add `write: [/tmp]` and `env: {{TMPDIR: /tmp}}` to its frontmatter.",
+                    s.name
+                ),
+            )
+        })
+        .collect()
+}
+
+fn covers_tmp(write: &WritePath) -> bool {
+    matches!(write, WritePath::Absolute(path) if Utf8Path::new("/tmp").starts_with(path))
 }
 
 fn writes_proc(write: &WritePath) -> bool {
