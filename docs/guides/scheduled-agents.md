@@ -279,7 +279,10 @@ and its receipt is `failed`. Docker is not checked when no agent uses it.
 
 Each service pins the `PATH` that `ivar agent sync` ran with, because a
 `catchup` run fires as soon as the systemd user manager starts, before your
-login session has exported its own `PATH`. Run `ivar agent sync` again after
+login session has exported its own `PATH`. That early, the network may be
+down too, so a timer run of `claude` or `codex` first waits up to two minutes
+for the tool's API host to resolve; after that it starts anyway and records
+whatever the tool reports. Run `ivar agent sync` again after
 installing the tool somewhere new. Run it with the installed `ivar` too: the
 service runs the binary that synced it, and one under a cargo `target/`
 directory warns `agent.ivar_bin_in_build_dir`, since a rebuild or
