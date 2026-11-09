@@ -10,7 +10,9 @@ use super::sync::current_ivar_bin;
 use crate::action::{Ctx, discover_hall};
 use crate::domain::agent::receipt::AgentRunOutcome;
 use crate::domain::agent::spec::Timing;
-use crate::domain::agent::unit::{exec_binary, render_service, render_spec_timer, unit_stem};
+use crate::domain::agent::unit::{
+    exec_binary, render_service, render_spec_timer, service_path, unit_stem,
+};
 use crate::error::{Outcome, Report, WriteHuman};
 use crate::infra::{fs, systemd, table};
 use crate::store;
@@ -147,7 +149,13 @@ pub fn status_in(ctx: &Ctx, unit_dir: &Utf8Path, ivar_bin: &Utf8Path) -> Outcome
                 status.sync = unit_sync(
                     service.as_deref(),
                     timer.as_deref(),
-                    &render_service(&hash, &spec.name, layout.root().as_str(), ivar_bin.as_str()),
+                    &render_service(
+                        &hash,
+                        &spec.name,
+                        layout.root().as_str(),
+                        ivar_bin.as_str(),
+                        service.as_deref().and_then(service_path).as_deref(),
+                    ),
                     &render_spec_timer(&hash, &spec),
                 );
                 if matches!(status.sync, UnitSync::InSync | UnitSync::Stale) {

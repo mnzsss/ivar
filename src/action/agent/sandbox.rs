@@ -26,7 +26,8 @@ pub fn launch(writes: &[String], command: &[String]) -> Result<(), Failure> {
             format!("a `runtime: host` run needs Landlock to confine its writes: {reason}"),
         ));
     }
-    match proc::exec(&Command::new(program.as_str()).args(args.iter().cloned()))? {
+    let command = Command::new(program.as_str()).args(args.iter().cloned());
+    match proc::exec(&command).map_err(without_args)? {
         Some(0) | None => Ok(()),
         Some(code) => Err(Failure::failed(
             "agent.sandbox_process_failed",
@@ -34,3 +35,21 @@ pub fn launch(writes: &[String], command: &[String]) -> Result<(), Failure> {
         )),
     }
 }
+
+/// The tool's argv carries the agent's prompt, and a spawn error would print it
+/// whole into the receipt and the systemd journal.
+fn without_args(error: proc::Error) -> proc::Error {
+    match error {
+        proc::Error::Spawn {
+            program, source, ..
+        } => proc::Error::Spawn {
+            command: format!("{program} …"),
+            program,
+            source,
+        },
+    }
+}
+
+#[cfg(test)]
+#[path = "../../../tests/unit/action/agent/sandbox.rs"]
+mod tests;

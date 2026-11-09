@@ -3,7 +3,7 @@
 use std::collections::BTreeSet;
 use std::io;
 
-use camino::Utf8PathBuf;
+use camino::{Utf8Path, Utf8PathBuf};
 use serde::Serialize;
 
 use super::hall_hash;
@@ -48,6 +48,8 @@ impl std::fmt::Debug for Clock<'_> {
 pub struct SyncEnv<'a> {
     pub unit_dir: Utf8PathBuf,
     pub ivar_bin: Utf8PathBuf,
+    /// The `PATH` each service pins; see [`render_service`].
+    pub path: Option<String>,
     pub is_linux: bool,
     pub probes: Probes<'a>,
     pub clock: Clock<'a>,
@@ -102,6 +104,7 @@ pub fn sync(ctx: &Ctx) -> Outcome<SyncOutcome> {
         &SyncEnv {
             unit_dir: systemd::user_unit_dir()?,
             ivar_bin,
+            path: std::env::var("PATH").ok().filter(|p| !p.is_empty()),
             is_linux: cfg!(target_os = "linux"),
             probes: requirements::system_probes(),
             clock: Clock::system(),
@@ -160,6 +163,7 @@ pub fn sync_with(ctx: &Ctx, env: &SyncEnv<'_>) -> Outcome<SyncOutcome> {
             &spec.name,
             layout.root().as_str(),
             env.ivar_bin.as_str(),
+            env.path.as_deref(),
         );
         let timer = render_spec_timer(&hash, spec);
         let old_service = fs::read_text(&service_path)?;
@@ -223,6 +227,7 @@ pub fn sync_with(ctx: &Ctx, env: &SyncEnv<'_>) -> Outcome<SyncOutcome> {
         )
     }));
     warnings.extend(proc_write_warnings(&specs));
+    warnings.extend(build_dir_warning(&env.ivar_bin, specs.len()));
     Ok(Report::with_warnings(outcome, warnings))
 }
 
@@ -254,6 +259,22 @@ fn fire_due_tasks(
 
 fn is_running(layout: &Layout, name: &str) -> Result<bool, Failure> {
     Ok(fs::try_lock_exclusive(&layout.agent_lock(name))?.is_none())
+}
+
+fn build_dir_warning(ivar_bin: &Utf8Path, agents: usize) -> Option<Warning> {
+    let in_build_dir = ivar_bin
+        .ancestors()
+        .filter_map(Utf8Path::parent)
+        .any(|dir| dir.file_name() == Some("target"));
+    (in_build_dir && agents > 0).then(|| {
+        Warning::new(
+            "agent.ivar_bin_in_build_dir",
+            "agents",
+            format!(
+                "the timers run `{ivar_bin}`, a cargo build output that `cargo clean` or a rebuild removes or changes; run `ivar agent sync` from the installed `ivar` instead"
+            ),
+        )
+    })
 }
 
 fn proc_write_warnings(specs: &[AgentSpec]) -> Vec<Warning> {
