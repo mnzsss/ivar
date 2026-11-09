@@ -12,7 +12,7 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 
 #[cfg(test)]
 use crate::action::feature::deliver;
-use crate::action::hall::InitInput;
+use crate::action::hall::{DoctorInput, InitInput};
 #[cfg(test)]
 use crate::action::repo::create as repo_create;
 #[cfg(test)]
@@ -92,7 +92,10 @@ pub enum Command {
     /// Report hall health.
     Status,
     /// Diagnose problems and suggest fixes.
-    Doctor,
+    ///
+    /// Each orphan worktree is classified: safe to remove (clean, nothing
+    /// unpushed, its work already on the default branch) or needing a look.
+    Doctor(DoctorArgs),
     /// Reconcile stale state (interactive; asks before deleting).
     Cleanup,
     /// Advance `ivar.json`'s schema version (interactive; shows the change,
@@ -323,6 +326,27 @@ pub struct SyncArgs {
     pub force_setup: bool,
 }
 
+/// Options of `ivar doctor`. With none, it reads the hall and reaches no
+/// network.
+#[derive(Debug, Args)]
+pub struct DoctorArgs {
+    /// Ask GitHub, through `gh`, whether each orphan branch's pull request
+    /// merged or closed.
+    ///
+    /// A network call, so only on request. Without `gh`, or offline, the
+    /// classification falls back to comparing the branch's files with the
+    /// default branch locally.
+    #[arg(long)]
+    pub github: bool,
+
+    /// Remove the orphan worktrees classified safe, and only those.
+    ///
+    /// Never touches a worktree with uncommitted changes, with commits not
+    /// pushed to its upstream, or whose work is not already integrated.
+    #[arg(long)]
+    pub fix: bool,
+}
+
 // -- args → input ------------------------------------------------------------
 //
 // Every conversion below **destructures its args struct exhaustively**. That is
@@ -364,6 +388,13 @@ impl From<SyncArgs> for SyncInput {
     fn from(args: SyncArgs) -> Self {
         let SyncArgs { force_setup } = args;
         Self { force_setup }
+    }
+}
+
+impl From<DoctorArgs> for DoctorInput {
+    fn from(args: DoctorArgs) -> Self {
+        let DoctorArgs { github, fix } = args;
+        Self { github, fix }
     }
 }
 

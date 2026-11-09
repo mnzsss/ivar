@@ -30,17 +30,37 @@ pub(super) fn diagnose_orphaned_runs(layout: &Layout) -> Result<Vec<Diagnosis>, 
     Ok(findings)
 }
 
-pub(super) fn diagnose_orphan_worktrees(
+/// What the scan of orphan worktrees found, and removed when asked to.
+pub(super) struct OrphanFindings {
+    pub findings: Vec<Diagnosis>,
+    /// Worktrees `--fix` removed.
+    pub removed: Vec<Utf8PathBuf>,
+}
+
+pub(super) fn diagnose_orphan_worktrees<P: PullRequestLookup>(
     layout: &Layout,
     manifest: &Manifest,
     git: &impl Git,
-) -> Vec<Diagnosis> {
+    scan: &OrphanScan<'_, P>,
+) -> OrphanFindings {
     let owned = match feature_worktrees(layout, manifest) {
         Ok(owned) => owned,
         // Incomplete ownership data would name live feature worktrees as orphans.
-        Err(unreadable) => return unreadable,
+        Err(unreadable) => {
+            return OrphanFindings {
+                findings: unreadable,
+                removed: Vec::new(),
+            };
+        }
     };
+    // A feature's branch names the folder its worktrees were made in.
+    let folder_owners: BTreeMap<String, FeatureName> = feature_records(layout)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|feature| (feature.branch.to_string(), feature.name))
+        .collect();
     let mut findings = Vec::new();
+    let mut removed = Vec::new();
     for repo in manifest.repos() {
         let bare = layout.repo_bare(repo.name());
         if !bare.is_dir() {
@@ -94,61 +114,45 @@ pub(super) fn diagnose_orphan_worktrees(
                 (None, true) => "detached",
                 (None, false) => continue,
             };
-            findings.push(orphan_diagnosis(
-                git,
-                &bare,
-                repo.name().as_str(),
-                &entry,
-                branch,
-            ));
+            let folder = folder_of(layout, repo.name(), &entry.path);
+            let folder_owner = folder
+                .as_deref()
+                .filter(|folder| *folder != branch)
+                .and_then(|folder| folder_owners.get(folder));
+            let site = OrphanSite {
+                bare: &bare,
+                repo: repo.name().as_str(),
+                default_branch: repo.default_branch().as_str(),
+                entry: &entry,
+                branch: entry.branch.as_deref(),
+                folder_owner,
+            };
+            findings.extend(orphan_diagnosis(git, scan, &site, &mut removed));
         }
     }
-    findings
+    OrphanFindings { findings, removed }
 }
 
-fn orphan_diagnosis(
-    git: &impl Git,
-    bare: &Utf8Path,
-    repo: &str,
-    entry: &WorktreeEntry,
-    branch: &str,
-) -> Diagnosis {
-    let path = &entry.path;
-    if entry.prunable {
-        return Diagnosis {
-            code: "repo.worktree_orphaned",
-            what: format!(
-                "`{path}` in `{repo}` is on branch `{branch}`, which no feature owns — its directory is gone"
-            ),
-            fix: "Run `ivar sync` to drop the stale registration.".to_owned(),
-        };
-    }
-    let state = match git.worktree_dirty(path) {
-        Ok(true) => " — it has uncommitted changes".to_owned(),
-        Ok(false) => String::new(),
-        Err(error) => format!(" (could not inspect: {error})"),
-    };
-    let remove = format!("git --git-dir {bare} worktree remove {path}");
-    // A checkout that was the default or a base branch carries ivar's
-    // read-only guard on its root, and git cannot delete the entries of a
-    // directory it cannot write to: it drops the registration, then aborts,
-    // leaving the files behind unregistered. Lift the guard first.
-    let remove = if is_read_only(path) {
-        format!("chmod u+w {path} && {remove}")
-    } else {
-        remove
-    };
-    Diagnosis {
-        code: "repo.worktree_orphaned",
-        what: format!("`{path}` in `{repo}` is on branch `{branch}`, which no feature owns{state}"),
-        fix: format!("Inspect it; if nothing is needed, run `{remove}`."),
-    }
+/// `path` relative to `repos/<repo>/` — the folder name a checkout was made
+/// under. `None` when `path` is not under it (git reports real paths; the hall
+/// root may be reached through a symlink).
+fn folder_of(layout: &Layout, repo: &RepoName, path: &Utf8Path) -> Option<String> {
+    let dir = layout.repo_dir(repo);
+    let relative = path
+        .strip_prefix(&dir)
+        .ok()
+        .map(Utf8Path::to_path_buf)
+        .or_else(|| {
+            let real = fs::canonicalize(&dir).ok()?;
+            path.strip_prefix(real).ok().map(Utf8Path::to_path_buf)
+        })?;
+    Some(relative.to_string())
 }
 
 /// Whether `path`'s root has no write bit — the read-only guard ivar puts on a
 /// default-branch or base-branch checkout. A path whose mode cannot be read is
 /// not reported as guarded.
-fn is_read_only(path: &Utf8Path) -> bool {
+pub(super) fn is_read_only(path: &Utf8Path) -> bool {
     fs::unix_mode(path)
         .ok()
         .flatten()
