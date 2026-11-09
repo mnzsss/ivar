@@ -531,6 +531,7 @@ fn the_approve_human_surface_lists_every_gate_state() {
         gate: Gate::Requirements,
         approvals,
         visible: Gate::ALL.to_vec(),
+        analysis_without_query: false,
     };
 
     let mut out = Vec::new();
@@ -542,6 +543,33 @@ fn the_approve_human_surface_lists_every_gate_state() {
          \x20 requirements     approved\n\
          \x20 analysis         pending\n\
          \x20 plan             pending\n"
+    );
+}
+
+#[test]
+fn approving_analysis_without_a_memory_query_prints_a_note() {
+    let mut approvals = ApprovalState::fresh();
+    approvals.set(Gate::Analysis, GateState::Approved, None);
+    let outcome = ApproveOutcome {
+        root: Utf8PathBuf::from("/hall"),
+        feature: FeatureName::new("checkout").unwrap(),
+        gate: Gate::Analysis,
+        approvals,
+        visible: Gate::ALL.to_vec(),
+        analysis_without_query: true,
+    };
+
+    let mut out = Vec::new();
+    outcome.write_human(&mut out).unwrap();
+    let text = String::from_utf8(out).unwrap();
+
+    assert!(
+        text.contains("note: no memory_query ran in `checkout`'s sessions"),
+        "{text}"
+    );
+    assert_eq!(
+        serde_json::to_value(&outcome).unwrap()["analysis_without_query"],
+        serde_json::json!(true)
     );
 }
 
@@ -559,6 +587,7 @@ fn the_approve_human_surface_omits_gates_the_feature_does_not_have() {
         gate: Gate::Plan,
         approvals,
         visible: vec![Gate::Plan],
+        analysis_without_query: false,
     };
 
     let mut out = Vec::new();

@@ -88,11 +88,22 @@ pub struct ApproveOutcome {
     /// The gates this feature actually has, in lifecycle order. See
     /// [`visible_gates`].
     pub visible: Vec<Gate>,
+    /// The Analysis gate was approved while no `memory_query` ran in the
+    /// feature's sessions.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub analysis_without_query: bool,
 }
 
 impl WriteHuman for ApproveOutcome {
     fn write_human(&self, w: &mut impl io::Write) -> io::Result<()> {
         writeln!(w, "Approved `{}` for feature `{}`", self.gate, self.feature)?;
+        if self.analysis_without_query {
+            writeln!(
+                w,
+                "note: no memory_query ran in `{}`'s sessions before this approval; query memory and record what applies under \"Conhecimento prévio\" in analysis.md",
+                self.feature
+            )?;
+        }
         write_gates(w, &self.approvals, &self.visible)
     }
 }
@@ -201,6 +212,8 @@ pub fn approve(ctx: &Ctx, input: ApproveInput) -> Outcome<ApproveOutcome> {
 
     approvals.set(gate, GateState::Approved, Some(fingerprint));
     approvals.write(&layout, &feature)?;
+    let analysis_without_query = gate == Gate::Analysis
+        && crate::action::memory::review::analysis_queried(&layout, &feature) == Some(false);
 
     let visible = visible_gates(&approvals, &layout, &feature)?;
     Ok(Report::new(ApproveOutcome {
@@ -209,6 +222,7 @@ pub fn approve(ctx: &Ctx, input: ApproveInput) -> Outcome<ApproveOutcome> {
         gate,
         approvals,
         visible,
+        analysis_without_query,
     }))
 }
 

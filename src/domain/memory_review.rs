@@ -194,7 +194,8 @@ fn is_memory_query(body: &Value) -> bool {
         || command(body).is_some_and(|command| command.contains("ivar memory query"))
 }
 
-fn queried_before_approval(facts: &[ObservationFact], feature: &str) -> bool {
+#[must_use]
+pub fn queried_before_approval(facts: &[ObservationFact], feature: &str) -> bool {
     let approval = format!("ivar plan approve {feature} analysis");
     let tools = || {
         facts

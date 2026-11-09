@@ -6,7 +6,7 @@ use crate::action::Ctx;
 use crate::action::feature::create::{CreateInput, create};
 use crate::action::hall::{self, InitInput};
 use crate::action::memory::events::{MemoryEventScope, record_memory_event};
-use crate::action::memory::review::review_in;
+use crate::action::memory::review::{analysis_queried, review_in};
 use crate::domain::memory_review::GapKind;
 use crate::domain::name::FeatureName;
 use crate::domain::observation::{Importance, Observation, SourceEvent, ToolEffect};
@@ -175,4 +175,26 @@ fn a_query_of_another_session_is_not_the_features() {
     mcp_query(&layout, "other");
 
     assert_eq!(gap_kinds(&layout), [GapKind::AnalysisWithoutQuery]);
+}
+
+#[test]
+fn analysis_queried_reads_the_feature_sessions_queries() {
+    let (_guard, layout) = hall_with_approved_analysis();
+    let name = FeatureName::new("checkout").unwrap();
+    session_that_wrote_an_update(&layout);
+    assert_eq!(analysis_queried(&layout, &name), Some(false));
+
+    mcp_query(&layout, SESSION);
+
+    assert_eq!(analysis_queried(&layout, &name), Some(true));
+}
+
+#[test]
+fn analysis_queried_is_unknown_without_a_memory_database() {
+    let (_guard, layout) = hall_with_approved_analysis();
+    let _ = std::fs::remove_file(layout.memory_db());
+    assert_eq!(
+        analysis_queried(&layout, &FeatureName::new("checkout").unwrap()),
+        None
+    );
 }
