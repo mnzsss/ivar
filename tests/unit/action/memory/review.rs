@@ -7,6 +7,7 @@ use crate::action::feature::create::{CreateInput, create};
 use crate::action::hall::{self, InitInput};
 use crate::action::memory::events::{MemoryEventScope, record_memory_event};
 use crate::action::memory::review::{analysis_queried, review_in};
+use crate::action::plan::approve::ApproveOutcome;
 use crate::domain::memory_review::GapKind;
 use crate::domain::name::FeatureName;
 use crate::domain::observation::{Importance, Observation, SourceEvent, ToolEffect};
@@ -20,6 +21,23 @@ use crate::test_support::hall_root;
 const SESSION: &str = "s1";
 
 fn hall_with_approved_analysis() -> (tempfile::TempDir, Layout) {
+    let (guard, layout) = hall_with_approved_requirements();
+    approve(&layout, "analysis");
+    (guard, layout)
+}
+
+fn approve(layout: &Layout, gate: &str) -> crate::error::Report<ApproveOutcome> {
+    crate::action::plan::approve::approve(
+        &Ctx::new(layout.root().to_path_buf()),
+        crate::action::plan::approve::ApproveInput {
+            feature: "checkout".to_owned(),
+            gate: gate.to_owned(),
+        },
+    )
+    .unwrap()
+}
+
+fn hall_with_approved_requirements() -> (tempfile::TempDir, Layout) {
     let (guard, root) = hall_root();
     let ctx = Ctx::new(root.clone());
     hall::init(
@@ -53,17 +71,9 @@ fn hall_with_approved_analysis() -> (tempfile::TempDir, Layout) {
         },
     )
     .unwrap();
-    for gate in ["requirements", "analysis"] {
-        crate::action::plan::approve::approve(
-            &ctx,
-            crate::action::plan::approve::ApproveInput {
-                feature: "checkout".to_owned(),
-                gate: gate.to_owned(),
-            },
-        )
-        .unwrap();
-    }
-    (guard, Layout::at(root))
+    let layout = Layout::at(root);
+    approve(&layout, "requirements");
+    (guard, layout)
 }
 
 /// A session of `checkout` whose only captured trace is an update page, so
@@ -197,4 +207,16 @@ fn analysis_queried_is_unknown_without_a_memory_database() {
         analysis_queried(&layout, &FeatureName::new("checkout").unwrap()),
         None
     );
+}
+
+#[test]
+fn approving_analysis_without_a_feature_query_notes_it_without_a_warning() {
+    let (_guard, layout) = hall_with_approved_requirements();
+    session_that_wrote_an_update(&layout);
+    drop(MemoryDb::open(layout.memory_db().as_std_path()).unwrap());
+
+    let report = approve(&layout, "analysis");
+
+    assert!(report.value.analysis_without_query);
+    assert!(report.warnings.is_empty());
 }
