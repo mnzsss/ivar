@@ -8,6 +8,7 @@ use serde::Serialize;
 
 use super::hall_hash;
 use super::requirements::{self, Probes};
+use super::scripts;
 use crate::action::{Ctx, discover_hall};
 use crate::domain::agent::spec::{AgentSpec, Runtime, WritePath};
 use crate::domain::agent::unit::{
@@ -227,6 +228,7 @@ pub fn sync_with(ctx: &Ctx, env: &SyncEnv<'_>) -> Outcome<SyncOutcome> {
         )
     }));
     warnings.extend(proc_write_warnings(&specs));
+    warnings.extend(scripts::env_warnings(&layout, &specs));
     warnings.extend(build_dir_warning(&env.ivar_bin, specs.len()));
     Ok(Report::with_warnings(outcome, warnings))
 }

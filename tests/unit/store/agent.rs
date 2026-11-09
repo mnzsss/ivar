@@ -252,3 +252,45 @@ fn concluded_tasks_in_agents_done_are_not_a_source() {
         .collect();
     assert_eq!(names, ["live"]);
 }
+
+#[test]
+fn a_listed_script_that_does_not_exist_is_refused_and_one_that_does_is_kept() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root);
+    write_agent(
+        &layout,
+        "nightly",
+        "---\nschedule: \"@daily\"\ntool: claude\nscripts: [.ivar/scripts/a.sh]\n---\nGo.\n",
+    );
+
+    let failure = load(&layout, "nightly").unwrap_err();
+    assert_eq!(failure.code, "agent.invalid");
+    assert!(failure.what.contains("`scripts`"), "{}", failure.what);
+    assert!(
+        failure.what.contains(".ivar/scripts/a.sh"),
+        "{}",
+        failure.what
+    );
+
+    fs::ensure_dir(&layout.hall_scripts()).unwrap();
+    fs::write_text(&layout.hall_scripts().join("a.sh"), "echo hi\n").unwrap();
+    assert_eq!(
+        load(&layout, "nightly").unwrap().scripts,
+        [".ivar/scripts/a.sh"]
+    );
+}
+
+#[test]
+fn a_script_path_outside_the_script_folders_is_refused_while_parsing() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root);
+    write_agent(
+        &layout,
+        "nightly",
+        "---\nschedule: \"@daily\"\ntool: claude\nscripts: [agents/nightly.md]\n---\nGo.\n",
+    );
+
+    let failure = load(&layout, "nightly").unwrap_err();
+    assert_eq!(failure.code, "agent.invalid");
+    assert!(failure.what.contains("`scripts`"), "{}", failure.what);
+}

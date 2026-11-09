@@ -37,6 +37,7 @@ ivar runs no process of its own between runs. Linux with systemd only.
 | `network` | `[]` | bare hostnames the egress proxy allows; everything else fails |
 | `secrets` | `[]` | names (`^[A-Z][A-Z0-9_]*$`) read from `.ivar/secrets/agents.env` |
 | `notify` | — | `http(s)://` URL that receives a JSON run summary, or `telegram:<chat_id>` to message a Telegram chat (see [Telegram](#telegram)) |
+| `scripts` | `[]` | hall scripts the agent calls, as hall-relative paths under `.ivar/scripts/` or `.ivar/scripts-local/` (`.ivar/scripts/deploy-staging.sh`). Each must exist, and each must be approved before the run launches; see [Scripts](#scripts) |
 | `timeout` | `30m` | `90s`, `45m`, `2h`; at most `24h` |
 | `catchup` | `false` | recurring agents only. `true`: when the machine was off or asleep at the scheduled time, run once as soon as the timer is active again, however many runs were missed. Sets `Persistent=true` on the timer; run `ivar agent sync` after changing it |
 
@@ -148,6 +149,55 @@ ivar reads the token when the run ends; the agent does not see it unless
 it lists it in `secrets`. A failed send is recorded in the receipt's
 `notify_error`, with the token replaced by `[redacted]`, and never changes
 the run's outcome. Changing `notify` needs no `ivar agent sync`.
+
+## Scripts
+
+An agent that calls hall scripts (see `ivar script list`) lists them in `scripts:`:
+
+    ---
+    schedule: "0 7 * * 1-5"
+    tool: claude
+    secrets: [STAGING_TOKEN]
+    scripts: [.ivar/scripts/deploy-staging.sh]
+    ---
+    Deploy the latest build to staging and report the result.
+
+Each entry is a hall-relative path to a file under `.ivar/scripts/` or
+`.ivar/scripts-local/`, with no `..`, `.` or empty segment and no leading `/`.
+A path that is not one, or a file that does not exist, makes the agent file
+invalid when it loads (`agent.invalid`, naming `scripts`), like any other bad
+field.
+
+A script gets the environment of the agent that calls it: its `runtime`, its
+`write` paths, its `env` and its `secrets`. A script that reads a variable its
+header declares in `# env:` needs that variable in `secrets` or `env`;
+`ivar agent sync` warns `agent.script_env_missing` for one that is in neither.
+
+### The pre-launch check
+
+Before it launches anything, a run compares the sha256 of each listed script
+with the approval `ivar script approve` recorded for that path. The run is
+refused when any script was never approved or has changed since:
+
+- the tool or image is not launched;
+- the receipt is `failed`, and its output starts with `agent.script_unreviewed:`
+  and names each unreviewed path with why (`no approval`, `changed since
+  approval`, or `missing`);
+- `notify` sends that outcome and output like any other `failed` run.
+
+An agent with every listed script approved launches as usual. The check reads
+`memory.db` and never writes to it. Only a human approves a script, so the
+agent cannot clear the block itself.
+
+### Fixing `agent.script_unreviewed`
+
+Read the script, then approve it in an interactive session:
+
+    ivar script approve .ivar/scripts/deploy-staging.sh
+
+The next run proceeds, whether the timer fires it or you run `ivar agent run
+<name>`. Editing a script invalidates its approval, so approve it again after
+every change.
 
 ## What a run can reach
 

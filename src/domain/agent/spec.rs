@@ -40,6 +40,8 @@ pub struct AgentFrontmatter {
     pub write: Vec<String>,
     #[serde(default)]
     pub env: BTreeMap<String, String>,
+    #[serde(default)]
+    pub scripts: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -179,6 +181,9 @@ pub struct AgentSpec {
     pub catchup: bool,
     pub write: Vec<WritePath>,
     pub env: BTreeMap<String, String>,
+    /// Hall scripts the agent calls, hall-relative with `/` separators: the
+    /// key `ivar script approve` records an approval under.
+    pub scripts: Vec<String>,
     pub prompt: String,
 }
 
@@ -247,6 +252,32 @@ fn env_name_error(name: &str, secrets: &[String]) -> Option<String> {
         ));
     }
     None
+}
+
+/// The folders a script may live in, hall-relative.
+pub const SCRIPT_DIRS: [&str; 2] = [".ivar/scripts/", ".ivar/scripts-local/"];
+
+/// Why `raw` cannot name a script in `scripts`, or `None` when it can.
+///
+/// The path is hall-relative and already in the normalized form approvals are
+/// keyed by: no leading `/`, no empty, `.` or `..` segment.
+fn script_path_error(raw: &str) -> Option<String> {
+    let normalized = !raw.is_empty()
+        && !raw.starts_with('/')
+        && !raw.contains('\\')
+        && raw
+            .split('/')
+            .all(|part| !part.is_empty() && part != "." && part != "..");
+    if !normalized {
+        return Some(format!(
+            "`{raw}` must be a hall-relative path without `.`, `..` or empty segments"
+        ));
+    }
+    let in_scripts_dir = SCRIPT_DIRS
+        .iter()
+        .any(|dir| raw.strip_prefix(dir).is_some_and(|rest| !rest.is_empty()));
+    (!in_scripts_dir)
+        .then(|| format!("`{raw}` must be a file under `.ivar/scripts/` or `.ivar/scripts-local/`"))
 }
 
 fn launch_of(fm: &AgentFrontmatter) -> Result<Launch, SpecError> {
@@ -357,6 +388,9 @@ impl AgentSpec {
         {
             return Err(err("env", reason));
         }
+        if let Some(reason) = fm.scripts.iter().find_map(|raw| script_path_error(raw)) {
+            return Err(err("scripts", reason));
+        }
         let notify = fm.notify.as_deref().map(notify_target).transpose()?;
         if let Some(dir) = fm.workdir.as_deref()
             && (dir.is_empty() || dir.starts_with('/') || dir.split('/').any(|part| part == ".."))
@@ -393,6 +427,7 @@ impl AgentSpec {
             catchup: fm.catchup,
             write,
             env: fm.env,
+            scripts: fm.scripts,
             prompt: prompt.to_owned(),
         })
     }

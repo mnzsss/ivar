@@ -363,3 +363,53 @@ fn an_agent_task_refuses_relative_times_and_the_wrong_companions() {
         "schedule"
     );
 }
+
+#[test]
+fn listed_scripts_are_carried_into_the_spec() {
+    let fm = AgentFrontmatter {
+        scripts: vec![
+            ".ivar/scripts/deploy.sh".to_owned(),
+            ".ivar/scripts-local/mine.py".to_owned(),
+        ],
+        ..base()
+    };
+    assert_eq!(
+        AgentSpec::from_parts("nightly", fm, "").unwrap().scripts,
+        [".ivar/scripts/deploy.sh", ".ivar/scripts-local/mine.py"]
+    );
+    assert!(
+        AgentSpec::from_parts("nightly", base(), "")
+            .unwrap()
+            .scripts
+            .is_empty()
+    );
+}
+
+#[rstest]
+#[case::empty("")]
+#[case::absolute("/etc/hosts")]
+#[case::absolute_in_hall("/home/me/hall/.ivar/scripts/a.sh")]
+#[case::outside_the_folders("scripts/a.sh")]
+#[case::a_neighbour_folder(".ivar/scripts-shared/a.sh")]
+#[case::another_ivar_folder(".ivar/secrets/agents.env")]
+#[case::the_folder_itself(".ivar/scripts/")]
+#[case::the_folder_without_slash(".ivar/scripts")]
+#[case::parent_segment(".ivar/scripts/../secrets/agents.env")]
+#[case::escaping(".ivar/scripts/../../../etc/passwd")]
+#[case::dot_segment(".ivar/scripts/./a.sh")]
+#[case::leading_dot_segment("./.ivar/scripts/a.sh")]
+#[case::empty_segment(".ivar/scripts//a.sh")]
+#[case::backslash(".ivar\\scripts\\a.sh")]
+fn a_script_path_that_is_not_a_hall_script_is_refused(#[case] path: &str) {
+    let fm = AgentFrontmatter {
+        scripts: vec![".ivar/scripts/ok.sh".to_owned(), path.to_owned()],
+        ..base()
+    };
+    let error = AgentSpec::from_parts("nightly", fm, "").unwrap_err();
+    assert_eq!(error.field, "scripts", "{path}: {}", error.reason);
+    assert!(
+        error.reason.contains(&format!("`{path}`")),
+        "{}",
+        error.reason
+    );
+}

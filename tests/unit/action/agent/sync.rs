@@ -431,3 +431,37 @@ fn a_binary_inside_a_cargo_target_dir_is_a_warning() {
     assert!(codes("/src/ivar/target/release/ivar").contains(&"agent.ivar_bin_in_build_dir"));
     assert!(!codes("/home/me/.local/bin/ivar").contains(&"agent.ivar_bin_in_build_dir"));
 }
+
+#[test]
+fn sync_warns_about_an_env_variable_a_listed_script_reads_and_the_agent_does_not_pass() {
+    let (_guard, root) = seeded_hall();
+    let fake = FakeSystemctl::install(&root);
+    let _r = fake_systemctl_on_this_thread(&fake);
+    let layout = Layout::at(root.clone());
+    std::fs::create_dir_all(layout.hall_scripts()).unwrap();
+    std::fs::write(
+        layout.hall_scripts().join("a.sh"),
+        "#!/bin/bash\n# description: d\n# usage: u\n# env: TOKEN, URL\necho hi\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(layout.agents_dir()).unwrap();
+    std::fs::write(
+        layout.agent_file("nightly"),
+        "---\nschedule: \"@daily\"\ntool: claude\nsecrets: [TOKEN]\nscripts: [.ivar/scripts/a.sh]\n---\nGo.\n",
+    )
+    .unwrap();
+
+    let report = sync_with(&Ctx::new(root.clone()), &env(root.join("units"))).unwrap();
+
+    let found: Vec<_> = report
+        .warnings
+        .iter()
+        .filter(|w| w.code == "agent.script_env_missing")
+        .collect();
+    let [warning] = found.as_slice() else {
+        panic!("{:?}", report.warnings);
+    };
+    assert_eq!(warning.subject, "nightly");
+    assert!(warning.what.contains("`URL`"), "{}", warning.what);
+    assert!(!warning.what.contains("`TOKEN`"), "{}", warning.what);
+}
