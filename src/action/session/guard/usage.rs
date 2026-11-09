@@ -234,14 +234,14 @@ pub(super) fn record_memory_read_at(
             false
         }
         Ok(_) => {
-            let first = first_skip_of(&conn, &session);
+            let first = !matches!(usage::has_skipped(&conn, &session), Ok(true) | Err(_));
             usage::record_miss(&conn, &miss(MemoryMissKind::Skipped, None, None)).is_ok() && first
         }
         Err(_) => false,
     }
 }
 
-pub(super) const MEMORY_QUERY_HINT: &str = "ivar: this reads hall memory before any memory_query in this session. Run memory_query (or `ivar memory query \"<text>\"`) first: it ranks the decisions, gotchas and procedures that apply. Then read those pages.";
+pub(super) const MEMORY_QUERY_HINT: &str = "ivar: this reads hall memory without a recent memory_query. Run memory_query (or `ivar memory query \"<text>\"`) first: it ranks the decisions, gotchas and procedures that apply. Then read those pages.";
 
 pub(super) fn with_hint(context: Option<String>, hint: bool) -> Option<String> {
     match (context, hint) {
@@ -249,13 +249,4 @@ pub(super) fn with_hint(context: Option<String>, hint: bool) -> Option<String> {
         (None, true) => Some(MEMORY_QUERY_HINT.to_owned()),
         (context, false) => context,
     }
-}
-
-fn first_skip_of(conn: &rusqlite::Connection, session: &str) -> bool {
-    conn.query_row(
-        "SELECT NOT EXISTS (SELECT 1 FROM memory_misses WHERE session = ?1 AND kind = 'skipped')",
-        [session],
-        |row| row.get(0),
-    )
-    .unwrap_or(false)
 }

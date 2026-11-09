@@ -165,6 +165,17 @@ pub fn has_followup_for(conn: &Connection, usage_id: i64) -> rusqlite::Result<bo
 
 /// # Errors
 ///
+/// When the lookup fails.
+pub fn has_skipped(conn: &Connection, session: &str) -> rusqlite::Result<bool> {
+    conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM memory_misses WHERE session = ?1 AND kind = ?2)",
+        params![session, MemoryMissKind::Skipped.as_str()],
+        |row| row.get(0),
+    )
+}
+
+/// # Errors
+///
 /// When a count query fails.
 pub fn summary(conn: &Connection, since_ts: i64) -> rusqlite::Result<UsageSummary> {
     let mut out = UsageSummary::default();
