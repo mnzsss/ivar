@@ -22,13 +22,60 @@ pub fn unit_prefix(hall_hash: &str) -> String {
 ///
 /// `TimeoutStartSec=infinity` because a oneshot's default start timeout would
 /// kill a long run; ivar's own watchdog enforces the agent timeout.
+///
+/// `path` is pinned because a `Persistent=true` catch-up fires as the user
+/// manager starts, before the login session has imported its `PATH`, so a
+/// tool in `~/.local/bin` would not be found.
 #[must_use]
-pub fn render_service(hall_hash: &str, agent: &str, hall_root: &str, ivar_bin: &str) -> String {
+pub fn render_service(
+    hall_hash: &str,
+    agent: &str,
+    hall_root: &str,
+    ivar_bin: &str,
+    path: Option<&str>,
+) -> String {
+    let environment = path
+        .map(|p| format!("Environment=\"PATH={}\"\n", escape_quoted(p)))
+        .unwrap_or_default();
     format!(
         "[Unit]\nDescription=ivar agent {agent} ({hall_root})\n{OWNED_KEY}={hall_hash}\n\n\
          [Service]\nType=oneshot\nTimeoutStartSec=infinity\nWorkingDirectory={hall_root}\n\
-         ExecStart={ivar_bin} agent run {agent} --trigger schedule\n"
+         {environment}ExecStart={ivar_bin} agent run {agent} --trigger schedule\n"
     )
+}
+
+/// The `PATH` a service pins, unescaped.
+#[must_use]
+pub fn service_path(service_text: &str) -> Option<String> {
+    service_text
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("Environment=\"PATH="))
+        .and_then(|rest| rest.strip_suffix('"'))
+        .map(unescape_quoted)
+}
+
+/// systemd expands `%` specifiers and reads C escapes inside a quoted value.
+fn escape_quoted(value: &str) -> String {
+    value
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('%', "%%")
+}
+
+fn unescape_quoted(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    let mut chars = value.chars();
+    while let Some(c) = chars.next() {
+        match c {
+            '\\' => out.extend(chars.next()),
+            '%' => {
+                out.push('%');
+                chars.next();
+            }
+            _ => out.push(c),
+        }
+    }
+    out
 }
 
 /// The timer that fires the agent's service on `on_calendar`.

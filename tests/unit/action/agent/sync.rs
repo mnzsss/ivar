@@ -43,6 +43,7 @@ fn env(unit_dir: Utf8PathBuf) -> SyncEnv<'static> {
     SyncEnv {
         unit_dir,
         ivar_bin: Utf8PathBuf::from("/opt/ivar/bin/ivar"),
+        path: Some("/home/me/.local/bin:/usr/bin".to_owned()),
         is_linux: true,
         probes: Probes {
             systemd_user: &yes,
@@ -383,4 +384,50 @@ fn a_due_task_whose_run_is_still_going_is_not_started_again() {
 
     assert_eq!(outcome.fired, ["idle"]);
     assert!(!fake.log().contains("busy.service"), "{}", fake.log());
+}
+
+#[test]
+fn the_service_carries_the_path_sync_ran_with() {
+    let (_guard, root) = seeded_hall();
+    let units = root.join("units");
+    let fake = FakeSystemctl::install(&root);
+    let _r = fake_systemctl_on_this_thread(&fake);
+    agent(&root, "nightly", "0 9 * * *");
+
+    sync_with(&Ctx::new(root.clone()), &env(units.clone())).unwrap();
+
+    let service = std::fs::read_to_string(units.join(format!(
+        "{}.service",
+        unit_stem(&hall_hash(&Layout::at(root.clone())), "nightly")
+    )))
+    .unwrap();
+    assert!(
+        service.contains("Environment=\"PATH=/home/me/.local/bin:/usr/bin\""),
+        "{service}"
+    );
+}
+
+#[test]
+fn a_binary_inside_a_cargo_target_dir_is_a_warning() {
+    let (_guard, root) = seeded_hall();
+    let fake = FakeSystemctl::install(&root);
+    let _r = fake_systemctl_on_this_thread(&fake);
+    agent(&root, "nightly", "0 9 * * *");
+    let ctx = Ctx::new(root.clone());
+    let codes = |bin: &str| {
+        let env = SyncEnv {
+            ivar_bin: Utf8PathBuf::from(bin),
+            ..env(root.join("units"))
+        };
+        sync_with(&ctx, &env)
+            .unwrap()
+            .warnings
+            .iter()
+            .map(|w| w.code)
+            .collect::<Vec<_>>()
+    };
+
+    assert!(codes("/src/ivar/target/debug/ivar").contains(&"agent.ivar_bin_in_build_dir"));
+    assert!(codes("/src/ivar/target/release/ivar").contains(&"agent.ivar_bin_in_build_dir"));
+    assert!(!codes("/home/me/.local/bin/ivar").contains(&"agent.ivar_bin_in_build_dir"));
 }

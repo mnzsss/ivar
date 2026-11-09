@@ -46,6 +46,17 @@ impl Tool {
         }
     }
 
+    /// The host a run of this tool must reach, when it is fixed: opencode's
+    /// depends on the provider it is configured with.
+    #[must_use]
+    pub fn api_host(self) -> Option<&'static str> {
+        match self {
+            Self::Codex => Some("api.openai.com"),
+            Self::Claude => Some("api.anthropic.com"),
+            Self::Opencode => None,
+        }
+    }
+
     pub fn argv(self, model: Option<&str>, prompt: &str) -> Vec<String> {
         let (head, model_flag): (&[&str], &str) = match self {
             Self::Codex => (

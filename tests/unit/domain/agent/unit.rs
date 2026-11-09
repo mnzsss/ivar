@@ -4,7 +4,13 @@ use super::*;
 
 #[test]
 fn service_runs_the_scheduled_trigger_from_the_hall() {
-    let text = render_service("1a2b3c4d", "nightly", "/home/me/hall", "/usr/bin/ivar");
+    let text = render_service(
+        "1a2b3c4d",
+        "nightly",
+        "/home/me/hall",
+        "/usr/bin/ivar",
+        None,
+    );
     assert_eq!(
         text,
         "[Unit]\nDescription=ivar agent nightly (/home/me/hall)\nX-Ivar-Owned=1a2b3c4d\n\n\
@@ -12,6 +18,36 @@ fn service_runs_the_scheduled_trigger_from_the_hall() {
          ExecStart=/usr/bin/ivar agent run nightly --trigger schedule\n"
     );
     assert_eq!(exec_binary(&text), Some("/usr/bin/ivar"));
+}
+
+#[test]
+fn service_pins_the_path_it_was_synced_with_so_a_boot_catchup_finds_the_tool() {
+    let text = render_service(
+        "1a2b3c4d",
+        "nightly",
+        "/home/me/hall",
+        "/usr/bin/ivar",
+        Some("/home/me/.local/bin:/usr/bin"),
+    );
+    assert!(
+        text.contains("\nEnvironment=\"PATH=/home/me/.local/bin:/usr/bin\"\nExecStart="),
+        "{text}"
+    );
+    assert_eq!(
+        service_path(&text),
+        Some("/home/me/.local/bin:/usr/bin".to_owned())
+    );
+}
+
+#[test]
+fn a_path_with_specifiers_or_quotes_is_escaped_and_reads_back_unchanged() {
+    let path = r#"/opt/100%/bin:/a "b"\c"#;
+    let text = render_service("1a2b3c4d", "nightly", "/h", "/usr/bin/ivar", Some(path));
+    assert!(
+        text.contains(r#"Environment="PATH=/opt/100%%/bin:/a \"b\"\\c""#),
+        "{text}"
+    );
+    assert_eq!(service_path(&text), Some(path.to_owned()));
 }
 
 #[test]

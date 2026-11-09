@@ -27,6 +27,7 @@ use crate::store::layout::Layout;
 use crate::store::manifest::Manifest;
 
 mod host;
+mod network;
 
 use host::{HostDeps, execute_host};
 #[cfg(test)]
@@ -71,13 +72,14 @@ struct Attempt {
 /// A [`Failure`] only when the hall or the agent file cannot be loaded, or
 /// the receipt cannot be written; every other failure is a `failed` receipt.
 pub fn run(ctx: &Ctx, input: RunInput) -> Outcome<AgentRunReceipt> {
-    run_with(ctx, input, &HostDeps::system)
+    run_with(ctx, input, &HostDeps::system, &network::resolves)
 }
 
 pub(crate) fn run_with(
     ctx: &Ctx,
     input: RunInput,
     host: &dyn Fn() -> Result<HostDeps, Failure>,
+    resolves: &dyn Fn(&str) -> bool,
 ) -> Outcome<AgentRunReceipt> {
     let RunInput { name, trigger } = input;
     let layout = discover_hall(ctx)?;
@@ -102,6 +104,18 @@ pub(crate) fn run_with(
             return finish(&layout, &spec, failed);
         }
     };
+    if trigger == Trigger::Schedule
+        && let Launch::Tool { tool, .. } = spec.launch
+        && let Some(api) = tool.api_host()
+    {
+        network::wait_for_dns(
+            api,
+            resolves,
+            &std::thread::sleep,
+            network::BUDGET,
+            network::INTERVAL,
+        );
+    }
     let scratch = layout.agent_run_scratch(&run_id);
     let mut secret_values: Vec<String> = Vec::new();
     let attempt = (|| -> Result<Attempt, Failure> {

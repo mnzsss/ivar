@@ -44,6 +44,7 @@ fn reports_schedule_next_run_last_outcome_and_drift() {
         &SyncEnv {
             unit_dir: units.clone(),
             ivar_bin: bin.clone(),
+            path: Some("/a/shell/that/synced:/usr/bin".to_owned()),
             is_linux: true,
             probes: Probes {
                 systemd_user: &yes,
