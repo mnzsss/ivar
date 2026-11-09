@@ -65,6 +65,12 @@ fn agent_skill_suggests_agents_only_after_the_user_agrees() {
     assert!(content.contains("name: ivar-agent"));
     assert!(content.contains("## When to suggest an agent"));
     assert!(content.contains("Create nothing\nbefore the answer."));
+    assert!(content.contains("## Remove an agent"));
+    assert!(content.contains("Agent Task · deferred check"));
+    assert!(content.contains("Scheduled agent · declared\nrhythm"));
+    assert!(content.contains("ivar automation undo <id>"));
+    assert!(!content.contains("third time"));
+    assert!(!content.contains("same check"));
     assert!(content.contains("Ask before `ivar agent sync`"));
     assert!(content.contains("Ask before `ivar agent run <name>`"));
     assert!(content.contains("Never ask for a value in\n   the conversation"));
