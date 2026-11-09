@@ -1,6 +1,6 @@
 ---
 name: ivar-agent
-description: Create a scheduled ivar agent when the user asks for one, and suggest one when you notice a repetitive task or something the user keeps monitoring by hand
+description: Create a scheduled ivar agent or an Agent Task when the user asks for one, suggest one when the user states a deferred check or a rhythm in the current turn, and remove an agent when asked
 ---
 
 # ivar-agent
@@ -12,32 +12,57 @@ fires each run. The field reference is `docs/guides/scheduled-agents.md` in the
 
 ## When to suggest an agent
 
-Suggest one when the same work keeps coming back and nobody needs to be present
-for it:
+Suggest one only from a live signal: something the user states in the current
+turn. Repetition across turns or sessions is not a signal here; the
+`ivar-automate` skill owns it.
 
-- The user asks for the same check, summary or report again ("what changed since
-  yesterday", "any new issues", "is CI green").
-- The user watches something by hand: CI, open PRs or issues, dependency
-  updates, a deploy, a log, a price, a page that changes.
-- A task is described with a rhythm: "every morning", "weekly", "whenever X
-  happens", "remember to check".
-- You are about to run the same command sequence a third time across turns or
-  sessions.
+- **Deferred check**: an explicit action, a target and a deadline ("look at the
+  vendor price again in two days"). Resolve the deadline to an absolute date. If
+  there is none, ask for it. This becomes an Agent Task proposal.
+- **Declared rhythm**: "every morning", "weekly", "remember to check". This
+  becomes a recurring agent proposal.
 
 Suggest at the end of the turn, never in the middle of other work, and once per
-pattern. If the user declines or ignores it, drop it.
+signal. The answers are accept (with corrections) or decline. A decline, or no
+answer, records nothing, and there is no defer.
 
-A suggestion is a few lines: what the agent would do, a name, a schedule, whether
-it only reads or may change a repo, then a yes/no question. Create nothing
+An agent created from a live signal records no automation decision. Linking it
+to a repeated request happens later, through the `ivar-automate` skill's "link
+to existing" form.
+
+## The proposal
+
+Propose in this block, filled in, then ask the question. Create nothing
 before the answer.
+
+Agent Task:
+
+    Agent Task · deferred check
+    Name:    <name>
+    When:    <weekday, date, time, time zone> (<relative distance>) · at: <ISO 8601>
+    Does:    <what the run looks at and produces>
+    Runs:    tool <tool> · runtime <runtime> · access <access>
+    scripts: <path> (<approved|unreviewed|changed|missing>), or none
+    notify:  <target, or none>
+
+    Create it? You can correct date, action or notify. The file goes in agents/ and you commit it.
+
+Recurring agent: the same block with the header `Scheduled agent · declared
+rhythm`, and `When:` showing the `schedule:` written out with the time zone (for
+example `weekdays at 07:00 America/Sao_Paulo · schedule: 0 7 * * 1-5`). Use the
+same closing question, with "schedule" instead of "date".
+
+Fill each `scripts:` state from `ivar script check <path>`: it exits 0 when the
+script is approved and 3 when it is unreviewed (never approved, or changed since).
 
 ## When an agent is the wrong tool
 
-- The work happens once, or needs the user's decision halfway: an unattended run
-  that asks for input ends as `blocked`, and so does one whose last line is
+- The work needs the user's decision halfway: an unattended run that asks for
+  input ends as `blocked`, and so does one whose last line is
   `BLOCKED: <reason>`.
-- The trigger is an event, not a time. Agents run on a cron schedule only; the
-  nearest fit is a frequent schedule that checks and exits when nothing changed.
+- The trigger is an event, not a time. Agents run on a cron schedule or once at
+  an absolute time (`at:`); the nearest fit is a frequent schedule that checks
+  and exits when nothing changed.
 - The machine has no systemd user instance (Linux only).
 - The work is a feature the user wants to plan and review: use a feature and the
   `ivar-plan` skill instead.
@@ -53,7 +78,11 @@ you picked:
    `agent-<name>` feature, so it must be a valid feature name.
 2. **Schedule**: a 5-field cron or `@hourly`, `@daily`, `@weekly`, `@monthly`,
    `@yearly`. Day-of-month and day-of-week together are refused. Confirm the
-   time zone the user means.
+   time zone the user means. For an Agent Task, write `at:` instead of
+   `schedule:`, as an absolute ISO 8601 date and time with minute precision
+   (`2026-11-08T09:00`, or with an offset such as `-03:00`). A relative value
+   such as `2d` is refused: work out the date. `at` cannot be combined with
+   `schedule` or `catchup`.
 3. **Tool and model**: `codex`, `claude` or `opencode`, with an optional `model`.
 4. **Runtime**: `docker` (default) confines reads, writes and network. Choose
    `host` only if the user accepts that reads and the network are open; it needs
@@ -65,7 +94,16 @@ you picked:
    are names matching `^[A-Z][A-Z0-9_]*$`; tell the user to put the values in
    `.ivar/secrets/agents.env` (mode 600) themselves. Never ask for a value in
    the conversation and never write one into the agent file.
-7. **Notify and timeout**: an `http(s)` URL for the run summary, or
+7. **Scripts**: when the prompt calls hall scripts (`ivar script list`), list
+   each in `scripts:` as a hall-relative path under `.ivar/scripts/` or
+   `.ivar/scripts-local/`, and show the user its approval state from
+   `ivar script check <path>`. Check that every variable in the script's
+   `# env:` header is in `secrets` or `env`; `ivar agent sync` warns with
+   `agent.script_env_missing` for one that is in neither. An unreviewed script
+   blocks the run (`agent.script_unreviewed`) until a human approves it with
+   `ivar script approve <path>` in an interactive session. Never approve one
+   yourself.
+8. **Notify and timeout**: an `http(s)` URL for the run summary, or
    `telegram:<chat_id>` to message a Telegram chat. For Telegram, tell the
    user to put the bot token in `.ivar/secrets/agents.env` as
    `TELEGRAM_BOT_TOKEN` (never ask for it here) and set
@@ -93,5 +131,29 @@ Then:
    relay its fix. A file that fails to load when its timer fires leaves no
    receipt; the error is only in `journalctl --user -u <unit>`.
 
+For an Agent Task, tell the user that:
+
+- the task moves to `agents/done/` once its timer run concludes, whatever the
+  outcome except `skipped`;
+- `ivar agent run <name>` is only a rehearsal: it runs and notifies, but the task
+  stays pending and its timer is untouched;
+- `ivar agent sync` is what installs the timer, so ask before it as above.
+
+When the `ivar-automate` skill accepts the form "scheduled agent", it hands off
+here and uses these create steps.
+
 Afterwards, mention `ivar agent feedback <run-id> --rating up|down` so the user
 can record whether a run was useful.
+
+## Remove an agent
+
+Applies to any agent, a pending Agent Task included, and to the `ivar-automate`
+handoff for retiring an agent.
+
+1. Confirm with the human which agent goes.
+2. Delete `agents/<name>.md`.
+3. Ask before `ivar agent sync`: it removes the agent's timer from this machine.
+4. Tell the human to commit the removal.
+5. Run `ivar automation decisions`. If an `accepted` decision has this file's path
+   (`agents/<name>.md`) as its artifact, run `ivar automation undo <id>` so the
+   request can be proposed again if it keeps recurring.

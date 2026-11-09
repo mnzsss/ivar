@@ -129,6 +129,33 @@ When a timer run concludes a task:
 
 Every command takes `--json`.
 
+## Creating and removing agents with the skill
+
+The shipped `ivar-agent` skill writes and removes agent files for you, and
+writes nothing before you agree.
+
+- **Create.** It suggests an agent only from something you state in the current
+  turn: a deferred check ("look at the vendor price again in two days"), which
+  becomes an Agent Task, or a declared rhythm ("every morning", "weekly"), which
+  becomes a recurring agent. It proposes a block with the name, when (with the
+  time zone, and `at:` in ISO 8601 for a task), what it does, `tool`, `runtime`
+  and `access`, each script in `scripts:` with its approval state from
+  `ivar script check`, and `notify`. You accept with corrections or decline; a
+  decline or no answer records nothing. It asks before `ivar agent sync` and
+  before `ivar agent run`, and for a task it tells you the file moves to
+  `agents/done/` when its timer run concludes and that a manual run is only a
+  rehearsal. An unreviewed script blocks the run until you approve it with
+  `ivar script approve` in an interactive session.
+- **Remove.** For any agent, a pending Agent Task included, it confirms with you,
+  deletes the file in `agents/`, asks before `ivar agent sync` (which removes the
+  timer), and tells you to commit the removal. If an `accepted` automation
+  decision (`ivar automation decisions`) has the file as its artifact, it runs
+  `ivar automation undo` with its id so the request can be proposed again.
+
+An agent created this way records no automation decision. Repetition across
+sessions is the `ivar-automate` skill's job, which links an existing agent to a
+repeated request.
+
 ## Telegram
 
 `notify: telegram:<chat_id>` sends each run's outcome and the last 2000
