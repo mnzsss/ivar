@@ -281,6 +281,16 @@ service, so list it only for an agent you trust with them.
 `SSH_AUTH_SOCK` likewise hands the run your ssh-agent, so it could push
 over SSH.
 
+A claude host agent that runs Node, `tsx` or `mktemp` needs
+`write: [/tmp]` and `env: {TMPDIR: /tmp}` in its frontmatter. The Bash tool
+of claude may not inherit the scratch `TMPDIR`, and a program that falls
+back to `/tmp` is denied by Landlock (`Permission denied` or `EACCES`),
+which ends the run `blocked`. `ivar agent sync` warns
+`agent.host_claude_tmp` for every claude host agent that has no writable
+`/tmp`; the warning is only informative, so an agent that never creates
+temporary files can ignore it. `/tmp` is shared with every process of your
+user, so list it only for an agent you trust with that.
+
 Chrome's own sandbox writes `/proc/self/uid_map`, so a host agent that
 drives Chrome needs `/proc` in `write`. Landlock fixes each rule's path when
 the run starts, and Chrome writes from child processes, so nothing narrower
