@@ -37,8 +37,6 @@ use self::forge::collect_repo_facts;
 #[cfg(test)]
 use self::forge::{merged_pull_request, read_forge_answer};
 use self::preview::{PreviewedCleanup, WorktreeLookups, preview_cleanup};
-#[cfg(test)]
-use self::preview::{cleanup_repo, fingerprint_for};
 use self::record::{
     load_and_validate_record, validate_record_against_preview, write_record_outcome,
 };
