@@ -283,3 +283,28 @@ fn preview_still_blocks_on_other_live_sessions() {
         preview.blockers
     );
 }
+
+#[test]
+fn a_live_session_that_ends_does_not_move_the_fingerprint() {
+    let (_guard, root) = hall_with_feature(&["api"], None);
+    let layout = Layout::at(root.clone());
+    let feature = FeatureName::new("checkout").unwrap();
+    let other = SessionId::new("7d1f0a2b-3c4d-4e5f-8a9b-0c1d2e3f4a5b").unwrap();
+    let session_dir = layout.feature_session(&feature, &other);
+    fs::ensure_dir(&session_dir).unwrap();
+
+    let blocked = run_preview(&root);
+    remove_dir_all(&session_dir).unwrap();
+    let cleared = run_preview(&root);
+
+    assert!(
+        blocked
+            .blockers
+            .iter()
+            .any(|blocker| matches!(blocker, CleanupBlocker::LiveSessions { .. })),
+        "{:?}",
+        blocked.blockers
+    );
+    assert!(cleared.blockers.is_empty(), "{:?}", cleared.blockers);
+    assert_eq!(blocked.fingerprint, cleared.fingerprint);
+}

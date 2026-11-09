@@ -89,7 +89,7 @@ fn forge_answer_text_does_not_move_the_cleanup_fingerprint() {
         };
         let blockers = classify_cleanup(&facts).blockers;
         let repos: Vec<_> = facts.repos.iter().filter_map(cleanup_repo).collect();
-        let fingerprint = fingerprint_for(&feature, &branch, &repos, &blockers, &[], &[]).unwrap();
+        let fingerprint = fingerprint_for(&feature, &branch, &repos, &[], &[]).unwrap();
         (blockers, fingerprint)
     };
 
