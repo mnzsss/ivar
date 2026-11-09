@@ -72,6 +72,7 @@ fn run_host(root: &Utf8PathBuf, deps: HostDeps) -> AgentRunReceipt {
             trigger: Trigger::Manual,
         },
         &|| Ok(deps.clone()),
+        &|_| true,
     )
     .unwrap()
     .value
