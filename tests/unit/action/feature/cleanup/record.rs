@@ -313,3 +313,50 @@ fn record_feature_mismatch_refused() {
 
     assert_eq!(err.code, "feature.cleanup_record_feature_mismatch");
 }
+
+#[test]
+fn record_fingerprint_with_a_sha256_prefix_is_accepted() {
+    let (_guard, root) = hall_with_feature(&["api"], None);
+    let ctx = Ctx::new(root.clone());
+    let layout = Layout::at(root.clone());
+    let preview = run_preview(&root);
+    fs::ensure_dir(&layout.update_pages_dir()).unwrap();
+    let record_rel_path = Utf8PathBuf::from("docs/memory/update/001-checkout.cleanup.json");
+    fs::write_text(
+        &root.join(&record_rel_path),
+        &format!(
+            r#"{{
+                "schema_version": 2,
+                "feature": "checkout",
+                "branch": "checkout",
+                "fingerprint": "sha256:{}",
+                "approvals": {{
+                    "delivery": {{ "approved": true, "at": "2026-08-28T12:00:00Z" }},
+                    "teardown": {{ "approved": true, "at": "2026-08-28T12:10:00Z" }}
+                }},
+                "outcome": null
+            }}"#,
+            preview.fingerprint
+        ),
+    )
+    .unwrap();
+
+    let outcome = cleanup(
+        &ctx,
+        CleanupInput {
+            feature: "checkout".to_owned(),
+            preview: false,
+            record: Some(record_rel_path),
+            session_id: None,
+        },
+    )
+    .unwrap();
+
+    assert!(
+        outcome
+            .value
+            .apply_outcome
+            .expect("expected apply outcome")
+            .feature_removed
+    );
+}
