@@ -8,6 +8,9 @@
 #[path = "static_checks/architecture.rs"]
 mod architecture;
 
+#[path = "static_checks/cleanup_command_text.rs"]
+mod cleanup_command_text;
+
 #[path = "static_checks/docs_reference.rs"]
 mod docs_reference;
 
