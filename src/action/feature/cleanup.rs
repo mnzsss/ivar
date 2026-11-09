@@ -12,8 +12,6 @@ use crate::action::memory::delivery::Emitter;
 use crate::action::memory::review::{ReviewState, review_state};
 use crate::action::session::lookup as session_lookup;
 use crate::domain::delivery_event::{DeliveryEvent, DeliveryScope, ObservedBy};
-#[cfg(test)]
-use crate::domain::feature::CleanupBlocker;
 use crate::domain::feature::{
     BranchDeletion, CleanupApplyOutcome, CleanupDescendant, CleanupDescendantFacts,
     CleanupDescendantOutcome, CleanupFacts, CleanupPreview, CleanupRecord, CleanupRepo,
