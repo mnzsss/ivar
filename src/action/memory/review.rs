@@ -113,7 +113,7 @@ impl WriteHuman for ReviewReport {
 /// memory cannot tell: no database, or rows that could not be read.
 #[must_use]
 pub fn analysis_queried(layout: &Layout, name: &FeatureName) -> Option<bool> {
-    let _ = drain::drain(layout);
+    let _ = drain::try_drain(layout);
     if !layout.memory_db().exists() {
         return None;
     }

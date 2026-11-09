@@ -200,6 +200,25 @@ fn analysis_queried_reads_the_feature_sessions_queries() {
 }
 
 #[test]
+fn analysis_queried_does_not_wait_for_a_held_memory_lock() {
+    let (_guard, layout) = hall_with_approved_analysis();
+    session_that_wrote_an_update(&layout);
+    crate::action::memory::drain::drain(&layout).unwrap();
+    let held = crate::infra::fs::lock_exclusive(&layout.memory_lock()).unwrap();
+    let (tx, rx) = std::sync::mpsc::channel();
+    let reader = layout.clone();
+    std::thread::spawn(move || {
+        let queried = analysis_queried(&reader, &FeatureName::new("checkout").unwrap());
+        tx.send(queried).unwrap();
+    });
+    let queried = rx
+        .recv_timeout(std::time::Duration::from_millis(500))
+        .expect("analysis_queried must not wait for memory.lock");
+    drop(held);
+    assert_eq!(queried, Some(false));
+}
+
+#[test]
 fn analysis_queried_is_unknown_without_a_memory_database() {
     let (_guard, layout) = hall_with_approved_analysis();
     let _ = std::fs::remove_file(layout.memory_db());
