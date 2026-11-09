@@ -312,3 +312,31 @@ fn the_hint_follows_the_repository_instructions() {
     );
     assert!(MEMORY_QUERY_HINT.contains("memory_query"));
 }
+
+#[test]
+fn a_claude_read_of_memory_carries_the_hint_only_on_the_sessions_first_skip() {
+    let (_guard, root) = hall();
+    let env = session_env_in_hall(&root, "6f0c9d5f-0000-4000-8000-0000000007a1");
+    crate::domain::session::SessionState::new(Provider::ClaudeCode, "2026-11-09T00:00:00Z")
+        .write(&env.view_dir)
+        .unwrap();
+    let read = |page: &str, call: &str| {
+        let payload = serde_json::json!({
+            "session_id": "sess-main",
+            "tool_use_id": call,
+            "tool_name": "Read",
+            "tool_input": { "file_path": root.join(page) },
+            "cwd": env.view_dir,
+        });
+        let out = guard(Provider::ClaudeCode, &payload.to_string(), None).unwrap();
+        let body: serde_json::Value = serde_json::from_str(&out.body).unwrap();
+        let output = body["hookSpecificOutput"].clone();
+        assert_eq!(output["permissionDecision"], "allow", "{output}");
+        output["additionalContext"].as_str().map(str::to_owned)
+    };
+
+    let first = read("docs/memory/gotcha/a.md", "toolu_1").unwrap_or_default();
+    assert!(first.contains(MEMORY_QUERY_HINT), "{first}");
+    let second = read("docs/memory/gotcha/b.md", "toolu_2").unwrap_or_default();
+    assert!(!second.contains(MEMORY_QUERY_HINT), "{second}");
+}
