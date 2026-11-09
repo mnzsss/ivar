@@ -102,6 +102,7 @@ const SKILLS: &[ShippedSkill] = &[
         files: &[
             skill_file!("ivar-plan", "SKILL.md"),
             skill_file!("ivar-plan", "references/plan-template.md"),
+            skill_file!("ivar-plan", "references/packet-brief.md"),
             skill_file!("ivar-plan", "references/task-template.md"),
         ],
         legacy_sha256: None,
