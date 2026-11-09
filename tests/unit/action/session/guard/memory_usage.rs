@@ -267,3 +267,48 @@ fn a_bash_search_naming_a_relative_memory_dir_is_a_memory_read() {
         );
     }
 }
+
+#[test]
+fn only_a_sessions_first_skipped_read_asks_for_the_hint_and_a_queried_read_never_does() {
+    let (_guard, root) = hall();
+    assert!(record_memory_read_at(
+        &root,
+        None,
+        Some("s1".into()),
+        "docs/memory/a.md"
+    ));
+    assert!(!record_memory_read_at(
+        &root,
+        None,
+        Some("s1".into()),
+        "docs/memory/b.md"
+    ));
+    assert!(record_memory_read_at(
+        &root,
+        None,
+        Some("s2".into()),
+        "docs/memory/a.md"
+    ));
+    record_memory_call_at(&root, None, Some("s3".into()), Some("teardown"));
+    assert!(!record_memory_read_at(
+        &root,
+        None,
+        Some("s3".into()),
+        "docs/memory/a.md"
+    ));
+}
+
+#[test]
+fn the_hint_follows_the_repository_instructions() {
+    assert_eq!(with_hint(None, false), None);
+    assert_eq!(with_hint(None, true).as_deref(), Some(MEMORY_QUERY_HINT));
+    assert_eq!(
+        with_hint(Some("rules".to_owned()), true),
+        Some(format!("rules\n\n{MEMORY_QUERY_HINT}"))
+    );
+    assert_eq!(
+        with_hint(Some("rules".to_owned()), false).as_deref(),
+        Some("rules")
+    );
+    assert!(MEMORY_QUERY_HINT.contains("memory_query"));
+}

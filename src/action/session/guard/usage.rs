@@ -204,12 +204,12 @@ pub(super) fn record_memory_read_at(
     session_env: Option<&SessionEnv>,
     ambient_session: Option<String>,
     pattern: &str,
-) {
+) -> bool {
     let Some((layout, session)) = session_layout(cwd, session_env, ambient_session) else {
-        return;
+        return false;
     };
     let Some(conn) = open_memory(&layout) else {
-        return;
+        return false;
     };
     let miss = |kind, usage_id, query| MemoryMiss {
         kind,
@@ -220,21 +220,42 @@ pub(super) fn record_memory_read_at(
         usage_id,
         fallback: false,
     };
-    let _ = match usage::last_query(&conn, &session) {
+    match usage::last_query(&conn, &session) {
         Ok(Some(last))
             if crate::store::graph::db::types::now_timestamp() - last.ts
                 <= FOLLOWUP_WINDOW_SECS =>
         {
             if matches!(usage::has_followup_for(&conn, last.usage_id), Ok(false)) {
-                usage::record_miss(
+                let _ = usage::record_miss(
                     &conn,
                     &miss(MemoryMissKind::Followup, Some(last.usage_id), last.query),
-                )
-            } else {
-                Ok(())
+                );
             }
+            false
         }
-        Ok(_) => usage::record_miss(&conn, &miss(MemoryMissKind::Skipped, None, None)),
-        Err(_) => Ok(()),
-    };
+        Ok(_) => {
+            let first = first_skip_of(&conn, &session);
+            usage::record_miss(&conn, &miss(MemoryMissKind::Skipped, None, None)).is_ok() && first
+        }
+        Err(_) => false,
+    }
+}
+
+pub(super) const MEMORY_QUERY_HINT: &str = "ivar: this reads hall memory before any memory_query in this session. Run memory_query (or `ivar memory query \"<text>\"`) first: it ranks the decisions, gotchas and procedures that apply. Then read those pages.";
+
+pub(super) fn with_hint(context: Option<String>, hint: bool) -> Option<String> {
+    match (context, hint) {
+        (Some(context), true) => Some(format!("{context}\n\n{MEMORY_QUERY_HINT}")),
+        (None, true) => Some(MEMORY_QUERY_HINT.to_owned()),
+        (context, false) => context,
+    }
+}
+
+fn first_skip_of(conn: &rusqlite::Connection, session: &str) -> bool {
+    conn.query_row(
+        "SELECT NOT EXISTS (SELECT 1 FROM memory_misses WHERE session = ?1 AND kind = 'skipped')",
+        [session],
+        |row| row.get(0),
+    )
+    .unwrap_or(false)
 }
