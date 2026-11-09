@@ -42,6 +42,16 @@ fn sync_materialises_shipped_skills_for_available_providers() {
             fs::is_file(&skill_path).unwrap(),
             "Skill must exist at {skill_path}"
         );
+        for file in ["SKILL.md", "references/continuous-detection-agent.md"] {
+            let path = root
+                .join(provider.skills_dir())
+                .join("ivar-automate")
+                .join(file);
+            assert!(
+                fs::is_file(&path).unwrap(),
+                "Skill file must exist at {path}"
+            );
+        }
     }
     assert_eq!(
         entry(&report.value, "opencode", "skill ivar-execute").change,

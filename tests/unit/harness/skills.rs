@@ -11,7 +11,7 @@ use std::collections::BTreeSet;
 #[test]
 fn catalog_is_complete_unique_and_current() {
     let skills = catalog();
-    assert_eq!(skills.len(), 7);
+    assert_eq!(skills.len(), 8);
 
     let ids = skills.iter().map(|skill| skill.id).collect::<BTreeSet<_>>();
     assert_eq!(ids.len(), skills.len());

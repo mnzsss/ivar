@@ -8,6 +8,9 @@
 #[path = "static_checks/architecture.rs"]
 mod architecture;
 
+#[path = "static_checks/automate_skill_text.rs"]
+mod automate_skill_text;
+
 #[path = "static_checks/cited_invocations.rs"]
 mod cited_invocations;
 
