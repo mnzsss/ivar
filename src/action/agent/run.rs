@@ -8,6 +8,7 @@ use uuid::Uuid;
 use super::conclude;
 use super::feature_access::{self, Delivered};
 use super::notify;
+use super::scripts;
 use crate::action::{Ctx, discover_hall, read_manifest};
 use crate::domain::agent::container::{
     ContainerPlan, Mount, agent_run_args, proxy_run_args, tinyproxy_conf, tinyproxy_filter,
@@ -104,6 +105,20 @@ pub(crate) fn run_with(
             return finish(&layout, &spec, failed);
         }
     };
+    // Before the DNS wait and before anything is launched or mounted.
+    if let Err(failure) = scripts::ensure_approved(&layout, &spec) {
+        let failed = AgentRunReceipt::failed(
+            run_id,
+            spec.name.clone(),
+            trigger,
+            started_at,
+            rfc3339_now(),
+            failure.what,
+        );
+        let result = finish(&layout, &spec, failed);
+        drop(lock);
+        return result;
+    }
     if trigger == Trigger::Schedule
         && let Launch::Tool { tool, .. } = spec.launch
         && let Some(api) = tool.api_host()

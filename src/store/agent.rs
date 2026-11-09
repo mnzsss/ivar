@@ -51,7 +51,9 @@ pub fn list_files(layout: &Layout) -> Result<Vec<AgentFile>, Failure> {
 
 /// # Errors
 ///
-/// Returns `agent.invalid` naming the file and the failing field.
+/// Returns `agent.invalid` naming the file and the failing field. A script
+/// listed in `scripts` that is not a file under the hall (the directory above
+/// `agents/`) fails `scripts`.
 pub fn parse(file: &AgentFile) -> Result<AgentSpec, Failure> {
     let invalid = |field: &str, reason: &str| {
         Failure::failed(
@@ -65,11 +67,22 @@ pub fn parse(file: &AgentFile) -> Result<AgentSpec, Failure> {
         invalid(field, &f.what)
     })?;
     let body = frontmatter::split(&file.source)?.body;
-    AgentSpec::from_parts(&file.name, fm, body).map_err(|e| {
+    let spec = AgentSpec::from_parts(&file.name, fm, body).map_err(|e| {
         invalid(e.field, &e.reason)
             .expected(format!("a valid `{}`", e.field))
             .actual(e.reason)
-    })
+    })?;
+    if let Some(root) = file.path.parent().and_then(Utf8Path::parent) {
+        for script in &spec.scripts {
+            if !fs::is_file(&root.join(script))? {
+                let reason = format!("`{script}` is not a file in the hall");
+                return Err(invalid("scripts", &reason)
+                    .expected("a script that exists")
+                    .actual(reason));
+            }
+        }
+    }
+    Ok(spec)
 }
 
 /// # Errors

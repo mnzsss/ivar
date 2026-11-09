@@ -9,6 +9,7 @@ pub mod notify_setup;
 pub mod requirements;
 pub mod run;
 pub mod sandbox;
+pub mod scripts;
 pub mod status;
 pub mod sync;
 
