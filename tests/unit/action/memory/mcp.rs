@@ -187,7 +187,8 @@ fn memory_review_outside_a_feature_session_is_an_error() {
 
     let error = call(&layout, "memory_review", &json!({})).unwrap_err();
 
-    assert!(error.contains("needs a feature session"), "{error}");
+    assert!(error.contains("needs a feature"), "{error}");
+    assert!(error.contains("`feature` argument"), "{error}");
 }
 
 #[test]

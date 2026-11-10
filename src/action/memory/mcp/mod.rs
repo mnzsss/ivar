@@ -143,8 +143,15 @@ pub fn call_as(
     if let Some(result) = coordination::call(layout, name, args, caller) {
         return result;
     }
+    let scoped;
+    let caller = if takes_feature(name) {
+        scoped = scoped_caller(layout, name, args, caller)?;
+        &scoped
+    } else {
+        caller
+    };
     match name {
-        "memory_query" => query(layout, args, caller.session.clone()),
+        "memory_query" => query(layout, args, caller),
         "memory_status" => to_text(&status_in(layout).map_err(|failure| failure.what)?.value),
         "memory_read_page" => read_page(layout, args),
         "memory_recent" => observations::recent(layout, args),
@@ -158,6 +165,59 @@ pub fn call_as(
     }
 }
 
+/// The tools that take an optional `feature` to attribute the call when the
+/// server was not started inside a feature session.
+fn takes_feature(name: &str) -> bool {
+    matches!(
+        name,
+        "memory_query"
+            | "memory_write_page"
+            | "memory_patch_page"
+            | "memory_delete_page"
+            | "memory_review"
+    )
+}
+
+/// The `memory_usage.session` of a query attributed to `feature` by argument:
+/// the server knows no session, so the feature stands in for it.
+#[must_use]
+pub fn feature_usage_session(feature: &FeatureName) -> String {
+    format!("feature:{feature}")
+}
+
+/// The caller with its feature taken from the `feature` argument when the
+/// server is not bound to one. A bound feature wins, and a different argument
+/// is an error naming both.
+fn scoped_caller(
+    layout: &Layout,
+    tool: &str,
+    args: &Value,
+    caller: &MemoryCaller,
+) -> Result<MemoryCaller, String> {
+    let requested = match args.get("feature") {
+        None | Some(Value::Null) => return Ok(caller.clone()),
+        Some(Value::String(requested)) => requested,
+        Some(_) => return Err(format!("`feature` of `{tool}` must be a string")),
+    };
+    let requested = FeatureName::new(requested.as_str())
+        .map_err(|error| format!("`feature` of `{tool}` is not a feature name: {error}"))?;
+    if let Some(bound) = &caller.feature {
+        return if *bound == requested {
+            Ok(caller.clone())
+        } else {
+            Err(format!(
+                "`{tool}` got feature `{requested}`, but this session is bound to feature `{bound}`; drop `feature` or pass `{bound}`"
+            ))
+        };
+    }
+    let feature = Feature::read_or_not_found(layout, &requested).map_err(|failure| failure.what)?;
+    Ok(MemoryCaller {
+        feature: Some(requested),
+        parent_feature: feature.parent,
+        ..caller.clone()
+    })
+}
+
 #[derive(serde::Deserialize)]
 struct StaleVerdict {
     path: String,
@@ -166,7 +226,7 @@ struct StaleVerdict {
 
 fn review(layout: &Layout, args: &Value, caller: &MemoryCaller) -> Result<String, String> {
     let feature = caller.feature.as_ref().ok_or(
-        "memory_review needs a feature session: run it from a session opened with `ivar session connect <feature>`",
+        "memory_review needs a feature: pass the `feature` argument, or run it from a session opened with `ivar session connect <feature>`",
     )?;
     let confirm = args
         .get("confirm")
@@ -197,7 +257,11 @@ fn string_arg(args: &Value, key: &str) -> Option<String> {
     args.get(key).and_then(Value::as_str).map(str::to_owned)
 }
 
-fn query(layout: &Layout, args: &Value, session: Option<String>) -> Result<String, String> {
+fn query(layout: &Layout, args: &Value, caller: &MemoryCaller) -> Result<String, String> {
+    let session = caller
+        .session
+        .clone()
+        .or_else(|| caller.feature.as_ref().map(feature_usage_session));
     let text = string_arg(args, "query").ok_or("`memory_query` needs `query`")?;
     let kinds = args
         .get("kind")

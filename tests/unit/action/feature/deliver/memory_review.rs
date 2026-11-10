@@ -480,3 +480,113 @@ fn the_heads_survive_a_review_body_cut_at_the_sanitize_limit() {
     assert!(last.written.is_empty(), "{last:?}");
     assert!(last.stale.is_empty(), "{last:?}");
 }
+
+#[test]
+fn an_unbound_server_attributes_its_calls_to_the_feature_argument() {
+    use crate::action::memory::mcp::{MemoryCaller, call_as};
+
+    let (_guard, root) = hall_with_promoted(&["api"]);
+    let layout = Layout::at(root.clone());
+    approve_analysis(&root);
+    let unbound = MemoryCaller::default();
+
+    let refused = call_as(&layout, "memory_review", &json!({}), &unbound).unwrap_err();
+    assert!(refused.contains("`feature` argument"), "{refused}");
+    call_as(
+        &layout,
+        "memory_query",
+        &json!({"query": "locks", "feature": "checkout"}),
+        &unbound,
+    )
+    .unwrap();
+    call_as(
+        &layout,
+        "memory_write_page",
+        &json!({"kind": "decision", "title": "Locks", "body": "Why.\n", "feature": "checkout"}),
+        &unbound,
+    )
+    .unwrap();
+
+    let text = call_as(
+        &layout,
+        "memory_review",
+        &json!({"feature": "checkout"}),
+        &unbound,
+    )
+    .unwrap();
+    let report: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(report["feature"], "checkout");
+    assert_eq!(
+        report["written"][0]["path"],
+        "docs/memory/decision/locks.md"
+    );
+    let gaps: Vec<&str> = report["gaps"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|gap| gap["kind"].as_str().unwrap())
+        .collect();
+    assert_eq!(gaps, ["update"], "{report}");
+
+    call_as(
+        &layout,
+        "memory_patch_page",
+        &json!({"path": "docs/memory/decision/locks.md", "pinned": true, "feature": "checkout"}),
+        &unbound,
+    )
+    .unwrap();
+    let confirmed = call_as(
+        &layout,
+        "memory_review",
+        &json!({"feature": "checkout", "confirm": true}),
+        &unbound,
+    )
+    .unwrap();
+    let confirmed: serde_json::Value = serde_json::from_str(&confirmed).unwrap();
+    assert_eq!(confirmed["last"]["source_event"], "memory.reviewed");
+    assert!(matches!(
+        review_state(&layout, &checkout()).unwrap(),
+        ReviewState::Reviewed { .. }
+    ));
+}
+
+#[test]
+fn a_bound_feature_wins_and_a_different_feature_argument_names_both() {
+    use crate::action::memory::mcp::{MemoryCaller, call_as};
+
+    let (_guard, root) = hall_with_promoted(&["api"]);
+    let layout = Layout::at(root);
+    let bound = MemoryCaller {
+        session: Some("s1".to_owned()),
+        feature: Some(checkout()),
+        ..Default::default()
+    };
+
+    let same = call_as(
+        &layout,
+        "memory_review",
+        &json!({"feature": "checkout"}),
+        &bound,
+    );
+    let other = call_as(
+        &layout,
+        "memory_review",
+        &json!({"feature": "billing"}),
+        &bound,
+    )
+    .unwrap_err();
+    let unknown = call_as(
+        &layout,
+        "memory_review",
+        &json!({"feature": "ghost"}),
+        &MemoryCaller::default(),
+    )
+    .unwrap_err();
+
+    assert!(same.is_ok(), "{same:?}");
+    assert!(
+        other.contains("`billing`") && other.contains("`checkout`"),
+        "{other}"
+    );
+    assert!(unknown.contains("ghost"), "{unknown}");
+}

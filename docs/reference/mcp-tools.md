@@ -45,13 +45,13 @@ is the scope. The read tools carry `readOnlyHint`. `memory_delete_page` carries
 
 | Tool | Arguments | Result |
 | --- | --- | --- |
-| `memory_query` | `query` (required), `kind[]`, `tier`, `tag`, `limit` (default 10, maximum 20), `include_expired` | Pages with title, kind, tier, path, excerpt and `pinned`. Each page lists up to 10 `anchors` `{repo, path, symbol?, broken}`, broken first. Observations appear only as a fallback, in a separate section. |
+| `memory_query` | `query` (required), `kind[]`, `tier`, `tag`, `limit` (default 10, maximum 20), `include_expired`, `feature` | Pages with title, kind, tier, path, excerpt and `pinned`. Each page lists up to 10 `anchors` `{repo, path, symbol?, broken}`, broken first. Observations appear only as a fallback, in a separate section. |
 | `memory_read_page` | `path` | Frontmatter fields and body. Also reads `.ivar/memory/` pages. Refuses a file that is not a regular file or is larger than 256 KiB. |
-| `memory_write_page` | `kind` and `title` (required), `body`, `slug`, `tags`, `pinned`, `relations[{type,target}]`, `expires_at`, `replace` | `path`, `hash`, `indexed`, `similar`. |
-| `memory_patch_page` | `path` (required), `old`, `new`, `tags`, `pinned`, `relations`, `expires_at`; only `pinned` and `expires_at` on a `session` page | `path`, `hash`, `indexed`. |
-| `memory_delete_page` | `path` | `path`, `indexed`. |
+| `memory_write_page` | `kind` and `title` (required), `body`, `slug`, `tags`, `pinned`, `relations[{type,target}]`, `expires_at`, `replace`, `feature` | `path`, `hash`, `indexed`, `similar`. |
+| `memory_patch_page` | `path` (required), `old`, `new`, `tags`, `pinned`, `relations`, `expires_at`, `feature`; only `pinned` and `expires_at` on a `session` page | `path`, `hash`, `indexed`. |
+| `memory_delete_page` | `path`, `feature` | `path`, `indexed`. |
 | `memory_lint` | none | `issues`: a list of `{path, code, severity, message}`. |
-| `memory_review` | `confirm`, `stale[{path, verdict: updated \| still_valid}]`, `not_required` | `feature`, `written`, `gaps`, `stale`, `warnings` and `last`. Without `confirm` it only reads. With `confirm: true` it records `memory.reviewed`, and refuses while a stale page has no verdict, or when `not_required` is given and the feature wrote a page. It errors outside a feature session. |
+| `memory_review` | `feature`, `confirm`, `stale[{path, verdict: updated \| still_valid}]`, `not_required` | `feature`, `written`, `gaps`, `stale`, `warnings` and `last`. Without `confirm` it only reads. With `confirm: true` it records `memory.reviewed`, and refuses while a stale page has no verdict, or when `not_required` is given and the feature wrote a page. Outside a feature session it needs `feature`. |
 | `memory_status` | none | The same block as `ivar memory status`, plus `anchors_pending` and 30-day `usage`: `queries_cli`, `queries_mcp`, `empty`, `followup`, `skipped` and `miss_rate_cli` / `miss_rate_mcp` (empty queries over queries, per source). |
 | `memory_recent` | `limit` (default 20, maximum 100), `source_event` (prefix), `feature` | Observations, newest first, each with a one-line summary, and `drain_error` when the spool drain failed. |
 | `memory_read_session_observations` | `session` (required), `limit` (default 50, maximum 100), `cursor` | Observations of one session, oldest first, `next_cursor` while more remain, and `drain_error` when the spool drain failed. |
@@ -115,7 +115,11 @@ refuses a path that resolves outside the hall.
 ### Review
 
 `memory_review` works on the caller's feature, the root's review including its
-descendants' sessions. `written` joins `memory.page_written`, which the three write
+descendants' sessions. An MCP server takes its feature from the environment it started
+in, so one started before the session existed (a T3 thread, OMP, a converted discovery)
+is unbound: it passes `feature`, and so do the page tools and `memory_query` whose calls
+should count for that feature. A bound server keeps its own feature, and a different
+`feature` argument is an error naming both. `written` joins `memory.page_written`, which the three write
 tools record, with captured write tools under `docs/memory/<kind>/`. `gaps` are a
 failed tool without a `gotcha`, no `update` page, and an Analysis approved without a
 `memory_query`. None blocks the confirmation. `stale` lists durable pages anchored to a
