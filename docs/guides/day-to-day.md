@@ -345,6 +345,8 @@ ivar feature close checkout --outcome delivered   # or: abandoned
 
 `/ivar-feature-cleanup` (supported by `ivar feature cleanup --preview` and `--record`) is the documented, human-approved end-of-feature workflow. It verifies delivery evidence and the feature's memory review, collects explicit human approvals for delivery and teardown, writes a durable cleanup record, and tears down local feature resources only when both gates pass and fingerprint state has not drifted.
 
+After both gates, `/ivar-feature-cleanup` ends with an automation checkpoint: it runs `ivar automation scan --feature <feature> --json` and, only when the feature has recurring requests or unused automations, hands the results to the `ivar-automate` flow (one proposal at a time, soft limit 3, then unused automations one line each). Saying "not now", or nothing, records nothing; declining or deferring a candidate is what stops it from coming back. The checkpoint never warns, never blocks cleanup and never changes its result.
+
 `ivar feature delete` is direct low-level teardown — worktrees, state, working documents. It preflights write access across the whole cleanup tree and collects every blocker before touching anything, so a run that cannot finish does not start. It also refuses while the feature has a live session or a promoted worktree with uncommitted or untracked changes; `--force` discards them. A feature with subfeatures is deleted together with its whole subtree, leaves first: a terminal asks once, and a non-interactive run needs `--yes`.
 
 Housekeeping, when features pile up:
