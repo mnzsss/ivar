@@ -78,10 +78,12 @@ fn shipped_text_names_only_env_vars_ivar_exports() {
 }
 
 #[test]
-fn connect_offers_a_guarded_t3_thread_when_the_session_is_outside_the_view_dir() {
+fn connect_continues_in_the_current_t3_thread_with_absolute_paths() {
     let connect = shipped("commands/connect.md");
-    assert!(connect.contains("`t3_project_create`"));
-    assert!(connect.contains("`t3_thread_launch`"));
-    assert!(connect.contains("outside the write guard"));
-    assert!(connect.contains("**(a) Continue here**"));
+    assert!(!connect.contains("t3_project_create"));
+    assert!(!connect.contains("t3_thread_launch"));
+    assert!(!connect.contains("outside the write guard"));
+    assert!(!connect.contains("(a) Continue here"));
+    assert!(connect.contains("absolute paths under `$IVAR_SESSION_PATH`"));
+    assert!(connect.contains("Never create a project or open a new thread"));
 }
