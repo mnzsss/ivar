@@ -192,6 +192,30 @@ pub(crate) fn abort_rebase(worktree: &Utf8Path) -> Result<(), Error> {
     Ok(())
 }
 
+/// `git -C <worktree> rebase --continue` — carry on after the conflicts of the
+/// commit it stopped on were resolved and staged.
+///
+/// `GIT_EDITOR=true` because git reopens the commit message for editing here,
+/// and a terminal nobody is watching would turn that into a hang.
+pub(crate) fn continue_rebase(worktree: &Utf8Path) -> Result<(), Error> {
+    run(&git()
+        .cwd(worktree)
+        .env("GIT_EDITOR", "true")
+        .arg("rebase")
+        .arg("--continue"))?;
+    Ok(())
+}
+
+/// `git -C <worktree> rebase --skip` — drop the commit the rebase stopped on.
+pub(crate) fn skip_rebase(worktree: &Utf8Path) -> Result<(), Error> {
+    run(&git()
+        .cwd(worktree)
+        .env("GIT_EDITOR", "true")
+        .arg("rebase")
+        .arg("--skip"))?;
+    Ok(())
+}
+
 /// `git --git-dir <git_dir> branch -m <from> <to>` — relabel a local branch.
 ///
 /// A metadata-only ref rename: it relabels `refs/heads/<from>` to

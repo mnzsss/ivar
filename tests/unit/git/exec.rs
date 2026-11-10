@@ -698,3 +698,54 @@ fn parses_detached_entries_apart_from_the_bare_entry() {
     assert!(entries[1].prunable);
     assert_eq!(entries[1].branch, None);
 }
+
+// -- run_with_deadline ---------------------------------------------------------
+
+#[test]
+fn a_command_that_outlives_its_deadline_is_killed_and_refused_with_a_timeout() {
+    let started = std::time::Instant::now();
+
+    let error = run_with_deadline(
+        &proc::Command::new("sleep").arg("30"),
+        std::time::Duration::from_secs(1),
+    )
+    .expect_err("sleep outlives a one second deadline");
+
+    assert!(started.elapsed() < std::time::Duration::from_secs(20));
+    match error {
+        Error::Refused { detail, .. } => assert!(detail.contains("timed out"), "{detail}"),
+        other => panic!("expected Refused, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_failing_command_is_refused_with_what_it_wrote_to_either_stream() {
+    let error = run_with_deadline(
+        &proc::Command::new("sh")
+            .arg("-c")
+            .arg("echo to-stdout; echo to-stderr >&2; exit 3"),
+        std::time::Duration::from_secs(10),
+    )
+    .expect_err("exit 3");
+
+    match error {
+        Error::Refused { detail, .. } => {
+            assert!(
+                detail.contains("to-stdout") && detail.contains("to-stderr"),
+                "{detail}"
+            );
+        }
+        other => panic!("expected Refused, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_command_that_finishes_in_time_returns_its_output() {
+    let out = run_with_deadline(
+        &proc::Command::new("echo").arg("hello"),
+        std::time::Duration::from_secs(10),
+    )
+    .unwrap();
+
+    assert_eq!(out, "hello");
+}

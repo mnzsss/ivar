@@ -71,7 +71,9 @@ The first part of the map is in [module-map.md](module-map.md).
   git/             the only module that knows git exists
     mod.rs         the Git trait, and the real implementation over the two below
     error.rs       git::Error and its Failure conversion
-    read.rs        git2: refs, HEAD, worktree list, ahead/behind, status, blobs
+    read.rs        git2: refs, HEAD, worktree list, ahead/behind, status, blobs,
+                   and `repo_state` — branch, upstream, ahead/behind and any
+                   merge, rebase or cherry-pick left unfinished
     exec.rs        the git binary: clone --bare, worktree add/rm, branch, fetch,
                    push, rebase, checkout — plus six pure local reads
                    (worktree_dirty, changed_paths, head_commit,
@@ -81,7 +83,10 @@ The first part of the map is in [module-map.md](module-map.md).
                    binary") is a rule with this one named exception: each of
                    these six parses `git`'s porcelain -z output, which is far
                    cheaper than the equivalent git2 walk for a plain local
-                   read, and none of them touches a remote.
+                   read, and none of them touches a remote. The hall sync's
+                   calls live in its commit.rs (the two commit shapes),
+                   conflict.rs (unmerged paths) and remote.rs (push and pull,
+                   each with a deadline).
     protect.rs     the pre-commit hook that refuses a commit on a default
                    branch, and the worktree-local config that selects it. Apart
                    from exec.rs because it configures a repository rather than

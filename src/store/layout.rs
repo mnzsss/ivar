@@ -18,6 +18,7 @@
 //!     graph.lock                       graph index writer lock
 //!     memory.db                        the hall memory; only `ivar memory clean` deletes it
 //!     memory.lock                      hall memory writer lock (the graph lock before the split)
+//!     hall-sync.lock                   held while the hall's commits are made and pushed
 //!     repos/<repo>/.bare/              the bare clone
 //!     repos/<repo>/<branch>/           a worktree off that bare
 //!     features/<feature>/              promotion records and local working documents:

@@ -106,6 +106,9 @@ pub enum Command {
     /// itself; `ivar.json` is committed, so advancing it is a decision you
     /// make and then commit.
     Migrate,
+    /// Commit and push what is pending.
+    #[command(subcommand)]
+    Hall(HallCommand),
     /// Manage repos.
     #[command(subcommand)]
     Repo(RepoCommand),
@@ -228,6 +231,8 @@ impl TryFrom<GuardArgs> for guard_cmd::GuardInput {
 mod discovery;
 #[path = "feature/mod.rs"]
 mod feature;
+#[path = "hall.rs"]
+mod hall;
 #[path = "mcp.rs"]
 mod mcp;
 #[path = "plan.rs"]
@@ -257,6 +262,7 @@ pub use feature::{
     FeatureRenameArgs, FeatureReparentArgs, FeatureStatusArgs, FeatureViewArgs,
     FeatureWorkspaceArgs,
 };
+pub use hall::HallCommand;
 pub use mcp::{McpAddArgs, McpAuthArgs, McpCommand, McpEditArgs, McpRemoveArgs, McpStatusArgs};
 pub use plan::{
     PlanApproveArgs, PlanCommand, PlanCreateArgs, PlanInvalidateArgs, PlanShowArgs, PlanStatusArgs,

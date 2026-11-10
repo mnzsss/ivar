@@ -1,10 +1,71 @@
+use std::time::Duration;
+
 use camino::Utf8Path;
 
 use crate::infra::proc;
 
-use super::super::Error;
+use super::super::{Error, PushOutcome, Upstream};
 use super::clone::remote_branch_ref;
-use super::{git, run};
+use super::{git, run, run_with_deadline};
+
+/// How long a push or a pull of the worktree's own upstream may run before it
+/// is given up on. Unattended runs (cron, an agent's last step) have nobody to
+/// notice a hung connection, and the hall sync holds a lock for as long as it
+/// lasts.
+const NETWORK_DEADLINE: Duration = Duration::from_secs(120);
+
+/// `git -C <worktree> push --porcelain <remote> HEAD:<branch_ref>` — the
+/// current branch to its upstream, fast-forward only.
+///
+/// Named explicitly rather than a bare `git push`, whose answer depends on
+/// `push.default` and refuses a branch whose upstream has another name. No
+/// `--force` and no `--force-with-lease`: a remote that is ahead is reported,
+/// not overwritten.
+///
+/// A client-side `[rejected]` — non-fast-forward, "fetch first" — is the one
+/// refusal with a remedy, so it comes back as data. `[remote rejected]` (a hook
+/// or a protected branch on the remote) is a different string and stays an
+/// error. `LC_ALL=C` so the porcelain status words are the ones searched for.
+pub(crate) fn push_upstream(
+    worktree: &Utf8Path,
+    upstream: &Upstream,
+) -> Result<PushOutcome, Error> {
+    let command = git()
+        .cwd(worktree)
+        .env("LC_ALL", "C")
+        .arg("push")
+        .arg("--porcelain")
+        .arg(&upstream.remote)
+        .arg(format!("HEAD:{}", upstream.branch_ref));
+    match run_with_deadline(&command, NETWORK_DEADLINE) {
+        Ok(_) => Ok(PushOutcome::Pushed),
+        Err(Error::Refused { detail, .. }) if detail.contains("[rejected]") => {
+            Ok(PushOutcome::NonFastForward(detail))
+        }
+        Err(error) => Err(error),
+    }
+}
+
+/// `git -C <worktree> pull --rebase --no-autostash` — fetch the upstream and
+/// replay the local commits on top of it.
+///
+/// `--no-autostash` so that a user's uncommitted work is never stashed and
+/// re-applied behind their back; the caller refuses to pull over tracked
+/// changes instead. `GIT_EDITOR=true` because a rebase that stops reopens a
+/// commit message when continued, and nobody is there to close the editor.
+pub(crate) fn pull_rebase(worktree: &Utf8Path) -> Result<(), Error> {
+    run_with_deadline(
+        &git()
+            .cwd(worktree)
+            .env("LC_ALL", "C")
+            .env("GIT_EDITOR", "true")
+            .arg("pull")
+            .arg("--rebase")
+            .arg("--no-autostash"),
+        NETWORK_DEADLINE,
+    )?;
+    Ok(())
+}
 
 /// `git --git-dir <git_dir> fetch --prune --quiet`.
 ///

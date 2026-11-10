@@ -58,20 +58,22 @@ pub(crate) fn normalise_graph_path(raw: &str) -> Result<String, Error> {
 #[serde(deny_unknown_fields)]
 pub(super) struct MemorySettings {
     /// Whether session hooks record Observations. On unless set to `false`.
-    #[serde(default = "capture_on", skip_serializing_if = "is_on")]
+    #[serde(default = "enabled", skip_serializing_if = "is_enabled")]
     capture: bool,
     /// Days an open handoff or a pending message stays visible. 7 when absent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     handoff_ttl_days: Option<NonZeroU32>,
 }
 
-const fn capture_on() -> bool {
+/// The default of every on-unless-disabled switch in `ivar.json`.
+pub(super) const fn enabled() -> bool {
     true
 }
 
+/// Whether a switch is at its default, so that serialising leaves it out.
 #[allow(clippy::trivially_copy_pass_by_ref)]
-const fn is_on(capture: &bool) -> bool {
-    *capture
+pub(super) const fn is_enabled(switch: &bool) -> bool {
+    *switch
 }
 
 impl MemorySettings {

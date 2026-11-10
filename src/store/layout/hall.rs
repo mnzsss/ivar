@@ -377,6 +377,14 @@ impl Layout {
         self.root.join(IVAR_DIR)
     }
 
+    /// `<hall>/.ivar/hall-sync.lock` — held while the hall's pending changes
+    /// are committed and pushed, so two runs never interleave their git
+    /// commands. Ignored by the `.ivar/*` line like the rest of local state.
+    #[must_use]
+    pub fn hall_sync_lock(&self) -> Utf8PathBuf {
+        self.ivar_dir().join("hall-sync.lock")
+    }
+
     /// `<hall>/.ivar/graph.db` — the code graph, derived and disposable.
     #[must_use]
     pub fn graph_db(&self) -> Utf8PathBuf {

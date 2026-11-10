@@ -12,11 +12,10 @@ If you are looking for the shape of the tool rather than its surface, read
 
 ## How to read this
 
-- **`ivar <verb>`** — the hall-level verbs. The hall is the root of the surface:
-  the verb is `ivar sync`, with no `hall` group in front of it.
-- **`ivar <group> <verb>`** — `repo`, `feature`, `session`, `provider`, `plan`
-  and `skill` group their verbs, because each has more of them than a flat root
-  could carry.
+- **`ivar <verb>`** — the hall-level verbs, such as `ivar sync`.
+- **`ivar <group> <verb>`** — `repo`, `feature`, `session`, `provider`, `plan`,
+  `skill` and `hall` group their verbs, because each has more of them than a
+  flat root could carry.
 - **`--json`** works on every verb and prints exactly the value the verb
   computed — the human text you see is a rendering of that same value, never a
   separately written summary. Script against `--json`.
@@ -58,6 +57,7 @@ Multi-repo worktrees for coding agents: one feature across repos, on one branch,
 | [`ivar doctor`](commands/doctor.md) | Diagnose problems and suggest fixes |
 | [`ivar cleanup`](commands/cleanup.md) | Reconcile stale state (interactive; asks before deleting) |
 | [`ivar migrate`](commands/migrate.md) | Advance `ivar.json`'s schema version (interactive; shows the change, then asks) |
+| [`ivar hall`](commands/hall.md) | Commit and push what is pending |
 | [`ivar repo`](commands/repo.md) | Manage repos |
 | [`ivar feature`](commands/feature.md) | Manage features |
 | [`ivar session`](commands/session.md) | Manage sessions |

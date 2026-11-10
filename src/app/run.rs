@@ -36,7 +36,8 @@ use crate::app::capture::{capture_event, is_capture_invocation, lenient_provider
 use crate::app::respond::{current_dir, respond, respond_failure};
 use crate::cli::MemoryCommand;
 use crate::cli::root::{
-    Cli, Command, CommentCommand, McpCommand, ProviderCommand, RepoCommand, ReviewCommand,
+    Cli, Command, CommentCommand, HallCommand, McpCommand, ProviderCommand, RepoCommand,
+    ReviewCommand,
 };
 use crate::infra::progress;
 use crate::infra::term;
@@ -151,6 +152,9 @@ pub fn run(cli: Cli) -> ExitCode {
         ),
         Command::Cleanup => respond(hall::cleanup(&ctx), json, &mut stdout, &mut stderr),
         Command::Migrate => respond(hall::migrate(&ctx), json, &mut stdout, &mut stderr),
+        Command::Hall(HallCommand::Sync) => {
+            respond(hall::sync(&ctx), json, &mut stdout, &mut stderr)
+        }
         Command::Repo(cmd) => match cmd {
             RepoCommand::List => respond(repo_list::list(&ctx), json, &mut stdout, &mut stderr),
             RepoCommand::Add(args) => {
