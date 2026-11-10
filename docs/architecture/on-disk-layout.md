@@ -17,6 +17,7 @@ One dotdir, one manifest, one name everywhere.
                           to `HALL.md` — never sources, never edit targets.
   .ivar/                  everything the tool manages
     state.json            local hall state (gitignored)
+    hall-sync.lock        held while `ivar hall sync` commits and pushes (gitignored)
     repos/<name>/.bare/   the bare clone; every checkout is a worktree off it
     repos/<name>/<branch>/
     features/<name>/      promotion records, execution/run.json, immutable

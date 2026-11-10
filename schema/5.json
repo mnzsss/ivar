@@ -217,6 +217,14 @@
       "description": "URL of the JSON Schema for this file.",
       "type": "string"
     },
+    "auto_commit": {
+      "description": "Whether operations that write to the hall commit what they wrote. On unless set to `false`, which also stops them pushing. `ivar hall sync` ignores it.",
+      "type": "boolean"
+    },
+    "auto_push": {
+      "description": "Whether those automatic commits are pushed to the hall's upstream. On unless set to `false`. `ivar hall sync` ignores it.",
+      "type": "boolean"
+    },
     "graph": {
       "anyOf": [
         {

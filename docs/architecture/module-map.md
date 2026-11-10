@@ -29,9 +29,13 @@ src/
                    and ordered delivery metadata parsing in delivery.rs.
 
   action/          one function per leaf command. The unit of behaviour.
-    hall/          init · status · doctor · migrate · cleanup — one file per
-                   verb (init.rs, status.rs, doctor.rs, migrate.rs, cleanup.rs);
-                   the facade owns the shared discovery/read/prompt helpers.
+    hall/          init · status · doctor · migrate · cleanup · sync — one file
+                   per verb (init.rs, status.rs, doctor.rs, migrate.rs,
+                   cleanup.rs); the facade owns the shared discovery/read/prompt
+                   helpers. sync/ commits what is pending (mod.rs) and pushes
+                   it, catching up with the remote when it moved (push.rs);
+                   resolve.rs is the one place a conflicted rebase there is
+                   settled.
     sync/          sync — big enough to own a directory: the public verb and
                    report types live in mod.rs, repo materialisation in
                    repo.rs, provider/config reconciliation in providers.rs,

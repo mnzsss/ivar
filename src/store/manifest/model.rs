@@ -32,6 +32,7 @@ pub use repo::{Repo, local_ref_prefix};
 pub use settings::Graph;
 use settings::MemorySettings;
 pub(crate) use settings::normalise_graph_path;
+use settings::{enabled, is_enabled};
 
 /// `ivar.json`'s schema version. v1 was the first public version; v2 adds the
 /// hall integration defaults and each repo's ordered verification checks; v3
@@ -68,6 +69,12 @@ pub struct Manifest {
     /// Session memory settings; absent means capture is on.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     memory: Option<MemorySettings>,
+    /// Whether operations that write to the hall commit what they wrote. On unless set to `false`, which also stops them pushing. `ivar hall sync` ignores it.
+    #[serde(default = "enabled", skip_serializing_if = "is_enabled")]
+    auto_commit: bool,
+    /// Whether those automatic commits are pushed to the hall's upstream. On unless set to `false`. `ivar hall sync` ignores it.
+    #[serde(default = "enabled", skip_serializing_if = "is_enabled")]
+    auto_push: bool,
 }
 
 /// The canonical URL of the document describing manifest version `version`.
@@ -155,6 +162,8 @@ impl Manifest {
             mcp: None,
             graph: None,
             memory: None,
+            auto_commit: true,
+            auto_push: true,
         };
         manifest.validate()?;
         Ok(manifest)
@@ -190,6 +199,20 @@ impl Manifest {
     #[must_use]
     pub fn repos(&self) -> &[Repo] {
         &self.repos
+    }
+
+    /// Whether the operations `ivar` runs on its own commit what they wrote to
+    /// the hall; on unless `ivar.json` sets `auto_commit` to `false`.
+    #[must_use]
+    pub fn auto_commit(&self) -> bool {
+        self.auto_commit
+    }
+
+    /// Whether those automatic commits are pushed; on unless `ivar.json` sets
+    /// `auto_push` to `false`. Only meaningful while [`Self::auto_commit`] is on.
+    #[must_use]
+    pub fn auto_push(&self) -> bool {
+        self.auto_push
     }
 
     /// The hall-scoped MCP server definitions `ivar sync` materialises into
@@ -348,7 +371,7 @@ impl Manifest {
     }
 
     /// The common rebuild every `with_*` ends at: the same name, integration,
-    /// MCP definitions, graph paths, and memory settings as `self`, with `providers` and `repos`
+    /// MCP definitions, graph paths, memory settings, and auto-commit switches as `self`, with `providers` and `repos`
     /// replaced — so no mutation can silently drop a field it is not about.
     /// Validates, because the new combination may violate an invariant.
     fn rebuild(&self, providers: Providers, repos: Vec<Repo>) -> Result<Self, Error> {
@@ -362,6 +385,8 @@ impl Manifest {
             mcp: self.mcp.clone(),
             graph: self.graph.clone(),
             memory: self.memory.clone(),
+            auto_commit: self.auto_commit,
+            auto_push: self.auto_push,
         };
         manifest.validate()?;
         Ok(manifest)

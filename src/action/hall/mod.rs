@@ -1,8 +1,8 @@
 //! `hall`: the verbs that act on the hall itself — `init · status · doctor ·
-//! cleanup · migrate`. See docs/architecture/module-map.md.
+//! cleanup · migrate · sync`. See docs/architecture/module-map.md.
 //!
 //! Each verb lives in its own file (`init.rs`, `status.rs`, `doctor.rs`,
-//! `migrate.rs`, `cleanup.rs`); this facade owns what they share — the
+//! `migrate.rs`, `cleanup.rs`, `sync.rs`); this facade owns what they share — the
 //! discovery/read helpers — and reexports the public command surface so
 //! `action::hall::{init, status, …}` keeps its established names. The
 //! interactive prompt these verbs used to share now lives in the
@@ -19,7 +19,9 @@ mod cleanup;
 mod doctor;
 mod init;
 mod migrate;
+mod resolve;
 mod status;
+mod sync;
 
 pub use cleanup::CleanupOutcome;
 pub use cleanup::cleanup;
@@ -36,6 +38,9 @@ pub use migrate::migrate;
 pub use status::RepoStatusEntry;
 pub use status::StatusOutcome;
 pub use status::status;
+pub use sync::{
+    GENERAL_MESSAGE, HallSync, OperationCommit, SyncRequest, Trigger, sync, sync_hall, sync_state,
+};
 
 /// The hall [`Ctx::cwd`] is inside, or a [`Failure`] saying there is none.
 /// Shared with the other verbs that operate on the current hall.

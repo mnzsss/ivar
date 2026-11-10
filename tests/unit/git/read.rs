@@ -8,7 +8,7 @@
 use camino::{Utf8Path, Utf8PathBuf};
 
 use super::*;
-use crate::git::exec;
+use crate::git::{SkipReason, exec};
 use crate::test_support::{empty_repo, git, seeded_repo, utf8_temp_dir};
 
 #[test]
@@ -644,4 +644,89 @@ fn tracked_files_excludes_untracked_and_ignored_paths() {
     assert!(paths.iter().any(|path| path == "tracked.yml"));
     assert!(!paths.iter().any(|path| path == "scratch.txt"));
     assert!(!paths.iter().any(|path| path == "ignored.log"));
+}
+
+// -- repo_state --------------------------------------------------------------
+
+#[test]
+fn repo_state_of_a_branch_with_no_upstream_is_ready_with_nothing_ahead() {
+    let (_guard, dir) = utf8_temp_dir();
+    let repo = seeded_repo(&dir.join("repo"), "main");
+
+    let state = repo_state(&repo).unwrap();
+
+    assert!(state.is_repository);
+    assert_eq!(state.branch.as_deref(), Some("main"));
+    assert_eq!(state.upstream, None);
+    assert_eq!((state.ahead, state.behind), (0, 0));
+    assert_eq!(state.operation, None);
+    assert_eq!(state.skip_reason(), None);
+}
+
+#[test]
+fn repo_state_counts_commits_against_the_tracking_ref_and_names_the_upstream() {
+    let (_guard, dir) = utf8_temp_dir();
+    let origin = seeded_repo(&dir.join("origin"), "main");
+    let clone = dir.join("clone");
+    git(&dir, &["clone", origin.as_str(), clone.as_str()]);
+    std::fs::write(clone.join("a.md"), "a\n").unwrap();
+    git(&clone, &["add", "a.md"]);
+    git(&clone, &["commit", "-m", "ahead"]);
+
+    let state = repo_state(&clone).unwrap();
+
+    let upstream = state.upstream.clone().expect("a clone tracks its origin");
+    assert_eq!(upstream.remote, "origin");
+    assert_eq!(upstream.branch_ref, "refs/heads/main");
+    assert_eq!(upstream.name, "origin/main");
+    assert_eq!((state.ahead, state.behind), (1, 0));
+    assert!(!state.diverged());
+}
+
+#[test]
+fn repo_state_counts_everything_ahead_when_the_tracking_ref_does_not_exist_yet() {
+    let (_guard, dir) = utf8_temp_dir();
+    let repo = seeded_repo(&dir.join("repo"), "main");
+    git(
+        &repo,
+        &["remote", "add", "origin", dir.join("nowhere").as_str()],
+    );
+    git(&repo, &["config", "branch.main.remote", "origin"]);
+    git(&repo, &["config", "branch.main.merge", "refs/heads/main"]);
+
+    let state = repo_state(&repo).unwrap();
+
+    assert_eq!(state.upstream.unwrap().name, "origin/main");
+    assert_eq!((state.ahead, state.behind), (1, 0));
+}
+
+#[test]
+fn repo_state_of_a_detached_head_has_no_branch_and_says_why_not_to_commit() {
+    let (_guard, dir) = utf8_temp_dir();
+    let repo = seeded_repo(&dir.join("repo"), "main");
+    git(&repo, &["checkout", "--detach"]);
+
+    let state = repo_state(&repo).unwrap();
+
+    assert_eq!(state.branch, None);
+    assert_eq!(state.skip_reason(), Some(SkipReason::DetachedHead));
+}
+
+#[test]
+fn operation_in_progress_sees_a_merge_a_cherry_pick_and_a_rebase() {
+    let (_guard, dir) = utf8_temp_dir();
+    let repo = seeded_repo(&dir.join("repo"), "main");
+    assert_eq!(operation_in_progress(&repo), None);
+    let git_dir = worktree_git_dir(&repo).unwrap();
+
+    std::fs::write(git_dir.join("MERGE_HEAD"), "x\n").unwrap();
+    assert_eq!(operation_in_progress(&repo), Some(Operation::Merge));
+    std::fs::remove_file(git_dir.join("MERGE_HEAD")).unwrap();
+
+    std::fs::write(git_dir.join("CHERRY_PICK_HEAD"), "x\n").unwrap();
+    assert_eq!(operation_in_progress(&repo), Some(Operation::CherryPick));
+    std::fs::remove_file(git_dir.join("CHERRY_PICK_HEAD")).unwrap();
+
+    std::fs::create_dir(git_dir.join("rebase-merge")).unwrap();
+    assert_eq!(operation_in_progress(&repo), Some(Operation::Rebase));
 }

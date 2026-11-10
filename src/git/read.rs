@@ -14,7 +14,10 @@ use camino::{Utf8Path, Utf8PathBuf};
 
 use crate::infra::{fs, hash};
 
-use super::{BlobEvidence, CommitInfo, Divergence, Error, TargetState, WorktreeDiff};
+use super::{
+    BlobEvidence, CommitInfo, Divergence, Error, Operation, RepoState, TargetState, Upstream,
+    WorktreeDiff,
+};
 
 /// What is at `path`: a repository, something git does not recognise, or
 /// nothing.
@@ -100,6 +103,113 @@ pub(crate) fn is_rebase_in_progress(path: &Utf8Path) -> bool {
         return false;
     };
     git_dir.join("rebase-merge").exists() || git_dir.join("rebase-apply").exists()
+}
+
+/// The operation left unfinished in the worktree at `path`, if any: a merge
+/// (`MERGE_HEAD`), a rebase (`rebase-merge/`, `rebase-apply/`) or a
+/// cherry-pick (`CHERRY_PICK_HEAD`).
+///
+/// Looks in the worktree's own git directory, so a linked worktree answers for
+/// itself and not for its siblings. A rebase wins when several are present,
+/// because it is the one that detaches `HEAD`.
+pub(crate) fn operation_in_progress(path: &Utf8Path) -> Option<Operation> {
+    if is_rebase_in_progress(path) {
+        return Some(Operation::Rebase);
+    }
+    let git_dir = worktree_git_dir(path).ok()?;
+    if git_dir.join("MERGE_HEAD").exists() {
+        return Some(Operation::Merge);
+    }
+    git_dir
+        .join("CHERRY_PICK_HEAD")
+        .exists()
+        .then_some(Operation::CherryPick)
+}
+
+/// Where the repository at `path` stands: branch, upstream, ahead/behind, and
+/// any unfinished [`Operation`].
+///
+/// A path that is not a repository is an answer ([`RepoState::not_a_repository`]),
+/// not an error; the other callers of this module ask "is it one?" separately
+/// and this one has to fold the question in.
+///
+/// An upstream that is configured but whose remote-tracking ref does not exist
+/// yet — the branch of a freshly cloned empty remote — counts every commit as
+/// ahead, which is exactly what a first push needs to be told.
+pub(crate) fn repo_state(path: &Utf8Path) -> Result<RepoState, Error> {
+    let Ok(repository) = git2::Repository::open(path) else {
+        return Ok(RepoState::not_a_repository());
+    };
+    let refused = |source: git2::Error| Error::Refused {
+        command: format!("git -C {path} status"),
+        detail: source.message().to_owned(),
+    };
+
+    let head = repository.find_reference("HEAD").map_err(refused)?;
+    let branch = head.symbolic_target().ok().flatten().map(|target| {
+        target
+            .strip_prefix("refs/heads/")
+            .unwrap_or(target)
+            .to_owned()
+    });
+    let mut state = RepoState {
+        is_repository: true,
+        branch,
+        operation: operation_in_progress(path),
+        upstream: None,
+        ahead: 0,
+        behind: 0,
+    };
+    let Some(branch) = state.branch.clone() else {
+        return Ok(state);
+    };
+    let local_ref = format!("refs/heads/{branch}");
+    state.upstream = upstream_of(&repository, &branch, &local_ref);
+    let Some(upstream) = &state.upstream else {
+        return Ok(state);
+    };
+    // An unborn branch has no commit to compare; nothing to push either.
+    let Ok(local) = repository.refname_to_id(&local_ref) else {
+        return Ok(state);
+    };
+    let tracking = format!("refs/remotes/{}", upstream.name);
+    if let Ok(remote) = repository.refname_to_id(&tracking) {
+        let (ahead, behind) = repository
+            .graph_ahead_behind(local, remote)
+            .map_err(refused)?;
+        state.ahead = ahead;
+        state.behind = behind;
+    } else {
+        let mut walk = repository.revwalk().map_err(refused)?;
+        walk.push(local).map_err(refused)?;
+        state.ahead = walk.count();
+    }
+    Ok(state)
+}
+
+/// `branch`'s upstream, from `branch.<name>.remote` and `branch.<name>.merge`.
+/// `None` when either is missing, or when the upstream is the local repository
+/// itself (`remote = .`), which a push cannot meaningfully target.
+fn upstream_of(repository: &git2::Repository, branch: &str, local_ref: &str) -> Option<Upstream> {
+    let config = repository.config().ok()?;
+    let remote = config.get_string(&format!("branch.{branch}.remote")).ok()?;
+    let branch_ref = config.get_string(&format!("branch.{branch}.merge")).ok()?;
+    if remote == "." || remote.is_empty() || !branch_ref.starts_with("refs/heads/") {
+        return None;
+    }
+    // Git's own mapping through the remote's fetch refspec, so a remote whose
+    // refspec is not the default still names the right tracking ref.
+    let tracking = repository.branch_upstream_name(local_ref).ok()?;
+    let tracking = tracking
+        .as_str()
+        .ok()?
+        .strip_prefix("refs/remotes/")?
+        .to_owned();
+    Some(Upstream {
+        remote,
+        branch_ref,
+        name: tracking,
+    })
 }
 
 /// Every local branch in the repository at `git_dir`, without the

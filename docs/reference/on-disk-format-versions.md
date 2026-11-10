@@ -152,6 +152,23 @@ An `ivar` older than a field rejects the whole file as having an unknown field, 
 a hall that sets it needs every teammate on a release that knows it. When both fields
 are back at their defaults, the key is removed.
 
+### `ivar.json` `auto_commit` and `auto_push` keys
+
+Two optional booleans, both on unless set to `false`, switch off what `ivar` does to the
+hall's git repository on its own (see `ivar hall sync`):
+
+- `auto_commit: false` — operations `ivar` runs by itself neither commit what they wrote nor
+  push. It also stops the push, since there is nothing new to send.
+- `auto_push: false` — they commit, but do not push.
+
+`ivar hall sync`, run by a person, ignores both. They add no `ivar.json` version, and an
+`ivar` older than the keys rejects a file that sets them, so a hall that sets either needs
+every teammate on a release that knows them. A key at its default is left out of the file.
+
+```json
+{ "auto_commit": true, "auto_push": false }
+```
+
 The hall memory database has its own schema version, `memory_schema.version`, which is
 8 today; see [Memory database](on-disk-format-databases.md#memory-database-ivarmemorydb).
 

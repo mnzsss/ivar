@@ -140,6 +140,169 @@ pub struct WorktreeDiff {
     pub deleted: Vec<Utf8PathBuf>,
 }
 
+/// A git operation that stopped half-way and left the repository waiting for a
+/// human (or an agent) to finish it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Operation {
+    /// `git merge` stopped on a conflict (`MERGE_HEAD`).
+    Merge,
+    /// `git rebase` is stopped, or running (`rebase-merge/`, `rebase-apply/`).
+    Rebase,
+    /// `git cherry-pick` stopped on a conflict (`CHERRY_PICK_HEAD`).
+    CherryPick,
+}
+
+impl std::fmt::Display for Operation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Merge => "merge",
+            Self::Rebase => "rebase",
+            Self::CherryPick => "cherry-pick",
+        })
+    }
+}
+
+/// Why a repository is not in a state anything may be committed to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SkipReason {
+    /// The directory is not a git repository.
+    NotARepository,
+    /// `HEAD` names no branch, so a commit would belong to no branch at all.
+    DetachedHead,
+    /// An [`Operation`] is in progress; a commit now would become part of it.
+    InProgress(Operation),
+}
+
+impl std::fmt::Display for SkipReason {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NotARepository => f.write_str("the hall is not a git repository"),
+            Self::DetachedHead => f.write_str("HEAD is detached"),
+            Self::InProgress(operation) => write!(f, "a {operation} is in progress"),
+        }
+    }
+}
+
+/// What a commit helper did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CommitOutcome {
+    /// A commit was recorded.
+    Committed,
+    /// Nothing was pending, so nothing was recorded.
+    Nothing,
+    /// The repository is not in a state to commit to; nothing was touched.
+    Skipped(SkipReason),
+}
+
+/// The branch a local branch pushes to and pulls from.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Upstream {
+    /// The remote's name (`origin`).
+    pub remote: String,
+    /// The full ref on that remote the branch is merged with
+    /// (`refs/heads/main`).
+    pub branch_ref: String,
+    /// The remote-tracking branch as a human writes it (`origin/main`).
+    pub name: String,
+}
+
+/// Where a repository stands relative to its remote, and whether anything is
+/// half-done in it. Read-only: gathering it moves no ref and touches no file.
+///
+/// `ahead` and `behind` are counted against the *local* remote-tracking ref,
+/// so they are as fresh as the last fetch — a repository that has not fetched
+/// recently can be behind without saying so. That is the right answer for "is
+/// there something to push?", which is what the hall sync asks.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RepoState {
+    /// Whether the path is a git repository at all.
+    pub is_repository: bool,
+    /// The branch `HEAD` names, or `None` when it is detached.
+    pub branch: Option<String>,
+    /// A merge, rebase or cherry-pick that has not finished.
+    pub operation: Option<Operation>,
+    /// Where the branch pushes to, or `None` when it has no upstream.
+    pub upstream: Option<Upstream>,
+    /// Commits the branch has that its upstream does not.
+    pub ahead: usize,
+    /// Commits the upstream has that the branch does not.
+    pub behind: usize,
+}
+
+impl RepoState {
+    /// The state of a path that is not a repository.
+    #[must_use]
+    pub fn not_a_repository() -> Self {
+        Self {
+            is_repository: false,
+            branch: None,
+            operation: None,
+            upstream: None,
+            ahead: 0,
+            behind: 0,
+        }
+    }
+
+    /// Why nothing may be committed here, or `None` when something may.
+    ///
+    /// An unfinished operation wins over a detached `HEAD`: a rebase detaches
+    /// `HEAD` itself, and "a rebase is in progress" is the sentence that says
+    /// what to do about it.
+    #[must_use]
+    pub fn skip_reason(&self) -> Option<SkipReason> {
+        if !self.is_repository {
+            return Some(SkipReason::NotARepository);
+        }
+        if let Some(operation) = self.operation {
+            return Some(SkipReason::InProgress(operation));
+        }
+        self.branch.is_none().then_some(SkipReason::DetachedHead)
+    }
+
+    /// Whether both sides have commits the other lacks.
+    #[must_use]
+    pub fn diverged(&self) -> bool {
+        self.ahead > 0 && self.behind > 0
+    }
+}
+
+/// What a push came back with, when it reached the remote and was answered.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PushOutcome {
+    /// The remote took the commits.
+    Pushed,
+    /// The remote refused because it holds commits the local branch lacks.
+    /// Carries git's own output.
+    NonFastForward(String),
+}
+
+/// One path an interrupted merge or rebase could not combine, with the blob
+/// each side holds for it.
+///
+/// `ours` and `theirs` are git's index stages 2 and 3. During a **rebase**
+/// they are swapped from what the words suggest: `ours` is the branch being
+/// rebased *onto* (the remote), and `theirs` is the commit being replayed
+/// (the local work).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Conflict {
+    /// The hall-relative path.
+    pub path: Utf8PathBuf,
+    /// The blob id at stage 2, `None` when that side deleted the path.
+    pub ours: Option<String>,
+    /// The blob id at stage 3, `None` when that side deleted the path.
+    pub theirs: Option<String>,
+}
+
+/// Which side of a conflict to put in the worktree.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Side {
+    /// Stage 2; the branch being rebased onto, in a rebase.
+    Ours,
+    /// Stage 3; the commit being replayed, in a rebase.
+    Theirs,
+}
+
 /// Everything `ivar` asks git to do.
 ///
 /// See the module doc comment for why this is a trait. [`System`] is the one
@@ -780,6 +943,151 @@ pub trait Git {
         branch: &str,
         expected_tip: &str,
     ) -> Result<(), Error>;
+    /// Where the repository at `path` stands: its branch, upstream, how far
+    /// ahead of or behind it, and any operation left unfinished. A path that
+    /// is not a repository answers [`RepoState::not_a_repository`], not an
+    /// error — "is there a repository?" is part of the question.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error`] if the repository exists but its refs cannot be read.
+    fn repo_state(&self, path: &Utf8Path) -> Result<RepoState, Error> {
+        read::repo_state(path)
+    }
+
+    /// Commit the changes to `paths` — and only those — in the worktree at
+    /// `worktree`, with `message`.
+    ///
+    /// `paths` are worktree-relative. A path that is absolute or leaves the
+    /// worktree, that `.gitignore` ignores (and git does not track), or that
+    /// git has never seen and no longer exists, is dropped rather than
+    /// committed or refused. What the user staged for any *other* path stays
+    /// staged, and is not part of this commit.
+    ///
+    /// Runs the repository's hooks. A refusal, by a hook or otherwise, is an
+    /// [`Error::Refused`] carrying git's output and leaves the index as it
+    /// was.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Refused`] if git refuses the commit — a hook, a missing identity.
+    fn commit_paths(
+        &self,
+        worktree: &Utf8Path,
+        paths: &[Utf8PathBuf],
+        message: &str,
+    ) -> Result<CommitOutcome, Error> {
+        exec::commit_paths(worktree, paths, message)
+    }
+
+    /// Commit everything pending in the worktree at `worktree` — modified,
+    /// new and deleted, staged or not — respecting `.gitignore`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Refused`] if git refuses the commit — a hook, a missing identity.
+    fn commit_all(&self, worktree: &Utf8Path, message: &str) -> Result<CommitOutcome, Error> {
+        exec::commit_all(worktree, message)
+    }
+
+    /// Push `HEAD` to `upstream`, never forced and never prompting, giving up
+    /// after a deadline.
+    ///
+    /// A refusal because the remote is ahead is data ([`PushOutcome`]), since
+    /// the caller has a remedy for it; anything else — the network, the
+    /// credentials, a hook on the remote — is an error.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Refused`] if the push fails for any reason but the remote being ahead.
+    fn push_upstream(
+        &self,
+        worktree: &Utf8Path,
+        upstream: &Upstream,
+    ) -> Result<PushOutcome, Error> {
+        exec::push_upstream(worktree, upstream)
+    }
+
+    /// `git pull --rebase` in the worktree at `worktree`, never prompting and
+    /// never opening an editor, giving up after a deadline. A conflict leaves
+    /// the rebase stopped ([`Self::is_rebase_in_progress`]).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Refused`] if the fetch fails or the rebase stops.
+    fn pull_rebase(&self, worktree: &Utf8Path) -> Result<(), Error> {
+        exec::pull_rebase(worktree)
+    }
+
+    /// Whether a *tracked* file in the worktree differs from the index or the
+    /// index from `HEAD`. Untracked files do not count: they do not stop a
+    /// rebase.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error`] if `git status` cannot be run at `worktree`.
+    fn tracked_changes(&self, worktree: &Utf8Path) -> Result<bool, Error> {
+        exec::tracked_changes(worktree)
+    }
+
+    /// Whether the index holds changes against `HEAD`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error`] if `git diff --cached` cannot be run at `worktree`.
+    fn staged_changes(&self, worktree: &Utf8Path) -> Result<bool, Error> {
+        exec::staged_changes(worktree)
+    }
+
+    /// Every path an interrupted merge or rebase could not combine, sorted.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error`] if the index cannot be listed.
+    fn conflicts(&self, worktree: &Utf8Path) -> Result<Vec<Conflict>, Error> {
+        exec::conflicts(worktree)
+    }
+
+    /// Write one side's version of the conflicted `path` into the worktree.
+    /// The path stays conflicted until [`Self::stage_paths`] marks it resolved.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Refused`] if that side has no version of `path`.
+    fn take_side(&self, worktree: &Utf8Path, path: &Utf8Path, side: Side) -> Result<(), Error> {
+        exec::take_side(worktree, path, side)
+    }
+
+    /// `git add -- <paths>` — stage them as they are in the worktree, which
+    /// is also how a conflicted path is marked resolved.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Refused`] if a path cannot be staged.
+    fn stage_paths(&self, worktree: &Utf8Path, paths: &[Utf8PathBuf]) -> Result<(), Error> {
+        exec::stage_paths(worktree, paths)
+    }
+
+    /// `git rebase --continue`, without opening an editor.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Refused`] if the rebase stops again, or cannot continue.
+    fn continue_rebase(&self, worktree: &Utf8Path) -> Result<(), Error> {
+        exec::continue_rebase(worktree)
+    }
+
+    /// `git rebase --skip` — drop the commit the rebase stopped on. For a
+    /// commit whose conflicts were resolved by taking the other side, leaving
+    /// nothing of it.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Refused`] if the rebase stops again, or cannot skip.
+    fn skip_rebase(&self, worktree: &Utf8Path) -> Result<(), Error> {
+        exec::skip_rebase(worktree)
+    }
+
     /// Whether git ignores `path` inside the repository or worktree at
     /// `worktree` according to `.gitignore` rules and attributes.
     ///

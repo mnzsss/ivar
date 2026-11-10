@@ -28,18 +28,25 @@
 
 mod branch;
 mod clone;
+mod commit;
+mod conflict;
 mod remote;
 mod status;
 mod worktree;
 
 pub(crate) use self::branch::{
-    abort_rebase, commit_messages, commits_ahead, create_branch, delete_branch, fast_forward,
-    fast_forward_to, first_parent_reaches, merge_no_ff, rebase_branch, rename_branch, reset_hard,
-    squash_merge,
+    abort_rebase, commit_messages, commits_ahead, continue_rebase, create_branch, delete_branch,
+    fast_forward, fast_forward_to, first_parent_reaches, merge_no_ff, rebase_branch, rename_branch,
+    reset_hard, skip_rebase, squash_merge,
 };
 pub(crate) use self::clone::{clone_bare, clone_bare_prefixed, ensure_remote_tracking};
+pub(crate) use self::commit::{
+    commit_all, commit_paths, stage_paths, staged_changes, tracked_changes,
+};
+pub(crate) use self::conflict::{conflicts, take_side};
 pub(crate) use self::remote::{
-    delete_remote_branch, fetch, publish_remote_branch, push, remote_branch_tip,
+    delete_remote_branch, fetch, publish_remote_branch, pull_rebase, push, push_upstream,
+    remote_branch_tip,
 };
 pub(crate) use self::status::{
     changed_paths, commit_patch_id, diff_patch_id, diff_worktree, head_commit,
@@ -89,6 +96,54 @@ pub(super) fn run(command: &proc::Command) -> Result<String, Error> {
         command: command.display(),
         detail: output.diagnostic(),
     })
+}
+
+/// [`run`] with a deadline, for the calls that reach a remote.
+///
+/// Both streams go to one scratch file, which is what lets a child that is
+/// still running be killed at the deadline without a reader thread holding its
+/// pipes open. The scratch file holds git's own words, so a failure carries
+/// them as its `detail` exactly as [`run`] would — stderr and stdout interleaved
+/// in the order git wrote them.
+///
+/// Only the child is killed on timeout, not its process group: a group kill
+/// would take a user's long-lived `ssh` multiplexing master with it.
+pub(super) fn run_with_deadline(
+    command: &proc::Command,
+    deadline: std::time::Duration,
+) -> Result<String, Error> {
+    let refused = |detail: String| Error::Refused {
+        command: command.display(),
+        detail,
+    };
+    let log = tempfile::NamedTempFile::new()
+        .map_err(|source| refused(format!("could not create a scratch log: {source}")))?;
+    let path = camino::Utf8Path::from_path(log.path())
+        .ok_or_else(|| refused("the scratch log's path is not valid UTF-8".to_owned()))?;
+    let finished = proc::to_log_with_deadline(command, path, deadline, &|_| false)?;
+    let text = std::fs::read(log.path())
+        .map(|bytes| String::from_utf8_lossy(&bytes).trim_end().to_owned())
+        .unwrap_or_default();
+    match finished {
+        proc::Finished::Exited(Some(0)) => Ok(text),
+        proc::Finished::Exited(code) => Err(refused(if text.is_empty() {
+            code.map_or_else(
+                || "killed by a signal".to_owned(),
+                |code| format!("exited {code} with no output"),
+            )
+        } else {
+            text
+        })),
+        proc::Finished::TimedOut | proc::Finished::Stopped => Err(refused(format!(
+            "timed out after {}s{}",
+            deadline.as_secs(),
+            if text.is_empty() {
+                String::new()
+            } else {
+                format!(": {text}")
+            }
+        ))),
+    }
 }
 
 #[cfg(test)]

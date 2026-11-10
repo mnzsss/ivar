@@ -32,6 +32,9 @@ mod compact_flag;
 #[path = "cli/feature_cleanup.rs"]
 mod feature_cleanup;
 
+#[path = "cli/hall_sync.rs"]
+mod hall_sync;
+
 #[path = "cli/init.rs"]
 mod init;
 

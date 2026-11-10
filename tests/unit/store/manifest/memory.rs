@@ -117,3 +117,70 @@ fn toggling_capture_keeps_the_handoff_ttl() {
         "{text}"
     );
 }
+
+// -- auto_commit and auto_push -------------------------------------------------
+
+#[test]
+fn auto_commit_and_auto_push_default_to_on_and_are_absent_from_the_file() {
+    let manifest = empty_manifest();
+
+    assert!(manifest.auto_commit());
+    assert!(manifest.auto_push());
+    let json = serde_json::to_string(&manifest).unwrap();
+    assert!(
+        !json.contains("auto_commit") && !json.contains("auto_push"),
+        "{json}"
+    );
+}
+
+#[test]
+fn either_switch_turned_off_parses_round_trips_and_survives_other_builders() {
+    let json = format!(r#"{BASE},"auto_push":false}}"#);
+    let manifest: Manifest = serde_json::from_str(&json).unwrap();
+    assert!(manifest.auto_commit());
+    assert!(!manifest.auto_push());
+
+    let json = format!(r#"{BASE},"auto_commit":false}}"#);
+    let manifest: Manifest = serde_json::from_str(&json).unwrap();
+    assert!(!manifest.auto_commit());
+    assert!(manifest.auto_push());
+
+    let rebuilt = manifest.with_graph_path_added("brand").unwrap();
+    assert!(!rebuilt.auto_commit());
+    let text = serde_json::to_string(&rebuilt).unwrap();
+    assert!(text.contains(r#""auto_commit":false"#), "{text}");
+    assert!(!text.contains("auto_push"), "{text}");
+}
+
+#[test]
+fn a_switch_written_as_true_is_left_out_when_the_file_is_written_back() {
+    let json = format!(r#"{BASE},"auto_commit":true,"auto_push":true}}"#);
+    let manifest: Manifest = serde_json::from_str(&json).unwrap();
+
+    let text = serde_json::to_string(&manifest).unwrap();
+
+    assert!(!text.contains("auto_"), "{text}");
+}
+
+#[test]
+fn a_switch_that_is_not_a_boolean_is_refused() {
+    let json = format!(r#"{BASE},"auto_push":"no"}}"#);
+    assert!(serde_json::from_str::<Manifest>(&json).is_err());
+}
+
+#[test]
+fn the_schema_declares_both_switches_as_optional_booleans() {
+    let schema = generate();
+    for key in ["auto_commit", "auto_push"] {
+        assert_eq!(
+            schema.pointer(&format!("/properties/{key}/type")),
+            Some(&serde_json::json!("boolean")),
+            "{key}"
+        );
+        let required = schema
+            .pointer("/required")
+            .and_then(|v| v.as_array())
+            .unwrap();
+        assert!(!required.iter().any(|v| v == key), "{key} must be optional");
+    }
+}
