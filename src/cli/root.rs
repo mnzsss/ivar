@@ -95,6 +95,9 @@ pub enum Command {
     ///
     /// Each orphan worktree is classified: safe to remove (clean, nothing
     /// unpushed, its work already on the default branch) or needing a look.
+    /// A hall whose sync is stuck (diverged from its upstream, a merge, rebase
+    /// or cherry-pick stopped, commits not pushed) is reported too, from git,
+    /// with no network.
     Doctor(DoctorArgs),
     /// Reconcile stale state (interactive; asks before deleting).
     Cleanup,

@@ -37,6 +37,7 @@ mod automation;
 mod database;
 mod features;
 mod graph;
+mod hall_sync;
 mod harness;
 pub(crate) mod mcp;
 mod memory;
@@ -145,6 +146,7 @@ pub fn doctor_with(
     findings.extend(scripts::script_diagnoses(&layout));
     findings.extend(automation::automation_diagnoses(&layout));
     findings.extend(graph_diagnoses(&layout, &manifest, &git));
+    findings.extend(hall_sync::hall_sync_diagnoses(&layout, &git));
     findings.extend(diagnose_orphaned_runs(&layout)?);
     let scan = OrphanScan {
         prs: input.github.then_some(prs),

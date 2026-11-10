@@ -35,6 +35,9 @@ mod feature_cleanup;
 #[path = "cli/hall_sync.rs"]
 mod hall_sync;
 
+#[path = "cli/hall_sync_health.rs"]
+mod hall_sync_health;
+
 #[path = "cli/init.rs"]
 mod init;
 

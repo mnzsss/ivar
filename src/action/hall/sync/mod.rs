@@ -57,7 +57,10 @@ use crate::store::layout::Layout;
 
 use super::{discover_hall, read_manifest};
 
+mod health;
 mod push;
+
+pub use health::{SyncHealth, sync_health, system_sync_health};
 
 /// The message of the commit that holds everything the operation's own commit
 /// did not.

@@ -51,7 +51,7 @@ pub enum MemoryCommand {
         #[arg(long)]
         provider: Option<String>,
     },
-    /// Print the open handoffs and pending messages this session can see, for a session-start hook. Always exits 0; prints nothing when there is nothing to show.
+    /// Print the open handoffs and pending messages this session can see, for a session-start hook, and one line when the hall's sync is blocked. Always exits 0; prints nothing when there is nothing to show.
     Brief {
         /// Provider whose hook runs this; used when the session is outside `ivar session`.
         #[arg(long)]
