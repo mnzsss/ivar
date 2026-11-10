@@ -21,7 +21,8 @@ pub(super) fn definitions() -> Vec<Value> {
             "tier": { "type": "string", "enum": ["semantic", "procedural", "episodic", "working"], "description": "Restrict to one tier" },
             "tag": { "type": "string", "description": "Restrict to pages with this tag" },
             "limit": { "type": "integer", "description": "Maximum pages (default 10, maximum 20)" },
-            "include_expired": { "type": "boolean", "description": "Also return expired pages" }
+            "include_expired": { "type": "boolean", "description": "Also return expired pages" },
+            "feature": { "type": "string", "description": "The feature this call belongs to. Needed only when the MCP server was started outside a feature session; a bound session keeps its own feature and a different value is an error" }
         }),
         &["query"],
     );
@@ -80,10 +81,11 @@ pub(super) fn definitions() -> Vec<Value> {
 fn review() -> Value {
     json!({
         "name": "memory_review",
-        "description": "Review the memory of this session's feature before delivery. Without arguments it lists the pages written in the feature, the gaps (a failed tool without a gotcha, no update page, an analysis approved without a memory_query) and the durable pages the feature's diff may have made stale. With confirm: true it records memory.reviewed, which `ivar feature deliver` requires; every stale page needs a verdict. Gaps never block the confirmation.",
+        "description": "Review the memory of this session's feature (or of `feature`, when the server is not bound to one) before delivery. Without arguments it lists the pages written in the feature, the gaps (a failed tool without a gotcha, no update page, an analysis approved without a memory_query) and the durable pages the feature's diff may have made stale. With confirm: true it records memory.reviewed, which `ivar feature deliver` requires; every stale page needs a verdict. Gaps never block the confirmation.",
         "inputSchema": {
             "type": "object",
             "properties": {
+                "feature": { "type": "string", "description": "The feature to review. Needed when the MCP server was started outside a feature session (a T3 thread, OMP, a converted discovery); a bound session keeps its own feature and a different value is an error" },
                 "confirm": { "type": "boolean", "description": "Record the review as memory.reviewed" },
                 "stale": {
                     "type": "array",
@@ -127,7 +129,8 @@ fn write_page() -> Value {
                     }
                 },
                 "expires_at": { "type": "string", "description": "RFC 3339 expiry" },
-                "replace": { "type": "boolean", "description": "Overwrite an existing page of the same path (default false)" }
+                "replace": { "type": "boolean", "description": "Overwrite an existing page of the same path (default false)" },
+                "feature": { "type": "string", "description": "The feature this call belongs to. Needed only when the MCP server was started outside a feature session; a bound session keeps its own feature and a different value is an error" }
             },
             "required": ["kind", "title"]
         }
@@ -155,7 +158,8 @@ fn patch_page() -> Value {
                         "required": ["type", "target"]
                     }
                 },
-                "expires_at": { "type": ["string", "null"], "description": "RFC 3339 expiry; null removes it" }
+                "expires_at": { "type": ["string", "null"], "description": "RFC 3339 expiry; null removes it" },
+                "feature": { "type": "string", "description": "The feature this call belongs to. Needed only when the MCP server was started outside a feature session; a bound session keeps its own feature and a different value is an error" }
             },
             "required": ["path"]
         }
@@ -170,7 +174,8 @@ fn delete_page() -> Value {
         "inputSchema": {
             "type": "object",
             "properties": {
-                "path": { "type": "string", "description": "Page path (docs/memory/<kind>/<slug>.md)" }
+                "path": { "type": "string", "description": "Page path (docs/memory/<kind>/<slug>.md)" },
+                "feature": { "type": "string", "description": "The feature this call belongs to. Needed only when the MCP server was started outside a feature session; a bound session keeps its own feature and a different value is an error" }
             },
             "required": ["path"]
         }

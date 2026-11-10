@@ -9,6 +9,7 @@ use serde_json::{Value, json};
 
 use super::drain;
 use super::events::{MemoryEventScope, record_memory_event};
+use super::mcp::feature_usage_session;
 use crate::action::feature::select::resolve_single_feature;
 use crate::action::feature::{base, relations};
 use crate::action::{Ctx, discover_hall, read_manifest};
@@ -121,7 +122,7 @@ pub fn analysis_queried(layout: &Layout, name: &FeatureName) -> Option<bool> {
     let mut notes = Notes::default();
     let rows = observations(layout, &feature, &mut notes).ok()?;
     let mut facts: Vec<ObservationFact> = rows.iter().map(fact).collect();
-    facts.extend(usage_facts(layout, &rows, &mut notes));
+    facts.extend(usage_facts(layout, &feature, &rows, &mut notes));
     (!notes.incomplete).then(|| queried_before_approval(&facts, name.as_str()))
 }
 
@@ -140,7 +141,7 @@ pub fn review_in(layout: &Layout, name: &FeatureName) -> Result<Report<ReviewRep
     }
     let rows = observations(layout, &feature, &mut notes)?;
     let mut facts: Vec<ObservationFact> = rows.iter().map(fact).collect();
-    facts.extend(usage_facts(layout, &rows, &mut notes));
+    facts.extend(usage_facts(layout, &feature, &rows, &mut notes));
     let written = written_pages(&facts, layout.root().as_str());
     let analysis_approved =
         crate::action::plan::effective_gate(layout, name, Gate::Analysis)? == GateState::Approved;
@@ -324,15 +325,27 @@ fn fact(row: &FeatureObservation) -> ObservationFact {
 
 /// The `memory_usage` rows of the feature's sessions, as facts: a query served
 /// through MCP or the CLI by a client no hook captures is recorded only there.
+/// A query an unbound MCP server attributed to the feature by argument has the
+/// feature's stand-in session.
 fn usage_facts(
     layout: &Layout,
+    feature: &Feature,
     rows: &[FeatureObservation],
     notes: &mut Notes,
 ) -> Vec<ObservationFact> {
+    let attributed = std::iter::once(feature.name.clone())
+        .chain(
+            relations::descendants(layout, &feature.name)
+                .unwrap_or_default()
+                .into_iter()
+                .map(|child| child.name),
+        )
+        .map(|name| feature_usage_session(&name));
     let sessions: Vec<String> = rows
         .iter()
         .filter(|row| !row.session_id.is_empty())
         .map(|row| row.session_id.clone())
+        .chain(attributed)
         .collect::<std::collections::BTreeSet<_>>()
         .into_iter()
         .collect();
