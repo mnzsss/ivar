@@ -29,6 +29,7 @@ fn docker() -> Vec<AgentSpec> {
 
 fn probes<'a>(ok: &'a dyn Fn() -> bool, rootless: &'a dyn Fn() -> Option<bool>) -> Probes<'a> {
     Probes {
+        is_linux: true,
         systemd_user: ok,
         linger: ok,
         docker_client: ok,
@@ -77,6 +78,7 @@ fn a_present_client_with_a_dead_daemon_is_unreachable_only() {
     let down = || false;
     let up = || true;
     let p = Probes {
+        is_linux: true,
         systemd_user: &up,
         linger: &up,
         docker_client: &up,
@@ -104,6 +106,7 @@ fn rootful_docker_is_reported_with_the_rootless_recommendation() {
 fn host_agents_skip_docker_and_report_their_tool_and_landlock() {
     let boom = || -> bool { panic!("docker probed") };
     let p = Probes {
+        is_linux: true,
         systemd_user: &yes,
         linger: &yes,
         docker_client: &boom,
@@ -169,4 +172,31 @@ fn a_tool_is_looked_up_on_the_systemd_managers_path() {
     );
     assert!(tool_present(Tool::Claude));
     assert!(!tool_present(Tool::Codex), "the process PATH was used");
+}
+
+#[test]
+fn unsupported_platform_reports_once_without_probing_any_requirements() {
+    let boom = || -> bool { panic!("requirement probed on unsupported platform") };
+    let p = Probes {
+        is_linux: false,
+        landlock: &boom,
+        tool_on_path: &|_| panic!("tool probed on unsupported platform"),
+        ..probes(&boom, &|| panic!("docker probed on unsupported platform"))
+    };
+    for specs in [
+        vec![agent(Runtime::Host, "codex")],
+        docker(),
+        vec![
+            agent(Runtime::Host, "codex"),
+            agent(Runtime::Docker, "claude"),
+        ],
+        vec![], // Files exist but none parsed successfully.
+    ] {
+        let findings = diagnose_agents_present(&specs, true, &p);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].code, "agent.unsupported_platform");
+        assert!(findings[0].what.contains("Linux with systemd"));
+        assert!(findings[0].fix.contains("Linux with systemd"));
+    }
+    assert!(diagnose_agents(&[], &p).is_empty());
 }

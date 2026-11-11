@@ -157,6 +157,7 @@ fn a_host_run_writes_its_private_state_dir_and_scratch_but_not_home() {
 }
 
 #[test]
+#[cfg(target_os = "linux")]
 fn doctor_reports_a_missing_host_tool_as_json() {
     let (_guard, root) = hall_root();
     ivar().current_dir(&root).arg("init").assert().success();
@@ -183,4 +184,40 @@ fn doctor_reports_a_missing_host_tool_as_json() {
         .expect("agent.tool_missing finding");
     assert!(finding["what"].as_str().unwrap().contains("`codex`"));
     assert!(finding["fix"].as_str().unwrap().contains("Install `codex`"));
+}
+
+#[test]
+#[cfg(not(target_os = "linux"))]
+fn doctor_reports_unsupported_agents_without_linux_fixes() {
+    let (_guard, root) = hall_root();
+    ivar().current_dir(&root).arg("init").assert().success();
+    std::fs::create_dir_all(root.join("agents")).unwrap();
+    for definition in [
+        "---\nschedule: \"@daily\"\nruntime: host\ntool: codex\n---\nGo.\n",
+        "---\nschedule: \"@daily\"\nruntime: docker\ntool: claude\n---\nGo.\n",
+        "---\nschedule: \"@reboot\"\ntool: claude\n---\n",
+    ] {
+        std::fs::write(root.join("agents/local.md"), definition).unwrap();
+        let output = ivar()
+            .current_dir(&root)
+            .args(["--json", "doctor"])
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+        let findings: Vec<_> = value["findings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|f| f["code"].as_str().unwrap().starts_with("agent."))
+            .collect();
+        assert_eq!(findings.len(), 1, "{value}");
+        assert_eq!(findings[0]["code"], "agent.unsupported_platform");
+        let output = ivar().current_dir(&root).arg("doctor").output().unwrap();
+        let text = String::from_utf8(output.stdout).unwrap();
+        assert!(text.contains("agent.unsupported_platform"), "{text}");
+        for misleading in ["systemctl", "loginctl", "lsm=landlock", "runtime: docker"] {
+            assert!(!text.contains(misleading), "{text}");
+        }
+    }
 }
