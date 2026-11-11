@@ -225,6 +225,10 @@
       "description": "Whether those automatic commits are pushed to the hall's upstream. On unless set to `false`. `ivar hall sync` ignores it.",
       "type": "boolean"
     },
+    "auto_resolve": {
+      "description": "Whether the hall's sync may run the `hall-sync-resolver` agent on a rebase conflict the fixed rules do not cover. On unless set to `false`; the fixed rules still apply.",
+      "type": "boolean"
+    },
     "graph": {
       "anyOf": [
         {

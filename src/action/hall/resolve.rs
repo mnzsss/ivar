@@ -1,11 +1,10 @@
 //! The fixed rules that settle a hall's rebase conflicts without a model.
 //!
-//! [`resolve_conflicts`] is the one place a conflicted hall rebase is
-//! settled. Today it applies two mechanical rules; a path they do not cover is
-//! reported back as [`Resolution::Unresolved`] and the caller abandons the
-//! rebase. Anything smarter — settling a conflict in prose — belongs *here*,
-//! behind the same signature, so the sync's control flow never learns who did
-//! the resolving.
+//! [`resolve_conflicts`] settles what a conflicted hall rebase can settle
+//! without a model. It applies two mechanical rules; a path they do not cover
+//! is reported back as [`Resolution::Unresolved`], and the caller hands those
+//! to the `hall-sync-resolver` agent (see [`super::resolver`]) before it gives
+//! up and abandons the rebase.
 //!
 //! # The rules
 //!
@@ -36,16 +35,19 @@ pub(crate) const SKILLS_STATE: &str = ".ivar/skills/state.json";
 pub(crate) enum Resolution {
     /// Every conflicted path is settled and staged; the rebase can continue.
     Resolved,
-    /// These paths are not covered by any rule. Nothing was changed.
+    /// These paths are not covered by any rule and are still conflicted. The
+    /// paths a rule does cover are settled and staged.
     Unresolved(Vec<Utf8PathBuf>),
 }
 
 /// Settle `conflicts` in the hall at `root` with the fixed rules, staging
 /// what it settles.
 ///
-/// All or nothing: when any path is outside the rules, nothing is touched and
-/// those paths come back in [`Resolution::Unresolved`], so the caller can
-/// abort a rebase that is still exactly as git left it.
+/// A path outside the rules is left exactly as git wrote it and comes back in
+/// [`Resolution::Unresolved`]; the paths the rules do cover are settled either
+/// way, so a caller that goes on to settle the rest has only the rest to do,
+/// and one that abandons the rebase loses nothing, since aborting puts every
+/// path back.
 ///
 /// # Errors
 ///
@@ -61,9 +63,6 @@ pub(crate) fn resolve_conflicts(
         .filter(|conflict| rule_for(conflict).is_none())
         .map(|conflict| conflict.path.clone())
         .collect();
-    if !unresolved.is_empty() {
-        return Ok(Resolution::Unresolved(unresolved));
-    }
 
     let mut staged: Vec<Utf8PathBuf> = Vec::new();
     for conflict in conflicts {
@@ -75,7 +74,11 @@ pub(crate) fn resolve_conflicts(
         staged.push(conflict.path.clone());
     }
     git.stage_paths(root, &staged)?;
-    Ok(Resolution::Resolved)
+    Ok(if unresolved.is_empty() {
+        Resolution::Resolved
+    } else {
+        Resolution::Unresolved(unresolved)
+    })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
