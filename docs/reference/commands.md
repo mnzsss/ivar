@@ -162,13 +162,6 @@ Unix timestamp or `Nm`/`Nh`/`Nd`. `--limit <N>` (default 10, 0 for all) bounds
 the returned rows. `--json` prints a bare array of misses, newest first, not the usual report object.
 Misses and usage rows are pruned after 30 days, the window `ivar graph stats` reports.
 
-**Agent platform requirements.** When `agents/` contains agent files,
-`ivar doctor` reports `agent.unsupported_platform` outside Linux, including
-macOS. Agent timers require Linux with systemd, even with `runtime: docker`.
-It skips the Linux requirement probes on those platforms; on Linux the
-systemd, linger, Docker and host-tool/Landlock checks still apply as needed.
-See [scheduled agents](../guides/scheduled-agents.md#requirements).
-
 **`ivar doctor` reports graph and memory database findings by code.** Findings and their fixes:
 
 | Code | Meaning | Fix |
