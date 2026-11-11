@@ -2,7 +2,7 @@
 //!
 //! A server that registers or authenticates itself never gets an `oauth` block,
 //! so nothing in `ivar.json` would say it needs a token and `ivar mcp status`
-//! would call it `not-required`. Once every run is done, [`auth`] checks each
+//! would call it `not-required`. Once every run is done, [`super::auth`] checks each
 //! successful run's provider credential store ([`has_credential_evidence`]); if
 //! one holds a present or refreshable token, it re-reads the manifest and
 //! writes `auth = "oauth"` once ([`mark_oauth_required`]). A zero exit alone is
@@ -54,8 +54,9 @@ pub(super) fn record_auth_requirement(
 /// Whether some successful run left a credential in its provider's store.
 ///
 /// A zero exit is not evidence: `claude mcp login` also exits `0` for a server
-/// that needs no auth, and [`Preregistration::NoAuthRequired`] reports
-/// `authenticated` with nothing stored. Only a token that is present (or
+/// that needs no auth, and
+/// [`Preregistration::NoAuthRequired`](super::Preregistration::NoAuthRequired)
+/// reports `authenticated` with nothing stored. Only a token that is present (or
 /// refreshable) shows the server demanded one.
 fn has_credential_evidence(
     runs: &[ProviderRun],

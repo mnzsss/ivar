@@ -9,7 +9,7 @@ use crate::domain::provider::Provider;
 use crate::error::{Failure, FixAction};
 use crate::harness::config;
 use crate::infra::figma;
-use crate::infra::http_callback::CIMD_CLIENT_ID;
+use crate::infra::http_callback::{CIMD_CLIENT_ID, OAUTH_REDIRECT_URI};
 use crate::infra::oauth::AuthMode;
 use crate::store::layout::Layout;
 use crate::store::manifest::Manifest;
@@ -100,7 +100,7 @@ pub(super) fn preregister_if_needed(
     // Figma refuses a generic registration: its allowlist checks
     // `client_name`, so it gets its own registrar.
     let registered = if figma::needs_preregistration(host) {
-        figma::register_client(crate::infra::http_callback::OAUTH_REDIRECT_URI)?
+        figma::register_client(OAUTH_REDIRECT_URI)?
     } else if endpoints.is_some_and(|ep| ep.client_id_metadata_document_supported) {
         persist_oauth(
             layout,
@@ -121,11 +121,7 @@ pub(super) fn preregister_if_needed(
         let Some(endpoint) = endpoints.and_then(|ep| ep.registration_endpoint.as_deref()) else {
             return Ok(Preregistered::not_needed());
         };
-        crate::infra::mcp_oauth::register_client(
-            endpoint,
-            crate::infra::http_callback::OAUTH_REDIRECT_URI,
-            CLIENT_NAME,
-        )?
+        crate::infra::mcp_oauth::register_client(endpoint, OAUTH_REDIRECT_URI, CLIENT_NAME)?
     };
 
     let auth_mode = registered.auth_mode();

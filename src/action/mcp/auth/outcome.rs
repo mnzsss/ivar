@@ -18,17 +18,18 @@ pub enum Preregistration {
     /// without a challenge, so there is nothing to register and nothing to
     /// authenticate.
     NoAuthRequired,
-    /// The provider isn't OpenCode, the server has no `url`, or its host
-    /// isn't one Figma's allowlist gates — step 2 never applied.
+    /// Step 2 never applied: the provider owns the login, the server has no
+    /// `url`, or it advertises neither a client metadata document nor a
+    /// `registration_endpoint`.
     NotNeeded,
     /// A usable client registration was already on the manifest; nothing was
     /// registered or touched (`R-IDEMPOTENT`).
     Skipped,
-    /// A new client was registered with Figma, written into `ivar.json`
-    /// (`oauth.client_id` and `oauth.client_secret_env`), and materialised
-    /// into `opencode.json`.
+    /// A new client was registered (Figma's registrar or the server's
+    /// `registration_endpoint`), written into `ivar.json` and materialised
+    /// into the provider config.
     Registered {
-        /// The `client_id` Figma issued. Not a secret by itself, but never
+        /// The `client_id` the server issued. Not a secret by itself, but never
         /// reported alongside the client secret either — which is saved
         /// locally to `.ivar/secrets/mcp.env` and passed to the child process environment.
         client_id: String,
@@ -52,8 +53,9 @@ pub struct ProviderRun {
     /// How authentication was performed.
     pub auth_method: AuthMethod,
     /// The harness's own command that ran for this provider — the whole of
-    /// step 3, rendered exactly as [`proc::Command::display`] would show it
-    /// in an error. Empty when step 2 itself failed and step 3 never ran.
+    /// step 3, rendered exactly as
+    /// [`proc::Command::display`](crate::infra::proc::Command::display) would
+    /// show it in an error. Empty when step 2 itself failed and step 3 never ran.
     /// For [`AuthMethod::InternalOAuthFlow`], contains a descriptive label
     /// instead of a command line.
     pub command: String,
@@ -183,9 +185,10 @@ impl ProviderRun {
 }
 
 /// Build the `--all-providers` report from every attempted [`ProviderRun`]:
-/// one [`Warning`] per failed leg, never a [`Failure`] (`R-ALL-PARTIAL`) —
-/// every provider was actually attempted, so a failed leg is "done, with
-/// something needing attention" (exit `1`), not "refused" (exit `2`).
+/// one [`Warning`] per failed leg, never a
+/// [`Failure`](crate::error::Failure) (`R-ALL-PARTIAL`) — every provider was
+/// actually attempted, so a failed leg is "done, with something needing
+/// attention" (exit `1`), not "refused" (exit `2`).
 /// [`Report::is_clean`] turns `false` the moment any leg failed, which is
 /// what keeps one success from ever rendering as the whole run succeeding.
 pub(super) fn all_providers_report(server: &str, runs: Vec<ProviderRun>) -> Report<AuthOutcome> {
