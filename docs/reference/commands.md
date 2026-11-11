@@ -7,8 +7,8 @@ own argument parser**, so they cannot drift from what your `ivar` actually
 accepts. The prose around them is written by hand, because when to reach for a
 verb is a judgement call and a generator has no opinion about it.
 
-If you are looking for the shape of the tool rather than its surface, read
-[Concepts](../concepts.md) first. This page is a lookup table, not a tour.
+For the shape of the tool rather than its surface, read
+[Concepts](../concepts.md) first.
 
 ## How to read this
 
@@ -30,9 +30,8 @@ If you are looking for the shape of the tool rather than its surface, read
 | `3` | `ivar script check`: unreviewed |
 
 Exit `1` is the one worth designing around: a verb that crosses eight repos and
-hits a problem in one of them reports seven successes and a warning, and that is
-a `1`, not a failure. Treating `1` as fatal in a script will make `ivar` look
-broken when it is telling you something.
+hits a problem in one reports seven successes and a warning, a `1`, not a failure.
+Treating `1` as fatal in a script makes `ivar` look broken when it is only warning you.
 
 <!-- BEGIN GENERATED COMMANDS -->
 <!-- Generated from clap by tests/static_checks/docs_reference.rs. Do not edit by hand: run
@@ -192,6 +191,7 @@ Misses and usage rows are pruned after 30 days, the window `ivar graph stats` re
 | `provider.capture_hook_missing` | `memory.capture` is on and a provider has no capture hook | `ivar sync`, or set `memory.capture` to false in `ivar.json` |
 | `repo.worktree_orphaned` | a worktree on a branch no feature owns | safe to remove (clean, pushed, on the default branch) or needs a look; `--github` checks its PR, `--fix` removes safe ones: [rules](doctor-worktrees.md) |
 | `repo.worktree_unregistered` | a checkout under `repos/<repo>/` that git does not list as a worktree, often from a failed removal | if unneeded, `rm -rf` it (`chmod u+w` first if read-only) |
+| `hall.sync_*` | hall sync diverged, unpushed or stopped | [details](doctor-hall-sync.md) |
 
 **`ivar memory query` searches the pages under `docs/memory/`.** `ivar memory query <TEXT>`
 takes `--kind` (repeatable), `--tier`, `--tag`, `--limit` (default 10, at most 20),

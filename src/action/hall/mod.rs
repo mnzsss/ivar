@@ -39,7 +39,8 @@ pub use status::RepoStatusEntry;
 pub use status::StatusOutcome;
 pub use status::status;
 pub use sync::{
-    GENERAL_MESSAGE, HallSync, OperationCommit, SyncRequest, Trigger, sync, sync_hall, sync_state,
+    GENERAL_MESSAGE, HallSync, OperationCommit, SyncHealth, SyncRequest, Trigger, sync, sync_hall,
+    sync_health, sync_state, system_sync_health,
 };
 
 /// The hall [`Ctx::cwd`] is inside, or a [`Failure`] saying there is none.

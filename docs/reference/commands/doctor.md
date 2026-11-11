@@ -3,7 +3,7 @@
 
 # `ivar doctor`
 
-Diagnose problems and suggest fixes. Each orphan worktree is classified: safe to remove (clean, nothing unpushed, its work already on the default branch) or needing a look.
+Diagnose problems and suggest fixes. Each orphan worktree is classified: safe to remove (clean, nothing unpushed, its work already on the default branch) or needing a look. A hall whose sync is stuck (diverged from its upstream, a merge, rebase or cherry-pick stopped, commits not pushed) is reported too, from git, with no network.
 
 | flag | value | default | description |
 | --- | --- | --- | --- |

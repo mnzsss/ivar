@@ -105,7 +105,7 @@ Record one session hook event into the capture spool. Always exits 0 and prints 
 
 ## `ivar memory brief`
 
-Print the open handoffs and pending messages this session can see, for a session-start hook. Always exits 0; prints nothing when there is nothing to show
+Print the open handoffs and pending messages this session can see, for a session-start hook, and one line when the hall's sync is blocked. Always exits 0; prints nothing when there is nothing to show
 
 | flag | value | default | description |
 | --- | --- | --- | --- |
