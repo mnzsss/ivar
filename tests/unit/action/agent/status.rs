@@ -47,6 +47,7 @@ fn reports_schedule_next_run_last_outcome_and_drift() {
             path: Some("/a/shell/that/synced:/usr/bin".to_owned()),
             is_linux: true,
             probes: Probes {
+                is_linux: true,
                 systemd_user: &yes,
                 linger: &yes,
                 docker_client: &yes,

@@ -8,6 +8,7 @@ use crate::infra::{docker, systemd};
 
 /// The machine checks, injectable so tests never spawn a probe.
 pub struct Probes<'a> {
+    pub is_linux: bool,
     pub systemd_user: &'a dyn Fn() -> bool,
     pub linger: &'a dyn Fn() -> bool,
     pub docker_client: &'a dyn Fn() -> bool,
@@ -27,6 +28,7 @@ impl std::fmt::Debug for Probes<'_> {
 #[must_use]
 pub fn system_probes() -> Probes<'static> {
     Probes {
+        is_linux: cfg!(target_os = "linux"),
         systemd_user: &systemd::user_instance_reachable,
         linger: &systemd::linger_enabled,
         docker_client: &docker::client_present,
@@ -76,6 +78,15 @@ pub fn diagnose_agents_present(
 ) -> Vec<Diagnosis> {
     if !present {
         return Vec::new();
+    }
+    if !probes.is_linux {
+        return vec![Diagnosis {
+            code: "agent.unsupported_platform",
+            what: "Agent timers need Linux with systemd; they are not supported on this system."
+                .to_owned(),
+            fix: "Run scheduled agents on Linux with systemd; installing Docker alone does not provide agent timers."
+                .to_owned(),
+        }];
     }
     let mut findings = Vec::new();
     let mut need = |ok: bool, code, what: &str, fix: &str| {

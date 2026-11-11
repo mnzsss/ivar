@@ -355,7 +355,13 @@ from receipts, logs and notifications.
 
 ## Requirements
 
-`ivar doctor` reports each missing piece and its fix: a systemd user
+When the hall has agent files, `ivar doctor` reports
+`agent.unsupported_platform` on macOS and other non-Linux systems. Agent
+timers need Linux with systemd; installing Docker alone does not provide
+them. No Linux requirement probes run on those systems, and a hall with no
+agent files gets no agent platform finding.
+
+On Linux, `ivar doctor` reports each missing piece and its fix: a systemd user
 instance, linger (`loginctl enable-linger $USER`), the Docker client, a
 reachable daemon, and a warning when Docker runs as root.
 

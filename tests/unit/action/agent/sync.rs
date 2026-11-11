@@ -46,6 +46,7 @@ fn env(unit_dir: Utf8PathBuf) -> SyncEnv<'static> {
         path: Some("/home/me/.local/bin:/usr/bin".to_owned()),
         is_linux: true,
         probes: Probes {
+            is_linux: true,
             systemd_user: &yes,
             linger: &yes,
             docker_client: &yes,
