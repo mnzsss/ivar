@@ -96,7 +96,7 @@ Cancel an open handoff, whoever owns it
 
 ## `ivar memory capture`
 
-Record one session hook event into the capture spool. Always exits 0 and prints nothing
+Record one session hook event into the capture spool. Always exits 0 and prints nothing. When a session with no feature ends, it also starts `ivar hall sync` in a process of its own, logging to `.ivar/hall-sync.log`, and does not wait for it; `auto_commit: false` in `ivar.json` turns that off
 
 | flag | value | default | description |
 | --- | --- | --- | --- |

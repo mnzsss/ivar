@@ -167,3 +167,135 @@ fn a_bad_payload_creates_no_spool_even_inside_a_hall() {
 
     assert!(!layout.memory_spool_dir().exists());
 }
+
+// -- the end of a session without a feature starts a hall sync ----------------
+
+const SESSION_END: &str =
+    r#"{"hook_event_name":"SessionEnd","session_id":"native-1","reason":"other"}"#;
+
+fn discovery_env(root: &camino::Utf8Path) -> CaptureEnv {
+    CaptureEnv {
+        feature: None,
+        session_path: Some(root.join(".ivar/sessions/sess-1")),
+        ..env_in(root)
+    }
+}
+
+/// Make `ivar` a script that records its arguments and its directory in
+/// `marker`, after `delay_secs`, and returns the guard that undoes it.
+fn fake_ivar(marker: &camino::Utf8Path, delay_secs: u32) -> crate::infra::proc::Redirect {
+    let script = format!("sleep {delay_secs}; echo \"$@ in $(pwd)\" > '{marker}'; echo logged");
+    crate::infra::proc::redirect_on_this_thread(
+        TEST_IVAR_PROGRAM,
+        crate::infra::proc::Command::new("sh").args(["-c", &script, "ivar"]),
+    )
+}
+
+fn wait_for(path: &camino::Utf8Path) -> String {
+    for _ in 0..200 {
+        if let Ok(text) = std::fs::read_to_string(path) {
+            return text;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    panic!("{path} never appeared");
+}
+
+#[test]
+fn a_session_end_without_a_feature_starts_a_detached_hall_sync_and_returns() {
+    let (_guard, root) = crate::test_support::seeded_hall();
+    let layout = Layout::at(root.clone());
+    let marker = root.join("marker.txt");
+    let _ivar = fake_ivar(&marker, 2);
+
+    let started = std::time::Instant::now();
+    capture(Provider::ClaudeCode, SESSION_END, &discovery_env(&root));
+
+    assert!(
+        !marker.exists(),
+        "capture must not wait for the sync (took {:?})",
+        started.elapsed()
+    );
+    let ran = wait_for(&marker);
+    assert!(ran.starts_with("hall sync in "), "was: {ran}");
+    assert_eq!(
+        std::fs::canonicalize(ran.trim_start_matches("hall sync in ").trim()).unwrap(),
+        std::fs::canonicalize(&root).unwrap(),
+        "the sync runs in the hall"
+    );
+    let log = layout.hall_sync_log();
+    for _ in 0..200 {
+        if std::fs::read_to_string(&log).is_ok_and(|text| text.contains("logged")) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    assert_eq!(std::fs::read_to_string(&log).unwrap().trim(), "logged");
+    assert_eq!(
+        spooled(&layout, "sess-1")[0]["source_event"],
+        "session.ended",
+        "the end is still captured"
+    );
+}
+
+#[test]
+fn a_session_end_with_a_feature_starts_nothing() {
+    let (_guard, root) = crate::test_support::seeded_hall();
+    let marker = root.join("marker.txt");
+    let _ivar = fake_ivar(&marker, 0);
+
+    capture(Provider::ClaudeCode, SESSION_END, &env_in(&root));
+    std::thread::sleep(std::time::Duration::from_millis(500));
+
+    assert!(!marker.exists());
+    assert!(!Layout::at(root.clone()).hall_sync_log().exists());
+}
+
+#[test]
+fn other_events_without_a_feature_start_nothing() {
+    let (_guard, root) = crate::test_support::seeded_hall();
+    let marker = root.join("marker.txt");
+    let _ivar = fake_ivar(&marker, 0);
+
+    capture(
+        Provider::ClaudeCode,
+        r#"{"hook_event_name":"UserPromptSubmit","session_id":"native-1","prompt":"hi"}"#,
+        &discovery_env(&root),
+    );
+    std::thread::sleep(std::time::Duration::from_millis(500));
+
+    assert!(!marker.exists());
+}
+
+#[test]
+fn auto_commit_off_starts_no_sync() {
+    let (_guard, root) = crate::test_support::seeded_hall();
+    let manifest_path = root.join("ivar.json");
+    let mut manifest: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&manifest_path).unwrap()).unwrap();
+    manifest["auto_commit"] = serde_json::json!(false);
+    std::fs::write(&manifest_path, manifest.to_string()).unwrap();
+    let marker = root.join("marker.txt");
+    let _ivar = fake_ivar(&marker, 0);
+
+    capture(Provider::ClaudeCode, SESSION_END, &discovery_env(&root));
+    std::thread::sleep(std::time::Duration::from_millis(500));
+
+    assert!(!marker.exists());
+    assert_eq!(
+        spooled(&Layout::at(root), "sess-1").len(),
+        1,
+        "the end is still captured"
+    );
+}
+
+#[test]
+fn a_sync_that_cannot_be_started_never_fails_the_capture() {
+    let (_guard, root) = crate::test_support::seeded_hall();
+    let layout = Layout::at(root.clone());
+    // No fake: the program is not there to run.
+
+    capture(Provider::ClaudeCode, SESSION_END, &discovery_env(&root));
+
+    assert_eq!(spooled(&layout, "sess-1").len(), 1);
+}

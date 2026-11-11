@@ -1,14 +1,21 @@
 //! `ivar memory capture`: turns one provider hook payload into a sanitized
 //! Observation appended to the session's spool file. It never opens the memory
 //! database and swallows every failure so an agent is never blocked by it.
+//!
+//! The one thing it does besides spooling: when a session that has no feature
+//! ends, it starts `ivar hall sync` in a process of its own and returns without
+//! waiting, so the pages that session wrote outside any feature reach the
+//! hall's history even if nobody ever runs `ivar session stop`.
 
 use camino::{Utf8Path, Utf8PathBuf};
 
 use super::classify;
+use crate::action::read_manifest;
 use crate::domain::observation::{Importance, Observation, SourceEvent, event_id};
 use crate::domain::provider::Provider;
 use crate::domain::sanitize::{SanitizeContext, Sanitized};
 use crate::domain::session::rfc3339_now;
+use crate::infra::proc;
 use crate::providers::capture::{CaptureEvent, CaptureKind, parse_capture};
 use crate::store::layout::Layout;
 use crate::store::memory::spool::{self, SpoolKey};
@@ -52,7 +59,51 @@ fn try_capture(provider: Provider, stdin: &str, env: &CaptureEnv) -> Option<()> 
     let sanitized = Sanitized::sanitize(observation, &sanitize_context(&layout)).ok()?;
     let key = SpoolKey::new(env.session_id.as_deref(), &event.native_session_id);
     spool::append(&layout.memory_spool_dir(), &key, &sanitized).ok()?;
+    if matches!(event.kind, CaptureKind::Ended { .. }) && env.feature.is_none() {
+        sync_hall_detached(&layout);
+    }
     Some(())
+}
+
+/// The program that runs `ivar hall sync`: this very binary.
+///
+/// A test build never names itself: it would run the test harness. It names a
+/// program that does not exist, which a test redirects to a fake of its own.
+#[cfg(not(test))]
+fn ivar_program() -> Option<String> {
+    std::env::current_exe()
+        .ok()
+        .and_then(|path| path.into_os_string().into_string().ok())
+}
+
+#[cfg(test)]
+#[allow(clippy::unnecessary_wraps)]
+fn ivar_program() -> Option<String> {
+    Some(TEST_IVAR_PROGRAM.to_owned())
+}
+
+/// What a test build runs in place of `ivar`; see [`ivar_program`].
+#[cfg(test)]
+pub(crate) const TEST_IVAR_PROGRAM: &str = "ivar-under-test";
+
+/// Start `ivar hall sync` for the hall, detached, its output going to the
+/// hall's sync log, and do not wait for it.
+///
+/// Nothing here can fail the capture: a hall that turns `auto_commit` off, a
+/// manifest that cannot be read, a binary that cannot be found or spawned all
+/// end in silence. The child is a manual sync, which ignores `auto_commit`, so
+/// the switch is checked here.
+fn sync_hall_detached(layout: &Layout) {
+    if !read_manifest(layout).is_ok_and(|manifest| manifest.auto_commit()) {
+        return;
+    }
+    let Some(program) = ivar_program() else {
+        return;
+    };
+    let command = proc::Command::new(program)
+        .args(["hall", "sync"])
+        .cwd(layout.root());
+    let _ = proc::detach_to_log(&command, &layout.hall_sync_log());
 }
 
 fn build_observation(
