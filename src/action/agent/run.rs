@@ -31,7 +31,8 @@ use crate::store::manifest::Manifest;
 mod host;
 mod network;
 
-use host::{HostDeps, execute_host};
+pub(crate) use host::HostDeps;
+use host::execute_host;
 #[cfg(test)]
 use host::{host_workspace, seed_credentials, write_back_credentials, write_roots};
 
@@ -86,13 +87,32 @@ pub(crate) fn run_with(
     let RunInput { name, trigger } = input;
     let layout = discover_hall(ctx)?;
     let spec = store::agent::load(&layout, &name)?;
+    run_spec(ctx, &layout, &spec, trigger, host, resolves)
+}
+
+/// One run of `spec`, which need not be a file in the hall's `agents/`: the
+/// agents `ivar` ships inside the binary run through here too, with the same
+/// lock, sandbox and receipt as any other.
+///
+/// This is the whole run and nothing more. Whatever a caller does *after* an
+/// agent ran, such as syncing the hall, belongs to the caller. An agent that
+/// `ivar` runs while it is itself syncing the hall must come through here and
+/// not through [`run`], so that its run cannot start another sync.
+pub(crate) fn run_spec(
+    ctx: &Ctx,
+    layout: &Layout,
+    spec: &AgentSpec,
+    trigger: Trigger,
+    host: &dyn Fn() -> Result<HostDeps, Failure>,
+    resolves: &dyn Fn(&str) -> bool,
+) -> Outcome<AgentRunReceipt> {
     let started_at = rfc3339_now();
     let run_id = receipt::run_id(&started_at, &Uuid::new_v4().simple().to_string()[..8]);
     let lock = match fs::try_lock_exclusive(&layout.agent_lock(&spec.name)) {
         Ok(Some(lock)) => lock,
         Ok(None) => {
             let skipped = AgentRunReceipt::skipped(run_id, spec.name.clone(), trigger, started_at);
-            return finish(&layout, &spec, skipped);
+            return finish(layout, spec, skipped);
         }
         Err(error) => {
             let failed = AgentRunReceipt::failed(
@@ -103,11 +123,11 @@ pub(crate) fn run_with(
                 rfc3339_now(),
                 Failure::from(error).what,
             );
-            return finish(&layout, &spec, failed);
+            return finish(layout, spec, failed);
         }
     };
     // Before the DNS wait and before anything is launched or mounted.
-    if let Err(failure) = scripts::ensure_approved(&layout, &spec) {
+    if let Err(failure) = scripts::ensure_approved(layout, spec) {
         let failed = AgentRunReceipt::failed(
             run_id,
             spec.name.clone(),
@@ -116,7 +136,7 @@ pub(crate) fn run_with(
             rfc3339_now(),
             failure.what,
         );
-        let result = finish(&layout, &spec, failed);
+        let result = finish(layout, spec, failed);
         drop(lock);
         return result;
     }
@@ -135,15 +155,15 @@ pub(crate) fn run_with(
     let scratch = layout.agent_run_scratch(&run_id);
     let mut secret_values: Vec<String> = Vec::new();
     let attempt = (|| -> Result<Attempt, Failure> {
-        let secrets = AgentSecrets::read(&layout)?.select(&spec.secrets)?;
+        let secrets = AgentSecrets::read(layout)?.select(&spec.secrets)?;
         secret_values = secrets.iter().map(|(_, v)| v.clone()).collect();
-        let (ws, worktree) = workspace_for(ctx, &layout, &spec)?;
+        let (ws, worktree) = workspace_for(ctx, layout, spec)?;
         let ran = match spec.runtime {
-            Runtime::Docker => execute(&spec, &run_id, &scratch, &secrets, ws)?,
+            Runtime::Docker => execute(spec, &run_id, &scratch, &secrets, ws)?,
             Runtime::Host => {
-                let state = layout.agent_tool_state(&spec.name, tool_name(&spec));
+                let state = layout.agent_tool_state(&spec.name, tool_name(spec));
                 execute_host(
-                    &spec,
+                    spec,
                     layout.root(),
                     &scratch,
                     &state,
@@ -153,8 +173,8 @@ pub(crate) fn run_with(
                 )?
             }
         };
-        let delivered = worktree
-            .map(|wt| feature_access::commit_and_preview(ctx, &layout, &spec, &wt, &run_id));
+        let delivered =
+            worktree.map(|wt| feature_access::commit_and_preview(ctx, layout, spec, &wt, &run_id));
         Ok(Attempt { ran, delivered })
     })();
     let _ = fs::remove_path(&scratch);
@@ -168,9 +188,9 @@ pub(crate) fn run_with(
             rfc3339_now(),
             scrub(&failure.what, &values),
         ),
-        Ok(attempt) => completed(&spec, run_id, trigger, started_at, &attempt, &values),
+        Ok(attempt) => completed(spec, run_id, trigger, started_at, &attempt, &values),
     };
-    let result = finish(&layout, &spec, receipt);
+    let result = finish(layout, spec, receipt);
     drop(lock);
     result
 }

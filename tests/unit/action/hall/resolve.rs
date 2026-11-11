@@ -96,14 +96,12 @@ fn the_saved_copy_sits_beside_the_original_and_never_takes_a_name_in_use() {
 }
 
 #[test]
-fn a_path_outside_the_rules_leaves_everything_untouched() {
+fn a_path_outside_the_rules_comes_back_unresolved_and_untouched() {
     let (_guard, root) = hall_root();
-    let conflicts = [
-        conflict(SKILLS_STATE, Some("a"), Some("b")),
-        conflict("docs/prose.md", Some("a"), Some("b")),
-    ];
+    let conflicts = [conflict("docs/prose.md", Some("a"), Some("b"))];
 
-    // `git` is never reached: the check comes first, so no repository is needed.
+    // `git` is never reached: no rule covers the path, so there is nothing to
+    // settle and no repository is needed.
     let resolution = resolve_conflicts(&crate::git::System, &root, &conflicts).unwrap();
 
     assert_eq!(

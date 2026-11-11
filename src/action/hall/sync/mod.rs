@@ -35,9 +35,13 @@
 //!
 //! When the remote has commits the hall lacks, the hall runs `git pull
 //! --rebase` and tries once more. If the rebase stops on a conflict,
-//! [`super::resolve::resolve_conflicts`] applies fixed rules; if it cannot settle every path,
-//! the rebase is aborted — the hall is left exactly as it was before the pull —
-//! and the push is reported as failed.
+//! [`super::resolve::resolve_conflicts`] applies fixed rules. What they do not
+//! cover goes to the `hall-sync-resolver` agent ([`super::resolver`]), unless
+//! `ivar.json` sets `auto_resolve` to `false`; its work is checked before the
+//! rebase continues, and the commit it resolved carries a `Resolved-by`
+//! trailer. If a path stays unsettled, or the agent fails or its work does not
+//! pass the checks, the rebase is aborted — the hall is left exactly as it was
+//! before the pull — and the push is reported as failed.
 //!
 //! # One run at a time
 //!
@@ -55,6 +59,7 @@ use crate::git::{self, CommitOutcome, Git, RepoState, SkipReason};
 use crate::infra::fs;
 use crate::store::layout::Layout;
 
+use super::resolver;
 use super::{discover_hall, read_manifest};
 
 mod health;
@@ -123,6 +128,10 @@ pub struct HallSync {
     pub general_committed: bool,
     /// Commits were pushed to the upstream.
     pub pushed: bool,
+    /// Files whose rebase conflict the `hall-sync-resolver` agent settled and
+    /// that a person should review. Empty when it did not run.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub resolved: Vec<Utf8PathBuf>,
     /// Another sync held the lock, so this one did nothing.
     pub busy: bool,
     /// What needs attention. Left out of the JSON body: the report envelope
@@ -157,10 +166,20 @@ impl WriteHuman for HallSync {
             done.push("pushed");
         }
         if done.is_empty() {
-            writeln!(w, "Hall at {}: nothing to sync.", self.root)
+            writeln!(w, "Hall at {}: nothing to sync.", self.root)?;
         } else {
-            writeln!(w, "Hall at {}: {}.", self.root, done.join(", "))
+            writeln!(w, "Hall at {}: {}.", self.root, done.join(", "))?;
         }
+        if !self.resolved.is_empty() {
+            writeln!(
+                w,
+                "hall-sync-resolver merged conflicts in these files; review them:"
+            )?;
+            for file in &self.resolved {
+                writeln!(w, "  {file}")?;
+            }
+        }
+        Ok(())
     }
 }
 
@@ -199,15 +218,28 @@ pub fn sync_state(layout: &Layout, git: &impl Git) -> Result<RepoState, git::Err
 /// created — is a [`Warning`] in the result. The operation that called this has
 /// already done what it was asked, and a sync must not take that away.
 pub fn sync_hall(layout: &Layout, git: &impl Git, request: &SyncRequest<'_>) -> HallSync {
+    sync_hall_with(layout, git, request, &resolver::Env::system())
+}
+
+/// [`sync_hall`] with the machine the conflict-resolving agent runs on given,
+/// so a test never launches a real tool.
+pub(crate) fn sync_hall_with(
+    layout: &Layout,
+    git: &impl Git,
+    request: &SyncRequest<'_>,
+    agent: &resolver::Env<'_>,
+) -> HallSync {
     let mut run = Run {
         layout,
         git,
+        agent,
         subject: layout.root().to_string(),
         out: HallSync {
             root: layout.root().to_path_buf(),
             operation_committed: false,
             general_committed: false,
             pushed: false,
+            resolved: Vec::new(),
             busy: false,
             warnings: Vec::new(),
         },
@@ -254,6 +286,8 @@ pub fn sync_hall(layout: &Layout, git: &impl Git, request: &SyncRequest<'_>) -> 
 struct Run<'a, G: Git> {
     layout: &'a Layout,
     git: &'a G,
+    /// Where the conflict-resolving agent runs.
+    agent: &'a resolver::Env<'a>,
     /// The warnings' subject: which hall.
     subject: String,
     out: HallSync,

@@ -35,15 +35,15 @@ mod status;
 mod worktree;
 
 pub(crate) use self::branch::{
-    abort_rebase, commit_messages, commits_ahead, continue_rebase, create_branch, delete_branch,
-    fast_forward, fast_forward_to, first_parent_reaches, merge_no_ff, rebase_branch, rename_branch,
-    reset_hard, skip_rebase, squash_merge,
+    abort_rebase, commit_messages, commits_ahead, continue_rebase, continue_rebase_with_trailer,
+    create_branch, delete_branch, fast_forward, fast_forward_to, first_parent_reaches, merge_no_ff,
+    rebase_branch, rename_branch, reset_hard, skip_rebase, squash_merge,
 };
 pub(crate) use self::clone::{clone_bare, clone_bare_prefixed, ensure_remote_tracking};
 pub(crate) use self::commit::{
     commit_all, commit_paths, stage_paths, staged_changes, tracked_changes,
 };
-pub(crate) use self::conflict::{conflicts, take_side};
+pub(crate) use self::conflict::{blob_text, commit_info, conflicts, take_side};
 pub(crate) use self::remote::{
     delete_remote_branch, fetch, publish_remote_branch, pull_rebase, push, push_upstream,
     remote_branch_tip,

@@ -169,6 +169,19 @@ every teammate on a release that knows them. A key at its default is left out of
 { "auto_commit": true, "auto_push": false }
 ```
 
+### `ivar.json` `auto_resolve` key
+
+An optional boolean, on unless set to `false`. When `ivar hall sync` meets a rebase conflict that
+its fixed rules do not cover, it runs the built-in `hall-sync-resolver` agent to settle it.
+`auto_resolve: false` turns that agent off: the fixed rules still apply, and any other conflict
+aborts the rebase and leaves the hall as it was. Unlike `auto_commit` and `auto_push`, it applies
+to `ivar hall sync` run by a person too. It adds no `ivar.json` version, and an `ivar` older than
+the key rejects a file that sets it. A key at its default is left out of the file.
+
+```json
+{ "auto_resolve": false }
+```
+
 The hall memory database has its own schema version, `memory_schema.version`, which is
 8 today; see [Memory database](on-disk-format-databases.md#memory-database-ivarmemorydb).
 

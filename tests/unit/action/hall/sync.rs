@@ -8,13 +8,19 @@
 //! `sync_hall` against real git: a hall with a bare remote and, when a test
 //! needs another machine, a second clone.
 
+use std::cell::Cell;
+use std::io::{Read, Write};
+use std::net::TcpListener;
 use std::os::unix::fs::PermissionsExt;
+use std::time::Duration;
 
 use camino::{Utf8Path, Utf8PathBuf};
 use tempfile::TempDir;
 
 use super::*;
+use crate::action::agent::run::HostDeps;
 use crate::action::hall::{InitInput, init};
+use crate::error::Failure;
 use crate::git::{Git, System};
 use crate::test_support::hall_root;
 
@@ -151,8 +157,24 @@ fn push_from_other(fixture: &Fixture, relative: &str, content: &str) {
     run(&other, &["push", "origin", "main"]);
 }
 
+/// What a test's host answers when the conflict-resolving agent must not run.
+fn no_agent_host() -> Result<HostDeps, Failure> {
+    Err(Failure::failed(
+        "test.no_agent",
+        "no agent runs in this test",
+    ))
+}
+
 fn sync_manual(fixture: &Fixture) -> HallSync {
-    sync_hall(&fixture.layout, &System, &SyncRequest::manual())
+    sync_hall_with(
+        &fixture.layout,
+        &System,
+        &SyncRequest::manual(),
+        &resolver::Env {
+            host: &no_agent_host,
+            timeout: Duration::from_secs(5),
+        },
+    )
 }
 
 fn codes(sync: &HallSync) -> Vec<&'static str> {
@@ -758,6 +780,465 @@ fn a_conflict_anywhere_else_aborts_the_rebase_and_restores_the_hall() {
     assert_eq!(read(&f.root, "notes.md"), "local prose\n");
     assert!(run(&f.root, &["status", "--porcelain"]).is_empty());
     assert_eq!(run(&f.remote, &["rev-parse", "main"]), remote_before);
+}
+
+// -- conflicts the agent settles -----------------------------------------------
+
+/// What a sync with the agent needs: a `claude` that runs `body`, and the
+/// launcher a host run puts in front of it, which here only runs what follows
+/// `--` without Landlock. The agent's own prompt is kept in `prompt.txt`.
+struct Agent {
+    bin: Utf8PathBuf,
+    home: Utf8PathBuf,
+}
+
+impl Agent {
+    fn install(f: &Fixture, body: &str) -> Self {
+        let dir = f.root.parent().unwrap();
+        let bin = dir.join("agent-bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        let script = |name: &str, text: String| {
+            let path = bin.join(name);
+            std::fs::write(&path, text).unwrap();
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        };
+        script(
+            "sandbox",
+            "#!/bin/sh\nwhile [ \"$1\" != \"--\" ]; do shift; done\nshift\nexec \"$@\"\n"
+                .to_owned(),
+        );
+        script(
+            "claude",
+            format!(
+                "#!/bin/sh\nfor last; do :; done\nprintf '%s' \"$last\" > '{bin}/prompt.txt'\n{body}\necho resolved\n"
+            ),
+        );
+        let home = dir.join("home");
+        std::fs::create_dir_all(&home).unwrap();
+        Self { bin, home }
+    }
+
+    fn host(&self) -> Result<HostDeps, Failure> {
+        let path = format!("{}:{}", self.bin, std::env::var("PATH").unwrap());
+        Ok(HostDeps {
+            launcher: self.bin.join("sandbox"),
+            home: self.home.clone(),
+            parent_env: vec![
+                ("PATH".to_owned(), path),
+                ("HOME".to_owned(), self.home.to_string()),
+            ],
+            landlock: true,
+        })
+    }
+
+    fn sync(&self, f: &Fixture, timeout: Duration) -> HallSync {
+        sync_hall_with(
+            &f.layout,
+            &System,
+            &SyncRequest::manual(),
+            &resolver::Env {
+                host: &|| self.host(),
+                timeout,
+            },
+        )
+    }
+
+    fn prompt(&self) -> String {
+        std::fs::read_to_string(self.bin.join("prompt.txt")).unwrap()
+    }
+
+    fn ran(&self) -> bool {
+        self.bin.join("prompt.txt").exists()
+    }
+}
+
+const PAGE: &str = "docs/memory/gotcha/fts.md";
+const PAGE_BASE: &str = "---\ntitle: FTS\ntags: [index]\n---\n# FTS\n\nbase line\n";
+const PAGE_REMOTE: &str = "---\ntitle: FTS\ntags: [index]\n---\n# FTS\n\nbase line\nremote note\n";
+const PAGE_LOCAL: &str = "---\ntitle: FTS\ntags: [index]\n---\n# FTS\n\nbase line\nlocal note\n";
+const PAGE_MERGED: &str =
+    "---\ntitle: FTS\ntags: [index]\n---\n# FTS\n\nbase line\nremote note\nlocal note\n";
+
+/// A shell snippet that writes `text` to `relative` in the hall.
+fn writes(f: &Fixture, relative: &str, text: &str) -> String {
+    format!(
+        "printf '%s' '{}' > '{}/{relative}'\n",
+        text.replace('\'', "'\\''"),
+        f.root
+    )
+}
+
+/// The remote and this hall both changed the memory page after a shared base,
+/// and the hall has a second, unrelated change pending.
+fn page_conflict(f: &Fixture) {
+    write(&f.root, PAGE, PAGE_BASE);
+    write(&f.root, "extra.md", "extra base\n");
+    run(&f.root, &["add", "-A"]);
+    run(&f.root, &["commit", "-m", "base page"]);
+    run(&f.root, &["push", "origin", "main"]);
+    push_from_other(f, PAGE, PAGE_REMOTE);
+    write(&f.root, PAGE, PAGE_LOCAL);
+}
+
+/// The sync gave up with one `hall.push_failed` mentioning `needle`, and the
+/// hall is as it was after its own commit and before the pull: the local
+/// commit on the old base, the remote untouched, no rebase left behind.
+fn assert_aborted(f: &Fixture, sync: &HallSync, remote_before: &str, needle: &str) {
+    assert_eq!(codes(sync), ["hall.push_failed"], "{:?}", sync.warnings);
+    assert!(
+        sync.warnings[0].what.contains(needle),
+        "{needle:?} not in {}",
+        sync.warnings[0].what
+    );
+    assert!(!sync.pushed && sync.resolved.is_empty(), "{sync:?}");
+    assert!(!crate::git::read::is_rebase_in_progress(&f.root));
+    let log = subjects(&f.root, "HEAD");
+    assert_eq!(log[0], GENERAL_MESSAGE);
+    assert_eq!(log[1], "base page");
+    assert!(!log.contains(&"other machine".to_owned()));
+    assert_eq!(read(&f.root, PAGE), PAGE_LOCAL);
+    assert_eq!(run(&f.remote, &["rev-parse", "main"]), remote_before);
+}
+
+#[test]
+fn a_prose_conflict_is_settled_by_the_agent_checked_and_pushed_with_a_trailer() {
+    let f = fixture();
+    page_conflict(&f);
+    let agent = Agent::install(&f, &writes(&f, PAGE, PAGE_MERGED));
+
+    let sync = agent.sync(&f, Duration::from_secs(30));
+
+    assert!(sync.pushed, "{sync:?}");
+    assert!(sync.warnings.is_empty(), "{:?}", sync.warnings);
+    assert_eq!(sync.resolved, [Utf8PathBuf::from(PAGE)]);
+    assert_eq!(read(&f.root, PAGE), PAGE_MERGED);
+    assert!(!crate::git::read::is_rebase_in_progress(&f.root));
+    assert!(run(&f.root, &["status", "--porcelain"]).is_empty());
+    assert_eq!(
+        run(&f.remote, &["rev-parse", "main"]),
+        run(&f.root, &["rev-parse", "HEAD"])
+    );
+    assert!(run(&f.root, &["rev-list", "--merges", "HEAD"]).is_empty());
+    // The replayed commit keeps its own subject and gains the trailer; the
+    // other machine's commit below it is untouched.
+    let log = subjects(&f.root, "HEAD");
+    assert_eq!(log[0], GENERAL_MESSAGE);
+    assert_eq!(log[1], "other machine");
+    let trailer = |rev: &str| {
+        run(
+            &f.root,
+            &[
+                "log",
+                "-1",
+                "--format=%(trailers:key=Resolved-by,valueonly)",
+                rev,
+            ],
+        )
+    };
+    assert_eq!(trailer("HEAD"), "ivar hall-sync-resolver");
+    assert_eq!(trailer("HEAD~"), "");
+}
+
+#[test]
+fn the_agent_is_given_both_sides_and_each_commit_and_only_what_the_rules_left() {
+    let f = fixture();
+    write(&f.root, ".ivar/skills/state.json", "{\"a\":0}\n");
+    write(&f.root, PAGE, "base text\n");
+    run(&f.root, &["add", "-A"]);
+    run(&f.root, &["commit", "-m", "base page"]);
+    run(&f.root, &["push", "origin", "main"]);
+    let other = other_machine(&f);
+    write(&other, ".ivar/skills/state.json", "{\"a\":\"remote\"}\n");
+    write(&other, PAGE, "remote text\n");
+    run(&other, &["add", "-A"]);
+    run(&other, &["commit", "-m", "remote edit"]);
+    run(&other, &["push", "origin", "main"]);
+    write(&f.root, ".ivar/skills/state.json", "{\"a\":\"local\"}\n");
+    write(&f.root, PAGE, "local text\n");
+    let agent = Agent::install(&f, &writes(&f, PAGE, PAGE_MERGED));
+
+    let sync = agent.sync(&f, Duration::from_secs(30));
+
+    assert!(sync.pushed, "{sync:?}");
+    assert_eq!(sync.resolved, [Utf8PathBuf::from(PAGE)]);
+    let prompt = agent.prompt();
+    assert!(prompt.contains(PAGE), "{prompt}");
+    assert!(prompt.contains("remote text") && prompt.contains("local text"));
+    assert!(
+        prompt.contains("remote edit"),
+        "the remote's commit: {prompt}"
+    );
+    assert!(
+        prompt.contains(GENERAL_MESSAGE),
+        "the local commit: {prompt}"
+    );
+    assert!(
+        !prompt.contains("state.json"),
+        "a file a rule settled is not sent: {prompt}"
+    );
+    assert!(read(&f.root, ".ivar/skills/state.json").contains("remote"));
+}
+
+#[test]
+fn the_hall_notify_channel_hears_which_files_were_resolved() {
+    let f = fixture();
+    page_conflict(&f);
+    let (url, received) = one_shot_server();
+    write(
+        &f.root,
+        "agents/nightly.md",
+        &format!("---\nschedule: \"@daily\"\ntool: claude\nnotify: {url}\n---\nGo.\n"),
+    );
+    let agent = Agent::install(&f, &writes(&f, PAGE, PAGE_MERGED));
+
+    let sync = agent.sync(&f, Duration::from_secs(30));
+
+    assert!(sync.pushed, "{sync:?}");
+    assert!(sync.warnings.is_empty(), "{:?}", sync.warnings);
+    let body = received.join().unwrap();
+    assert!(body.contains("hall-sync-resolver"), "{body}");
+    assert!(body.contains(PAGE), "{body}");
+}
+
+#[test]
+fn a_notify_channel_that_is_down_is_a_warning_and_the_resolution_stands() {
+    let f = fixture();
+    page_conflict(&f);
+    // Nothing listens here.
+    let closed = TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!("http://{}/hook", closed.local_addr().unwrap());
+    drop(closed);
+    write(
+        &f.root,
+        "agents/nightly.md",
+        &format!("---\nschedule: \"@daily\"\ntool: claude\nnotify: {url}\n---\nGo.\n"),
+    );
+    let agent = Agent::install(&f, &writes(&f, PAGE, PAGE_MERGED));
+
+    let sync = agent.sync(&f, Duration::from_secs(30));
+
+    assert!(sync.pushed, "{sync:?}");
+    assert_eq!(codes(&sync), ["hall.notify_failed"], "{:?}", sync.warnings);
+    assert_eq!(sync.resolved, [Utf8PathBuf::from(PAGE)]);
+}
+
+/// Every way the agent's answer can be refused ends the same: nothing is
+/// committed, nothing is pushed, and the hall is as it was.
+fn refused_by(body_for: impl FnOnce(&Fixture) -> String, timeout: Duration, needle: &str) {
+    let f = fixture();
+    page_conflict(&f);
+    let remote_before = run(&f.remote, &["rev-parse", "main"]);
+    let agent = Agent::install(&f, &body_for(&f));
+
+    let sync = agent.sync(&f, timeout);
+
+    assert!(agent.ran(), "the agent was never run");
+    assert_aborted(&f, &sync, &remote_before, needle);
+    assert!(run(&f.root, &["status", "--porcelain"]).is_empty());
+}
+
+#[test]
+fn a_marker_the_agent_leaves_aborts_the_rebase_and_restores_the_hall() {
+    // Not touched at all: git's own markers are still in the file.
+    refused_by(
+        |_| "true".to_owned(),
+        Duration::from_secs(30),
+        "conflict marker",
+    );
+    refused_by(
+        |f| writes(f, PAGE, "---\ntitle: FTS\n---\nkept\n=======\nboth\n"),
+        Duration::from_secs(30),
+        "conflict marker",
+    );
+}
+
+#[test]
+fn a_tracked_file_outside_the_conflict_that_the_agent_changes_aborts_the_rebase() {
+    refused_by(
+        |f| {
+            format!(
+                "{}{}",
+                writes(f, PAGE, PAGE_MERGED),
+                writes(f, "extra.md", "rewritten\n")
+            )
+        },
+        Duration::from_secs(30),
+        "extra.md",
+    );
+}
+
+#[test]
+fn a_new_file_the_agent_creates_aborts_the_rebase() {
+    let f = fixture();
+    page_conflict(&f);
+    let remote_before = run(&f.remote, &["rev-parse", "main"]);
+    let body = format!(
+        "{}{}",
+        writes(&f, PAGE, PAGE_MERGED),
+        writes(&f, "stray.md", "x\n")
+    );
+    let agent = Agent::install(&f, &body);
+
+    let sync = agent.sync(&f, Duration::from_secs(30));
+
+    assert_aborted(&f, &sync, &remote_before, "stray.md");
+}
+
+#[test]
+fn a_page_with_broken_frontmatter_aborts_the_rebase() {
+    refused_by(
+        |f| writes(f, PAGE, "---\ntitle: [unclosed\n---\n# FTS\n\nmerged\n"),
+        Duration::from_secs(30),
+        "invalid memory page",
+    );
+}
+
+#[test]
+fn an_agent_that_fails_aborts_the_rebase() {
+    refused_by(
+        |f| {
+            format!(
+                "{}echo 'cannot decide' >&2\nexit 3\n",
+                writes(f, PAGE, PAGE_MERGED)
+            )
+        },
+        Duration::from_secs(30),
+        "cannot decide",
+    );
+}
+
+#[test]
+fn an_agent_that_runs_out_of_time_aborts_the_rebase() {
+    refused_by(
+        |_| "sleep 30".to_owned(),
+        Duration::from_secs(1),
+        "did not finish",
+    );
+}
+
+#[test]
+fn a_hook_that_refuses_the_resolved_commit_aborts_the_rebase_and_is_never_skipped() {
+    let f = fixture();
+    page_conflict(&f);
+    // Passes the hall's own commits, refuses what the agent wrote.
+    install_hook(
+        &f.root,
+        "git diff --cached | grep -q 'agent was here' && { echo 'hook says no' >&2; exit 1; }\nexit 0",
+    );
+    let remote_before = run(&f.remote, &["rev-parse", "main"]);
+    let agent = Agent::install(
+        &f,
+        &writes(&f, PAGE, &format!("{PAGE_MERGED}agent was here\n")),
+    );
+
+    let sync = agent.sync(&f, Duration::from_secs(30));
+
+    assert!(agent.ran());
+    assert_aborted(&f, &sync, &remote_before, "hook says no");
+}
+
+#[test]
+fn a_conflict_only_in_files_the_rules_cover_never_runs_the_agent() {
+    let f = fixture();
+    write(
+        &f.root,
+        ".ivar/skills/state.json",
+        "{\"installations\":{}}\n",
+    );
+    run(&f.root, &["add", "-A"]);
+    run(&f.root, &["commit", "-m", "state"]);
+    run(&f.root, &["push", "origin", "main"]);
+    push_from_other(&f, ".ivar/skills/state.json", "{\"from\":\"remote\"}\n");
+    write(&f.root, ".ivar/skills/state.json", "{\"from\":\"local\"}\n");
+    write(&f.root, "mine.md", "m\n");
+    let asked = Cell::new(false);
+    let host = || {
+        asked.set(true);
+        no_agent_host()
+    };
+
+    let sync = sync_hall_with(
+        &f.layout,
+        &System,
+        &SyncRequest::manual(),
+        &resolver::Env {
+            host: &host,
+            timeout: Duration::from_secs(5),
+        },
+    );
+
+    assert!(sync.pushed, "{sync:?}");
+    assert!(sync.warnings.is_empty(), "{:?}", sync.warnings);
+    assert!(sync.resolved.is_empty());
+    assert!(!asked.get(), "the agent was started for a rule's file");
+}
+
+#[test]
+fn auto_resolve_off_keeps_the_agent_out_and_the_rules_in() {
+    let f = fixture();
+    page_conflict(&f);
+    let remote_before = run(&f.remote, &["rev-parse", "main"]);
+    set_manifest_flag(&f.layout, "auto_resolve", false);
+    let agent = Agent::install(&f, &writes(&f, PAGE, PAGE_MERGED));
+
+    let sync = agent.sync(&f, Duration::from_secs(30));
+
+    assert!(!agent.ran(), "the agent ran with auto_resolve off");
+    assert_aborted(&f, &sync, &remote_before, "auto_resolve");
+
+    // The fixed rules do not depend on the switch.
+    let g = fixture();
+    write(
+        &g.root,
+        ".ivar/skills/state.json",
+        "{\"installations\":{}}\n",
+    );
+    run(&g.root, &["add", "-A"]);
+    run(&g.root, &["commit", "-m", "state"]);
+    run(&g.root, &["push", "origin", "main"]);
+    push_from_other(&g, ".ivar/skills/state.json", "{\"from\":\"remote\"}\n");
+    write(&g.root, ".ivar/skills/state.json", "{\"from\":\"local\"}\n");
+    write(&g.root, "mine.md", "m\n");
+    set_manifest_flag(&g.layout, "auto_resolve", false);
+    assert!(sync_manual(&g).pushed);
+}
+
+/// A web server that answers one request and returns what it was sent.
+fn one_shot_server() -> (String, std::thread::JoinHandle<String>) {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!("http://{}/hook", listener.local_addr().unwrap());
+    let handle = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut request = Vec::new();
+        let mut chunk = [0_u8; 4096];
+        loop {
+            let read = stream.read(&mut chunk).unwrap();
+            if read == 0 {
+                break;
+            }
+            request.extend_from_slice(&chunk[..read]);
+            let text = String::from_utf8_lossy(&request).into_owned();
+            let Some(head_end) = text.find("\r\n\r\n") else {
+                continue;
+            };
+            let length = text[..head_end]
+                .lines()
+                .find_map(|line| {
+                    line.to_ascii_lowercase()
+                        .strip_prefix("content-length:")
+                        .map(|value| value.trim().parse::<usize>().unwrap())
+                })
+                .unwrap_or(0);
+            if request.len() >= head_end + 4 + length {
+                break;
+            }
+        }
+        stream
+            .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+            .unwrap();
+        String::from_utf8_lossy(&request).into_owned()
+    });
+    (url, handle)
 }
 
 #[test]

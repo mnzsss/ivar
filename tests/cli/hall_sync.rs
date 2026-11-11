@@ -193,3 +193,82 @@ fn syncing_outside_a_hall_exits_two_and_points_at_init() {
         .code(2)
         .stderr(predicate::str::contains("ivar init"));
 }
+
+/// The whole path through the real binary: a prose conflict goes to the
+/// embedded `hall-sync-resolver`, which runs a `claude` found on `PATH` under
+/// Landlock, confined to the conflicted file.
+#[test]
+#[cfg(target_os = "linux")]
+#[expect(clippy::print_stderr, reason = "a Landlock-less kernel skips visibly")]
+fn a_prose_conflict_is_settled_by_the_embedded_agent_and_pushed() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let (guard, root, remote) = hall_with_remote();
+    let page = "docs/memory/gotcha/fts.md";
+    std::fs::create_dir_all(root.join("docs/memory/gotcha")).unwrap();
+    std::fs::write(root.join(page), "# FTS\n\nbase\n").unwrap();
+    git(&root, &["add", "-A"]);
+    git(&root, &["commit", "-m", "base page"]);
+    git(&root, &["push", "origin", "main"]);
+
+    let parent = root.parent().unwrap();
+    let other = parent.join("other");
+    git(parent, &["clone", remote.as_str(), other.as_str()]);
+    git(&other, &["config", "user.name", "ivar tests"]);
+    git(&other, &["config", "user.email", "tests@ivar.invalid"]);
+    git(&other, &["config", "commit.gpgsign", "false"]);
+    std::fs::write(other.join(page), "# FTS\n\nbase\nremote note\n").unwrap();
+    git(&other, &["commit", "-am", "other machine"]);
+    git(&other, &["push", "origin", "main"]);
+    std::fs::write(root.join(page), "# FTS\n\nbase\nlocal note\n").unwrap();
+
+    let home = parent.join("home");
+    let bin = parent.join("bin");
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::create_dir_all(&bin).unwrap();
+    std::fs::write(
+        bin.join("claude"),
+        format!(
+            "#!/bin/sh\nprintf '# FTS\\n\\nbase\\nremote note\\nlocal note\\n' > '{root}/{page}'\necho merged\n"
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(bin.join("claude"), std::fs::Permissions::from_mode(0o755)).unwrap();
+
+    let output = ivar()
+        .current_dir(&root)
+        .env("HOME", home.as_str())
+        .env("PATH", format!("{bin}:{}", std::env::var("PATH").unwrap()))
+        .args(["hall", "sync", "--json"])
+        .output()
+        .unwrap();
+    let text = String::from_utf8_lossy(&output.stdout).into_owned();
+    if text.contains("Landlock") {
+        eprintln!("skipped: this kernel has no Landlock");
+        return;
+    }
+
+    assert!(output.status.success(), "{text}");
+    let value: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(value["pushed"], true, "{text}");
+    assert_eq!(value["resolved"][0], page, "{text}");
+    assert_eq!(
+        std::fs::read_to_string(root.join(page)).unwrap(),
+        "# FTS\n\nbase\nremote note\nlocal note\n"
+    );
+    assert_eq!(head(&root), branch_tip(&remote));
+    let trailers = std::process::Command::new("git")
+        .args([
+            "log",
+            "-1",
+            "--format=%(trailers:key=Resolved-by,valueonly)",
+        ])
+        .current_dir(&root)
+        .output()
+        .unwrap();
+    assert_eq!(
+        String::from_utf8_lossy(&trailers.stdout).trim(),
+        "ivar hall-sync-resolver"
+    );
+    drop(guard);
+}

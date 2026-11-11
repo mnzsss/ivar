@@ -1077,6 +1077,43 @@ pub trait Git {
         exec::continue_rebase(worktree)
     }
 
+    /// Record the commit the rebase stopped on, resolved and staged, with
+    /// `trailer` (`Key: value`) added to its message, and carry on as
+    /// [`Self::continue_rebase`] does. Unlike `continue_rebase`, the
+    /// repository's hooks run for the commit, and one that refuses stops it.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Refused`] if a hook refuses the commit, the rebase
+    /// stops again, or it cannot continue.
+    fn continue_rebase_with_trailer(
+        &self,
+        worktree: &Utf8Path,
+        trailer: &str,
+    ) -> Result<(), Error> {
+        exec::continue_rebase_with_trailer(worktree, trailer)
+    }
+
+    /// The text of the blob `blob` — one side of a conflict, as listed by
+    /// [`Self::conflicts`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Refused`] if the repository has no such blob.
+    fn blob_text(&self, worktree: &Utf8Path, blob: &str) -> Result<String, Error> {
+        exec::blob_text(worktree, blob)
+    }
+
+    /// The id and subject of the commit `revision` names in the repository at
+    /// `worktree` — `HEAD` and `REBASE_HEAD` while a rebase is stopped.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Refused`] if `revision` does not resolve.
+    fn commit_info(&self, worktree: &Utf8Path, revision: &str) -> Result<CommitInfo, Error> {
+        exec::commit_info(worktree, revision)
+    }
+
     /// `git rebase --skip` — drop the commit the rebase stopped on. For a
     /// commit whose conflicts were resolved by taking the other side, leaving
     /// nothing of it.

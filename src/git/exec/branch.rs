@@ -206,6 +206,32 @@ pub(crate) fn continue_rebase(worktree: &Utf8Path) -> Result<(), Error> {
     Ok(())
 }
 
+/// Record the resolved commit the rebase stopped on with `trailer`
+/// (`Key: value`) added to its message, then carry on.
+///
+/// The commit is made here, by `git commit -C REBASE_HEAD`, which keeps the
+/// replayed commit's author and message. `git rebase --continue` would make
+/// it too, but it does not run the repository's hooks, and a hook that refuses
+/// must be able to stop a commit nobody wrote by hand. A refusal is an
+/// [`Error::Refused`] carrying the hook's words, and leaves the rebase stopped
+/// with the resolution still staged.
+pub(crate) fn continue_rebase_with_trailer(
+    worktree: &Utf8Path,
+    trailer: &str,
+) -> Result<(), Error> {
+    run(&git()
+        .cwd(worktree)
+        .env("GIT_EDITOR", "true")
+        .arg("commit")
+        .arg("--no-edit")
+        .arg("--allow-empty-message")
+        .arg("-C")
+        .arg("REBASE_HEAD")
+        .arg("--trailer")
+        .arg(trailer))?;
+    continue_rebase(worktree)
+}
+
 /// `git -C <worktree> rebase --skip` — drop the commit the rebase stopped on.
 pub(crate) fn skip_rebase(worktree: &Utf8Path) -> Result<(), Error> {
     run(&git()
