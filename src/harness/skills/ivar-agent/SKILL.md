@@ -124,8 +124,10 @@ Then:
    committed straight to the hall's `main`, with the `commit` skill if the user
    asked for a commit. If it is not, the file is only saved.
 2. Ask before `ivar agent sync`: it installs systemd user timers on this machine.
-3. Ask before `ivar agent run <name>`: it runs the tool, which may cost money. Use
-   it as the first check, then read the result with `ivar agent logs <name>`.
+3. Ask before `ivar agent run <name> --wait`: it runs the tool, which may cost
+   money. Use it as the first check; it returns once the run ends, then read the
+   result with `ivar agent logs <name>`. Without `--wait` the run goes to the
+   background and the command returns at once.
 4. Show `ivar agent status` so the user sees the next run.
 5. If `sync` or the run reports a missing requirement, run `ivar doctor` and
    relay its fix. A file that fails to load when its timer fires leaves no

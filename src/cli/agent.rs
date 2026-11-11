@@ -9,7 +9,10 @@ pub enum AgentCommand {
     Sync,
     /// List agents with schedule (or a task's `at`), next run, last outcome and timer state.
     Status,
-    /// Run an agent now, through the same path its timer uses. A run that
+    /// Run an agent now, through the same path its timer uses. The run starts
+    /// in the background and the command returns at once; `ivar agent logs
+    /// <name>` prints it once it ends, and `--wait` stays attached until then
+    /// and prints the receipt. A run that
     /// succeeds commits what changed under the agent's `write:` roots that lie
     /// inside the hall as `docs(<agent>): Record the <YYYY-MM-DD> run`, then every
     /// other pending hall change as `chore(hall): Sync pending hall changes`, and
@@ -36,6 +39,9 @@ pub struct AgentRunArgs {
     pub name: String,
     #[arg(long, hide = true, default_value = "manual", value_parser = ["manual", "schedule"])]
     pub trigger: String,
+    /// Stay attached until the run ends and print its receipt. A scheduled run always waits.
+    #[arg(long)]
+    pub wait: bool,
 }
 
 #[derive(Debug, Args)]

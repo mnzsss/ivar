@@ -18,11 +18,15 @@ List agents with schedule (or a task's `at`), next run, last outcome and timer s
 
 ## `ivar agent run`
 
-Run an agent now, through the same path its timer uses. A run that succeeds commits what changed under the agent's `write:` roots that lie inside the hall as `docs(<agent>): Record the <YYYY-MM-DD> run`, then every other pending hall change as `chore(hall): Sync pending hall changes`, and pushes the branch. Roots outside the hall are ignored, and a run that fails commits nothing. `auto_commit: false` in `ivar.json` turns all of that off and `auto_push: false` only the push. A hall sync that cannot finish is recorded in the receipt's `sync_warnings` and never changes the outcome
+Run an agent now, through the same path its timer uses. The run starts in the background and the command returns at once; `ivar agent logs <name>` prints it once it ends, and `--wait` stays attached until then and prints the receipt. A run that succeeds commits what changed under the agent's `write:` roots that lie inside the hall as `docs(<agent>): Record the <YYYY-MM-DD> run`, then every other pending hall change as `chore(hall): Sync pending hall changes`, and pushes the branch. Roots outside the hall are ignored, and a run that fails commits nothing. `auto_commit: false` in `ivar.json` turns all of that off and `auto_push: false` only the push. A hall sync that cannot finish is recorded in the receipt's `sync_warnings` and never changes the outcome
 
 | argument | required | description |
 | --- | --- | --- |
 | `name` | yes | Agent name (the file stem under agents/) |
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--wait` |  |  | Stay attached until the run ends and print its receipt. A scheduled run always waits |
 
 
 ## `ivar agent logs`

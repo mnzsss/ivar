@@ -127,7 +127,7 @@ fn a_host_run_writes_its_private_state_dir_and_scratch_but_not_home() {
         .current_dir(&root)
         .env("HOME", home.as_str())
         .env("PATH", format!("{bin}:{}", std::env::var("PATH").unwrap()))
-        .args(["--json", "agent", "run", "nightly"])
+        .args(["--json", "agent", "run", "nightly", "--wait"])
         .output()
         .unwrap();
     let value: serde_json::Value = serde_json::from_slice(&output.stdout).expect("valid json");
@@ -154,6 +154,61 @@ fn a_host_run_writes_its_private_state_dir_and_scratch_but_not_home() {
     );
     assert!(!home.join(".claude/state").exists());
     assert!(!home.join("x").exists());
+}
+
+#[test]
+#[cfg(target_os = "linux")]
+fn a_manual_run_returns_before_the_agent_ends_and_still_writes_its_receipt() {
+    use std::os::unix::fs::PermissionsExt;
+    use std::time::{Duration, Instant};
+    let (_guard, root) = hall_root();
+    ivar().current_dir(&root).arg("init").assert().success();
+    let home = root.parent().unwrap().join("home");
+    let bin = root.parent().unwrap().join("bin");
+    let go = root.parent().unwrap().join("go");
+    std::fs::create_dir_all(home.join(".claude")).unwrap();
+    std::fs::create_dir_all(&bin).unwrap();
+    std::fs::write(
+        bin.join("claude"),
+        format!("#!/bin/sh\nwhile [ ! -e {go} ]; do sleep 0.1; done\necho done\n"),
+    )
+    .unwrap();
+    std::fs::set_permissions(bin.join("claude"), std::fs::Permissions::from_mode(0o755)).unwrap();
+    std::fs::create_dir_all(root.join("agents")).unwrap();
+    std::fs::write(
+        root.join("agents/nightly.md"),
+        "---\nschedule: \"@daily\"\nruntime: host\ntool: claude\n---\nGo.\n",
+    )
+    .unwrap();
+
+    let output = ivar()
+        .current_dir(&root)
+        .env("HOME", home.as_str())
+        .env("PATH", format!("{bin}:{}", std::env::var("PATH").unwrap()))
+        .args(["--json", "agent", "run", "nightly"])
+        .timeout(Duration::from_secs(20))
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let value: serde_json::Value = serde_json::from_slice(&output).expect("valid json");
+    assert_eq!(value["agent"], "nightly");
+
+    std::fs::write(&go, "").unwrap();
+    let runs = root.join(".ivar/agents/runs/nightly");
+    let deadline = Instant::now() + Duration::from_secs(60);
+    let has_receipt = || {
+        std::fs::read_dir(&runs).is_ok_and(|entries| {
+            entries
+                .flatten()
+                .any(|e| e.path().extension().is_some_and(|x| x == "json"))
+        })
+    };
+    while !has_receipt() {
+        assert!(Instant::now() < deadline, "no receipt under {runs}");
+        std::thread::sleep(Duration::from_millis(100));
+    }
 }
 
 #[test]
