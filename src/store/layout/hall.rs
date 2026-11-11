@@ -385,6 +385,14 @@ impl Layout {
         self.ivar_dir().join("hall-sync.lock")
     }
 
+    /// `<hall>/.ivar/hall-sync.log` — what a detached `ivar hall sync` printed,
+    /// for the sync a `SessionEnd` hook starts and cannot wait for. Ignored by
+    /// the `.ivar/*` line like the rest of local state.
+    #[must_use]
+    pub fn hall_sync_log(&self) -> Utf8PathBuf {
+        self.ivar_dir().join("hall-sync.log")
+    }
+
     /// `<hall>/.ivar/graph.db` — the code graph, derived and disposable.
     #[must_use]
     pub fn graph_db(&self) -> Utf8PathBuf {

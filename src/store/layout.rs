@@ -19,6 +19,7 @@
 //!     memory.db                        the hall memory; only `ivar memory clean` deletes it
 //!     memory.lock                      hall memory writer lock (the graph lock before the split)
 //!     hall-sync.lock                   held while the hall's commits are made and pushed
+//!     hall-sync.log                    output of the detached sync a SessionEnd hook starts
 //!     repos/<repo>/.bare/              the bare clone
 //!     repos/<repo>/<branch>/           a worktree off that bare
 //!     features/<feature>/              promotion records and local working documents:

@@ -46,6 +46,9 @@ pub enum MemoryCommand {
         command: HandoffCommand,
     },
     /// Record one session hook event into the capture spool. Always exits 0 and prints nothing.
+    /// When a session with no feature ends, it also starts `ivar hall sync` in a process of its
+    /// own, logging to `.ivar/hall-sync.log`, and does not wait for it; `auto_commit: false`
+    /// in `ivar.json` turns that off.
     Capture {
         /// Provider whose hook payload arrives on stdin; without one nothing is recorded.
         #[arg(long)]

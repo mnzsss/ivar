@@ -53,7 +53,7 @@ Promote a discovery session to a feature session, keeping its name
 
 ## `ivar session stop`
 
-Stop a session — tear down its view dir and end any running harness. Omitting the session stops `$IVAR_SESSION_ID`; `--all` stops every session in the hall
+Stop a session — tear down its view dir and end any running harness. Omitting the session stops `$IVAR_SESSION_ID`; `--all` stops every session in the hall. Stopping a discovery session (one with no feature) also commits the pages it wrote under `docs/memory/` as `docs(memory): Record discovery session pages`, then commits the rest of the hall and pushes, unless `auto_commit` is off in `ivar.json`
 
 | argument | required | description |
 | --- | --- | --- |

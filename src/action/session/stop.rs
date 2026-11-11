@@ -3,18 +3,26 @@
 //! Liveness is a filesystem fact: a session is live while its View Dir exists.
 //! Removing the View Dir marks it stopped. Stopping every session takes an
 //! explicit `--all`; a session id that matches nothing is an error.
+//!
+//! The end of a discovery session — one bound to no feature — also syncs the
+//! hall: pages it wrote under `docs/memory/` have no feature cleanup to commit
+//! them, so this is where they are recorded and pushed.
 
 use std::io;
 
 use serde::Serialize;
 
+use camino::Utf8PathBuf;
+
 use crate::action::Ctx;
 use crate::action::discovery;
+use crate::action::hall::{OperationCommit, SyncRequest, Trigger, sync_hall};
 use crate::action::memory::consolidate::consolidate_session;
 use crate::action::memory::drain::epoch_secs_now;
 use crate::domain::provider::Provider;
 use crate::domain::session::SessionRef;
 use crate::error::{Failure, FixAction, Outcome, Report, Warning, WriteHuman};
+use crate::git::{self, Git};
 use crate::infra::fs;
 use crate::providers;
 use crate::store::layout::Layout;
@@ -34,6 +42,9 @@ pub struct StopInput {
     /// Stop every live session in the hall; `session` is ignored.
     pub all: bool,
 }
+
+/// The message of the commit that records the pages a discovery session wrote.
+const DISCOVERY_MESSAGE: &str = "docs(memory): Record discovery session pages";
 
 /// What `ivar session stop` did.
 #[derive(Debug, Clone, Serialize)]
@@ -72,7 +83,10 @@ pub fn stop(ctx: &Ctx, input: &StopInput) -> Outcome<StopOutcome> {
         );
     };
     let session = lookup::resolve(&layout, Some(id_prefix), None)?;
-    let (stopped, warnings) = end(&layout, &session, hall_lists_t3(&layout))?;
+    let (stopped, mut warnings) = end(&layout, &session, hall_lists_t3(&layout))?;
+    if stopped && session.feature.is_none() {
+        warnings.extend(sync_discovery(&layout, &git::System));
+    }
     Ok(Report::with_warnings(
         StopOutcome {
             stopped: u32::from(stopped),
@@ -87,8 +101,26 @@ fn hall_lists_t3(layout: &Layout) -> bool {
 }
 
 fn stop_all(layout: &Layout) -> Outcome<StopOutcome> {
-    let (stopped, warnings) = end_each(layout, lookup::list_all(layout)?);
-    Ok(Report::with_warnings(StopOutcome { stopped }, warnings))
+    let ended = end_all(layout, lookup::list_all(layout)?);
+    let mut warnings = ended.warnings;
+    if ended.discovery {
+        warnings.extend(sync_discovery(layout, &git::System));
+    }
+    Ok(Report::with_warnings(
+        StopOutcome {
+            stopped: ended.stopped,
+        },
+        warnings,
+    ))
+}
+
+/// What ending a batch of sessions did.
+struct Ended {
+    /// How many sessions were ended.
+    stopped: u32,
+    /// Whether one of them was a discovery session.
+    discovery: bool,
+    warnings: Vec<Warning>,
 }
 
 /// End every session in `sessions`, best-effort: a session whose discovery doc
@@ -97,24 +129,67 @@ pub(crate) fn end_each(
     layout: &Layout,
     sessions: impl IntoIterator<Item = SessionRef>,
 ) -> (u32, Vec<Warning>) {
+    let ended = end_all(layout, sessions);
+    (ended.stopped, ended.warnings)
+}
+
+fn end_all(layout: &Layout, sessions: impl IntoIterator<Item = SessionRef>) -> Ended {
     let lists_t3 = hall_lists_t3(layout);
-    let mut ended = 0u32;
-    let mut warnings = Vec::new();
+    let mut ended = Ended {
+        stopped: 0,
+        discovery: false,
+        warnings: Vec::new(),
+    };
     for session in sessions {
         match end(layout, &session, lists_t3) {
-            Ok((true, found)) => {
-                ended += 1;
-                warnings.extend(found);
+            Ok((stopped, found)) => {
+                if stopped {
+                    ended.stopped += 1;
+                    ended.discovery |= session.feature.is_none();
+                }
+                ended.warnings.extend(found);
             }
-            Ok((false, found)) => warnings.extend(found),
-            Err(failure) => warnings.push(Warning::new(
+            Err(failure) => ended.warnings.push(Warning::new(
                 "session.stop_skipped",
                 session.id.as_str(),
                 failure.what,
             )),
         }
     }
-    (ended, warnings)
+    ended
+}
+
+/// Record and push what a discovery session left in the hall: the pages under
+/// `docs/memory/` in their own commit, then everything else pending, then the
+/// push. The warnings are the sync's own; a sync that cannot finish never
+/// fails the stop. `auto_commit: false` in the manifest turns it off, and a
+/// hall that is not a git repository has nothing to sync, which is not worth a
+/// warning on every stop.
+fn sync_discovery(layout: &Layout, git: &impl Git) -> Vec<Warning> {
+    if !git
+        .repo_state(layout.root())
+        .is_ok_and(|state| state.is_repository)
+    {
+        return Vec::new();
+    }
+    let paths: Vec<Utf8PathBuf> = git
+        .changed_paths(layout.root())
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|path| path.starts_with("docs/memory"))
+        .collect();
+    sync_hall(
+        layout,
+        git,
+        &SyncRequest {
+            trigger: Trigger::Automatic,
+            operation: Some(OperationCommit {
+                paths: &paths,
+                message: DISCOVERY_MESSAGE,
+            }),
+        },
+    )
+    .warnings
 }
 
 /// End `session`: keep its discovery doc, close its T3 project, then remove its

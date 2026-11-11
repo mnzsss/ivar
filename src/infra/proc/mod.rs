@@ -645,6 +645,40 @@ pub fn detach(command: &Command) -> Result<(), Error> {
     Ok(())
 }
 
+/// Spawn `command` and return at once, with stdout and stderr appended to `log`
+/// and stdin at `/dev/null`.
+///
+/// [`detach`] for a child whose output is worth keeping: a hook that cannot
+/// wait for a hall sync still wants to know, later, why it did not push. The
+/// child leads its own process group, so the end of the caller's session does
+/// not signal it. Like [`detach`], the child is never reaped.
+///
+/// # Errors
+///
+/// Returns [`Error::Spawn`] if `log` cannot be opened, or `command` cannot be
+/// spawned.
+pub fn detach_to_log(command: &Command, log: &camino::Utf8Path) -> Result<(), Error> {
+    let stdout = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(log.as_std_path())
+        .map_err(|source| spawn_error(command, source))?;
+    let stderr = stdout
+        .try_clone()
+        .map_err(|source| spawn_error(command, source))?;
+    command
+        .clone()
+        .process_group()
+        .to_std()
+        .stdin(Stdio::null())
+        .stdout(stdout)
+        .stderr(stderr)
+        .spawn()
+        .map_err(|source| spawn_error(command, source))?;
+
+    Ok(())
+}
+
 /// Replace this process with `command`.
 ///
 /// The launcher case (ADR-0006 D1): a child that has applied a Landlock

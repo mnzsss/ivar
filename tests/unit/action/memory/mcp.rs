@@ -236,3 +236,11 @@ fn the_ambient_session_owns_a_call_only_when_it_is_a_session_of_this_hall() {
     assert_eq!(own.session.as_deref(), Some(ours.as_str()));
     assert_eq!(own.owner_key, ours.as_str());
 }
+
+#[test]
+fn the_instructions_say_that_ending_a_discovery_session_commits_its_pages() {
+    let instructions = crate::action::memory::mcp::MEMORY_INSTRUCTIONS;
+
+    assert!(instructions.contains("discovery session"), "{instructions}");
+    assert!(instructions.contains("ivar session stop"), "{instructions}");
+}

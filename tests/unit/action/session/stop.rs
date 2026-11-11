@@ -491,5 +491,7 @@ fn a_failed_drain_is_a_warning_and_consolidation_still_runs() {
     unguard_worktrees(&root);
 }
 
+#[path = "stop_discovery.rs"]
+mod discovery_sync;
 #[path = "stop_handoff.rs"]
 mod handoff;

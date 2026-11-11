@@ -22,7 +22,10 @@ pub enum SessionCommand {
     Convert(SessionConvertArgs),
     /// Stop a session — tear down its view dir and end any running harness.
     /// Omitting the session stops `$IVAR_SESSION_ID`; `--all` stops every
-    /// session in the hall.
+    /// session in the hall. Stopping a discovery session (one with no feature)
+    /// also commits the pages it wrote under `docs/memory/` as `docs(memory):
+    /// Record discovery session pages`, then commits the rest of the hall and
+    /// pushes, unless `auto_commit` is off in `ivar.json`.
     Stop(SessionStopArgs),
     /// Remove dead sessions: view dirs that exist but hold no readable
     /// `state.json`. A session with a readable record is never touched.
