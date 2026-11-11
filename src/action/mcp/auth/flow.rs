@@ -253,8 +253,17 @@ pub(super) fn run_internal_flow_pipeline(
     let client_id = preregistered.client_id.ok_or_else(|| {
         Failure::blocked(
             "flow.no_client_id",
-            "internal OAuth flow requires a client_id from pre-registration",
+            format!(
+                "`{}` offers no way for ivar to identify itself: register a public client \
+                 with redirect URI {REDIRECT_URI} on the server and declare its id as \
+                 `oauth.client_id` for `{}` in ivar.json",
+                server.name, server.name
+            ),
         )
+        .expected(
+            "client_id_metadata_document_supported, a registration_endpoint, or oauth.client_id",
+        )
+        .actual("no client_id metadata document support and no registration_endpoint")
     })?;
     let client_secret = if preregistered.auth_mode == AuthMode::None {
         None

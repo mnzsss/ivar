@@ -338,3 +338,33 @@ fn fresh_figma_registration_sends_the_client_secret_to_the_token_endpoint() {
         result.err().map(|f| f.what)
     );
 }
+
+#[test]
+fn a_server_with_no_client_identification_says_how_to_declare_one() {
+    let ops = MockOps {
+        prereg: Some(Preregistered {
+            report: Preregistration::NotNeeded,
+            client_id: None,
+            secret: None,
+            auth_mode: AuthMode::None,
+        }),
+        provider: Provider::Omp,
+        ..Default::default()
+    };
+    let server = McpServerDef::new("prisda", "http").url("https://prisda-office.mnzs.dev/api/mcp");
+
+    let failure = flow::run_internal_flow_pipeline(&ops, &server, "prisda")
+        .expect_err("no client_id means no authorize URL");
+
+    assert_eq!(failure.code, "flow.no_client_id");
+    assert!(failure.what.contains("prisda"), "{}", failure.what);
+    assert!(
+        failure.what.contains("oauth.client_id"),
+        "the fix names the manifest field: {}",
+        failure.what
+    );
+    assert_eq!(
+        failure.actual.as_deref(),
+        Some("no client_id metadata document support and no registration_endpoint")
+    );
+}
