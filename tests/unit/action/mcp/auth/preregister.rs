@@ -6,6 +6,8 @@
 )]
 
 use super::*;
+use crate::action::mcp::auth::support::declare_server;
+use crate::infra::mcp_oauth::OAuthEndpoints;
 use crate::test_support::seeded_hall;
 
 /// `R-AUTH-LIFECYCLE`: the endpoints a fresh registration persists are the ones
@@ -345,36 +347,24 @@ fn a_recorded_public_client_re_runs_without_resolving_a_secret() {
     assert!(matches!(result.report, Preregistration::Skipped));
 }
 
-fn prisda_endpoints(
-    registration_endpoint: Option<&str>,
-) -> crate::infra::mcp_oauth::OAuthEndpoints {
-    crate::infra::mcp_oauth::OAuthEndpoints {
-        authorization_endpoint: "https://prisda-office.mnzs.dev/api/auth/oauth2/authorize"
-            .to_owned(),
-        token_endpoint: "https://prisda-office.mnzs.dev/api/auth/oauth2/token".to_owned(),
-        resource: Some("https://prisda-office.mnzs.dev/api/mcp".to_owned()),
+fn prisda_endpoints(registration_endpoint: Option<&str>) -> OAuthEndpoints {
+    OAuthEndpoints {
+        authorization_endpoint: "https://mcp.prisda.test/api/auth/oauth2/authorize".to_owned(),
+        token_endpoint: "https://mcp.prisda.test/api/auth/oauth2/token".to_owned(),
+        resource: Some("https://mcp.prisda.test/mcp".to_owned()),
         scopes_supported: Some(vec!["cms:write".to_owned()]),
         registration_endpoint: registration_endpoint.map(str::to_owned),
         client_id_metadata_document_supported: true,
     }
 }
 
-fn declare(layout: &Layout, server: &McpServerDef) -> Manifest {
-    let manifest = Manifest::read(layout)
-        .unwrap()
-        .unwrap()
-        .with_mcp_servers(vec![server.clone()])
-        .unwrap();
-    Manifest::write(layout, &manifest).unwrap();
-    manifest
-}
-
 #[test]
 fn a_server_that_accepts_metadata_documents_gets_the_ivar_document_as_a_public_client() {
     let (_guard, root) = seeded_hall();
     let layout = Layout::at(root.clone());
-    let server = McpServerDef::new("prisda", "http").url("https://prisda-office.mnzs.dev/api/mcp");
-    let manifest = declare(&layout, &server);
+    let server = McpServerDef::new("prisda", "http").url("https://mcp.prisda.test/mcp");
+    declare_server(&root, server.clone());
+    let manifest = Manifest::read(&layout).unwrap().unwrap();
 
     let result = preregister_if_needed(
         &layout,
@@ -403,11 +393,11 @@ fn a_server_that_accepts_metadata_documents_gets_the_ivar_document_as_a_public_c
     assert_eq!(persisted.client_secret_env, None);
     assert_eq!(
         persisted.token_url.as_deref(),
-        Some("https://prisda-office.mnzs.dev/api/auth/oauth2/token")
+        Some("https://mcp.prisda.test/api/auth/oauth2/token")
     );
     assert_eq!(
         persisted.resource.as_deref(),
-        Some("https://prisda-office.mnzs.dev/api/mcp")
+        Some("https://mcp.prisda.test/mcp")
     );
 
     let reread = Manifest::read(&layout).unwrap().unwrap();
@@ -422,14 +412,26 @@ fn a_server_that_accepts_metadata_documents_gets_the_ivar_document_as_a_public_c
     .unwrap();
     assert!(matches!(second.report, Preregistration::Skipped));
     assert_eq!(second.client_id.as_deref(), Some(CIMD_CLIENT_ID));
+
+    let omp_config: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(layout.mcp_config(&Provider::Omp)).unwrap())
+            .unwrap();
+    let servers = omp_config["mcpServers"].as_object().unwrap();
+    assert_eq!(servers.len(), 1);
+    let auth = servers.values().next().unwrap()["auth"]
+        .as_object()
+        .unwrap();
+    assert_eq!(auth["clientId"], CIMD_CLIENT_ID);
+    assert!(!auth.contains_key("clientSecret"));
 }
 
 #[test]
 fn a_metadata_document_is_preferred_over_dynamic_registration() {
     let (_guard, root) = seeded_hall();
     let layout = Layout::at(root.clone());
-    let server = McpServerDef::new("prisda", "http").url("https://prisda-office.mnzs.dev/api/mcp");
-    let manifest = declare(&layout, &server);
+    let server = McpServerDef::new("prisda", "http").url("https://mcp.prisda.test/mcp");
+    declare_server(&root, server.clone());
+    let manifest = Manifest::read(&layout).unwrap().unwrap();
     let unreachable_registration = "http://127.0.0.1:9/register";
 
     let result = preregister_if_needed(
@@ -453,7 +455,8 @@ fn dynamic_registration_still_runs_when_metadata_documents_are_not_advertised() 
     let (_guard, root) = seeded_hall();
     let layout = Layout::at(root.clone());
     let server = McpServerDef::new("linear", "http").url("https://mcp.linear.app/mcp");
-    let manifest = declare(&layout, &server);
+    declare_server(&root, server.clone());
+    let manifest = Manifest::read(&layout).unwrap().unwrap();
     let mut endpoints = prisda_endpoints(Some("http://127.0.0.1:9/register"));
     endpoints.client_id_metadata_document_supported = false;
 
@@ -479,8 +482,9 @@ fn dynamic_registration_still_runs_when_metadata_documents_are_not_advertised() 
 fn the_provider_owned_path_never_takes_the_metadata_document_branch() {
     let (_guard, root) = seeded_hall();
     let layout = Layout::at(root.clone());
-    let server = McpServerDef::new("prisda", "http").url("https://prisda-office.mnzs.dev/api/mcp");
-    let manifest = declare(&layout, &server);
+    let server = McpServerDef::new("prisda", "http").url("https://mcp.prisda.test/mcp");
+    declare_server(&root, server.clone());
+    let manifest = Manifest::read(&layout).unwrap().unwrap();
 
     let result = preregister_if_needed(
         &layout,

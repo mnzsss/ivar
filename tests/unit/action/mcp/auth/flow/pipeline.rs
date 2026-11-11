@@ -351,7 +351,7 @@ fn a_server_with_no_client_identification_says_how_to_declare_one() {
         provider: Provider::Omp,
         ..Default::default()
     };
-    let server = McpServerDef::new("prisda", "http").url("https://prisda-office.mnzs.dev/api/mcp");
+    let server = McpServerDef::new("prisda", "http").url("https://mcp.prisda.test/mcp");
 
     let failure = flow::run_internal_flow_pipeline(&ops, &server, "prisda")
         .expect_err("no client_id means no authorize URL");

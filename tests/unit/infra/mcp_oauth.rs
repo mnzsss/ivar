@@ -304,9 +304,9 @@ fn discovery_accepts_both_streamable_http_content_types() {
 #[test]
 fn authorization_metadata_carries_client_id_metadata_document_support() {
     let json = r#"{
-        "issuer": "https://prisda-office.mnzs.dev/api/auth",
-        "authorization_endpoint": "https://prisda-office.mnzs.dev/api/auth/oauth2/authorize",
-        "token_endpoint": "https://prisda-office.mnzs.dev/api/auth/oauth2/token",
+        "issuer": "https://mcp.prisda.test/api/auth",
+        "authorization_endpoint": "https://mcp.prisda.test/api/auth/oauth2/authorize",
+        "token_endpoint": "https://mcp.prisda.test/api/auth/oauth2/token",
         "client_id_metadata_document_supported": true
     }"#;
     let endpoints = parse_authorization_metadata(json).expect("valid RFC 8414 metadata");
