@@ -27,7 +27,13 @@ pub enum SkillCommand {
     /// choice is personal (`.ivar/skills-local/disabled.json`).
     Disable(SkillToggleArgs),
     /// Materialise hall skills for the hall's providers and remove the ones
-    /// left behind by providers it no longer lists.
+    /// left behind by providers it no longer lists. When something changed,
+    /// `.ivar/skills/state.json` and the plan's destinations are committed as
+    /// `chore(skills): Sync hall skills`, then every other pending hall change as
+    /// `chore(hall): Sync pending hall changes`, and the branch is pushed;
+    /// `.ivar/skills-local/` is never committed. `auto_commit: false` in
+    /// `ivar.json` turns all of that off and `auto_push: false` only the push. A
+    /// hall sync that cannot finish is a warning and never changes the exit code.
     Sync,
     /// Show skill installation state — which are external, authored, or stale.
     Status,

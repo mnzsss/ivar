@@ -12,15 +12,17 @@
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use camino::Utf8Path;
+use camino::{Utf8Path, Utf8PathBuf};
 use serde::Serialize;
 
 use crate::action::Ctx;
+use crate::action::hall::{OperationCommit, SyncRequest, Trigger, sync_hall};
 use crate::domain::skill::SkillRoot;
 use crate::domain::skill_sync::{
     Action, InstallationEntry, PlanOptions, ProviderEntry, State, Step, Target, TargetId,
 };
 use crate::error::{Failure, Outcome, Report, Warning, WriteHuman};
+use crate::git;
 use crate::infra::fs;
 use crate::store::layout::Layout;
 use crate::store::manifest::Manifest;
@@ -59,7 +61,10 @@ pub fn sync(ctx: &Ctx) -> Outcome<SyncOutcome> {
     let layout = discover_hall(ctx)?;
     let manifest = read_manifest(&layout)?;
     let mut warnings = Vec::new();
-    let steps = reconcile(&layout, &manifest, &mut warnings)?;
+    let (steps, written) = reconcile_with_paths(&layout, &manifest, &mut warnings)?;
+    if steps > 0 {
+        warnings.extend(sync_changes(&layout, &written));
+    }
     let outcome = SyncOutcome {
         root: layout.root().to_path_buf(),
         steps,
@@ -71,11 +76,41 @@ pub fn sync(ctx: &Ctx) -> Outcome<SyncOutcome> {
     })
 }
 
+/// Commit the hall's skill state and the plan's destinations as
+/// `chore(skills): Sync hall skills`, then everything else pending, and push.
+///
+/// Never fails the sync: whatever could not be done is a warning.
+fn sync_changes(layout: &Layout, paths: &[Utf8PathBuf]) -> Vec<Warning> {
+    sync_hall(
+        layout,
+        &git::System,
+        &SyncRequest {
+            trigger: Trigger::Automatic,
+            operation: Some(OperationCommit {
+                paths,
+                message: "chore(skills): Sync hall skills",
+            }),
+        },
+    )
+    .into_operation_warnings()
+}
+
 pub(crate) fn reconcile(
     layout: &Layout,
     manifest: &Manifest,
     warnings: &mut Vec<Warning>,
 ) -> Result<u64, Failure> {
+    reconcile_with_paths(layout, manifest, warnings).map(|(steps, _)| steps)
+}
+
+/// [`reconcile`], plus what it may have written: the hall's `state.json` and
+/// the destination of every `Create`, `Update` and `Remove` step. The
+/// personal root's state file (`.ivar/skills-local/`) is never in it.
+fn reconcile_with_paths(
+    layout: &Layout,
+    manifest: &Manifest,
+    warnings: &mut Vec<Warning>,
+) -> Result<(u64, Vec<Utf8PathBuf>), Failure> {
     let (skills, enumerate_warnings) =
         enumerate::enumerate_both(&layout.hall_skills(), &layout.hall_skills_local())?;
     warnings.extend(enumerate_warnings);
@@ -121,11 +156,19 @@ pub(crate) fn reconcile(
     }
     remove_emptied_skill_dirs(layout, &available, warnings);
 
-    Ok(steps
+    let changed = steps
         .iter()
         .zip(&executed_successfully)
         .filter(|(step, ok)| **ok && step.action != Action::Unchanged)
-        .count() as u64)
+        .count() as u64;
+    let mut written = vec![skill::state_path(layout.root(), SkillRoot::Hall)];
+    written.extend(
+        steps
+            .iter()
+            .filter(|step| step.action != Action::Unchanged)
+            .map(|step| step.target.clone()),
+    );
+    Ok((changed, written))
 }
 
 // -- helpers ------------------------------------------------------------------

@@ -132,6 +132,15 @@ pub struct HallSync {
     pub warnings: Vec<Warning>,
 }
 
+impl HallSync {
+    /// The warnings for the report of the operation that called [`sync_hall`]:
+    /// shown, but never changing the operation's exit code.
+    #[must_use]
+    pub fn into_operation_warnings(self) -> Vec<Warning> {
+        self.warnings.into_iter().map(Warning::advisory).collect()
+    }
+}
+
 impl WriteHuman for HallSync {
     fn write_human(&self, w: &mut impl io::Write) -> io::Result<()> {
         if self.busy {

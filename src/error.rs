@@ -393,6 +393,9 @@ pub struct Warning {
     pub subject: String,
     /// One sentence saying what happened to it.
     pub what: String,
+    /// Shown like any warning, but it does not make the run exit non-clean.
+    #[serde(skip)]
+    advisory: bool,
 }
 
 impl Warning {
@@ -402,7 +405,23 @@ impl Warning {
             code,
             subject: subject.into(),
             what: what.into(),
+            advisory: false,
         }
+    }
+
+    /// This warning, reported but never changing the exit code: for a side
+    /// effect (the hall sync after an operation) that must not take away what
+    /// the operation already did.
+    #[must_use]
+    pub fn advisory(mut self) -> Self {
+        self.advisory = true;
+        self
+    }
+
+    /// Whether this warning leaves the exit code alone. See [`Self::advisory`].
+    #[must_use]
+    pub fn is_advisory(&self) -> bool {
+        self.advisory
     }
 
     /// Render the warning layout with anstyle style roles.
@@ -499,9 +518,10 @@ impl<T> Report<T> {
     }
 
     /// Whether anything needs attention. Callers use this to pick an exit code.
+    /// An [advisory](Warning::advisory) warning is shown but does not count.
     #[must_use]
     pub fn is_clean(&self) -> bool {
-        self.warnings.is_empty()
+        self.warnings.iter().all(Warning::is_advisory)
     }
 
     /// Replace the value, keeping the warnings.

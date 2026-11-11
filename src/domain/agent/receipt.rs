@@ -117,6 +117,10 @@ pub struct AgentRunReceipt {
     pub delivery_error: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub notify_error: Option<String>,
+    /// What the hall sync after a successful run could not do, one
+    /// `code: what` line each. Never changes the outcome.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sync_warnings: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub feedback: Option<RunFeedback>,
 }
@@ -229,6 +233,7 @@ impl AgentRunReceipt {
             delivery_fingerprint: None,
             delivery_error: None,
             notify_error: None,
+            sync_warnings: Vec::new(),
             feedback: None,
         }
     }

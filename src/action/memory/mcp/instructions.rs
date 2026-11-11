@@ -25,7 +25,8 @@ and memory_read_page for the full body of a hit.
 is settled; never `session`. The update page of a delivery is written before delivery, not at cleanup.
 - Before `ivar feature deliver`, call memory_review, give each possibly stale page a verdict and \
 confirm; delivery refuses a feature without that review.
-- The memory tools do not commit: a written page stays uncommitted until you commit it.
+- The memory tools do not commit; `ivar feature cleanup`, `ivar agent run` and `ivar skill sync` \
+commit and push every pending hall change.
 - At session start, unless your context already shows an ivar memory brief, call \
 memory_handoff_list and memory_message_list.
 - When the user wraps up or hands the work on, call memory_handoff_begin with a short summary, \

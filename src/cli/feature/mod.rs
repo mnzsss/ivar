@@ -79,7 +79,14 @@ pub enum FeatureCommand {
     /// Delete features whose branches have been merged into their default
     /// branches.
     Prune,
-    /// Authorize and perform a feature's local teardown.
+    /// Authorize and perform a feature's local teardown. Once it has run,
+    /// whether it removed the whole feature or only part of it, the documentation
+    /// pages the cleanup record lists are committed as `docs(memory): Record the
+    /// <feature> cleanup`, then every other pending hall change as
+    /// `chore(hall): Sync pending hall changes`, and the branch is pushed.
+    /// `auto_commit: false` in `ivar.json` turns all of that off and
+    /// `auto_push: false` only the push. A hall sync that cannot finish is a
+    /// warning and never changes the exit code.
     Cleanup(FeatureCleanupArgs),
     /// Generate a multi-root VSCode workspace (.code-workspace) for a feature,
     /// opening promoted repos writable and every context repo read-only.
