@@ -490,7 +490,7 @@ mod agent {
                     "PATH",
                     format!("{}:{}", self.bin, std::env::var("PATH").unwrap()),
                 )
-                .args(["--json", "agent", "run", "nightly"])
+                .args(["--json", "agent", "run", "nightly", "--wait"])
                 .output()
                 .unwrap();
             if String::from_utf8_lossy(&output.stdout).contains("Landlock") {

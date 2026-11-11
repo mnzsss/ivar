@@ -25,6 +25,7 @@ fn a_manual_run_defaults_its_trigger() {
         panic!("not agent run")
     };
     assert_eq!(args.trigger, "manual");
+    assert!(!args.wait);
 }
 
 #[test]

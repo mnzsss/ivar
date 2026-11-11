@@ -72,7 +72,7 @@ fn agent_skill_suggests_agents_only_after_the_user_agrees() {
     assert!(!content.contains("third time"));
     assert!(!content.contains("same check"));
     assert!(content.contains("Ask before `ivar agent sync`"));
-    assert!(content.contains("Ask before `ivar agent run <name>`"));
+    assert!(content.contains("Ask before `ivar agent run <name> --wait`"));
     assert!(content.contains("Never ask for a value in\n   the conversation"));
 }
 

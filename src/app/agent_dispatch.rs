@@ -15,6 +15,9 @@ pub(super) fn dispatch_agent(
     match cmd {
         AgentCommand::Sync => respond(agent::sync::sync(ctx), json, stdout, stderr),
         AgentCommand::Status => respond(agent::status::status(ctx), json, stdout, stderr),
+        AgentCommand::Run(args) if !args.wait && args.trigger == "manual" => {
+            respond(agent::start::start(ctx, &args.name), json, stdout, stderr)
+        }
         AgentCommand::Run(args) => respond(
             agent::run::RunInput::from_cli(args.name, &args.trigger)
                 .and_then(|input| agent::run::run(ctx, input)),

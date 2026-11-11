@@ -11,6 +11,7 @@ pub mod requirements;
 pub mod run;
 pub mod sandbox;
 pub mod scripts;
+pub mod start;
 pub mod status;
 pub mod sync;
 
