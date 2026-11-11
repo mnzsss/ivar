@@ -1,6 +1,6 @@
 use camino::{Utf8Path, Utf8PathBuf};
 
-use super::super::{Conflict, Error, Side};
+use super::super::{CommitInfo, Conflict, Error, Side};
 use super::{git, run};
 
 /// `git ls-files -u -z` — every path left unmerged, with the blob each side
@@ -62,4 +62,33 @@ pub(crate) fn take_side(worktree: &Utf8Path, path: &Utf8Path, side: Side) -> Res
         .arg("--")
         .arg(path.as_str()))?;
     Ok(())
+}
+
+/// `git cat-file blob <id>` — the text of one side of a conflict, trailing
+/// whitespace trimmed and bytes that are not UTF-8 replaced: it is read, never
+/// written back.
+pub(crate) fn blob_text(worktree: &Utf8Path, blob: &str) -> Result<String, Error> {
+    run(&git()
+        .cwd(worktree)
+        .arg("--no-optional-locks")
+        .arg("cat-file")
+        .arg("blob")
+        .arg(blob))
+}
+
+/// `git log -1 --format=%H%n%s <revision>` — one commit's id and subject.
+pub(crate) fn commit_info(worktree: &Utf8Path, revision: &str) -> Result<CommitInfo, Error> {
+    let stdout = run(&git()
+        .cwd(worktree)
+        .arg("--no-optional-locks")
+        .arg("log")
+        .arg("-1")
+        .arg("--format=%H%n%s")
+        .arg(revision)
+        .arg("--"))?;
+    let mut lines = stdout.lines();
+    Ok(CommitInfo {
+        sha: lines.next().unwrap_or_default().trim().to_owned(),
+        subject: lines.next().unwrap_or_default().trim().to_owned(),
+    })
 }

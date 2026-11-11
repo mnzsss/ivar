@@ -20,6 +20,7 @@ mod doctor;
 mod init;
 mod migrate;
 mod resolve;
+mod resolver;
 mod status;
 mod sync;
 

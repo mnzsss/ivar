@@ -34,8 +34,9 @@ src/
                    cleanup.rs); the facade owns the shared discovery/read/prompt
                    helpers. sync/ commits what is pending (mod.rs) and pushes
                    it, catching up with the remote when it moved (push.rs);
-                   resolve.rs is the one place a conflicted rebase there is
-                   settled.
+                   resolve.rs settles a conflicted rebase there with fixed
+                   rules, and resolver.rs hands what they leave to the
+                   embedded hall-sync-resolver agent and checks its work.
     sync/          sync — big enough to own a directory: the public verb and
                    report types live in mod.rs, repo materialisation in
                    repo.rs, provider/config reconciliation in providers.rs,

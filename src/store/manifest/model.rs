@@ -75,6 +75,9 @@ pub struct Manifest {
     /// Whether those automatic commits are pushed to the hall's upstream. On unless set to `false`. `ivar hall sync` ignores it.
     #[serde(default = "enabled", skip_serializing_if = "is_enabled")]
     auto_push: bool,
+    /// Whether the hall's sync may run the `hall-sync-resolver` agent on a rebase conflict the fixed rules do not cover. On unless set to `false`; the fixed rules still apply.
+    #[serde(default = "enabled", skip_serializing_if = "is_enabled")]
+    auto_resolve: bool,
 }
 
 /// The canonical URL of the document describing manifest version `version`.
@@ -164,6 +167,7 @@ impl Manifest {
             memory: None,
             auto_commit: true,
             auto_push: true,
+            auto_resolve: true,
         };
         manifest.validate()?;
         Ok(manifest)
@@ -213,6 +217,14 @@ impl Manifest {
     #[must_use]
     pub fn auto_push(&self) -> bool {
         self.auto_push
+    }
+
+    /// Whether a rebase conflict the fixed rules do not cover may be settled by
+    /// the `hall-sync-resolver` agent; on unless `ivar.json` sets
+    /// `auto_resolve` to `false`.
+    #[must_use]
+    pub fn auto_resolve(&self) -> bool {
+        self.auto_resolve
     }
 
     /// The hall-scoped MCP server definitions `ivar sync` materialises into
@@ -387,6 +399,7 @@ impl Manifest {
             memory: self.memory.clone(),
             auto_commit: self.auto_commit,
             auto_push: self.auto_push,
+            auto_resolve: self.auto_resolve,
         };
         manifest.validate()?;
         Ok(manifest)

@@ -38,6 +38,9 @@ mod hall_sync;
 #[path = "cli/hall_sync_health.rs"]
 mod hall_sync_health;
 
+#[path = "cli/hall_sync_triggers.rs"]
+mod hall_sync_triggers;
+
 #[path = "cli/init.rs"]
 mod init;
 

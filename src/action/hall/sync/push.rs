@@ -2,10 +2,13 @@
 //! a remote that moved on.
 
 use crate::action::skill::sync::reconcile;
-use crate::git::{Git, PushOutcome, Upstream};
+use camino::Utf8PathBuf;
+
+use crate::git::{Conflict, Git, PushOutcome, Upstream};
 
 use super::super::read_manifest;
 use super::super::resolve::{Resolution, SKILLS_STATE, resolve_conflicts};
+use super::super::resolver::{self, Attempt};
 use super::{MAX_REBASE_STOPS, Run, detail};
 
 impl<G: Git> Run<'_, G> {
@@ -102,33 +105,51 @@ impl<G: Git> Run<'_, G> {
             self.push_failed(upstream, &detail(&error));
             return None;
         }
-        self.settle_rebase(upstream)
+        let settled = self.settle_rebase(upstream);
+        if settled.is_some() && !self.out.resolved.is_empty() {
+            let files = self.out.resolved.clone();
+            if let Err(why) = resolver::notify_resolved(self.layout, &files) {
+                self.warn(
+                    "hall.notify_failed",
+                    format!("could not tell the hall's notify channel about the resolved conflicts: {why}"),
+                );
+            }
+        }
+        settled
     }
 
     /// Resolve each commit the rebase stops on until it finishes, or abort it.
     fn settle_rebase(&mut self, upstream: &Upstream) -> Option<bool> {
         let root = self.layout.root();
         let mut skills_state_taken = false;
+        // What the agent settled, kept apart until the whole rebase has
+        // succeeded: an abort puts all of it back.
+        let mut by_agent: Vec<Utf8PathBuf> = Vec::new();
+        // Why the last `--continue` failed: when no conflict explains the
+        // stop, it is the commit hook's refusal or git's own.
+        let mut refused: Option<String> = None;
         for _ in 0..MAX_REBASE_STOPS {
             let conflicts = match self.git.conflicts(root) {
                 Ok(conflicts) if !conflicts.is_empty() => conflicts,
                 Ok(_) => {
-                    return self
-                        .abandon(upstream, "the rebase stopped without a conflict to resolve");
+                    let why = match &refused {
+                        Some(detail) => {
+                            format!("the rebase stopped without a conflict to resolve: {detail}")
+                        }
+                        None => "the rebase stopped without a conflict to resolve".to_owned(),
+                    };
+                    return self.abandon(upstream, &why);
                 }
                 Err(error) => return self.abandon(upstream, &detail(&error)),
             };
+            let mut agent_files: Vec<Utf8PathBuf> = Vec::new();
             match resolve_conflicts(self.git, root, &conflicts) {
                 Ok(Resolution::Resolved) => {}
                 Ok(Resolution::Unresolved(files)) => {
-                    let files: Vec<&str> = files.iter().map(|file| file.as_str()).collect();
-                    return self.abandon(
-                        upstream,
-                        &format!(
-                            "the rebase conflicts in {}, which the fixed rules do not cover",
-                            files.join(", ")
-                        ),
-                    );
+                    match self.settle_with_agent(&conflicts, &files) {
+                        Ok(settled) => agent_files = settled,
+                        Err(why) => return self.abandon(upstream, &why),
+                    }
                 }
                 Err(error) => return self.abandon(upstream, &detail(&error)),
             }
@@ -139,21 +160,60 @@ impl<G: Git> Run<'_, G> {
             // A commit whose every change was settled in the remote's favour is
             // empty now; `--continue` would refuse it, `--skip` drops it.
             let step = match self.git.staged_changes(root) {
-                Ok(true) => self.git.continue_rebase(root),
+                Ok(true) if agent_files.is_empty() => self.git.continue_rebase(root),
+                Ok(true) => {
+                    by_agent.extend(agent_files);
+                    self.git
+                        .continue_rebase_with_trailer(root, resolver::TRAILER)
+                }
                 Ok(false) => self.git.skip_rebase(root),
                 Err(error) => Err(error),
             };
             match step {
-                Ok(()) => return Some(skills_state_taken),
+                Ok(()) => {
+                    self.out.resolved.extend(by_agent);
+                    return Some(skills_state_taken);
+                }
                 Err(error) => {
                     if !self.git.is_rebase_in_progress(root).unwrap_or(false) {
                         self.push_failed(upstream, &detail(&error));
                         return None;
                     }
+                    refused = Some(detail(&error));
                 }
             }
         }
         self.abandon(upstream, "the rebase kept stopping on new conflicts")
+    }
+
+    /// Hand the conflicts the fixed rules left to the `hall-sync-resolver`
+    /// agent. The files it settled and staged, or why the rebase must be
+    /// abandoned instead.
+    fn settle_with_agent(
+        &self,
+        conflicts: &[Conflict],
+        unresolved: &[Utf8PathBuf],
+    ) -> Result<Vec<Utf8PathBuf>, String> {
+        let left: Vec<Conflict> = conflicts
+            .iter()
+            .filter(|conflict| unresolved.contains(&conflict.path))
+            .cloned()
+            .collect();
+        let names = unresolved
+            .iter()
+            .map(|file| file.as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
+        match resolver::resolve(self.layout, self.git, self.agent, &left) {
+            Attempt::Resolved(files) => Ok(files),
+            Attempt::Declined => Err(format!(
+                "the rebase conflicts in {names}, which the fixed rules do not cover, and \
+                 `auto_resolve` is off"
+            )),
+            Attempt::Failed(why) => Err(format!(
+                "the rebase conflicts in {names}, which the fixed rules do not cover: {why}"
+            )),
+        }
     }
 
     /// Abort the rebase, which puts the hall back as it was before the pull,

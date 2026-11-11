@@ -8,6 +8,7 @@ use serde::Serialize;
 
 use crate::action::Ctx;
 use crate::action::feature::delete;
+use crate::action::hall::{OperationCommit, SyncRequest, Trigger, sync_hall};
 use crate::action::memory::delivery::Emitter;
 use crate::action::memory::review::{ReviewState, review_state};
 use crate::action::session::lookup as session_lookup;
@@ -267,10 +268,19 @@ fn apply_cleanup(
     validate_record_against_preview(&record, &preview, forge_consulted)?;
     preflight_deletable(layout, &feature, &descendants)?;
 
+    // The pages the record says were written; they are the operation's commit.
+    let doc_paths = record
+        .approvals
+        .documentation
+        .as_ref()
+        .map(|doc| doc.paths.clone())
+        .unwrap_or_default();
+
     let (descendant_outcomes, mut warnings, all_descendants_removed) =
         teardown_descendants(layout, &git, &descendants)?;
     warnings.extend(memory_warning);
     if !all_descendants_removed {
+        warnings.extend(sync_cleanup(layout, &feature.name, &doc_paths));
         return Ok(partial_cleanup(
             layout,
             feature,
@@ -290,6 +300,7 @@ fn apply_cleanup(
 
     let complete_success = all_worktrees_removed && all_branches_deleted;
     if !complete_success {
+        warnings.extend(sync_cleanup(layout, &feature.name, &doc_paths));
         return Ok(partial_cleanup(
             layout,
             feature,
@@ -321,6 +332,7 @@ fn apply_cleanup(
         .as_ref()
         .map_or_else(|| review.to_owned(), |doc| doc.decision.to_string());
     write_record_outcome(layout, record, record_path, &apply_outcome)?;
+    warnings.extend(sync_cleanup(layout, &feature.name, &doc_paths));
 
     emit_cleaned(
         emitter,
@@ -339,6 +351,26 @@ fn apply_cleanup(
         },
         warnings,
     ))
+}
+
+/// Commit the pages the cleanup record lists under `docs(memory): Record the
+/// <feature> cleanup`, then everything else pending in the hall, and push.
+///
+/// Never fails the cleanup: whatever the sync could not do is a warning.
+fn sync_cleanup(layout: &Layout, feature: &FeatureName, paths: &[Utf8PathBuf]) -> Vec<Warning> {
+    let message = format!("docs(memory): Record the {feature} cleanup");
+    sync_hall(
+        layout,
+        &git::System,
+        &SyncRequest {
+            trigger: Trigger::Automatic,
+            operation: Some(OperationCommit {
+                paths,
+                message: &message,
+            }),
+        },
+    )
+    .into_operation_warnings()
 }
 
 /// The report of an apply that stopped before removing the feature, so its

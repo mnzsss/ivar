@@ -151,6 +151,21 @@ fn a_report_with_warnings_is_not_clean() {
 }
 
 #[test]
+fn an_advisory_warning_is_shown_but_leaves_the_report_clean() {
+    let mut report = Report::new(());
+    report.warn(Warning::new("hall.push_failed", "hall", "offline").advisory());
+    assert!(report.is_clean());
+    assert_eq!(report.warnings.len(), 1);
+    assert_eq!(
+        serde_json::to_string(&report).unwrap(),
+        r#"{"ok":true,"warnings":[{"code":"hall.push_failed","subject":"hall","what":"offline"}]}"#
+    );
+
+    report.warn(Warning::new("repo.unreachable", "api", "no answer"));
+    assert!(!report.is_clean());
+}
+
+#[test]
 fn a_report_inlines_the_outcome_beside_the_envelope_flag() {
     #[derive(Serialize)]
     struct Outcome {

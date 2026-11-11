@@ -153,6 +153,35 @@ fn either_switch_turned_off_parses_round_trips_and_survives_other_builders() {
 }
 
 #[test]
+fn auto_resolve_defaults_to_on_is_absent_from_the_file_and_survives_other_builders() {
+    let manifest = empty_manifest();
+    assert!(manifest.auto_resolve());
+    assert!(
+        !serde_json::to_string(&manifest)
+            .unwrap()
+            .contains("auto_resolve")
+    );
+
+    let json = format!(r#"{BASE},"auto_resolve":false}}"#);
+    let manifest: Manifest = serde_json::from_str(&json).unwrap();
+    assert!(!manifest.auto_resolve());
+    assert!(manifest.auto_commit() && manifest.auto_push());
+
+    let rebuilt = manifest.with_graph_path_added("brand").unwrap();
+    assert!(!rebuilt.auto_resolve());
+    let text = serde_json::to_string(&rebuilt).unwrap();
+    assert!(text.contains(r#""auto_resolve":false"#), "{text}");
+
+    let json = format!(r#"{BASE},"auto_resolve":true}}"#);
+    let manifest: Manifest = serde_json::from_str(&json).unwrap();
+    assert!(
+        !serde_json::to_string(&manifest)
+            .unwrap()
+            .contains("auto_resolve")
+    );
+}
+
+#[test]
 fn a_switch_written_as_true_is_left_out_when_the_file_is_written_back() {
     let json = format!(r#"{BASE},"auto_commit":true,"auto_push":true}}"#);
     let manifest: Manifest = serde_json::from_str(&json).unwrap();
