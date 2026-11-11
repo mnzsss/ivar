@@ -14,6 +14,7 @@ fn fresh_registration_persists_the_endpoints_discovery_returned() {
         resource: Some("https://api.example.com/mcp".to_owned()),
         scopes_supported: None,
         registration_endpoint: None,
+        client_id_metadata_document_supported: false,
     };
 
     let oauth = oauth_registration(
@@ -49,6 +50,7 @@ fn fresh_registration_persists_no_resource_when_discovery_returned_none() {
         resource: None,
         scopes_supported: None,
         registration_endpoint: None,
+        client_id_metadata_document_supported: false,
     };
 
     let oauth = oauth_registration(
@@ -286,6 +288,7 @@ fn a_public_registration_records_no_secret_variable() {
         resource: None,
         scopes_supported: Some(vec!["read".to_owned(), "write".to_owned()]),
         registration_endpoint: Some("https://mcp.linear.app/register".to_owned()),
+        client_id_metadata_document_supported: false,
     };
 
     let oauth = oauth_registration("Uk1eiX5O6ndVHwo_", None, Some(&discovered));

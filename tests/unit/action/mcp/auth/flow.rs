@@ -203,6 +203,7 @@ impl FlowOps for MockOps {
             resource: None,
             scopes_supported: None,
             registration_endpoint: None,
+            client_id_metadata_document_supported: false,
         }))
     }
     fn bind(&self, _: &str) -> Result<CallbackServer, Failure> {
@@ -449,6 +450,7 @@ fn every_advertised_scope_reaches_the_authorize_url() {
         resource: None,
         scopes_supported: Some(vec!["read".to_owned(), "write".to_owned()]),
         registration_endpoint: None,
+        client_id_metadata_document_supported: false,
     };
 
     let url = crate::infra::oauth::authorize_url(
@@ -475,6 +477,7 @@ fn a_server_advertising_no_scopes_sends_no_scope_parameter() {
         resource: None,
         scopes_supported: None,
         registration_endpoint: None,
+        client_id_metadata_document_supported: false,
     };
     assert_eq!(flow::scope_parameter(&endpoints), None);
 }
@@ -487,6 +490,7 @@ fn an_empty_scope_list_sends_no_scope_parameter() {
         resource: None,
         scopes_supported: Some(vec![]),
         registration_endpoint: None,
+        client_id_metadata_document_supported: false,
     };
     assert_eq!(
         flow::scope_parameter(&endpoints),
