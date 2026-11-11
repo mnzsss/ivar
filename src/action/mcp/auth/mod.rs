@@ -28,8 +28,12 @@
 //!    the client up. A manifest entry that already carries `oauth`
 //!    skips re-registration outright — never re-registered, never invalidated
 //!    (`R-IDEMPOTENT`) — and resolves the secret from caller environment or
-//!    `.ivar/secrets/mcp.env`. Every other combination (a different provider, a
-//!    server with no `url`, a host Figma never gated) is
+//!    `.ivar/secrets/mcp.env`. On the internal flow, a server that is not a
+//!    Figma host is identified by ivar's Client ID Metadata Document when its
+//!    metadata advertises `client_id_metadata_document_supported`
+//!    ([`Preregistration::MetadataDocument`]), and registered through its
+//!    `registration_endpoint` otherwise. Every other combination (a server
+//!    with no `url`, a provider-owned login, a server advertising neither) is
 //!    [`Preregistration::NotNeeded`].
 //! 3. **Dispatch.** For omp always, and for OpenCode on Figma hosts, Ivar
 //!    performs the OAuth authorization-code flow itself

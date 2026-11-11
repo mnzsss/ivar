@@ -52,6 +52,13 @@ const DEFAULT_PORT: u16 = 19876;
 /// rather than leaving three copies to disagree.
 pub const OAUTH_REDIRECT_URI: &str = "http://127.0.0.1:19876/callback";
 
+/// The `client_id` ivar presents to authorization servers that accept a
+/// Client ID Metadata Document. `ivar.run` serves the document at this URL
+/// (valhalla `apps/heimdall/app/oauth/client-metadata.json/route.ts`), and its
+/// `redirect_uris` must list [`OAUTH_REDIRECT_URI`]; changing either breaks
+/// every installed ivar.
+pub const CIMD_CLIENT_ID: &str = "https://ivar.run/oauth/client-metadata.json";
+
 /// Maximum bytes to read from a single HTTP request (request line + headers).
 const MAX_READ: usize = 8192;
 

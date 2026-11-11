@@ -149,3 +149,24 @@ fn dropped_grants_empty_when_all_grants_survive() {
     let warnings = dropped_grants("linear", &runs, &after);
     assert!(warnings.is_empty());
 }
+
+#[test]
+fn a_metadata_document_client_is_reported_without_claiming_a_registration() {
+    let mut run = ok_run(Provider::Omp);
+    run.preregistration = Preregistration::MetadataDocument {
+        client_id: "https://ivar.run/oauth/client-metadata.json".to_owned(),
+    };
+    let report = all_providers_report("prisda", vec![run]);
+
+    let mut rendered = Vec::new();
+    report.value.write_human(&mut rendered).unwrap();
+    let rendered = String::from_utf8(rendered).unwrap();
+
+    assert!(rendered.contains("https://ivar.run/oauth/client-metadata.json"));
+    assert!(rendered.contains("client metadata document"));
+    assert!(!rendered.contains("pre-registered"));
+    assert_eq!(
+        serde_json::to_value(&report.value.runs[0].preregistration).unwrap(),
+        serde_json::json!({ "metadata_document": { "client_id": "https://ivar.run/oauth/client-metadata.json" } })
+    );
+}

@@ -33,6 +33,10 @@ pub enum Preregistration {
         /// locally to `.ivar/secrets/mcp.env` and passed to the child process environment.
         client_id: String,
     },
+    /// The authorization server accepts Client ID Metadata Documents: ivar
+    /// identified itself by the URL of its published document, registered
+    /// nothing, and recorded it in `ivar.json` as a public client.
+    MetadataDocument { client_id: String },
 }
 
 /// One provider's leg of an `ivar mcp auth` run — one entry per provider
@@ -143,6 +147,11 @@ impl ProviderRun {
                 w,
                 "[{provider}] pre-registered an OAuth client (`{client_id}`) for `{server}` with \
                  Figma. That only clears the registration allowlist — it is not authentication."
+            )?,
+            Preregistration::MetadataDocument { client_id } => writeln!(
+                w,
+                "[{provider}] `{server}` accepts a client metadata document — ivar identifies \
+                 itself as `{client_id}`; nothing was registered."
             )?,
             Preregistration::NoAuthRequired => writeln!(
                 w,
