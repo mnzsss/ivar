@@ -9,7 +9,14 @@ pub enum AgentCommand {
     Sync,
     /// List agents with schedule (or a task's `at`), next run, last outcome and timer state.
     Status,
-    /// Run an agent now, through the same path its timer uses.
+    /// Run an agent now, through the same path its timer uses. A run that
+    /// succeeds commits what changed under the agent's `write:` roots that lie
+    /// inside the hall as `docs(<agent>): Record the <YYYY-MM-DD> run`, then every
+    /// other pending hall change as `chore(hall): Sync pending hall changes`, and
+    /// pushes the branch. Roots outside the hall are ignored, and a run that fails
+    /// commits nothing. `auto_commit: false` in `ivar.json` turns all of that off
+    /// and `auto_push: false` only the push. A hall sync that cannot finish is
+    /// recorded in the receipt's `sync_warnings` and never changes the outcome.
     Run(AgentRunArgs),
     /// Print the output of the latest run, or of --run <id>.
     Logs(AgentLogsArgs),

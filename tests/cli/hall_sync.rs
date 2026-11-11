@@ -19,7 +19,7 @@ use camino::{Utf8Path, Utf8PathBuf};
 use predicates::prelude::*;
 
 /// An initialised hall on `main`, pushed to a bare remote, with one commit.
-fn hall_with_remote() -> (tempfile::TempDir, Utf8PathBuf, Utf8PathBuf) {
+pub(crate) fn hall_with_remote() -> (tempfile::TempDir, Utf8PathBuf, Utf8PathBuf) {
     let (guard, root) = hall_root();
     let remote = root.parent().unwrap().join("remote.git");
     git(
@@ -47,7 +47,7 @@ fn hall_with_remote() -> (tempfile::TempDir, Utf8PathBuf, Utf8PathBuf) {
     (guard, root, remote)
 }
 
-fn head(dir: &Utf8Path) -> String {
+pub(crate) fn head(dir: &Utf8Path) -> String {
     let output = std::process::Command::new("git")
         .args(["rev-parse", "HEAD"])
         .current_dir(dir)
@@ -56,7 +56,7 @@ fn head(dir: &Utf8Path) -> String {
     String::from_utf8(output.stdout).unwrap().trim().to_owned()
 }
 
-fn branch_tip(remote: &Utf8Path) -> String {
+pub(crate) fn branch_tip(remote: &Utf8Path) -> String {
     let output = std::process::Command::new("git")
         .args(["rev-parse", "main"])
         .current_dir(remote)

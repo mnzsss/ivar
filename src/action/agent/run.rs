@@ -8,6 +8,7 @@ use uuid::Uuid;
 use super::conclude;
 use super::feature_access::{self, Delivered};
 use super::notify;
+use super::record;
 use super::scripts;
 use crate::action::{Ctx, discover_hall, read_manifest};
 use crate::domain::agent::container::{
@@ -236,6 +237,16 @@ pub(crate) fn finish(
                 &spec.name,
                 failure.what,
             )),
+        }
+    }
+    // After the task file has moved, so the move is swept in the same sync.
+    // The receipt is already on disk; it is only rewritten to add what the
+    // sync could not do, and a failure to do so is not worth failing the run.
+    if record::records(&report.value) {
+        let warnings = record::record_run(layout, spec, &report.value);
+        if !warnings.is_empty() {
+            report.value.sync_warnings = warnings;
+            let _ = store::agent::write_receipt(layout, &report.value);
         }
     }
     Ok(report)
