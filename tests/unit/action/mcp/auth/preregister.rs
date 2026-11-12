@@ -1,6 +1,13 @@
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing
+)]
 
 use super::*;
+use crate::action::mcp::auth::support::declare_server;
+use crate::infra::mcp_oauth::OAuthEndpoints;
 use crate::test_support::seeded_hall;
 
 /// `R-AUTH-LIFECYCLE`: the endpoints a fresh registration persists are the ones
@@ -14,6 +21,7 @@ fn fresh_registration_persists_the_endpoints_discovery_returned() {
         resource: Some("https://api.example.com/mcp".to_owned()),
         scopes_supported: None,
         registration_endpoint: None,
+        client_id_metadata_document_supported: false,
     };
 
     let oauth = oauth_registration(
@@ -49,6 +57,7 @@ fn fresh_registration_persists_no_resource_when_discovery_returned_none() {
         resource: None,
         scopes_supported: None,
         registration_endpoint: None,
+        client_id_metadata_document_supported: false,
     };
 
     let oauth = oauth_registration(
@@ -286,6 +295,7 @@ fn a_public_registration_records_no_secret_variable() {
         resource: None,
         scopes_supported: Some(vec!["read".to_owned(), "write".to_owned()]),
         registration_endpoint: Some("https://mcp.linear.app/register".to_owned()),
+        client_id_metadata_document_supported: false,
     };
 
     let oauth = oauth_registration("Uk1eiX5O6ndVHwo_", None, Some(&discovered));
@@ -335,4 +345,161 @@ fn a_recorded_public_client_re_runs_without_resolving_a_secret() {
     assert_eq!(result.secret, None);
     assert_eq!(result.client_id.as_deref(), Some("Uk1eiX5O6ndVHwo_"));
     assert!(matches!(result.report, Preregistration::Skipped));
+}
+
+fn prisda_endpoints(registration_endpoint: Option<&str>) -> OAuthEndpoints {
+    OAuthEndpoints {
+        authorization_endpoint: "https://mcp.prisda.test/api/auth/oauth2/authorize".to_owned(),
+        token_endpoint: "https://mcp.prisda.test/api/auth/oauth2/token".to_owned(),
+        resource: Some("https://mcp.prisda.test/mcp".to_owned()),
+        scopes_supported: Some(vec!["cms:write".to_owned()]),
+        registration_endpoint: registration_endpoint.map(str::to_owned),
+        client_id_metadata_document_supported: true,
+    }
+}
+
+#[test]
+fn a_server_that_accepts_metadata_documents_gets_the_ivar_document_as_a_public_client() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root.clone());
+    let server = McpServerDef::new("prisda", "http").url("https://mcp.prisda.test/mcp");
+    declare_server(&root, server.clone());
+    let manifest = Manifest::read(&layout).unwrap().unwrap();
+
+    let result = preregister_if_needed(
+        &layout,
+        &manifest,
+        Provider::Omp,
+        &server,
+        "acme-prisda",
+        Some(&prisda_endpoints(None)),
+    )
+    .expect("a CIMD server needs no registration");
+
+    assert_eq!(result.client_id.as_deref(), Some(CIMD_CLIENT_ID));
+    assert_eq!(result.auth_mode, AuthMode::None);
+    assert_eq!(result.secret, None);
+    assert!(matches!(
+        &result.report,
+        Preregistration::MetadataDocument { client_id } if client_id == CIMD_CLIENT_ID
+    ));
+    assert!(!root.join(".ivar/secrets/mcp.env").exists());
+
+    let persisted = Manifest::read(&layout).unwrap().unwrap().mcp_servers()[0]
+        .oauth
+        .clone()
+        .expect("the CIMD client is recorded so omp can refresh");
+    assert_eq!(persisted.client_id, CIMD_CLIENT_ID);
+    assert_eq!(persisted.client_secret_env, None);
+    assert_eq!(
+        persisted.token_url.as_deref(),
+        Some("https://mcp.prisda.test/api/auth/oauth2/token")
+    );
+    assert_eq!(
+        persisted.resource.as_deref(),
+        Some("https://mcp.prisda.test/mcp")
+    );
+
+    let reread = Manifest::read(&layout).unwrap().unwrap();
+    let second = preregister_if_needed(
+        &layout,
+        &reread,
+        Provider::Omp,
+        &reread.mcp_servers()[0],
+        "acme-prisda",
+        Some(&prisda_endpoints(None)),
+    )
+    .unwrap();
+    assert!(matches!(second.report, Preregistration::Skipped));
+    assert_eq!(second.client_id.as_deref(), Some(CIMD_CLIENT_ID));
+
+    let omp_config: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(layout.mcp_config(&Provider::Omp)).unwrap())
+            .unwrap();
+    let servers = omp_config["mcpServers"].as_object().unwrap();
+    assert_eq!(servers.len(), 1);
+    let auth = servers.values().next().unwrap()["auth"]
+        .as_object()
+        .unwrap();
+    assert_eq!(auth["clientId"], CIMD_CLIENT_ID);
+    assert!(!auth.contains_key("clientSecret"));
+}
+
+#[test]
+fn a_metadata_document_is_preferred_over_dynamic_registration() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root.clone());
+    let server = McpServerDef::new("prisda", "http").url("https://mcp.prisda.test/mcp");
+    declare_server(&root, server.clone());
+    let manifest = Manifest::read(&layout).unwrap().unwrap();
+    let unreachable_registration = "http://127.0.0.1:9/register";
+
+    let result = preregister_if_needed(
+        &layout,
+        &manifest,
+        Provider::Omp,
+        &server,
+        "acme-prisda",
+        Some(&prisda_endpoints(Some(unreachable_registration))),
+    )
+    .expect("CIMD must win before any registration request is sent");
+
+    assert!(matches!(
+        result.report,
+        Preregistration::MetadataDocument { .. }
+    ));
+}
+
+#[test]
+fn dynamic_registration_still_runs_when_metadata_documents_are_not_advertised() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root.clone());
+    let server = McpServerDef::new("linear", "http").url("https://mcp.linear.app/mcp");
+    declare_server(&root, server.clone());
+    let manifest = Manifest::read(&layout).unwrap().unwrap();
+    let mut endpoints = prisda_endpoints(Some("http://127.0.0.1:9/register"));
+    endpoints.client_id_metadata_document_supported = false;
+
+    let failure = preregister_if_needed(
+        &layout,
+        &manifest,
+        Provider::Omp,
+        &server,
+        "acme-linear",
+        Some(&endpoints),
+    )
+    .expect_err("without CIMD the registration endpoint is tried, and nothing listens on port 9");
+
+    assert_eq!(failure.code, "mcp_oauth.register_client");
+    assert!(
+        Manifest::read(&layout).unwrap().unwrap().mcp_servers()[0]
+            .oauth
+            .is_none()
+    );
+}
+
+#[test]
+fn the_provider_owned_path_never_takes_the_metadata_document_branch() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root.clone());
+    let server = McpServerDef::new("prisda", "http").url("https://mcp.prisda.test/mcp");
+    declare_server(&root, server.clone());
+    let manifest = Manifest::read(&layout).unwrap().unwrap();
+
+    let result = preregister_if_needed(
+        &layout,
+        &manifest,
+        Provider::OpenCode,
+        &server,
+        "acme-prisda",
+        None,
+    )
+    .unwrap();
+
+    assert!(matches!(result.report, Preregistration::NotNeeded));
+    assert!(
+        Manifest::read(&layout).unwrap().unwrap().mcp_servers()[0]
+            .oauth
+            .is_none()
+    );
 }

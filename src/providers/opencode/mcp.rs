@@ -41,8 +41,9 @@ pub(crate) fn server_doc(
     if let Some(env) = &server.env {
         object.insert("environment".to_owned(), serde_json::json!(env));
     }
-    // A pre-provisioned OAuth client, for a server whose host rejects
-    // OpenCode's own dynamic client registration. `clientSecret` is
+    // The client `ivar mcp auth` settled on (a registration, or ivar's
+    // client metadata document, whose redirect is `OAUTH_REDIRECT_URI`
+    // too). `clientSecret` is
     // always the `{env:NAME}` reference the manifest names, never a
     // value — `McpOauth` has no field that could hold one.
     // Claude Code never reaches this: it is on Figma's allowlist and

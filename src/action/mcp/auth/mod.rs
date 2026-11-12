@@ -28,8 +28,12 @@
 //!    the client up. A manifest entry that already carries `oauth`
 //!    skips re-registration outright — never re-registered, never invalidated
 //!    (`R-IDEMPOTENT`) — and resolves the secret from caller environment or
-//!    `.ivar/secrets/mcp.env`. Every other combination (a different provider, a
-//!    server with no `url`, a host Figma never gated) is
+//!    `.ivar/secrets/mcp.env`. On the internal flow, a server that is not a
+//!    Figma host is identified by ivar's Client ID Metadata Document when its
+//!    metadata advertises `client_id_metadata_document_supported`
+//!    ([`Preregistration::MetadataDocument`]), and registered through its
+//!    `registration_endpoint` otherwise. Every other combination (a server
+//!    with no `url`, a provider-owned login, a server advertising neither) is
 //!    [`Preregistration::NotNeeded`].
 //! 3. **Dispatch.** For omp always, and for OpenCode on Figma hosts, Ivar
 //!    performs the OAuth authorization-code flow itself
@@ -89,17 +93,6 @@
 //! by [`attempt`] is reliable. `authenticated: true` now means that check
 //! passed, not merely that the child returned.
 //!
-//! # Recording that a server requires auth
-//!
-//! A server that registers or authenticates itself never gets an `oauth` block,
-//! so nothing in `ivar.json` would say it needs a token and `ivar mcp status`
-//! would call it `not-required`. Once every run is done, [`auth`] checks each
-//! successful run's provider credential store ([`has_credential_evidence`]); if
-//! one holds a present or refreshable token, it re-reads the manifest and
-//! writes `auth = "oauth"` once ([`mark_oauth_required`]). A zero exit alone is
-//! never enough — `claude mcp login` exits `0` for a server that needs no
-//! auth — and the write is skipped when `oauth` or `auth` is already on file.
-//!
 //! # Rejected: skip a provider that is already authenticated
 //!
 //! Considered and turned down — see the Analysis's "Authenticating every
@@ -157,25 +150,24 @@
 //! variable, rather than let a missing export surface later as the same
 //! confusing `client_secret_basic` error.
 
-use std::io;
-
-use serde::Serialize;
-
 use crate::action::Ctx;
-use crate::domain::mcp::{CredentialState, McpAuth, McpServerDef};
 use crate::domain::provider::Provider;
-use crate::error::{Outcome, Report, Warning, WriteHuman};
+use crate::error::{Outcome, Report};
 use crate::providers;
-use crate::store::manifest::Manifest;
 
 use super::super::{discover_hall, read_manifest};
 use super::{resolve_provider, resolve_server};
 
 mod dispatch;
 mod flow;
+mod outcome;
 mod preregister;
+mod requirement;
 
 use dispatch::{run_provider, try_run_provider};
+pub use outcome::{AuthMethod, AuthOutcome, Preregistration, ProviderRun};
+use outcome::{all_providers_report, dropped_grants};
+use requirement::record_auth_requirement;
 
 /// What `ivar mcp auth` needs.
 #[derive(Debug, Clone)]
@@ -192,75 +184,6 @@ pub struct AuthInput {
     pub all_providers: bool,
 }
 
-/// Whether step 2 (pre-registration) ran, and what it found.
-///
-/// Never conflated with authentication — see the module doc comment's
-/// `R-HONEST` section. [`WriteHuman`] gives each variant its own sentence so a
-/// reader cannot mistake "a client is registered" for "this server is
-/// authenticated".
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Preregistration {
-    /// The server needs no authentication at all: it served `initialize`
-    /// without a challenge, so there is nothing to register and nothing to
-    /// authenticate.
-    NoAuthRequired,
-    /// The provider isn't OpenCode, the server has no `url`, or its host
-    /// isn't one Figma's allowlist gates — step 2 never applied.
-    NotNeeded,
-    /// A usable client registration was already on the manifest; nothing was
-    /// registered or touched (`R-IDEMPOTENT`).
-    Skipped,
-    /// A new client was registered with Figma, written into `ivar.json`
-    /// (`oauth.client_id` and `oauth.client_secret_env`), and materialised
-    /// into `opencode.json`.
-    Registered {
-        /// The `client_id` Figma issued. Not a secret by itself, but never
-        /// reported alongside the client secret either — which is saved
-        /// locally to `.ivar/secrets/mcp.env` and passed to the child process environment.
-        client_id: String,
-    },
-}
-
-/// One provider's leg of an `ivar mcp auth` run — one entry per provider
-/// (`R-ALL-PARTIAL`), never collapsed into a single flat result, so a
-/// two-provider `--all-providers` run keeps each provider's own
-/// pre-registration outcome and its own command line.
-#[derive(Debug, Clone, Serialize)]
-pub struct ProviderRun {
-    /// The provider this leg ran against.
-    pub provider: Provider,
-    /// What step 2 (pre-registration) did for this provider, if anything.
-    pub preregistration: Preregistration,
-    /// How authentication was performed.
-    pub auth_method: AuthMethod,
-    /// The harness's own command that ran for this provider — the whole of
-    /// step 3, rendered exactly as [`proc::Command::display`] would show it
-    /// in an error. Empty when step 2 itself failed and step 3 never ran.
-    /// For [`AuthMethod::InternalOAuthFlow`], contains a descriptive label
-    /// instead of a command line.
-    pub command: String,
-    /// Whether this provider's harness reported success (exit 0). `false`
-    /// means this leg failed — at pre-registration or at dispatch — and
-    /// [`Self::error`] says what.
-    pub authenticated: bool,
-    /// What went wrong, when `authenticated` is `false`. Absent otherwise.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub error: Option<String>,
-}
-
-/// How authentication was performed for a provider run.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum AuthMethod {
-    /// The harness's own login command (`claude mcp login` / `opencode mcp auth`)
-    /// was spawned via `proc::inherit`.
-    ProviderCommand,
-    /// Ivar performed the OAuth authorization-code flow itself, printing
-    /// the authorization URL and running a temporary loopback listener.
-    InternalOAuthFlow,
-}
-
 pub(super) fn provider_order(available: &[Provider]) -> Vec<Provider> {
     let mut order = Vec::with_capacity(available.len());
     if available.contains(&Provider::ClaudeCode) {
@@ -272,105 +195,6 @@ pub(super) fn provider_order(available: &[Provider]) -> Vec<Provider> {
         }
     }
     order
-}
-
-/// What `ivar mcp auth` did: one [`ProviderRun`] per provider attempted.
-#[derive(Debug, Clone, Serialize)]
-pub struct AuthOutcome {
-    /// The server that was authenticated.
-    pub server: String,
-    /// One entry per provider attempted — a single-element list for the
-    /// default and `--provider` forms, one per hall provider for
-    /// `--all-providers`.
-    pub runs: Vec<ProviderRun>,
-}
-
-impl WriteHuman for AuthOutcome {
-    fn write_human(&self, w: &mut impl io::Write) -> io::Result<()> {
-        for run in &self.runs {
-            run.write_human(&self.server, w)?;
-        }
-
-        // A summary line only earns its place once there is more than one
-        // leg to summarise — the single-provider form already said
-        // everything worth saying above.
-        if self.runs.len() > 1 {
-            let succeeded: Vec<&str> = self
-                .runs
-                .iter()
-                .filter(|run| run.authenticated)
-                .map(|run| run.provider.id())
-                .collect();
-            let failed: Vec<&str> = self
-                .runs
-                .iter()
-                .filter(|run| !run.authenticated)
-                .map(|run| run.provider.id())
-                .collect();
-
-            if failed.is_empty() {
-                writeln!(w, "All providers authenticated: {}.", succeeded.join(", "))?;
-            } else {
-                let succeeded = if succeeded.is_empty() {
-                    "(none)".to_owned()
-                } else {
-                    succeeded.join(", ")
-                };
-                writeln!(
-                    w,
-                    "Succeeded: {succeeded} — Failed: {}. This run did not fully succeed.",
-                    failed.join(", ")
-                )?;
-            }
-        }
-
-        Ok(())
-    }
-}
-
-impl ProviderRun {
-    /// One leg's lines, in [`AuthOutcome::write_human`]'s loop.
-    fn write_human(&self, server: &str, w: &mut impl io::Write) -> io::Result<()> {
-        let provider = self.provider;
-        match &self.preregistration {
-            Preregistration::NotNeeded => {}
-            Preregistration::Skipped => writeln!(
-                w,
-                "[{provider}] a client registration for `{server}` was already on file — \
-                 pre-registration skipped."
-            )?,
-            Preregistration::Registered { client_id } => writeln!(
-                w,
-                "[{provider}] pre-registered an OAuth client (`{client_id}`) for `{server}` with \
-                 Figma. That only clears the registration allowlist — it is not authentication."
-            )?,
-            Preregistration::NoAuthRequired => writeln!(
-                w,
-                "[{provider}] `{server}` needs no authentication — it answers without a \
-                 challenge."
-            )?,
-        }
-
-        if self.authenticated {
-            match self.auth_method {
-                AuthMethod::ProviderCommand => writeln!(
-                    w,
-                    "[{provider}] authenticated `{server}` — `{}` exited 0.",
-                    self.command
-                ),
-                AuthMethod::InternalOAuthFlow => writeln!(
-                    w,
-                    "[{provider}] authenticated `{server}` via Ivar's OAuth flow.",
-                ),
-            }
-        } else {
-            writeln!(
-                w,
-                "[{provider}] failed to authenticate `{server}`: {}",
-                self.error.as_deref().unwrap_or("unknown error")
-            )
-        }
-    }
 }
 
 /// Authenticate `input.server` under `input.provider`, the hall's default, or
@@ -454,147 +278,9 @@ pub fn auth(ctx: &Ctx, input: &AuthInput) -> Outcome<AuthOutcome> {
     ))
 }
 
-/// Record in `ivar.json` that `server` requires OAuth, once a run has left a
-/// credential behind. Returns the warning to surface when the manifest could
-/// not be updated — the login itself already succeeded, so this never fails
-/// the command.
-fn record_auth_requirement(
-    layout: &crate::store::layout::Layout,
-    runs: &[ProviderRun],
-    server: &McpServerDef,
-    materialised_name: &str,
-    state_of: impl Fn(Provider, &str, &str) -> CredentialState,
-) -> Option<Warning> {
-    // A server already known to require auth has nothing left to record;
-    // skipping here also spares the credential-store reads.
-    if server.oauth.is_some() || server.auth.is_some() {
-        return None;
-    }
-    let url = server.url.as_deref()?;
-    if !has_credential_evidence(runs, materialised_name, url, state_of) {
-        return None;
-    }
-    mark_oauth_required(layout, &server.name)
-        .err()
-        .map(|failure| {
-            Warning::new(
-                "mcp.auth_not_recorded",
-                server.name.clone(),
-                format!(
-                    "authenticated, but could not record that `{}` requires auth in ivar.json: {}",
-                    server.name, failure.what
-                ),
-            )
-        })
-}
-
-/// Whether some successful run left a credential in its provider's store.
-///
-/// A zero exit is not evidence: `claude mcp login` also exits `0` for a server
-/// that needs no auth, and [`Preregistration::NoAuthRequired`] reports
-/// `authenticated` with nothing stored. Only a token that is present (or
-/// refreshable) shows the server demanded one.
-fn has_credential_evidence(
-    runs: &[ProviderRun],
-    materialised_name: &str,
-    server_url: &str,
-    state_of: impl Fn(Provider, &str, &str) -> CredentialState,
-) -> bool {
-    runs.iter().filter(|run| run.authenticated).any(|run| {
-        matches!(
-            state_of(run.provider, materialised_name, server_url),
-            CredentialState::Authenticated | CredentialState::Expired
-        )
-    })
-}
-
-/// Set `auth = oauth` on the manifest's `server_name`, re-reading the manifest
-/// first so a client the pre-registration step just wrote is never clobbered.
-/// Returns whether the manifest was rewritten: a server that already carries
-/// `oauth` or `auth` is left untouched (`R-IDEMPOTENT`).
-fn mark_oauth_required(
-    layout: &crate::store::layout::Layout,
-    server_name: &str,
-) -> Result<bool, crate::error::Failure> {
-    let manifest = read_manifest(layout)?;
-    let Some(current) = manifest
-        .mcp_servers()
-        .iter()
-        .find(|s| s.name == server_name)
-    else {
-        return Ok(false);
-    };
-    if current.oauth.is_some() || current.auth.is_some() {
-        return Ok(false);
-    }
-    let servers: Vec<McpServerDef> = manifest
-        .mcp_servers()
-        .iter()
-        .map(|s| {
-            if s.name == server_name {
-                s.clone().auth(McpAuth::Oauth)
-            } else {
-                s.clone()
-            }
-        })
-        .collect();
-    let updated = manifest.with_mcp_servers(servers)?;
-    Manifest::write(layout, &updated)?;
-    Ok(true)
-}
-
-/// Build the `--all-providers` report from every attempted [`ProviderRun`]:
-/// one [`Warning`] per failed leg, never a [`Failure`] (`R-ALL-PARTIAL`) —
-/// every provider was actually attempted, so a failed leg is "done, with
-/// something needing attention" (exit `1`), not "refused" (exit `2`).
-/// [`Report::is_clean`] turns `false` the moment any leg failed, which is
-/// what keeps one success from ever rendering as the whole run succeeding.
-fn all_providers_report(server: &str, runs: Vec<ProviderRun>) -> Report<AuthOutcome> {
-    let warnings: Vec<Warning> = runs
-        .iter()
-        .filter(|run| !run.authenticated)
-        .map(|run| {
-            Warning::new(
-                "mcp.provider_auth_failed",
-                run.provider.id(),
-                run.error.clone().unwrap_or_default(),
-            )
-        })
-        .collect();
-
-    Report::with_warnings(
-        AuthOutcome {
-            server: server.to_owned(),
-            runs,
-        },
-        warnings,
-    )
-}
-
-pub(super) fn dropped_grants(
-    server: &str,
-    runs: &[ProviderRun],
-    after: &std::collections::BTreeMap<Provider, crate::domain::mcp::CredentialState>,
-) -> Vec<Warning> {
-    let mut warnings = Vec::new();
-    for run in runs {
-        if run.authenticated
-            && let Some(&state) = after.get(&run.provider)
-            && state == crate::domain::mcp::CredentialState::Missing
-        {
-            let provider_id = run.provider.id();
-            warnings.push(Warning::new(
-                "mcp.grant_dropped",
-                provider_id,
-                format!(
-                    "`{server}` lost its {provider_id} grant after later authorizations; \
-                     run `ivar mcp auth {server} --provider {provider_id}`"
-                ),
-            ));
-        }
-    }
-    warnings
-}
+#[cfg(test)]
+#[path = "../../../../tests/unit/action/mcp/auth/support.rs"]
+mod support;
 
 #[cfg(test)]
 #[path = "../../../../tests/unit/action/mcp/auth.rs"]

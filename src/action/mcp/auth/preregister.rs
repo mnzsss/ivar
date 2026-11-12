@@ -9,6 +9,7 @@ use crate::domain::provider::Provider;
 use crate::error::{Failure, FixAction};
 use crate::harness::config;
 use crate::infra::figma;
+use crate::infra::http_callback::{CIMD_CLIENT_ID, OAUTH_REDIRECT_URI};
 use crate::infra::oauth::AuthMode;
 use crate::store::layout::Layout;
 use crate::store::manifest::Manifest;
@@ -50,15 +51,18 @@ impl Preregistered {
     }
 }
 
-/// Step 2: pre-register a client with Figma when, and only when, every
-/// condition in the plan holds. Every other combination is
-/// [`Preregistration::NotNeeded`] — including a server with no `url` at all,
-/// which cannot need a host-based workaround.
-///
-/// A successful registration persists the secret to `.ivar/secrets/mcp.env`,
-/// writes back to `ivar.json`, and re-materialises `opencode.json` before returning.
 const CLIENT_NAME: &str = "ivar";
 
+/// Step 2: resolve the OAuth client, in this order: an `oauth` block already
+/// on the manifest; Figma's registrar for a Figma host; ivar's Client ID
+/// Metadata Document when discovery says the server accepts one; dynamic
+/// client registration when discovery advertised a `registration_endpoint`.
+/// Every other combination is [`Preregistration::NotNeeded`] — including a
+/// server with no `url`, or a call without discovered endpoints.
+///
+/// A new client is written back to `ivar.json` and re-materialised into the
+/// provider's config before returning; a registration's secret goes to
+/// `.ivar/secrets/mcp.env`, and a metadata document client has none.
 pub(super) fn preregister_if_needed(
     layout: &Layout,
     manifest: &Manifest,
@@ -94,19 +98,30 @@ pub(super) fn preregister_if_needed(
     };
 
     // Figma refuses a generic registration: its allowlist checks
-    // `client_name`, so it gets its own registrar. Every other server is
-    // registered against the endpoint its own metadata advertised.
+    // `client_name`, so it gets its own registrar.
     let registered = if figma::needs_preregistration(host) {
-        figma::register_client(crate::infra::http_callback::OAUTH_REDIRECT_URI)?
+        figma::register_client(OAUTH_REDIRECT_URI)?
+    } else if endpoints.is_some_and(|ep| ep.client_id_metadata_document_supported) {
+        persist_oauth(
+            layout,
+            manifest,
+            provider,
+            &server.name,
+            &oauth_registration(CIMD_CLIENT_ID, None, endpoints),
+        )?;
+        return Ok(Preregistered {
+            report: Preregistration::MetadataDocument {
+                client_id: CIMD_CLIENT_ID.to_owned(),
+            },
+            client_id: Some(CIMD_CLIENT_ID.to_owned()),
+            secret: None,
+            auth_mode: AuthMode::None,
+        });
     } else {
         let Some(endpoint) = endpoints.and_then(|ep| ep.registration_endpoint.as_deref()) else {
             return Ok(Preregistered::not_needed());
         };
-        crate::infra::mcp_oauth::register_client(
-            endpoint,
-            crate::infra::http_callback::OAUTH_REDIRECT_URI,
-            CLIENT_NAME,
-        )?
+        crate::infra::mcp_oauth::register_client(endpoint, OAUTH_REDIRECT_URI, CLIENT_NAME)?
     };
 
     let auth_mode = registered.auth_mode();
@@ -119,30 +134,16 @@ pub(super) fn preregister_if_needed(
         None => None,
     };
 
-    let updated_servers: Vec<McpServerDef> = manifest
-        .mcp_servers()
-        .iter()
-        .map(|existing| {
-            if existing.name == server.name {
-                existing.clone().oauth(oauth_registration(
-                    &registered.client_id,
-                    secret_env.as_ref().map(|(var, _)| var.as_str()),
-                    endpoints,
-                ))
-            } else {
-                existing.clone()
-            }
-        })
-        .collect();
-    let updated_manifest = manifest.with_mcp_servers(updated_servers)?;
-    Manifest::write(layout, &updated_manifest)?;
-
-    let mcp_path = layout.mcp_config(&provider);
-    config::materialise_mcp(
-        &mcp_path,
+    persist_oauth(
+        layout,
+        manifest,
         provider,
-        updated_manifest.mcp_servers(),
-        updated_manifest.name(),
+        &server.name,
+        &oauth_registration(
+            &registered.client_id,
+            secret_env.as_ref().map(|(var, _)| var.as_str()),
+            endpoints,
+        ),
     )?;
 
     Ok(Preregistered {
@@ -153,6 +154,35 @@ pub(super) fn preregister_if_needed(
         secret: secret_env,
         auth_mode,
     })
+}
+
+fn persist_oauth(
+    layout: &Layout,
+    manifest: &Manifest,
+    provider: Provider,
+    server_name: &str,
+    oauth: &McpOauth,
+) -> Result<(), Failure> {
+    let updated_servers: Vec<McpServerDef> = manifest
+        .mcp_servers()
+        .iter()
+        .map(|existing| {
+            if existing.name == server_name {
+                existing.clone().oauth(oauth.clone())
+            } else {
+                existing.clone()
+            }
+        })
+        .collect();
+    let updated_manifest = manifest.with_mcp_servers(updated_servers)?;
+    Manifest::write(layout, &updated_manifest)?;
+    config::materialise_mcp(
+        &layout.mcp_config(&provider),
+        provider,
+        updated_manifest.mcp_servers(),
+        updated_manifest.name(),
+    )?;
+    Ok(())
 }
 
 /// The `McpOauth` a fresh registration writes to `ivar.json`.

@@ -300,3 +300,27 @@ fn discovery_accepts_both_streamable_http_content_types() {
         "MCP Streamable HTTP requires both content types; got `{accept}`"
     );
 }
+
+#[test]
+fn authorization_metadata_carries_client_id_metadata_document_support() {
+    let json = r#"{
+        "issuer": "https://mcp.prisda.test/api/auth",
+        "authorization_endpoint": "https://mcp.prisda.test/api/auth/oauth2/authorize",
+        "token_endpoint": "https://mcp.prisda.test/api/auth/oauth2/token",
+        "client_id_metadata_document_supported": true
+    }"#;
+    let endpoints = parse_authorization_metadata(json).expect("valid RFC 8414 metadata");
+    assert!(endpoints.client_id_metadata_document_supported);
+    assert_eq!(endpoints.registration_endpoint, None);
+}
+
+#[test]
+fn authorization_metadata_without_the_flag_does_not_support_metadata_documents() {
+    let json = r#"{
+        "issuer": "https://mcp.figma.com",
+        "authorization_endpoint": "https://mcp.figma.com/authorize",
+        "token_endpoint": "https://mcp.figma.com/token"
+    }"#;
+    let endpoints = parse_authorization_metadata(json).expect("the flag is optional");
+    assert!(!endpoints.client_id_metadata_document_supported);
+}
