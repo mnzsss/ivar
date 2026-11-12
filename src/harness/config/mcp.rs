@@ -13,7 +13,8 @@
 //! `oauth` object in its OpenCode entry: `clientId` and `redirectUri`
 //! literal, `clientSecret` as the `{env:NAME}` reference the manifest names
 //! — never the secret itself, since `McpOauth` has no field that could hold
-//! one. Claude Code's branch never renders the manifest's `oauth`: Claude Code
+//! one. That client is a registration or ivar's client metadata document. Claude
+//! Code's branch never renders the manifest's `oauth`: Claude Code
 //! is on the remote hosts' allowlists and needs no pre-registration. Its one
 //! `oauth` block is Slack's partner client, which `providers::claude_code::mcp`
 //! adds from the server's URL alone.

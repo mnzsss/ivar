@@ -177,17 +177,15 @@ pub struct McpServerDef {
     /// the harness resolves at runtime — never stored secrets.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub env: Option<BTreeMap<String, String>>,
-    /// A pre-provisioned OAuth client registration, for a server whose host
-    /// rejects a harness's own dynamic client registration (`ivar mcp auth`'s
-    /// pre-registration step). Absent for every server that registers its own
-    /// client, which is the common case.
+    /// The OAuth client `ivar mcp auth`'s internal flow settled on: one it
+    /// registered (Figma, dynamic registration) or ivar's Client ID Metadata
+    /// Document. Absent when a provider-owned login handles the client.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub oauth: Option<McpOauth>,
     /// The authentication scheme the server is known to require, recorded once
     /// `ivar mcp auth` has left a credential behind. Separate from
-    /// [`Self::oauth`]: this says the server *needs* OAuth, `oauth` says a
-    /// client was *pre-registered*. A server that authenticates itself (CIMD,
-    /// or a provider-owned login) never gets an `oauth` block, yet still
+    /// [`Self::oauth`]: this says the server *needs* OAuth, `oauth` names the
+    /// client. A provider-owned login never gets an `oauth` block, yet still
     /// needs a token. Absent when nothing has shown the server needs auth.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub auth: Option<McpAuth>,
@@ -367,8 +365,8 @@ pub fn hall_mcp_allowlist(hall: &HallName, servers: &[McpServerDef]) -> Vec<Stri
     names
 }
 
-/// A pre-provisioned OAuth client registration for a server whose host
-/// rejects a harness's own dynamic client registration.
+/// The OAuth client ivar authenticates a server with: a registration it
+/// obtained, or ivar's Client ID Metadata Document URL as a public client.
 ///
 /// `client_id` is not a secret and lives in the manifest directly.
 /// `client_secret_env` is the *name* of the environment variable that holds
@@ -380,7 +378,7 @@ pub fn hall_mcp_allowlist(hall: &HallName, servers: &[McpServerDef]) -> Vec<Stri
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct McpOauth {
-    /// The `client_id` a registration issued. Not a secret.
+    /// The `client_id`: issued by a registration, or the metadata document URL. Not a secret.
     pub client_id: String,
     /// The name of the environment variable that holds the client secret at
     /// runtime. Absent for a public client, which has no secret: a

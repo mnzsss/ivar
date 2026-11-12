@@ -73,10 +73,10 @@
     },
     "McpOauth": {
       "additionalProperties": false,
-      "description": "A pre-provisioned OAuth client registration for a server whose host\nrejects a harness's own dynamic client registration.\n\n`client_id` is not a secret and lives in the manifest directly.\n`client_secret_env` is the *name* of the environment variable that holds\nthe client secret at runtime — never the secret's value — the same\nreference convention [`McpServerDef::env`] already follows. `redirect_uri`\nis deliberately not a field here: it is derived by the harness layer from\nthe host's requirement and the harness's own default callback port, not\nstored per-server.",
+      "description": "The OAuth client ivar authenticates a server with: a registration it\nobtained, or ivar's Client ID Metadata Document URL as a public client.\n\n`client_id` is not a secret and lives in the manifest directly.\n`client_secret_env` is the *name* of the environment variable that holds\nthe client secret at runtime — never the secret's value — the same\nreference convention [`McpServerDef::env`] already follows. `redirect_uri`\nis deliberately not a field here: it is derived by the harness layer from\nthe host's requirement and the harness's own default callback port, not\nstored per-server.",
       "properties": {
         "client_id": {
-          "description": "The `client_id` a registration issued. Not a secret.",
+          "description": "The `client_id`: issued by a registration, or the metadata document URL. Not a secret.",
           "type": "string"
         },
         "client_secret_env": {
@@ -265,10 +265,10 @@
               },
               "oauth": {
                 "additionalProperties": false,
-                "description": "A pre-provisioned OAuth client registration for a server whose host\nrejects a harness's own dynamic client registration.\n\n`client_id` is not a secret and lives in the manifest directly.\n`client_secret_env` is the *name* of the environment variable that holds\nthe client secret at runtime — never the secret's value — the same\nreference convention [`McpServerDef::env`] already follows. `redirect_uri`\nis deliberately not a field here: it is derived by the harness layer from\nthe host's requirement and the harness's own default callback port, not\nstored per-server.",
+                "description": "The OAuth client ivar authenticates a server with: a registration it\nobtained, or ivar's Client ID Metadata Document URL as a public client.\n\n`client_id` is not a secret and lives in the manifest directly.\n`client_secret_env` is the *name* of the environment variable that holds\nthe client secret at runtime — never the secret's value — the same\nreference convention [`McpServerDef::env`] already follows. `redirect_uri`\nis deliberately not a field here: it is derived by the harness layer from\nthe host's requirement and the harness's own default callback port, not\nstored per-server.",
                 "properties": {
                   "client_id": {
-                    "description": "The `client_id` a registration issued. Not a secret.",
+                    "description": "The `client_id`: issued by a registration, or the metadata document URL. Not a secret.",
                     "type": "string"
                   },
                   "client_secret_env": {
@@ -343,10 +343,10 @@
               },
               "oauth": {
                 "additionalProperties": false,
-                "description": "A pre-provisioned OAuth client registration for a server whose host\nrejects a harness's own dynamic client registration.\n\n`client_id` is not a secret and lives in the manifest directly.\n`client_secret_env` is the *name* of the environment variable that holds\nthe client secret at runtime — never the secret's value — the same\nreference convention [`McpServerDef::env`] already follows. `redirect_uri`\nis deliberately not a field here: it is derived by the harness layer from\nthe host's requirement and the harness's own default callback port, not\nstored per-server.",
+                "description": "The OAuth client ivar authenticates a server with: a registration it\nobtained, or ivar's Client ID Metadata Document URL as a public client.\n\n`client_id` is not a secret and lives in the manifest directly.\n`client_secret_env` is the *name* of the environment variable that holds\nthe client secret at runtime — never the secret's value — the same\nreference convention [`McpServerDef::env`] already follows. `redirect_uri`\nis deliberately not a field here: it is derived by the harness layer from\nthe host's requirement and the harness's own default callback port, not\nstored per-server.",
                 "properties": {
                   "client_id": {
-                    "description": "The `client_id` a registration issued. Not a secret.",
+                    "description": "The `client_id`: issued by a registration, or the metadata document URL. Not a secret.",
                     "type": "string"
                   },
                   "client_secret_env": {
