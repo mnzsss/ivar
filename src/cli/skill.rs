@@ -62,7 +62,7 @@ pub struct SkillAddArgs {
     /// The skill source: owner/repo, https://github.com/owner/repo, or
     /// https://github.com/owner/repo/tree/<ref>/<path>.
     pub repo: String,
-    /// A sub-path inside the repo that holds the skill folder.
+    /// A sub-path inside the repo: one skill's folder, or a folder of skills.
     #[arg(long)]
     pub path: Option<String>,
     /// A git ref (branch, tag, or sha) to pin the skill to.
