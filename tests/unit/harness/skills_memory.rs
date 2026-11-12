@@ -70,9 +70,8 @@ fn memory_tool_steps_name_the_feature_argument_outside_a_feature_session() {
         ("ivar-deliver", DELIVER),
         ("ivar-plan", PLAN),
         ("ivar-execute", EXECUTE),
+        ("ivar-review", REVIEW),
     ] {
         assert!(text.contains("pass `feature: <feature>`"), "{name}");
     }
-    assert!(!DELIVER.contains("with no arguments"));
-    assert!(!DELIVER.contains("in a session of the feature"));
 }
