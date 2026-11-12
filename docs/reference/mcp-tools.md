@@ -193,8 +193,9 @@ Every `memory_query` is recorded in `memory.db` with its source: `cli`, `mcp`, o
 session guard sees the call. Three kinds of miss are recorded:
 
 - `empty`: the query returned nothing.
-- `followup`: a search or read of memory files within 120 s of a `memory_query`, which suggests
-  the answer was not enough.
+- `followup`: a search of memory files (Grep, Glob, or an `rg`/`grep` command) within 120 s of a
+  `memory_query`, which suggests the answer was not enough. Reading a page the query pointed to is
+  not a miss.
 - `skipped`: a memory read with no `memory_query` in the last 120 s.
 
 `ivar memory status` prints the 30-day counts and the miss rate for the CLI and for MCP.

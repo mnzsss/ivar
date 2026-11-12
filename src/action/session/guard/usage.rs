@@ -119,7 +119,19 @@ pub(super) fn is_memory_query_tool(tool: &str) -> bool {
             .any(|suffix| tool.ends_with(suffix))
 }
 
-pub(super) fn memory_read_pattern(request: &ToolRequest, cwd: &Utf8Path) -> Option<String> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum MemoryAccessKind {
+    Read,
+    Search,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct MemoryAccess {
+    pub pattern: String,
+    pub kind: MemoryAccessKind,
+}
+
+pub(super) fn memory_access(request: &ToolRequest, cwd: &Utf8Path) -> Option<MemoryAccess> {
     if request.writes {
         return None;
     }
@@ -136,6 +148,11 @@ pub(super) fn memory_read_pattern(request: &ToolRequest, cwd: &Utf8Path) -> Opti
     } else {
         request.search_pattern.clone()
     };
+    let kind = if structured_search || request.search_pattern.is_some() {
+        MemoryAccessKind::Search
+    } else {
+        MemoryAccessKind::Read
+    };
     request
         .targets
         .iter()
@@ -146,6 +163,7 @@ pub(super) fn memory_read_pattern(request: &ToolRequest, cwd: &Utf8Path) -> Opti
         .map(|p| p.to_string())
         .chain(search_text)
         .find(|candidate| MEMORY_DIRS.iter().any(|dir| under_dir(candidate, dir)))
+        .map(|pattern| MemoryAccess { pattern, kind })
 }
 
 fn under_dir(candidate: &str, dir: &str) -> bool {
@@ -199,11 +217,11 @@ pub(super) fn record_memory_call_at(
     );
 }
 
-pub(super) fn record_memory_read_at(
+pub(super) fn record_memory_access_at(
     cwd: &Utf8Path,
     session_env: Option<&SessionEnv>,
     ambient_session: Option<String>,
-    pattern: &str,
+    access: &MemoryAccess,
 ) -> bool {
     let Some((layout, session)) = session_layout(cwd, session_env, ambient_session) else {
         return false;
@@ -216,7 +234,7 @@ pub(super) fn record_memory_read_at(
         session: Some(session.clone()),
         query,
         filters: None,
-        pattern: Some(truncate_for_storage(pattern)),
+        pattern: Some(truncate_for_storage(&access.pattern)),
         usage_id,
         fallback: false,
     };
@@ -225,7 +243,9 @@ pub(super) fn record_memory_read_at(
             if crate::store::graph::db::types::now_timestamp() - last.ts
                 <= FOLLOWUP_WINDOW_SECS =>
         {
-            if matches!(usage::has_followup_for(&conn, last.usage_id), Ok(false)) {
+            if access.kind == MemoryAccessKind::Search
+                && matches!(usage::has_followup_for(&conn, last.usage_id), Ok(false))
+            {
                 let _ = usage::record_miss(
                     &conn,
                     &miss(MemoryMissKind::Followup, Some(last.usage_id), last.query),

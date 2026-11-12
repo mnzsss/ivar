@@ -12,15 +12,18 @@ use serde_json::{Value, json};
 
 use crate::common::{hall_root, ivar};
 
-fn payloads(provider: Provider, root: &Utf8Path, page: &str) -> (Value, Value) {
+fn payloads(provider: Provider, root: &Utf8Path, page: &str) -> (Value, Value, Value) {
+    let dir = root.join("docs/memory");
     match provider {
         Provider::ClaudeCode | Provider::T3 => (
             json!({"tool_name": "mcp__acme-ivar__memory_query", "tool_input": {"query": "teardown"}, "cwd": root.as_str(), "session_id": "n1"}),
             json!({"tool_name": "Read", "tool_input": {"file_path": page}, "cwd": root.as_str(), "session_id": "n1"}),
+            json!({"tool_name": "Grep", "tool_input": {"pattern": "teardown", "path": dir.as_str()}, "cwd": root.as_str(), "session_id": "n1"}),
         ),
         Provider::OpenCode | Provider::Omp => (
             json!({"tool": "acme-ivar_memory_query", "args": {"query": "teardown"}, "cwd": root.as_str()}),
             json!({"tool": "read", "args": {"filePath": page}, "cwd": root.as_str()}),
+            json!({"tool": "grep", "args": {"pattern": "teardown", "path": dir.as_str()}, "cwd": root.as_str()}),
         ),
     }
 }
@@ -48,7 +51,7 @@ fn usage(root: &Utf8Path) -> Value {
 }
 
 #[test]
-fn a_memory_read_after_memory_query_is_a_followup_where_the_matrix_says_supported() {
+fn after_memory_query_a_read_is_not_a_followup_and_a_search_is_where_the_matrix_says_supported() {
     for provider in Provider::SELECTABLE {
         let (_guard, root) = hall_root();
         ivar().current_dir(&root).arg("init").assert().success();
@@ -60,20 +63,19 @@ fn a_memory_read_after_memory_query_is_a_followup_where_the_matrix_says_supporte
             .args(["memory", "status"])
             .assert()
             .success();
-        let (query, read) = payloads(provider, &root, page.as_str());
+        let (query, read, search) = payloads(provider, &root, page.as_str());
 
         guard(&root, provider, &query);
         guard(&root, provider, &read);
+        assert_eq!(usage(&root)["followup"], 0, "{provider} read");
+        guard(&root, provider, &search);
 
         let usage = usage(&root);
-        match provider_support(provider).memory_misses {
-            Support::Supported => {
-                assert_eq!(usage["followup"], 1, "{provider}: {usage}");
-                assert_eq!(usage["skipped"], 0, "{provider}: {usage}");
-            }
-            Support::NotSupported(_) => {
-                assert_eq!(usage["followup"], 0, "{provider}: {usage}");
-            }
-        }
+        let expected = match provider_support(provider).memory_misses {
+            Support::Supported => 1,
+            Support::NotSupported(_) => 0,
+        };
+        assert_eq!(usage["followup"], expected, "{provider}: {usage}");
+        assert_eq!(usage["skipped"], 0, "{provider}: {usage}");
     }
 }
