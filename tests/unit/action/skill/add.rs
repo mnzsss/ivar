@@ -91,6 +91,61 @@ fn candidate(id: &str) -> CandidateSkill {
     }
 }
 
+fn candidate_at(path: &str) -> CandidateSkill {
+    let id = path.rsplit('/').next().unwrap();
+    CandidateSkill {
+        path: path.to_owned(),
+        ..candidate(id)
+    }
+}
+
+fn ext_at(path: &str) -> ExternalRef {
+    ExternalRef {
+        repo: "owner/repo".to_owned(),
+        path: path.to_owned(),
+        git_ref: String::new(),
+    }
+}
+
+fn selected_paths(path: &str, candidates: Vec<CandidateSkill>) -> Vec<String> {
+    select_candidates(&ext_at(path), candidates)
+        .unwrap()
+        .into_iter()
+        .map(|c| c.path)
+        .collect()
+}
+
+fn fixture_candidates() -> Vec<CandidateSkill> {
+    vec![
+        candidate_at("skills/core-skills/aws-cdk"),
+        candidate_at("skills/core-skills/aws-auth"),
+        candidate_at("skills-extra/other"),
+        candidate_at("plugins/aws-agents/skills/agents-build"),
+    ]
+}
+
+#[test]
+fn path_naming_a_folder_selects_every_skill_beneath_it() {
+    assert_eq!(
+        selected_paths("skills", fixture_candidates()),
+        ["skills/core-skills/aws-cdk", "skills/core-skills/aws-auth"]
+    );
+}
+
+#[test]
+fn path_naming_a_skill_selects_only_that_skill() {
+    assert_eq!(
+        selected_paths("skills/core-skills/aws-cdk", fixture_candidates()),
+        ["skills/core-skills/aws-cdk"]
+    );
+}
+
+#[test]
+fn path_matching_no_folder_is_still_refused() {
+    let err = select_candidates(&ext_at("skill"), fixture_candidates()).unwrap_err();
+    assert_eq!(err.code, "skill.add.path_not_found");
+}
+
 #[test]
 fn already_installed_candidates_are_skipped_not_refused() {
     let installed =

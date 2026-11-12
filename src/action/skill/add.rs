@@ -1,8 +1,8 @@
 //! `ivar skill add <source> [--path] [--ref] [--hall]` — install external skills.
 //!
 //! Downloads the repository tarball from GitHub, scans for candidate skills
-//! (folders directly containing a `SKILL.md`), filters by `--path` if specified,
-//! prompts for multi-selection if multiple skills are found, and copies the chosen
+//! (folders directly containing a `SKILL.md`), keeps the skills at or under `--path`
+//! if specified, prompts for multi-selection if multiple skills are found, and copies the chosen
 //! skill folder(s) into `.ivar/skills-local/<id>/` (or `.ivar/skills/<id>/` with `--hall`).
 //!
 //! Skips a skill whose id already exists in either root and reports it, and
@@ -216,10 +216,11 @@ fn select_candidates(
     ext: &ExternalRef,
     candidates: Vec<CandidateSkill>,
 ) -> Result<Vec<CandidateSkill>, Failure> {
-    let filtered: Vec<CandidateSkill> = if !ext.path.is_empty() {
+    let path = ext.path.trim_end_matches('/');
+    let filtered: Vec<CandidateSkill> = if !path.is_empty() {
         candidates
             .into_iter()
-            .filter(|c| c.path == ext.path)
+            .filter(|c| c.path == path || c.path.starts_with(&format!("{}/", path)))
             .collect()
     } else {
         candidates
