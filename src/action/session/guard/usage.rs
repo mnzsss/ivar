@@ -131,7 +131,7 @@ pub(super) struct MemoryAccess {
     pub kind: MemoryAccessKind,
 }
 
-pub(super) fn memory_read_pattern(request: &ToolRequest, cwd: &Utf8Path) -> Option<MemoryAccess> {
+pub(super) fn memory_access(request: &ToolRequest, cwd: &Utf8Path) -> Option<MemoryAccess> {
     if request.writes {
         return None;
     }
@@ -217,7 +217,7 @@ pub(super) fn record_memory_call_at(
     );
 }
 
-pub(super) fn record_memory_read_at(
+pub(super) fn record_memory_access_at(
     cwd: &Utf8Path,
     session_env: Option<&SessionEnv>,
     ambient_session: Option<String>,

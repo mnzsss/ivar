@@ -72,8 +72,8 @@ pub fn guard(
                 .and_then(serde_json::Value::as_str);
             record_memory_call_at(cwd, evaluation.session_env.as_ref(), ambient.clone(), query);
         }
-        if let Some(access) = memory_read_pattern(&evaluation.request, cwd) {
-            memory_hint = record_memory_read_at(
+        if let Some(access) = memory_access(&evaluation.request, cwd) {
+            memory_hint = record_memory_access_at(
                 cwd,
                 evaluation.session_env.as_ref(),
                 ambient.clone(),

@@ -95,41 +95,39 @@ fn reads_under_the_memory_dirs_are_detected_and_writes_are_not() {
     );
 
     assert_eq!(
-        memory_read_pattern(&read, &cwd)
-            .map(|a| a.pattern)
-            .as_deref(),
+        pattern_of(&read, &cwd).as_deref(),
         Some("/hall/docs/memory/gotcha/a.md")
     );
     assert_eq!(
-        memory_read_pattern(&grep, &cwd)
-            .map(|a| a.pattern)
-            .as_deref(),
+        pattern_of(&grep, &cwd).as_deref(),
         Some("/hall/docs/memory")
     );
     assert_eq!(
-        memory_read_pattern(&from_docs, &Utf8PathBuf::from("/hall/docs"))
-            .map(|a| a.pattern)
-            .as_deref(),
+        pattern_of(&from_docs, &Utf8PathBuf::from("/hall/docs")).as_deref(),
         Some("/hall/docs/memory/decision/b.md")
     );
-    assert_eq!(memory_read_pattern(&write, &cwd), None);
-    assert_eq!(memory_read_pattern(&code, &cwd), None);
-    assert_eq!(memory_read_pattern(&db_file, &cwd), None);
-    assert_eq!(memory_read_pattern(&sibling, &cwd), None);
+    assert_eq!(memory_access(&write, &cwd), None);
+    assert_eq!(memory_access(&code, &cwd), None);
+    assert_eq!(memory_access(&db_file, &cwd), None);
+    assert_eq!(memory_access(&sibling, &cwd), None);
     for lookalike in ["/hall/mydocs/memory/a.md", "/hall/x.ivar/memory/a.md"] {
         let request = request("Read", serde_json::json!({}), &[lookalike], false);
-        assert_eq!(memory_read_pattern(&request, &cwd), None, "{lookalike}");
+        assert_eq!(memory_access(&request, &cwd), None, "{lookalike}");
     }
 }
 
-fn read(pattern: &str) -> MemoryAccess {
+fn pattern_of(request: &crate::domain::guard::ToolRequest, cwd: &Utf8Path) -> Option<String> {
+    memory_access(request, cwd).map(|a| a.pattern)
+}
+
+fn read_access(pattern: &str) -> MemoryAccess {
     MemoryAccess {
         pattern: pattern.to_owned(),
         kind: MemoryAccessKind::Read,
     }
 }
 
-fn search(pattern: &str) -> MemoryAccess {
+fn search_access(pattern: &str) -> MemoryAccess {
     MemoryAccess {
         pattern: pattern.to_owned(),
         kind: MemoryAccessKind::Search,
@@ -139,16 +137,31 @@ fn search(pattern: &str) -> MemoryAccess {
 #[test]
 fn a_read_after_a_query_records_nothing_and_a_search_after_one_is_a_single_followup() {
     let (_guard, root) = hall();
-    record_memory_read_at(&root, None, Some("s1".into()), &read("docs/memory/a.md"));
-    record_memory_call_at(&root, None, Some("s1".into()), Some("teardown"));
-    assert!(!record_memory_read_at(
+    record_memory_access_at(
         &root,
         None,
         Some("s1".into()),
-        &read("docs/memory/a.md")
+        &read_access("docs/memory/a.md"),
+    );
+    record_memory_call_at(&root, None, Some("s1".into()), Some("teardown"));
+    assert!(!record_memory_access_at(
+        &root,
+        None,
+        Some("s1".into()),
+        &read_access("docs/memory/a.md")
     ));
-    record_memory_read_at(&root, None, Some("s1".into()), &search("docs/memory"));
-    record_memory_read_at(&root, None, Some("s1".into()), &search("docs/memory"));
+    record_memory_access_at(
+        &root,
+        None,
+        Some("s1".into()),
+        &search_access("docs/memory"),
+    );
+    record_memory_access_at(
+        &root,
+        None,
+        Some("s1".into()),
+        &search_access("docs/memory"),
+    );
 
     assert_eq!(
         misses(&root),
@@ -187,19 +200,19 @@ fn memory_access_kind_is_search_for_grep_glob_and_bash_searches_and_read_otherwi
     );
 
     assert_eq!(
-        memory_read_pattern(&read_page, &cwd).map(|a| a.kind),
+        memory_access(&read_page, &cwd).map(|a| a.kind),
         Some(MemoryAccessKind::Read)
     );
     assert_eq!(
-        memory_read_pattern(&grep, &cwd).map(|a| a.kind),
+        memory_access(&grep, &cwd).map(|a| a.kind),
         Some(MemoryAccessKind::Search)
     );
     assert_eq!(
-        memory_read_pattern(&glob, &cwd).map(|a| a.kind),
+        memory_access(&glob, &cwd).map(|a| a.kind),
         Some(MemoryAccessKind::Search)
     );
     assert_eq!(
-        memory_read_pattern(&bash, &cwd).map(|a| a.kind),
+        memory_access(&bash, &cwd).map(|a| a.kind),
         Some(MemoryAccessKind::Search)
     );
 }
@@ -217,7 +230,12 @@ fn a_read_after_the_window_closes_is_skipped() {
         .unwrap();
     drop(db);
 
-    record_memory_read_at(&root, None, Some("s1".into()), &read("docs/memory/a.md"));
+    record_memory_access_at(
+        &root,
+        None,
+        Some("s1".into()),
+        &read_access("docs/memory/a.md"),
+    );
 
     assert_eq!(misses(&root), vec![("skipped".to_owned(), None, None)]);
 }
@@ -230,7 +248,12 @@ fn a_busy_memory_database_drops_the_miss_within_the_busy_timeout() {
     holder.execute_batch("BEGIN EXCLUSIVE").unwrap();
 
     let started = std::time::Instant::now();
-    record_memory_read_at(&root, None, Some("s1".into()), &read("docs/memory/a.md"));
+    record_memory_access_at(
+        &root,
+        None,
+        Some("s1".into()),
+        &read_access("docs/memory/a.md"),
+    );
 
     assert!(
         started.elapsed() < std::time::Duration::from_millis(500),
@@ -253,11 +276,11 @@ fn guard_decision_for_a_memory_read_is_unchanged_when_recording_fails() {
         false,
     );
 
-    record_memory_read_at(
+    record_memory_access_at(
         &env.view_dir,
         Some(&env),
         None,
-        &read("docs/memory/gotcha/a.md"),
+        &read_access("docs/memory/gotcha/a.md"),
     );
 
     let set = resolve_writable_set(&env).unwrap();
@@ -272,7 +295,12 @@ fn recording_without_a_memory_database_is_a_silent_no_op() {
     let (_guard, root) = hall_with_promoted_feature();
     let _ = std::fs::remove_file(Layout::at(root.clone()).memory_db());
     record_memory_call_at(&root, None, Some("s1".into()), Some("q"));
-    record_memory_read_at(&root, None, Some("s1".into()), &read("docs/memory/a.md"));
+    record_memory_access_at(
+        &root,
+        None,
+        Some("s1".into()),
+        &read_access("docs/memory/a.md"),
+    );
     assert!(!Layout::at(root).memory_db().exists());
 }
 
@@ -294,25 +322,17 @@ fn a_grep_pattern_naming_memory_is_not_a_memory_read() {
         serde_json::json!({"pattern": "docs/memory/", "path": "src"}),
         "docs/memory/",
     );
-    assert_eq!(
-        memory_read_pattern(&grep, &Utf8PathBuf::from("/hall")),
-        None
-    );
+    assert_eq!(memory_access(&grep, &Utf8PathBuf::from("/hall")), None);
 }
 
 #[test]
 fn a_pathless_grep_from_a_memory_dir_reads_the_cwd() {
     let grep = searching("Grep", serde_json::json!({"pattern": "x"}), "x");
     assert_eq!(
-        memory_read_pattern(&grep, &Utf8PathBuf::from("/hall/docs/memory"))
-            .map(|a| a.pattern)
-            .as_deref(),
+        pattern_of(&grep, &Utf8PathBuf::from("/hall/docs/memory")).as_deref(),
         Some("/hall/docs/memory")
     );
-    assert_eq!(
-        memory_read_pattern(&grep, &Utf8PathBuf::from("/hall")),
-        None
-    );
+    assert_eq!(memory_access(&grep, &Utf8PathBuf::from("/hall")), None);
 }
 
 #[test]
@@ -323,7 +343,7 @@ fn a_bash_search_reaching_memory_is_still_a_memory_read() {
         search_pattern: pattern,
         ..request("Bash", input, &[], false)
     };
-    assert!(memory_read_pattern(&bash, &Utf8PathBuf::from("/hall")).is_some());
+    assert!(memory_access(&bash, &Utf8PathBuf::from("/hall")).is_some());
 }
 
 #[test]
@@ -340,7 +360,7 @@ fn a_bash_search_naming_a_relative_memory_dir_is_a_memory_read() {
             ..request("Bash", input, &[], false)
         };
         assert!(
-            memory_read_pattern(&bash, &Utf8PathBuf::from("/hall")).is_some(),
+            memory_access(&bash, &Utf8PathBuf::from("/hall")).is_some(),
             "{command}"
         );
     }
@@ -349,30 +369,30 @@ fn a_bash_search_naming_a_relative_memory_dir_is_a_memory_read() {
 #[test]
 fn only_a_sessions_first_skipped_read_asks_for_the_hint_and_a_queried_read_never_does() {
     let (_guard, root) = hall();
-    assert!(record_memory_read_at(
+    assert!(record_memory_access_at(
         &root,
         None,
         Some("s1".into()),
-        &read("docs/memory/a.md")
+        &read_access("docs/memory/a.md")
     ));
-    assert!(!record_memory_read_at(
+    assert!(!record_memory_access_at(
         &root,
         None,
         Some("s1".into()),
-        &read("docs/memory/b.md")
+        &read_access("docs/memory/b.md")
     ));
-    assert!(record_memory_read_at(
+    assert!(record_memory_access_at(
         &root,
         None,
         Some("s2".into()),
-        &read("docs/memory/a.md")
+        &read_access("docs/memory/a.md")
     ));
     record_memory_call_at(&root, None, Some("s3".into()), Some("teardown"));
-    assert!(!record_memory_read_at(
+    assert!(!record_memory_access_at(
         &root,
         None,
         Some("s3".into()),
-        &read("docs/memory/a.md")
+        &read_access("docs/memory/a.md")
     ));
 }
 
