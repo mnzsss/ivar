@@ -28,9 +28,11 @@ Run `ivar feature deliver <feature> --help` for the full flag surface.
 
 Delivery refuses a feature whose memory was not reviewed
 (`deliver.memory_not_reviewed`), and the preview lists it as a blocker.
-Before the preview, in a session of the feature:
+Before the preview. Outside a session bound to the feature (a T3 thread, a
+conversation started outside `ivar`), pass `feature: <feature>` to
+`memory_review`, `memory_write_page` and `memory_patch_page`:
 
-1. Call the `memory_review` MCP tool with no arguments. It returns three lists:
+1. Call the `memory_review` MCP tool. It returns three lists:
    - **written**: the pages the feature wrote under `docs/memory/`;
    - **gaps**: a failed tool with no `gotcha`, no `update` page, an Analysis
      approved without a `memory_query`;
