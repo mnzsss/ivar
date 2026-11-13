@@ -97,6 +97,16 @@ impl Layout {
             .join(format!("{agent}.lock"))
     }
 
+    /// `<hall>/.ivar/agents/locks/tools/<tool>.lock` — held while a host run of
+    /// the tool holds a copy of its login, so such runs go one at a time.
+    #[must_use]
+    pub fn tool_lock(&self, tool: &str) -> Utf8PathBuf {
+        self.agent_state_dir()
+            .join("locks")
+            .join("tools")
+            .join(format!("{tool}.lock"))
+    }
+
     /// `<hall>/.ivar/agents/state/<agent>/<tool>/` — a host agent's private
     /// copy of the tool's login and everything the tool writes beside it.
     #[must_use]

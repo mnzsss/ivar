@@ -309,7 +309,9 @@ Each service pins the `PATH` that `ivar agent sync` ran with, because a
 login session has exported its own `PATH`. That early, the network may be
 down too, so a timer run of `claude` or `codex` first waits up to two minutes
 for the tool's API host to resolve; after that it starts anyway and records
-whatever the tool reports. Run `ivar agent sync` again after
+whatever the tool reports. Host agents of the same tool then run one at a
+time, so several `catchup` runs at boot do not race on the tool's single-use
+refresh token (see [host runtime](scheduled-agents-host-runtime.md)). Run `ivar agent sync` again after
 installing the tool somewhere new. Run it with the installed `ivar` too: the
 service runs the binary that synced it, and one under a cargo `target/`
 directory warns `agent.ivar_bin_in_build_dir`, since a rebuild or

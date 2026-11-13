@@ -273,6 +273,14 @@ pub(super) fn execute_host(
     let (cwd, writable) = host_workspace(scratch, ws)?;
     let tmp = scratch.join("tmp");
     fs::ensure_dir(&tmp)?;
+    // One run per tool at a time: the login's refresh token is single-use, so
+    // a second run must seed only after the first wrote its renewed token back.
+    // The wait is outside the deadline, which covers the tool process alone.
+    let tool_lock = Layout::at(hall.to_path_buf()).tool_lock(tool.as_str());
+    if let Some(dir) = tool_lock.parent() {
+        fs::ensure_dir(dir)?;
+    }
+    let tool_guard = fs::lock_exclusive(&tool_lock)?;
     let seeded = seed_credentials(state, credentials)?;
     let mut roots = vec![
         scratch.to_path_buf(),
@@ -305,6 +313,7 @@ pub(super) fn execute_host(
     let finished =
         proc::to_log_with_deadline(&command, &log, spec.timeout, &|seen| tool.is_blocked(seen));
     let written_back = write_back_credentials(state, &seeded);
+    drop(tool_guard);
     let finished = finished?;
     written_back?;
     Ok(Ran {

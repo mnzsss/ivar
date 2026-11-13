@@ -12,6 +12,15 @@ cannot plant settings, hooks or plugins that run later outside the
 sandbox. When the tool refreshes its token during a run, the refreshed
 login is written back to your copy, and nothing else is.
 
+Host runs of the same tool go one at a time. A refresh token is single-use,
+so two runs that seeded the same login and both refreshed would leave one of
+them rejected. A run takes a lock per tool before it copies the login and
+releases it after the write-back, so the next run copies the renewed token.
+Runs of different tools, and `runtime: docker` runs, are not held back. The
+wait does not count against `timeout`, which covers the tool process only.
+Many agents on one tool queue behind each other, and a hall sync that
+resolves conflicts with that tool waits in the same queue.
+
 Landlock limits its writes to a per-run scratch directory, the agent's
 private state directory and, with `access: feature`, the `agent-<name>`
 worktree. Its environment starts empty: `PATH`, `HOME`, locale, `TMPDIR`,
