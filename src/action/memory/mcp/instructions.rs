@@ -24,7 +24,9 @@ and memory_read_page for the full body of a hit.
 - Record a decision, gotcha, procedure, product or update page during the feature, once the insight \
 is settled; never `session`. The update page of a delivery is written before delivery, not at cleanup.
 - Before `ivar feature deliver`, call memory_review, give each possibly stale page a verdict and \
-confirm; delivery refuses a feature without that review.
+confirm; delivery refuses a feature without that review. A server started before its session \
+knows no feature: pass `feature` to memory_query, the page tools and memory_review, or confirm \
+with `ivar memory review <feature> --confirm`.
 - The memory tools do not commit; `ivar feature cleanup`, `ivar agent run`, `ivar skill sync` \
 and ending a discovery session (no feature, through `ivar session stop` or the end of the \
 session) commit and push every pending hall change.

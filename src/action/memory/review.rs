@@ -7,6 +7,7 @@ use std::collections::BTreeMap;
 use serde::Serialize;
 use serde_json::{Value, json};
 
+use super::capture::CaptureEnv;
 use super::drain;
 use super::events::{MemoryEventScope, record_memory_event};
 use super::mcp::feature_usage_session;
@@ -14,8 +15,9 @@ use crate::action::feature::select::resolve_single_feature;
 use crate::action::feature::{base, relations};
 use crate::action::{Ctx, discover_hall, read_manifest};
 use crate::domain::feature::{Feature, Gate, GateState, WorktreeState};
+pub use crate::domain::memory_review::Verdict;
 use crate::domain::memory_review::{
-    Gap, ObservationFact, StalePage, USAGE_EVENT, Verdict, WrittenPage, gaps, is_durable_page,
+    Gap, ObservationFact, StalePage, USAGE_EVENT, WrittenPage, gaps, is_durable_page,
     missing_verdicts, queried_before_approval, stale_pages, written_pages,
 };
 use crate::domain::name::FeatureName;
@@ -64,13 +66,54 @@ pub enum ReviewState {
     Missing,
 }
 
+/// What `ivar memory review --confirm` attests: the verdict on each possibly
+/// stale page and, for a feature that wrote no page, why none was needed.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Confirmation {
+    pub verdicts: Vec<(String, Verdict)>,
+    pub not_required: Option<String>,
+}
+
 /// # Errors
 ///
 /// Outside a hall, for an unknown feature, or when memory cannot be read.
 pub fn review(ctx: &Ctx, feature: Option<String>) -> Outcome<ReviewReport> {
+    review_or_confirm(ctx, feature, None)
+}
+
+/// The read-only review, or with a `confirmation` the same checks and record
+/// as the `memory_review` MCP tool's `confirm`, through [`confirm_in`]. The
+/// event carries the process's session, if any, and the feature named.
+///
+/// # Errors
+///
+/// As [`review`]; with a confirmation also those of [`confirm_in`].
+pub fn review_or_confirm(
+    ctx: &Ctx,
+    feature: Option<String>,
+    confirmation: Option<Confirmation>,
+) -> Outcome<ReviewReport> {
     let layout = discover_hall(ctx)?;
-    let name = resolve_single_feature(ctx, feature, "Select a feature to review")?;
-    review_in(&layout, &FeatureName::new(name)?)
+    let name = FeatureName::new(resolve_single_feature(
+        ctx,
+        feature,
+        "Select a feature to review",
+    )?)?;
+    let Some(confirmation) = confirmation else {
+        return review_in(&layout, &name);
+    };
+    let scope = MemoryEventScope {
+        session_id: CaptureEnv::from_process().session_id.unwrap_or_default(),
+        feature: name.to_string(),
+        parent_feature: String::new(),
+    };
+    confirm_in(
+        &layout,
+        &scope,
+        &name,
+        &confirmation.verdicts,
+        confirmation.not_required,
+    )
 }
 
 impl WriteHuman for ReviewReport {

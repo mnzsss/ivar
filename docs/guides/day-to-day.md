@@ -274,8 +274,17 @@ There is no lifecycle field to set — the gate *is* the state. See
 Delivery also needs the feature's **memory review**. In a session of the feature,
 call the `memory_review` MCP tool: it lists the pages the feature wrote, the gaps and
 the pages its diff may have made stale. Give each stale page a verdict and confirm.
-Apply refuses without it (`deliver.memory_not_reviewed`). A human who decides the
-review is not needed passes `--skip-memory-review "<reason>"` at apply.
+A server started before its session (a converted discovery, a T3 thread) knows no
+feature: pass `feature` to the tool, or confirm from the shell:
+
+```sh
+ivar memory review checkout --confirm --stale docs/memory/gotcha/locks.md=still_valid
+```
+
+`--not-required "<reason>"` confirms a feature that wrote no page. Without `--confirm`
+the command only reads. Apply refuses without a review (`deliver.memory_not_reviewed`).
+A human who decides the review is not needed passes `--skip-memory-review "<reason>"`
+at apply.
 
 **Only a root delivers.** A child integrates into its parent instead — see
 [Nested subfeatures](../concepts.md#nested-subfeatures) for the leaves-first

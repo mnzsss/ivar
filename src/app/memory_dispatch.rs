@@ -52,8 +52,22 @@ pub(super) fn dispatch_memory(
             let code = respond(outcome, json, stdout, stderr);
             if failing { ExitCode::FAILURE } else { code }
         }
-        MemoryCommand::Review { feature } => {
-            respond(review::review(ctx, feature), json, stdout, stderr)
+        MemoryCommand::Review {
+            feature,
+            confirm,
+            stale,
+            not_required,
+        } => {
+            let confirmation = confirm.then_some(review::Confirmation {
+                verdicts: stale,
+                not_required,
+            });
+            respond(
+                review::review_or_confirm(ctx, feature, confirmation),
+                json,
+                stdout,
+                stderr,
+            )
         }
         MemoryCommand::Reindex => respond(reindex::reindex(ctx), json, stdout, stderr),
         MemoryCommand::Handoff { command } => match command {
