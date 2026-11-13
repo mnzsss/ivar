@@ -511,6 +511,10 @@ fn agent_paths_live_under_agents_and_the_ignored_dotdir() {
         Utf8PathBuf::from("/hall/.ivar/agents/locks/nightly.lock")
     );
     assert_eq!(
+        layout.tool_lock("claude"),
+        Utf8PathBuf::from("/hall/.ivar/agents/locks/tools/claude.lock")
+    );
+    assert_eq!(
         layout.agent_run_scratch("r1"),
         Utf8PathBuf::from("/hall/.ivar/agents/tmp/r1")
     );
