@@ -46,11 +46,17 @@ Check the pages under docs/memory against the page rules. Exits non-zero when an
 
 ## `ivar memory review`
 
-Show what a feature wrote to memory, its gaps and the pages its diff may have made stale, plus the last review. Read-only: confirm with the memory_review MCP tool
+Show what a feature wrote to memory, its gaps and the pages its diff may have made stale, plus the last review. Read-only unless `--confirm` records the review that `ivar feature deliver` requires; the memory_review MCP tool confirms the same way
 
 | argument | required | description |
 | --- | --- | --- |
 | `feature` | no | Feature to review. Defaults to the session's feature |
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--confirm` |  |  | Record the review as done, with the same checks as the memory_review MCP tool's `confirm` |
+| `--stale` | `<PATH=VERDICT>` |  | A verdict on a possibly stale page, `<path>=updated` or `<path>=still_valid` (repeatable). Needs `--confirm` |
+| `--not-required` | `<REASON>` |  | Confirm a feature that wrote no page, and say why none was needed. Needs `--confirm` |
 
 
 ## `ivar memory handoff`

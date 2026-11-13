@@ -128,7 +128,9 @@ broken anchors are left out, with a warning. When `memory.db`, the manifest, a r
 diff or the anchors cannot be read, the read still answers with a warning, but the
 confirmation is refused with `memory.review_unreadable`. `memory.reviewed` records the
 heads, the verdicts, `not_required`, the written and stale page paths and the gap kinds,
-and `last` returns them. `ivar memory review` prints the same report, read-only.
+and `last` returns them. `ivar memory review <feature>` prints the same report, read-only;
+with `--confirm` (and `--stale <path>=<verdict>`, `--not-required <reason>`) it confirms with
+the same checks, for a client with no MCP bound to the feature.
 
 ### Handoffs and messages
 

@@ -2,6 +2,7 @@
 
 use clap::Parser;
 
+use crate::action::memory::review::Verdict;
 use crate::cli::memory::{HandoffCommand, MemoryCommand};
 use crate::cli::root::{Cli, Command};
 
@@ -89,7 +90,7 @@ fn memory_lint_parses_with_json() {
 #[test]
 fn memory_review_parses_with_and_without_a_feature() {
     let named = Cli::try_parse_from(["ivar", "memory", "review", "checkout", "--json"]).unwrap();
-    let Command::Memory(MemoryCommand::Review { feature }) = named.command else {
+    let Command::Memory(MemoryCommand::Review { feature, .. }) = named.command else {
         panic!("expected memory review");
     };
     assert_eq!(feature.as_deref(), Some("checkout"));
@@ -98,8 +99,104 @@ fn memory_review_parses_with_and_without_a_feature() {
     let bare = Cli::try_parse_from(["ivar", "memory", "review"]).unwrap();
     assert!(matches!(
         bare.command,
-        Command::Memory(MemoryCommand::Review { feature: None })
+        Command::Memory(MemoryCommand::Review {
+            feature: None,
+            confirm: false,
+            ..
+        })
     ));
+}
+
+#[test]
+fn memory_review_without_confirm_is_read_only() {
+    let cli = Cli::try_parse_from(["ivar", "memory", "review", "ship"]).unwrap();
+    let Command::Memory(MemoryCommand::Review {
+        confirm,
+        stale,
+        not_required,
+        ..
+    }) = cli.command
+    else {
+        panic!("expected memory review");
+    };
+    assert!(!confirm);
+    assert!(stale.is_empty());
+    assert!(not_required.is_none());
+}
+
+#[test]
+fn memory_review_confirm_parses_verdicts_split_at_the_last_equals() {
+    let cli = Cli::try_parse_from([
+        "ivar",
+        "memory",
+        "review",
+        "ship",
+        "--confirm",
+        "--stale",
+        "docs/memory/gotcha/a.md=updated",
+        "--stale",
+        "docs/memory/gotcha/b=c.md=still_valid",
+    ])
+    .unwrap();
+    let Command::Memory(MemoryCommand::Review {
+        confirm,
+        stale,
+        not_required,
+        ..
+    }) = cli.command
+    else {
+        panic!("expected memory review");
+    };
+    assert!(confirm);
+    assert!(not_required.is_none());
+    assert_eq!(
+        stale,
+        [
+            ("docs/memory/gotcha/a.md".to_owned(), Verdict::Updated),
+            ("docs/memory/gotcha/b=c.md".to_owned(), Verdict::StillValid),
+        ]
+    );
+
+    let cli = Cli::try_parse_from([
+        "ivar",
+        "memory",
+        "review",
+        "--confirm",
+        "--not-required",
+        "internal refactor",
+    ])
+    .unwrap();
+    assert!(matches!(
+        cli.command,
+        Command::Memory(MemoryCommand::Review { not_required: Some(reason), .. })
+            if reason == "internal refactor"
+    ));
+}
+
+#[test]
+fn memory_review_stale_and_not_required_need_confirm() {
+    for args in [
+        ["--stale", "p.md=updated"],
+        ["--not-required", "internal refactor"],
+    ] {
+        let error =
+            Cli::try_parse_from(["ivar", "memory", "review", "ship"].into_iter().chain(args))
+                .unwrap_err();
+        assert_eq!(
+            error.kind(),
+            clap::error::ErrorKind::MissingRequiredArgument
+        );
+    }
+}
+
+#[test]
+fn memory_review_stale_rejects_a_malformed_verdict() {
+    for raw in ["no-equals", "=updated", "p.md=maybe", "p.md="] {
+        assert!(
+            Cli::try_parse_from(["ivar", "memory", "review", "--confirm", "--stale", raw]).is_err(),
+            "{raw}"
+        );
+    }
 }
 
 #[test]

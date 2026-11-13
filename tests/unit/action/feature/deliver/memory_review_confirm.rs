@@ -2,7 +2,9 @@ use super::fixture::*;
 use super::memory_review::{checkout, scope, session_tool};
 use super::*;
 use crate::action::memory::events::record_memory_event;
-use crate::action::memory::review::{ReviewState, confirm_in, review_in, review_state};
+use crate::action::memory::review::{
+    Confirmation, ReviewState, confirm_in, review_in, review_or_confirm, review_state,
+};
 use crate::domain::memory_review::GapKind;
 use crate::domain::observation::{SourceEvent, ToolEffect};
 use serde_json::json;
@@ -75,5 +77,68 @@ fn a_page_written_in_a_descendant_session_counts_for_the_root_review() {
         !report.gaps.iter().any(|g| g.kind == GapKind::Update),
         "{:?}",
         report.gaps
+    );
+}
+
+#[test]
+fn the_cli_confirmation_records_a_review_the_delivery_gate_accepts() {
+    let (_guard, root) = hall_with_promoted(&["api"]);
+    let layout = Layout::at(root.clone());
+    let ctx = Ctx::new(root);
+
+    let report = review_or_confirm(
+        &ctx,
+        Some("checkout".to_owned()),
+        Some(Confirmation {
+            verdicts: Vec::new(),
+            not_required: Some("internal refactor".to_owned()),
+        }),
+    )
+    .unwrap()
+    .value;
+
+    assert_eq!(
+        report.last.unwrap().not_required.as_deref(),
+        Some("internal refactor")
+    );
+    assert!(matches!(
+        review_state(&layout, &checkout()).unwrap(),
+        ReviewState::Reviewed { .. }
+    ));
+}
+
+#[test]
+fn the_cli_confirmation_keeps_the_checks_of_the_mcp_one() {
+    let (_guard, root) = hall_with_promoted(&["api"]);
+    let layout = Layout::at(root.clone());
+    page_written(&layout, "docs/memory/gotcha/g.md");
+
+    let refused = review_or_confirm(
+        &Ctx::new(root),
+        Some("checkout".to_owned()),
+        Some(Confirmation {
+            verdicts: Vec::new(),
+            not_required: Some("internal refactor".to_owned()),
+        }),
+    )
+    .unwrap_err();
+
+    assert_eq!(refused.code, "memory.review_not_required_with_pages");
+    assert_eq!(
+        review_state(&layout, &checkout()).unwrap(),
+        ReviewState::Missing
+    );
+}
+
+#[test]
+fn without_a_confirmation_the_review_records_nothing() {
+    let (_guard, root) = hall_with_promoted(&["api"]);
+    let layout = Layout::at(root.clone());
+
+    review_or_confirm(&Ctx::new(root), Some("checkout".to_owned()), None).unwrap();
+
+    assert_eq!(
+        review_state(&layout, &checkout()).unwrap(),
+        ReviewState::Missing
     );
 }

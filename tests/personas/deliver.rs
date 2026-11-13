@@ -210,3 +210,58 @@ fn a_converted_discovery_delivers_after_a_review_confirmed_with_an_explicit_feat
         .assert()
         .success();
 }
+
+#[test]
+fn a_converted_discovery_delivers_after_a_review_confirmed_from_the_cli() {
+    let (_guard, root) = hall_root();
+    one_repo_hall(&root);
+    let session = run_ok(&root, &["session", "start", "--detached"]);
+    assert!(
+        session["memory_notice"]
+            .as_str()
+            .unwrap()
+            .contains("ivar memory review <feature> --confirm"),
+        "{session}"
+    );
+    let session_id = session["session_id"].as_str().unwrap();
+    isolated_ivar(&home(&root))
+        .current_dir(session["view_dir"].as_str().unwrap())
+        .env("IVAR_SESSION_ID", session_id)
+        .args(["discovery", "create", "ship"])
+        .assert()
+        .success();
+    run_ok(&root, &["session", "convert", session_id]);
+    run_ok(&root, &["feature", "promote", "ship", "app"]);
+    commit_slice(&root, "app", "ship", "slice.md");
+    run_ok(&root, &["plan", "create", "ship"]);
+    for gate in ["requirements", "analysis", "plan"] {
+        run_ok(&root, &["plan", "approve", "ship", gate]);
+    }
+
+    let preview = run_ok(&root, &["feature", "deliver", "ship", "--preview"]);
+    let blockers = preview["blockers"].to_string();
+    assert!(
+        blockers.contains("ivar memory review ship --confirm"),
+        "an unreviewed feature is blocked, and the blocker names the CLI: {preview}"
+    );
+
+    isolated_ivar(&home(&root))
+        .current_dir(&root)
+        .args(["memory", "review", "ship", "--stale", "p.md=updated"])
+        .assert()
+        .failure();
+    let confirmed = run_ok(&root, &["memory", "review", "ship", "--confirm"]);
+    assert_eq!(confirmed["last"]["source_event"], "memory.reviewed");
+
+    let preview = run_ok(&root, &["feature", "deliver", "ship", "--preview"]);
+    assert!(
+        !preview["blockers"].to_string().contains("memory review"),
+        "{preview}"
+    );
+    let fingerprint = preview["preview"]["fingerprint"].as_str().unwrap();
+    isolated_ivar(&home(&root))
+        .current_dir(&root)
+        .args(["feature", "deliver", "ship", "--fingerprint", fingerprint])
+        .assert()
+        .success();
+}

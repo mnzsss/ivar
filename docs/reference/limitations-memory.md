@@ -176,6 +176,9 @@ The tools are in [MCP tools](mcp-tools.md).
   body. A body past 4 KiB is cut and `last` loses its lists, but the heads survive.
 - A broken anchor counts wherever its file is, so a page broken before the feature
   is listed too and needs a verdict.
+- A page written through an unbound MCP server without `feature` is recorded with no
+  feature and no session. Nothing reassigns it later, so the review shows `written: none`
+  for it. `ivar memory review <feature> --confirm` attests the review, not those pages.
 
 ## Handoffs and messages
 

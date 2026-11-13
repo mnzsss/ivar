@@ -2,6 +2,28 @@
 
 use clap::Subcommand;
 
+use crate::action::memory::review::Verdict;
+
+/// `<path>=<verdict>`, split at the last `=` so a path may hold one.
+fn parse_stale(raw: &str) -> Result<(String, Verdict), String> {
+    let (path, verdict) = raw
+        .rsplit_once('=')
+        .ok_or_else(|| "expected `<path>=<verdict>`".to_owned())?;
+    if path.is_empty() {
+        return Err("the path before `=` is empty".to_owned());
+    }
+    let verdict = match verdict {
+        "updated" => Verdict::Updated,
+        "still_valid" => Verdict::StillValid,
+        other => {
+            return Err(format!(
+                "verdict `{other}` is not `updated` or `still_valid`"
+            ));
+        }
+    };
+    Ok((path.to_owned(), verdict))
+}
+
 #[derive(Debug, Subcommand)]
 pub enum MemoryCommand {
     /// Show the hall memory database: path, schema version, application id, size, observation counts per event, the capture spool, the last drain and the retention sweep.
@@ -35,10 +57,19 @@ pub enum MemoryCommand {
     Reindex,
     /// Check the pages under docs/memory against the page rules. Exits non-zero when any rule is broken.
     Lint,
-    /// Show what a feature wrote to memory, its gaps and the pages its diff may have made stale, plus the last review. Read-only: confirm with the memory_review MCP tool.
+    /// Show what a feature wrote to memory, its gaps and the pages its diff may have made stale, plus the last review. Read-only unless `--confirm` records the review that `ivar feature deliver` requires; the memory_review MCP tool confirms the same way.
     Review {
         /// Feature to review. Defaults to the session's feature.
         feature: Option<String>,
+        /// Record the review as done, with the same checks as the memory_review MCP tool's `confirm`.
+        #[arg(long)]
+        confirm: bool,
+        /// A verdict on a possibly stale page, `<path>=updated` or `<path>=still_valid` (repeatable). Needs `--confirm`.
+        #[arg(long, value_name = "PATH=VERDICT", value_parser = parse_stale, requires = "confirm")]
+        stale: Vec<(String, Verdict)>,
+        /// Confirm a feature that wrote no page, and say why none was needed. Needs `--confirm`.
+        #[arg(long, value_name = "REASON", requires = "confirm")]
+        not_required: Option<String>,
     },
     /// Open, list or cancel a handoff for the next session. Accepting one and messages are MCP-only.
     Handoff {

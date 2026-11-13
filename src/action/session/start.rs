@@ -108,6 +108,10 @@ pub struct StartOutcome {
     /// Whether `session start` opened the view dir in a host application (T3 Code).
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub opened_in_host: bool,
+    /// What a detached discovery session cannot do for memory (set when
+    /// detached and bound to no feature).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub memory_notice: Option<String>,
 }
 
 impl WriteHuman for StartOutcome {
@@ -131,6 +135,9 @@ impl WriteHuman for StartOutcome {
             )?;
             if let Some(cmd) = &self.launch_command {
                 writeln!(w, "To launch provider under write guard:\n  {cmd}")?;
+            }
+            if let Some(notice) = &self.memory_notice {
+                writeln!(w, "Note: {notice}")?;
             }
             Ok(())
         } else {
@@ -267,6 +274,8 @@ pub fn start(ctx: &Ctx, input: StartInput) -> Outcome<StartOutcome> {
         ),
     });
 
+    let memory_notice = (detached && feature.is_none()).then_some(UNBOUND_MEMORY_NOTICE);
+
     Ok(Report::with_warnings(
         StartOutcome {
             view_dir,
@@ -276,10 +285,17 @@ pub fn start(ctx: &Ctx, input: StartInput) -> Outcome<StartOutcome> {
             detached,
             launch_command,
             opened_in_host: opens_in_host,
+            memory_notice: memory_notice.map(str::to_owned),
         },
         warnings,
     ))
 }
+
+/// A detached discovery session is bound to no feature, and an MCP server
+/// started before it exists is never told its id, so the memory tools of that
+/// server cannot tell which feature a call belongs to. It is a notice, not a
+/// warning: nothing went wrong, and a warning would turn the exit code to 1.
+const UNBOUND_MEMORY_NOTICE: &str = "The memory MCP tools of a server started before this session are not bound to it: pass `feature` to memory_query, memory_write_page, memory_patch_page, memory_delete_page and memory_review, or confirm the review with `ivar memory review <feature> --confirm`.";
 
 fn smart_fetch_warnings(layout: &Layout, manifest: &Manifest, ctx: &Ctx) -> Vec<Warning> {
     pull::refresh_all(&git::System, layout, manifest, ctx.progress())

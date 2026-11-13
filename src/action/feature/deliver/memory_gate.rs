@@ -80,7 +80,7 @@ pub(crate) fn memory_not_reviewed(feature: &FeatureName) -> Failure {
     .fix(FixAction::safe(
         "deliver.review_memory",
         format!(
-            "In a session of `{feature}`, call the memory_review MCP tool, give each stale page a verdict and confirm; then preview and apply again."
+            "Run `ivar memory review {feature} --confirm`, with `--stale <path>=updated|still_valid` for each stale page (or `--not-required <reason>` when it wrote no page), or call the memory_review MCP tool with `feature: \"{feature}\"` and `confirm`; then preview and apply again."
         ),
     ))
 }

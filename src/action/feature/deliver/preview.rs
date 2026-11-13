@@ -104,7 +104,7 @@ pub(crate) fn blockers(preview: &DeliveryPreview, skip_memory_review: bool) -> V
     let memory =
         (preview.memory_review == MemoryReviewGate::Missing && !skip_memory_review).then(|| {
             format!(
-                "memory review is missing: run `memory_review` in a session of `{}`",
+                "memory review is missing: run `ivar memory review {0} --confirm`, or the memory_review MCP tool with `feature: \"{0}\"` and `confirm`",
                 preview.feature
             )
         });

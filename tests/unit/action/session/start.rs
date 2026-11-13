@@ -480,6 +480,47 @@ fn start_without_a_tty_leaves_a_detached_session() {
     assert!(!String::from_utf8(buf).unwrap().contains("ended"));
 }
 
+/// A detached discovery session binds no feature, so a memory MCP server
+/// started before it cannot tell which one a call belongs to: the start says so.
+#[test]
+fn a_detached_discovery_start_notices_that_memory_tools_are_unbound() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let ctx = Ctx::new(root);
+    let input = |feature: Option<&str>| StartInput {
+        feature: feature.map(str::to_owned),
+        resume: false,
+        provider: None,
+        detached: true,
+        relay: false,
+        prompt: None,
+    };
+
+    let discovery = start(&ctx, input(None)).unwrap().value;
+    let notice = discovery.memory_notice.as_deref().unwrap();
+    assert!(notice.contains("`feature`"), "{notice}");
+    assert!(
+        notice.contains("ivar memory review <feature> --confirm"),
+        "{notice}"
+    );
+    let mut human = Vec::new();
+    discovery.write_human(&mut human).unwrap();
+    assert!(
+        String::from_utf8(human)
+            .unwrap()
+            .contains("Note: The memory MCP tools")
+    );
+    assert!(serde_json::to_value(&discovery).unwrap()["memory_notice"].is_string());
+
+    let bound = start(&ctx, input(Some("checkout"))).unwrap().value;
+    assert!(bound.memory_notice.is_none());
+    assert!(
+        serde_json::to_value(&bound)
+            .unwrap()
+            .get("memory_notice")
+            .is_none()
+    );
+}
+
 // -- discovery sessions ----------------------------------------------------
 
 /// No feature named: the session materialises in the hall's own session
