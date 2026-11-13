@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.0](https://github.com/mnzsss/ivar/compare/v0.19.0...v0.20.0) - 2026-11-13
+
+### Added
+
+- confirm memory review from the cli ([#296](https://github.com/mnzsss/ivar/pull/296))
+- authenticate MCP servers through a client ID metadata document ([#290](https://github.com/mnzsss/ivar/pull/290))
+- run manual agent runs in the background ([#289](https://github.com/mnzsss/ivar/pull/289))
+- sync the hall when a discovery session ends ([#285](https://github.com/mnzsss/ivar/pull/285))
+- resolve hall rebase conflicts with an embedded agent ([#287](https://github.com/mnzsss/ivar/pull/287))
+- sync the hall after cleanup, agent run and skill sync ([#286](https://github.com/mnzsss/ivar/pull/286))
+- show a blocked hall sync in doctor and session brief ([#284](https://github.com/mnzsss/ivar/pull/284))
+- add ivar hall sync to commit and push pending hall changes ([#283](https://github.com/mnzsss/ivar/pull/283))
+
+### Fixed
+
+- serialize host agent runs per tool ([#295](https://github.com/mnzsss/ivar/pull/295))
+- accept a folder of skills in skill add --path ([#292](https://github.com/mnzsss/ivar/pull/292))
+- count only memory searches as followup misses ([#291](https://github.com/mnzsss/ivar/pull/291))
+- report unsupported platform for agents off Linux ([#288](https://github.com/mnzsss/ivar/pull/288))
+- let memory_review and page tools take an explicit feature ([#281](https://github.com/mnzsss/ivar/pull/281))
+
 ## [0.19.0](https://github.com/mnzsss/ivar/compare/v0.18.0...v0.19.0) - 2026-11-10
 
 ### Added
