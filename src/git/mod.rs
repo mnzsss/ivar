@@ -841,6 +841,31 @@ pub trait Git {
     /// Returns [`Error`] if the push is rejected or the remote cannot be reached.
     fn push(&self, git_dir: &Utf8Path, remote: &str, from: &str, to: &str) -> Result<(), Error>;
 
+    /// [`Self::push`], replacing the remote branch — but only while it is
+    /// still at `expected_tip`: `git push
+    /// --force-with-lease=<to>:<expected_tip> <remote> <from>:<to>`.
+    ///
+    /// The lease names its tip, so git never falls back on a remote-tracking
+    /// ref, which a fetch can move onto a commit ivar never pushed. `to` is
+    /// mapped under the repository's ref prefix exactly as [`Self::push`] maps
+    /// it. On success the local `refs/remotes/origin/<branch>` tracking ref
+    /// is updated, as [`Self::push`] does.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error`] if the remote branch is no longer at `expected_tip`
+    /// (the lease fails), or the push otherwise fails.
+    fn push_with_lease(
+        &self,
+        git_dir: &Utf8Path,
+        remote: &str,
+        from: &str,
+        to: &str,
+        expected_tip: &str,
+    ) -> Result<(), Error> {
+        exec::push_with_lease(git_dir, remote, from, to, expected_tip)
+    }
+
     /// `git -C <worktree> rebase <branch>` — replay the worktree's branch on
     /// top of `<branch>`.
     ///

@@ -369,6 +369,102 @@ fn delete_remote_branch_at_a_stale_tip_is_refused() {
     );
 }
 
+// -- push replacing the remote branch, with a named lease -----------------------
+
+/// A bare with `feat` pushed to `origin`, then rewritten locally — the shape
+/// `ivar feature rebase` leaves after a delivery. Returns the pushed tip.
+fn pushed_then_rewritten(dir: &Utf8Path) -> (Utf8PathBuf, Utf8PathBuf, String) {
+    let origin = seeded_repo(&dir.join("origin"), "main");
+    crate::test_support::git(&origin, &["config", "receive.denyCurrentBranch", "ignore"]);
+    let bare = dir.join("api.bare");
+    clone_bare(origin.as_str(), &bare).unwrap();
+    crate::test_support::git(&bare, &["branch", "feat", "main"]);
+    let worktree = dir.join("api/feat");
+    add_worktree(&bare, &worktree, "feat").unwrap();
+    std::fs::write(worktree.join("work.md"), "work\n").unwrap();
+    crate::test_support::git(&worktree, &["add", "work.md"]);
+    crate::test_support::git(&worktree, &["commit", "-m", "work"]);
+    push(&bare, origin.as_str(), "feat", "refs/heads/feat").unwrap();
+    let pushed = ref_value(&bare, "refs/heads/feat").unwrap();
+    crate::test_support::git(&worktree, &["commit", "--amend", "-m", "work, rewritten"]);
+    (origin, bare, pushed)
+}
+
+#[test]
+fn push_with_lease_replaces_a_remote_branch_that_is_at_the_expected_tip() {
+    let (_guard, dir) = utf8_temp_dir();
+    let (origin, bare, pushed) = pushed_then_rewritten(&dir);
+    let rewritten = ref_value(&bare, "refs/heads/feat").unwrap();
+    assert!(push(&bare, origin.as_str(), "feat", "refs/heads/feat").is_err());
+
+    push_with_lease(&bare, origin.as_str(), "feat", "refs/heads/feat", &pushed).unwrap();
+
+    assert_eq!(
+        remote_branch_tip(&bare, origin.as_str(), "feat").unwrap(),
+        Some(rewritten.clone())
+    );
+    assert_eq!(
+        ref_value(&bare, "refs/remotes/origin/feat"),
+        Some(rewritten),
+        "the replacing push left no tracking-ref record of itself"
+    );
+}
+
+#[test]
+fn push_with_lease_is_refused_when_the_remote_is_not_at_the_expected_tip() {
+    let (_guard, dir) = utf8_temp_dir();
+    let (origin, bare, pushed) = pushed_then_rewritten(&dir);
+    // A commit ivar never pushed lands on the remote branch.
+    crate::test_support::git(&origin, &["checkout", "feat"]);
+    std::fs::write(origin.join("stranger.md"), "stranger\n").unwrap();
+    crate::test_support::git(&origin, &["add", "stranger.md"]);
+    crate::test_support::git(&origin, &["commit", "-m", "stranger"]);
+    let stranger = ref_value(&origin.join(".git"), "refs/heads/feat").unwrap();
+    // Even a fetch that makes the tracking ref vouch for the stranger commit
+    // must not move the lease: it names the tip it expects.
+    crate::test_support::git(
+        &bare,
+        &["fetch", origin.as_str(), "feat:refs/remotes/origin/feat"],
+    );
+
+    let error = push_with_lease(&bare, origin.as_str(), "feat", "refs/heads/feat", &pushed)
+        .expect_err("the remote branch carries a commit ivar never pushed");
+
+    assert!(matches!(error, Error::Refused { .. }));
+    assert_eq!(
+        remote_branch_tip(&bare, origin.as_str(), "feat").unwrap(),
+        Some(stranger),
+        "the refused push must leave the remote branch alone"
+    );
+}
+
+#[test]
+fn push_with_lease_on_a_prefixed_bare_leases_the_prefixed_ref() {
+    let (_guard, dir) = utf8_temp_dir();
+    let origin = hall_origin_with_two_repos(&dir);
+    let bare = dir.join("notes.bare");
+    clone_bare_prefixed(origin.as_str(), &bare, "repos/notes/").unwrap();
+    let origin_git = origin.join(".git");
+    crate::test_support::git(&bare, &["branch", "feat", "main"]);
+    let worktree = dir.join("notes/feat");
+    add_worktree(&bare, &worktree, "feat").unwrap();
+    std::fs::write(worktree.join("work.md"), "work\n").unwrap();
+    crate::test_support::git(&worktree, &["add", "work.md"]);
+    crate::test_support::git(&worktree, &["commit", "-m", "work"]);
+    push(&bare, origin.as_str(), "feat", "refs/heads/feat").unwrap();
+    let pushed = ref_value(&origin_git, "refs/heads/repos/notes/feat").unwrap();
+    crate::test_support::git(&worktree, &["commit", "--amend", "-m", "work, rewritten"]);
+    let rewritten = ref_value(&bare, "refs/heads/feat").unwrap();
+
+    push_with_lease(&bare, origin.as_str(), "feat", "refs/heads/feat", &pushed).unwrap();
+
+    assert_eq!(
+        ref_value(&origin_git, "refs/heads/repos/notes/feat"),
+        Some(rewritten)
+    );
+    assert!(!ref_exists(&origin_git, "refs/heads/feat"));
+}
+
 // -- remote-tracking refs -----------------------------------------------------
 //
 // `git clone --bare` writes no `remote.origin.fetch`, so nothing ever lands in

@@ -139,6 +139,17 @@ fn a_rejected_prefixed_push_names_the_prefixed_ref_in_its_recovery() {
         apply_input("checkout", &approved.value.preview.fingerprint),
     )
     .unwrap();
+    // A commit no delivery pushed lands on the prefixed branch, so the rewritten
+    // local branch is not ours to put over it.
+    let origin = origin_of(&root, "notes");
+    git(
+        Utf8Path::new(&origin),
+        &["checkout", "repos/notes/checkout"],
+    );
+    std::fs::write(Utf8Path::new(&origin).join("stranger.md"), "stranger\n").unwrap();
+    git(Utf8Path::new(&origin), &["add", "stranger.md"]);
+    git(Utf8Path::new(&origin), &["commit", "-m", "stranger"]);
+    git(Utf8Path::new(&origin), &["checkout", "main"]);
     git(
         &notes_worktree(&root, "checkout"),
         &["commit", "--amend", "-m", "work, rewritten"],
@@ -165,5 +176,47 @@ fn a_rejected_prefixed_push_names_the_prefixed_ref_in_its_recovery() {
     assert!(
         command.ends_with(" checkout:refs/heads/repos/notes/checkout"),
         "{command}"
+    );
+}
+
+#[test]
+fn a_rewritten_prefixed_branch_is_replaced_under_the_prefix() {
+    let (_guard, root) = hall_with_prefixed_promoted("notes");
+    approve_through_plan(&root);
+    let ctx = Ctx::new(root.clone());
+    let approved = deliver(&ctx, preview_input("checkout")).unwrap();
+    deliver(
+        &ctx,
+        apply_input("checkout", &approved.value.preview.fingerprint),
+    )
+    .unwrap();
+    let origin = origin_of(&root, "notes");
+    let delivered = remote_ref(&origin, "repos/notes/checkout").expect("the prefixed branch");
+    let delivered = delivered.split_whitespace().next().unwrap().to_owned();
+    let worktree = notes_worktree(&root, "checkout");
+    git(&worktree, &["commit", "--amend", "-m", "work, rewritten"]);
+    let rewritten = git_stdout(&worktree, &["rev-parse", "HEAD"])
+        .trim()
+        .to_owned();
+
+    let approved = deliver(&ctx, preview_input("checkout")).unwrap();
+    let report = deliver(
+        &ctx,
+        apply_input("checkout", &approved.value.preview.fingerprint),
+    )
+    .unwrap();
+
+    let push = &report.value.pushes[0];
+    assert!(push.ok, "{:?}", push.detail);
+    let detail = push.detail.as_deref().expect("the replacement is reported");
+    assert!(
+        detail.contains("repos/notes/checkout") && detail.contains(&delivered),
+        "the lease is on the prefixed ref: {detail}"
+    );
+    let replaced = remote_ref(&origin, "repos/notes/checkout").unwrap();
+    assert!(replaced.starts_with(&rewritten), "{replaced}");
+    assert!(
+        remote_ref(&origin, "checkout").is_none(),
+        "the hall's own namespace stays untouched"
     );
 }

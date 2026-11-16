@@ -26,7 +26,9 @@ pub struct PushResult {
     pub repo: RepoName,
     /// Whether the push landed.
     pub ok: bool,
-    /// Why it failed, when it did.
+    /// Why it failed, when it did — or, for a push that landed, what is worth
+    /// knowing about it: that it replaced the remote branch, or that no pull
+    /// request followed.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
     /// The pull request created or updated for this repo, when there is one.
@@ -233,6 +235,9 @@ fn write_human_push_result(w: &mut impl io::Write, outcome: &DeliverOutcome) -> 
                         "  {}: pushed — PR #{}{draft} {}",
                         push.repo, pr.number, pr.url
                     )?;
+                    if let Some(detail) = &push.detail {
+                        writeln!(w, "    {detail}")?;
+                    }
                 }
                 None => match &push.detail {
                     Some(detail) => writeln!(w, "  {}: pushed — {detail}", push.repo)?,

@@ -46,7 +46,7 @@ pub(crate) use self::commit::{
 pub(crate) use self::conflict::{blob_text, commit_info, conflicts, take_side};
 pub(crate) use self::remote::{
     delete_remote_branch, fetch, publish_remote_branch, pull_rebase, push, push_upstream,
-    remote_branch_tip,
+    push_with_lease, remote_branch_tip,
 };
 pub(crate) use self::status::{
     changed_paths, commit_patch_id, diff_patch_id, diff_worktree, head_commit,

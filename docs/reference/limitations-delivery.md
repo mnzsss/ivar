@@ -28,6 +28,46 @@ safe — a repo already merged is already a fast-forward no-op.
 Reverting shared history to compensate for a network error is worse than an
 unpushed commit.
 
+## A rebased branch is force-pushed only over ivar's own push
+
+`deliver` pushes a feature branch normally. After `ivar feature rebase` the
+branch no longer contains what the last delivery pushed, so git refuses the
+push as non-fast-forward. `deliver` then reads the remote branch's tip and
+compares it with the tip the last delivery of this feature recorded for the
+repo (`delivered_sha` in `feature.json`):
+
+- **Equal:** the remote holds only ivar's own earlier push. `deliver` pushes
+  with `--force-with-lease=<ref>:<sha>`, naming that tip, then opens or updates
+  the PR. The preview lists the replacement under the repo's pending work
+  (`branch rewritten since the last delivery; will be pushed with
+  --force-with-lease over <sha>`), so approving its fingerprint approves the
+  force-push, and the apply output names the tip it replaced.
+- **Different, or nothing recorded:** the remote carries a commit no delivery
+  of this feature pushed. `deliver` leaves it alone and reports
+  `deliver.force_with_lease` with the command a human runs after reviewing it.
+
+The tip is recorded in `feature.json`, not read from the bare clone's
+`refs/remotes/origin/<branch>`: `ivar sync` fetches over that ref, and a
+foreign commit would then look like ivar's own. A remote that moves between the
+read and the push makes the lease fail, and the delivery reports the same
+`deliver.force_with_lease` refusal. The recording is skipped, with a
+`deliver.delivered_sha_not_saved` warning, if the tip cannot be read or the
+record cannot be written; the next rewrite then needs the manual push.
+
+`deliver --land` pushes a default branch and does not take this path.
+
+## A moved base blocks the preview
+
+A repo that opens PRs (a GitHub remote without a `ref_prefix`) is checked
+against its base before anything is pushed. The preview lists a blocker when the
+branch is no longer built on the base's current remote tip, when the base is gone
+from the remote, or when the remote did not answer. Apply refuses the delivery
+and pushes nothing. The fix for a moved base is
+`ivar feature rebase <feature> --repo <repo>`. Apply checks again for the window
+between preview and apply; a base that moved then changes the fingerprint, so
+the delivery is refused as drifted. Repos that only push have no PR and no base
+check.
+
 ## What protects the default branch
 
 Protection is layered, and the layers are not equally strong. Each one below

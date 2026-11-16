@@ -320,8 +320,9 @@ impl DeliveryRepo {
     /// `default_branch` is the repo's own default branch, from `ivar.json`,
     /// used only to word the merged-and-deleted fix hint.
     ///
-    /// This refusal is per repo and blocks apply for that repo alone — it is
-    /// not a [`Self::blockers`] entry, which is informational only.
+    /// The preview lists this refusal as a [`Self::blockers`] entry, so apply
+    /// refuses before pushing anything; apply asks again for the window
+    /// between the preview and itself, and then refuses the PR alone.
     #[must_use]
     pub fn check_base(
         &self,

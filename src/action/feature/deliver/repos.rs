@@ -9,7 +9,7 @@ use camino::Utf8Path;
 use crate::action::feature::deliver::input::PullRequestMetadata;
 use crate::domain::feature::Feature;
 use crate::domain::feature::{DeliveryAction, DeliveryMode, DeliveryRepo, DraftAction};
-use crate::domain::name::RepoName;
+use crate::domain::name::{FeatureName, RepoName};
 use crate::error::{Failure, FixAction};
 use crate::git::{self, TargetState};
 use crate::store::layout::Layout;
@@ -63,6 +63,7 @@ fn push_readiness(
     worktree: &Utf8Path,
     feature: &Feature,
     declared: &Repo,
+    delivered: Option<&str>,
 ) -> Result<(Vec<String>, Vec<String>), Failure> {
     let mut blockers = Vec::new();
     let mut pending = Vec::new();
@@ -92,6 +93,19 @@ fn push_readiness(
                         .unwrap_or(ahead);
                     if unpushed > 0 {
                         pending.push(format!("{unpushed} commit(s) not pushed"));
+                    }
+                    // The remote holds what the last delivery pushed and this
+                    // branch has been rewritten since: apply replaces it, with
+                    // a lease on exactly that tip. Said here so the approval
+                    // of the fingerprint is the approval of the force-push.
+                    if delivered == Some(tip.as_str())
+                        && !git
+                            .is_ancestor(bare, &tip, feature.branch.as_str())
+                            .unwrap_or(false)
+                    {
+                        pending.push(format!(
+                            "branch rewritten since the last delivery; will be pushed with --force-with-lease over {tip}"
+                        ));
                     }
                 }
                 Ok(None) => pending.push(format!("{ahead} commit(s) not pushed")),
@@ -242,7 +256,14 @@ fn build_repo_entry(
     let worktree = layout.repo_worktree(repo_name, &feature.branch);
     ensure_repo_cloned_for_delivery(git, &bare, repo_name)?;
 
-    let (mut blockers, pending) = push_readiness(git, &bare, &worktree, feature, declared)?;
+    // Only a push-mode delivery pushes the feature branch itself, so only it
+    // may replace the branch its last delivery pushed.
+    let delivered = promotion
+        .delivered_sha
+        .as_deref()
+        .filter(|_| mode == DeliveryMode::Push);
+    let (mut blockers, pending) =
+        push_readiness(git, &bare, &worktree, feature, declared, delivered)?;
 
     // Predict the delivery action: only GitHub remotes get a PR. A repo
     // on any other host (a local path, a mirror, GitLab) is push-only —
@@ -336,7 +357,69 @@ fn build_repo_entry(
         repo.local_branch,
         repo.remote_branch(repo.local_branch.as_str())
     );
+
+    // A base that no longer supports the PR is found here, before anything is
+    // pushed: found at apply, the branch would already be published with no PR
+    // to show for it. Apply keeps its own check for the window between the
+    // preview and itself. Without the branch there is nothing to compare, and
+    // "branch not materialised" has said so already.
+    if matches!(
+        repo.action,
+        DeliveryAction::NewPr | DeliveryAction::UpdatePr
+    ) && git
+        .list_branches(&bare)?
+        .iter()
+        .any(|branch| branch == feature.branch.as_str())
+        && let Some(failure) = base_failure(git, manifest, &bare, &feature.name, &repo)
+    {
+        repo.blockers.push(match failure.fix_actions.first() {
+            Some(fix) => format!("{} — {}", failure.what, fix.what),
+            None => failure.what,
+        });
+    }
     Ok(repo)
+}
+
+/// Whether the base still supports delivering onto it — a base gone from the
+/// remote, or one this branch has drifted off of, would make a PR's diff
+/// wrong. `None` means the check passed, or there was nothing to check.
+///
+/// The one place the facts are gathered, so the preview that refuses and the
+/// apply that re-checks cannot disagree about what a base is.
+pub(super) fn base_failure(
+    git: &impl git::Git,
+    manifest: &Manifest,
+    bare: &Utf8Path,
+    feature_name: &FeatureName,
+    repo: &DeliveryRepo,
+) -> Option<Failure> {
+    let default_branch = manifest
+        .repos()
+        .iter()
+        .find(|manifest_repo| manifest_repo.name() == &repo.repo)
+        .map(|manifest_repo| manifest_repo.default_branch().clone())?;
+
+    let remote_tip = git
+        .remote_branch_tip(bare, &repo.remote, repo.base_branch.as_str())
+        .map_err(|_| ());
+    let secondary = match &remote_tip {
+        // Ignored by `check_base` when the remote did not answer —
+        // no point spending a local read on it.
+        Err(()) => Ok(false),
+        Ok(None) => git
+            .is_ancestor(bare, repo.base_branch.as_str(), default_branch.as_str())
+            .map_err(|_| ()),
+        // Against the remote's own tip, not the local branch name:
+        // `ivar sync` never re-fetches a non-default branch, so a
+        // local `base_branch` ref can be stale — still an ancestor
+        // of the local branch even though the remote has moved on.
+        // A tip this bare clone never fetched is itself the answer
+        // (`is_ancestor` refuses, `check_base` reads that as moved).
+        Ok(Some(tip)) => git
+            .is_ancestor(bare, tip, repo.local_branch.as_str())
+            .map_err(|_| ()),
+    };
+    repo.check_base(feature_name, &remote_tip, secondary, &default_branch)
 }
 
 pub(crate) fn push_repo(
