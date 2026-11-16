@@ -81,7 +81,7 @@ pub(super) fn definitions() -> Vec<Value> {
 fn review() -> Value {
     json!({
         "name": "memory_review",
-        "description": "Review the memory of this session's feature (or of `feature`, when the server is not bound to one) before delivery. Without arguments it lists the pages written in the feature, the gaps (a failed tool without a gotcha, no update page, an analysis approved without a memory_query) and the durable pages the feature's diff may have made stale. With confirm: true it records memory.reviewed, which `ivar feature deliver` requires; every stale page needs a verdict. Gaps never block the confirmation.",
+        "description": "Review the memory of this session's feature (or of `feature`, when the server is not bound to one) before delivery. Without arguments it lists the pages written in the feature, the gaps (a failed tool without a gotcha, no update page, an analysis approved without a memory_query) and the durable pages the feature's diff may have made stale (`stale`). `preexisting_broken` lists broken anchors the diff did not cause; it is informational and needs no verdict. An `update` page is never listed for a broken anchor. With confirm: true it records memory.reviewed, which `ivar feature deliver` requires; every page in `stale` needs a verdict. Gaps never block the confirmation.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -109,7 +109,7 @@ fn review() -> Value {
 fn write_page() -> Value {
     json!({
         "name": "memory_write_page",
-        "description": format!("Write a page under docs/memory/<kind>/. Never commits. Kinds: {KIND_DEFINITIONS}. The kind `session` is refused: only the consolidation writes it."),
+        "description": format!("Write a page under docs/memory/<kind>/. Never commits. Kinds: {KIND_DEFINITIONS}. `replace: true` on an `update` is refused after delivery, for another feature's page and without a feature. The kind `session` is refused: only the consolidation writes it."),
         "annotations": { "readOnlyHint": false },
         "inputSchema": {
             "type": "object",
@@ -129,7 +129,7 @@ fn write_page() -> Value {
                     }
                 },
                 "expires_at": { "type": "string", "description": "RFC 3339 expiry" },
-                "replace": { "type": "boolean", "description": "Overwrite an existing page of the same path (default false)" },
+                "replace": { "type": "boolean", "description": "Overwrite an existing page of the same path (default false). For product and update pages it overwrites the page with the same slug, whatever its number. An `update` is replaceable only by the feature that wrote it, before that feature is delivered" },
                 "feature": { "type": "string", "description": "The feature this call belongs to. Needed only when the MCP server was started outside a feature session; a bound session keeps its own feature and a different value is an error" }
             },
             "required": ["kind", "title"]

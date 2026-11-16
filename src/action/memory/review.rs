@@ -17,8 +17,8 @@ use crate::action::{Ctx, discover_hall, read_manifest};
 use crate::domain::feature::{Feature, Gate, GateState, WorktreeState};
 pub use crate::domain::memory_review::Verdict;
 use crate::domain::memory_review::{
-    Gap, ObservationFact, StalePage, USAGE_EVENT, WrittenPage, gaps, is_durable_page,
-    missing_verdicts, queried_before_approval, stale_pages, written_pages,
+    Gap, ObservationFact, PageAction, StalePage, USAGE_EVENT, WrittenPage, gaps, is_delivered,
+    is_durable_page, missing_verdicts, queried_before_approval, stale_pages, written_pages,
 };
 use crate::domain::name::FeatureName;
 use crate::domain::observation::SourceEvent;
@@ -41,6 +41,9 @@ pub struct ReviewReport {
     pub written: Vec<WrittenPage>,
     pub gaps: Vec<Gap>,
     pub stale: Vec<StalePage>,
+    /// Anchors that were already broken and that the diff did not touch:
+    /// informational, they need no verdict and never block the confirmation.
+    pub preexisting_broken: Vec<StalePage>,
     pub warnings: Vec<String>,
     pub last: Option<ReviewRecord>,
     #[serde(skip)]
@@ -143,6 +146,14 @@ impl WriteHuman for ReviewReport {
                 page.reasons.len()
             )?;
         }
+        for page in &self.preexisting_broken {
+            writeln!(
+                out,
+                "pre-existing broken anchor: {} ({} anchor(s); not touched by this feature, no verdict needed)",
+                page.path,
+                page.reasons.len()
+            )?;
+        }
         for warning in &self.warnings {
             writeln!(out, "warning: {warning}")?;
         }
@@ -191,12 +202,13 @@ pub fn review_in(layout: &Layout, name: &FeatureName) -> Result<Report<ReviewRep
     let gaps = gaps(&facts, &written, name.as_str(), analysis_approved);
     let changed = changed_files(layout, &feature, &mut notes);
     let (anchored, broken) = anchor_matches(layout, &changed, &mut notes);
-    let stale = stale_pages(&anchored, &broken, &written);
+    let staleness = stale_pages(&anchored, &changed, &broken, &written);
     Ok(Report::new(ReviewReport {
         feature: name.to_string(),
         written,
         gaps,
-        stale,
+        stale: staleness.stale,
+        preexisting_broken: staleness.preexisting,
         last: last_record(&rows, name),
         warnings: notes.warnings,
         incomplete: notes.incomplete,
@@ -270,6 +282,56 @@ pub fn confirm_in(
     record_memory_event(layout, &scope, SourceEvent::MemoryReviewed, &body)
         .map_err(|reason| Failure::failed("memory.review_not_recorded", reason))?;
     review_in(layout, name)
+}
+
+/// What a feature's observations say about one of its pages.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct PageStanding {
+    /// The feature wrote the page and has not deleted it.
+    pub owned: bool,
+    /// The feature's delivery has begun.
+    pub delivered: bool,
+}
+
+/// How `name` stands with `rel`: whether it wrote the page and whether its
+/// delivery has begun. Read from the feature's own observations
+/// after draining the spool, so a page written a moment ago is seen. The
+/// caller must hold `memory.lock`.
+///
+/// # Errors
+///
+/// When the spool cannot be drained or `memory.db` cannot be read.
+pub(crate) fn owns_page_locked(
+    layout: &Layout,
+    name: &FeatureName,
+    rel: &str,
+) -> Result<PageStanding, String> {
+    drain::drain_locked(layout, usize::MAX).map_err(|failure| failure.what)?;
+    if !layout.memory_db().exists() {
+        return Ok(PageStanding {
+            owned: false,
+            delivered: false,
+        });
+    }
+    let own = name.to_string();
+    let rows = open(layout)
+        .and_then(|db| {
+            feature_observations(&db, std::slice::from_ref(&own))
+                .map_err(|error| unreadable(&error))
+        })
+        .map_err(|failure| failure.what)?;
+    let facts: Vec<ObservationFact> = rows
+        .iter()
+        .filter(|row| row.feature == own)
+        .map(fact)
+        .collect();
+    let owned = written_pages(&facts, layout.root().as_str())
+        .iter()
+        .any(|page| page.path == rel && page.action != PageAction::Deleted);
+    Ok(PageStanding {
+        owned,
+        delivered: is_delivered(&facts),
+    })
 }
 
 /// # Errors
@@ -508,7 +570,8 @@ fn changed_files(layout: &Layout, feature: &Feature, notes: &mut Notes) -> Vec<(
 type Anchored = Vec<(String, String, String)>;
 type Broken = Vec<(String, String, String, Option<String>)>;
 
-/// Every broken anchor of a durable page counts, wherever its file is.
+/// Every broken anchor of a durable page; [`stale_pages`] keeps those whose
+/// file the diff touched and reports the rest as pre-existing.
 fn anchor_matches(
     layout: &Layout,
     changed: &[(String, String)],
