@@ -26,14 +26,15 @@ pub(super) fn has_uri_scheme(s: &str) -> bool {
 /// Borrows its set: a caller may decide twice about the same session, and
 /// moving the set into the resolution would forbid that.
 ///
-/// `Unresolved` carries the live sessions' scratch dirs for the *message*
+/// `Unresolved` carries the live sessions' scratch dirs and the owning
+/// feature of a promoted worktree for the *message*
 /// alone. An unresolved structured write is always denied, so these paths
 /// never widen what may be written (N-NO-WIDEN).
 pub(crate) enum Resolution<'a> {
     Resolved(&'a WritableSet),
     Unresolved {
         scoped_scratch_dirs: Vec<Utf8PathBuf>,
-        live_count: usize,
+        promoted_feature: Option<String>,
     },
     Ambiguous {
         features: Vec<String>,
@@ -104,9 +105,9 @@ pub(crate) fn decide(
         }
         Resolution::Unresolved {
             scoped_scratch_dirs,
-            live_count,
+            promoted_feature,
         } => GuardDecision::Deny {
-            reason: unresolved_reason(scoped_scratch_dirs, *live_count),
+            reason: unresolved_reason(scoped_scratch_dirs, promoted_feature.as_deref()),
         },
         Resolution::Ambiguous { features } => GuardDecision::Deny {
             reason: format!(
@@ -259,31 +260,49 @@ pub(super) fn classify_layout_path_denial(
 }
 
 /// The unresolved denial's reason. The first sentence is unchanged and
-/// load-bearing: five test assertions and two documents quote it.
-pub(super) fn unresolved_reason(scoped: &[Utf8PathBuf], live_count: usize) -> String {
+/// load-bearing: several test assertions quote it.
+///
+/// A target in a promoted worktree of a feature adds the connect hint: the
+/// guard never creates the session itself (ADR 0003), so it names the command.
+/// The message stays on one line for narrow provider hook displays.
+pub(super) fn unresolved_reason(scoped: &[Utf8PathBuf], promoted_feature: Option<&str>) -> String {
     const SENTENCE: &str = "no ivar session resolves from the cwd or the target path";
+    let mut reason = SENTENCE.to_owned();
     if !scoped.is_empty() {
-        format!(
-            "{SENTENCE}; temporary files belong in {}",
-            scoped
+        reason.push_str("; temporary files belong in ");
+        reason.push_str(
+            &scoped
                 .iter()
                 .map(ToString::to_string)
                 .collect::<Vec<_>>()
-                .join(", ")
-        )
-    } else {
-        match live_count {
-            0 => format!("{SENTENCE}; this hall has no live session"),
-            1 => format!("{SENTENCE}; this hall has 1 live session"),
-            n => format!("{SENTENCE}; this hall has {n} live sessions"),
-        }
+                .join(", "),
+        );
     }
+    if let Some(feature) = promoted_feature {
+        reason.push_str("; target is in a promoted worktree of feature `");
+        reason.push_str(feature);
+        reason.push_str("`; run `ivar session connect --feature ");
+        reason.push_str(feature);
+        reason.push_str(" --create` and write through the session view dir");
+    }
+    reason
 }
 
-pub(super) fn feature_scratch_dirs(layout: &Layout, target: &Utf8Path) -> Vec<Utf8PathBuf> {
+/// What an unresolved write target tells about its feature: the live sessions'
+/// scratch dirs (target in the feature dir or a promoted worktree) and the
+/// feature whose promoted worktree contains the target.
+#[derive(Default)]
+pub(super) struct FeatureContext {
+    pub(super) scratch_dirs: Vec<Utf8PathBuf>,
+    pub(super) promoted_feature: Option<String>,
+}
+
+/// One pass over the hall's features for `target`.
+pub(super) fn feature_context(layout: &Layout, target: &Utf8Path) -> FeatureContext {
     let target = canonicalize_lenient(target);
+    let mut ctx = FeatureContext::default();
     let Ok(entries) = crate::infra::fs::read_dir(&layout.features_dir()) else {
-        return Vec::new();
+        return ctx;
     };
 
     for entry in entries {
@@ -303,22 +322,26 @@ pub(super) fn feature_scratch_dirs(layout: &Layout, target: &Utf8Path) -> Vec<Ut
             target.starts_with(&wt)
         });
 
+        if in_promoted_wt && ctx.promoted_feature.is_none() {
+            ctx.promoted_feature = Some(feature_name.to_string());
+        }
         if (in_feature_dir || in_promoted_wt)
+            && ctx.scratch_dirs.is_empty()
             && let Ok(sessions) =
                 crate::action::session::lookup::list_feature(layout, &feature_name)
         {
-            let live_scratches: Vec<Utf8PathBuf> = sessions
+            ctx.scratch_dirs = sessions
                 .into_iter()
                 .filter(|s| s.state.is_some())
                 .map(|s| Layout::session_scratch(&s.view_dir))
                 .collect();
-            if !live_scratches.is_empty() {
-                return live_scratches;
-            }
+        }
+        if !ctx.scratch_dirs.is_empty() && ctx.promoted_feature.is_some() {
+            break;
         }
     }
 
-    Vec::new()
+    ctx
 }
 
 pub(super) fn relative_no_session_reason(

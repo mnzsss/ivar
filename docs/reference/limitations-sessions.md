@@ -59,7 +59,9 @@ Protection operates in two distinct tiers:
    understands why the path is disallowed and can ask for repo promotion, rather
    than receiving an opaque OS permission error. When no session resolves from the
    cwd or the target path, the guard lists the scratch directories of live sessions
-   belonging to the target feature if any, or states the count of live sessions in the hall.
+   belonging to the target feature if any. When the target lies in a promoted worktree
+   of a feature, the denial also names the feature and the command
+   `ivar session connect --feature <feature> --create`, then to write through the session's view dir.
 
 ### Multi-target structured writes and device tools
 

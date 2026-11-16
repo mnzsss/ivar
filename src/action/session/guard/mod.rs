@@ -168,27 +168,17 @@ fn evaluate(
         (Some(set), _) => Resolution::Resolved(set),
         (None, Some(features)) => Resolution::Ambiguous { features },
         (None, None) => {
-            let (scoped, live_count) = match cwd
-                .as_deref()
-                .and_then(|c| Layout::discover(c).ok().flatten())
-            {
-                Some(layout) => {
-                    let live = super::lookup::list_all(&layout)
-                        .unwrap_or_default()
-                        .into_iter()
-                        .filter(|s| s.state.is_some())
-                        .count();
-                    let scoped = targets
-                        .first()
-                        .map(|t| feature_scratch_dirs(&layout, t))
-                        .unwrap_or_default();
-                    (scoped, live)
-                }
-                None => (Vec::new(), 0),
+            let ctx = match (
+                cwd.as_deref()
+                    .and_then(|c| Layout::discover(c).ok().flatten()),
+                targets.first(),
+            ) {
+                (Some(layout), Some(t)) => feature_context(&layout, t),
+                _ => FeatureContext::default(),
             };
             Resolution::Unresolved {
-                scoped_scratch_dirs: scoped,
-                live_count,
+                scoped_scratch_dirs: ctx.scratch_dirs,
+                promoted_feature: ctx.promoted_feature,
             }
         }
     };
