@@ -62,6 +62,7 @@ fn github_repo_in_land_mode_creates_no_pull_request() {
             repo_overrides: Vec::new(),
             only: Vec::new(),
             skip_memory_review: None,
+            no_plan: None,
         },
     )
     .expect("land preview");
@@ -82,6 +83,7 @@ fn github_repo_in_land_mode_creates_no_pull_request() {
             repo_overrides: Vec::new(),
             only: Vec::new(),
             skip_memory_review: None,
+            no_plan: None,
         },
     )
     .expect("land apply");

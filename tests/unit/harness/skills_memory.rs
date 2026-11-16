@@ -75,3 +75,12 @@ fn memory_tool_steps_name_the_feature_argument_outside_a_feature_session() {
         assert!(text.contains("pass `feature: <feature>`"), "{name}");
     }
 }
+
+#[test]
+fn deliver_documents_no_plan_as_a_human_only_waiver() {
+    assert!(DELIVER.contains("## Deliver without a plan"));
+    assert!(DELIVER.contains("--no-plan \"<reason>\""));
+    assert!(DELIVER.contains("`delivery.plan_skipped`"));
+    assert!(DELIVER.contains("`deliver.no_plan_with_artifacts`"));
+    assert!(DELIVER.contains("Never pass `--no-plan` on your own"));
+}

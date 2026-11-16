@@ -11,6 +11,7 @@ pub enum SourceEvent {
     SessionTool,
     SessionEnded,
     DeliveryRefused,
+    DeliveryPlanSkipped,
     DeliveryPushed,
     DeliveryPr,
     DeliveryLanded,
@@ -34,12 +35,13 @@ pub enum SourceEvent {
 }
 
 impl SourceEvent {
-    pub const ALL: [Self; 25] = [
+    pub const ALL: [Self; 26] = [
         Self::SessionStarted,
         Self::SessionPrompted,
         Self::SessionTool,
         Self::SessionEnded,
         Self::DeliveryRefused,
+        Self::DeliveryPlanSkipped,
         Self::DeliveryPushed,
         Self::DeliveryPr,
         Self::DeliveryLanded,
@@ -70,6 +72,7 @@ impl SourceEvent {
             Self::SessionTool => "session.tool",
             Self::SessionEnded => "session.ended",
             Self::DeliveryRefused => "delivery.refused",
+            Self::DeliveryPlanSkipped => "delivery.plan_skipped",
             Self::DeliveryPushed => "delivery.pushed",
             Self::DeliveryPr => "delivery.pr",
             Self::DeliveryLanded => "delivery.landed",
@@ -170,6 +173,11 @@ impl Importance {
 
     #[must_use]
     pub const fn delivery_failure() -> Self {
+        Self(7)
+    }
+
+    #[must_use]
+    pub const fn delivery_plan_skipped() -> Self {
         Self(7)
     }
 

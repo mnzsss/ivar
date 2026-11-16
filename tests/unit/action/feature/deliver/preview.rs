@@ -362,6 +362,7 @@ fn apply_command_repeats_every_fingerprinted_flag() {
         }],
         only: Vec::new(),
         skip_memory_review: None,
+        no_plan: None,
     };
 
     assert_eq!(

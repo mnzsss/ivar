@@ -42,4 +42,8 @@ pub struct DeliverInput {
     /// Apply without the memory review, recording `memory.review_skipped`
     /// with this reason. Apply only, never fingerprinted.
     pub skip_memory_review: Option<String>,
+    /// Apply without a plan gate for a feature that never wrote a plan,
+    /// recording `delivery.plan_skipped` with this reason. Apply only, never
+    /// fingerprinted; refused when any SPDD artifact exists.
+    pub no_plan: Option<String>,
 }

@@ -218,6 +218,7 @@ Preview, then push, a feature's promoted repos. `--preview` prints the side-effe
 | `--only` | `<REPO>` |  | Deliver only this promoted repository; repeat to select several. Without it every promoted repository is delivered. Part of the delivery fingerprint: pass the same values to the preview and the apply. |
 | `--draft` |  |  | Create or convert a pull request to a draft. If placed before any `--repo`, applies globally to all repos; if placed after a `--repo`, applies only to that repo. Incompatible with `--land`. |
 | `--skip-memory-review` | `<REASON>` |  | Apply without the memory review the delivery requires, and record `memory.review_skipped` with REASON. Apply only: it lifts no other blocker and is not part of the fingerprint. |
+| `--no-plan` | `<REASON>` |  | Apply a feature that never wrote a plan without approving one, and record `delivery.plan_skipped` with REASON. A human decision: never pass it on your own. Refused when any of `requirements.md`, `analysis.md` or `plan.md` exists. Apply only: it lifts no other blocker and is not part of the fingerprint. |
 
 
 ## `ivar feature close`
