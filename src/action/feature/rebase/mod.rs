@@ -46,21 +46,41 @@
 //! refusal) is aborted with `git rebase --abort` and reported as conflicted,
 //! and the next repo is tried. The report carries one status per repo:
 //! `rebased`, `skipped`, or `conflicted`.
+//!
+//! # `--keep-conflicts`, `--continue`, `--abort`
+//!
+//! Aborting is the default, so a batch never leaves repos half-rebased. With
+//! `--keep-conflicts` a rebase that stops on a conflict is instead left in
+//! progress: the repo is `conflicted` with `in_progress` set and the unmerged
+//! paths listed, and the next repo is tried. Whoever resolves it does so in the
+//! worktree, `git add`s the files, and runs `--continue`; `--abort` gives up
+//! and restores the branch. Neither needs state beyond git's own: the rebase
+//! in progress *is* the state. A refusal with no rebase in progress (an
+//! unknown revision, say) is not a conflict and is never reported as one.
+//! `--onto` cannot be combined with `--keep-conflicts`: the declared base is
+//! only recorded for repos that finished, and a stopped rebase has not.
+//!
+//! A worktree left in progress is skipped by a plain `feature rebase`, with a
+//! warning that names `--continue` and `--abort`.
+
+use camino::Utf8Path;
 
 use crate::domain::delivery_event::{DeliveryEvent, DeliveryScope};
 use crate::domain::feature::Feature;
 use crate::domain::name::{BranchName, FeatureName, RepoName};
 use crate::error::{Failure, FixAction, Outcome, Report};
 use crate::git::{self, Git};
+use crate::infra::fs;
 
 use super::super::{discover_hall, read_manifest};
 use crate::action::Ctx;
+use crate::action::memory::delivery::Emitter;
 
 mod repo;
 mod types;
 
-use repo::rebase_one_repo;
-pub use types::{BaseSource, RebaseInput, RebaseOutcome, RebaseStatus, RepoRebase};
+use repo::{abort_one_repo, continue_one_repo, rebase_one_repo};
+pub use types::{BaseSource, RebaseInput, RebaseMode, RebaseOutcome, RebaseStatus, RepoRebase};
 
 /// Rebase the selected promoted repos of `input.name` onto their target base.
 ///
@@ -92,6 +112,7 @@ pub fn rebase(ctx: &Ctx, input: RebaseInput) -> Outcome<RebaseOutcome> {
         super::mutation::ensure_promotion_mutable(&layout, &feature, repo)?;
     }
 
+    refuse_onto_with_resume(input.onto.as_deref(), input.mode)?;
     let onto = match input.onto {
         Some(raw) => Some(BranchName::new(raw)?),
         None => None,
@@ -111,38 +132,33 @@ pub fn rebase(ctx: &Ctx, input: RebaseInput) -> Outcome<RebaseOutcome> {
             continue;
         };
         let worktree = layout.repo_worktree(repo_name, &feature.branch);
-        let sha_before = git.head_commit(&worktree).ok();
-        let (result, repo_warnings, did_collapse) = rebase_one_repo(
-            &git,
-            &layout,
-            &feature,
-            repo_name,
-            promotion,
-            &manifest,
-            onto.as_ref(),
-            input.offline,
-        )?;
+        // Resuming, HEAD is already detached mid-rebase; the branch's tip
+        // before the rebase began is what git recorded as `orig-head`.
+        let sha_before = match input.mode {
+            RebaseMode::Run { .. } => git.head_commit(&worktree).ok(),
+            RebaseMode::Continue | RebaseMode::Abort => original_head(&git, &worktree),
+        };
+        let (result, repo_warnings, did_collapse) = match input.mode {
+            RebaseMode::Run { keep_conflicts } => rebase_one_repo(
+                &git,
+                &layout,
+                &feature,
+                repo_name,
+                promotion,
+                &manifest,
+                onto.as_ref(),
+                input.offline,
+                keep_conflicts,
+            )?,
+            RebaseMode::Continue => continue_one_repo(&git, &layout, &feature, repo_name)?,
+            RebaseMode::Abort => abort_one_repo(&git, &layout, &feature, repo_name)?,
+        };
         if matches!(
             result.status,
             RebaseStatus::Rebased | RebaseStatus::Conflicted
         ) {
-            let sha_after = git.head_commit(&worktree).ok();
-            emitter.emit(
-                DeliveryScope::for_repo(
-                    &feature,
-                    repo_name.as_str(),
-                    sha_after.as_deref().unwrap_or_default(),
-                ),
-                DeliveryEvent::Rebased {
-                    conflicted: result.status == RebaseStatus::Conflicted,
-                    onto: result.onto.as_ref().map(ToString::to_string),
-                    base_source: result.base_source.map(|source| match source {
-                        BaseSource::Remote => "remote".to_owned(),
-                        BaseSource::Local => "local".to_owned(),
-                    }),
-                    sha_before,
-                    sha_after,
-                },
+            emit_rebased(
+                &emitter, &git, &feature, repo_name, &worktree, &result, sha_before,
             );
         }
         repos.push(result);
@@ -177,6 +193,80 @@ pub fn rebase(ctx: &Ctx, input: RebaseInput) -> Outcome<RebaseOutcome> {
         },
         warnings,
     ))
+}
+
+/// Record the `delivery.rebased` event for a repo that rebased or stopped.
+fn emit_rebased(
+    emitter: &Emitter<'_>,
+    git: &impl Git,
+    feature: &Feature,
+    repo_name: &RepoName,
+    worktree: &Utf8Path,
+    result: &RepoRebase,
+    sha_before: Option<String>,
+) {
+    // A rebase left in progress has only a detached HEAD midway through the
+    // replay; recording it as the result would be false.
+    let sha_after = if result.in_progress {
+        None
+    } else {
+        git.head_commit(worktree).ok()
+    };
+    emitter.emit(
+        DeliveryScope::for_repo(
+            feature,
+            repo_name.as_str(),
+            sha_after
+                .as_deref()
+                .or(sha_before.as_deref())
+                .unwrap_or_default(),
+        ),
+        DeliveryEvent::Rebased {
+            conflicted: result.status == RebaseStatus::Conflicted,
+            onto: result.onto.as_ref().map(ToString::to_string),
+            base_source: result.base_source.map(|source| match source {
+                BaseSource::Remote => "remote".to_owned(),
+                BaseSource::Local => "local".to_owned(),
+            }),
+            sha_before,
+            sha_after,
+        },
+    );
+}
+
+/// `--onto` only makes sense for a rebase that runs to completion or aborts:
+/// the declared base is recorded for repos whose rebase finished, and a
+/// stopped or resumed one has not.
+fn refuse_onto_with_resume(onto: Option<&str>, mode: RebaseMode) -> Result<(), Failure> {
+    if onto.is_none() || mode == RebaseMode::default() {
+        return Ok(());
+    }
+    Err(Failure::blocked(
+        "rebase.onto_unsupported",
+        "`--onto` cannot be combined with `--keep-conflicts`, `--continue` or `--abort`",
+    )
+    .expected("`--onto` on a rebase that runs to completion or aborts")
+    .actual("a mode that leaves or resumes a rebase in progress")
+    .fix(FixAction::safe(
+        "rebase.drop_onto",
+        "Drop `--onto`: the declared base is only recorded for repos whose rebase finished.",
+    )))
+}
+
+/// The commit the branch sat on before the rebase in progress in `worktree`
+/// began, as git recorded it in `orig-head`; `None` when there is no such
+/// rebase or git left no record.
+fn original_head(git: &impl Git, worktree: &Utf8Path) -> Option<String> {
+    let git_dir = git.worktree_git_dir(worktree).ok()?;
+    ["rebase-merge", "rebase-apply"]
+        .iter()
+        .find_map(|dir| {
+            fs::read_text(&git_dir.join(dir).join("orig-head"))
+                .ok()
+                .flatten()
+        })
+        .map(|sha| sha.trim().to_owned())
+        .filter(|sha| !sha.is_empty())
 }
 
 /// The promoted repos `requested` names, deduplicated and in name order, or

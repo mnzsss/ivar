@@ -169,6 +169,7 @@ fn rebase_input(name: &str) -> RebaseInput {
         onto: None,
         repos: Vec::new(),
         offline: false,
+        mode: RebaseMode::default(),
     }
 }
 
@@ -421,6 +422,311 @@ fn rebase_aborts_on_a_conflict_and_leaves_the_worktree_untouched() {
     );
 }
 
+fn keep_input(name: &str) -> RebaseInput {
+    RebaseInput {
+        mode: RebaseMode::Run {
+            keep_conflicts: true,
+        },
+        ..offline_input(name)
+    }
+}
+
+fn mode_input(name: &str, mode: RebaseMode) -> RebaseInput {
+    RebaseInput {
+        mode,
+        ..offline_input(name)
+    }
+}
+
+fn head_sha(worktree: &Utf8PathBuf) -> String {
+    let out = std::process::Command::new("git")
+        .args(["-C", worktree.as_str(), "rev-parse", "HEAD"])
+        .output()
+        .unwrap();
+    String::from_utf8_lossy(&out.stdout).trim().to_owned()
+}
+
+/// Both branches edit `README.md`, so the replay of the feature commit stops.
+fn conflicting_edits(root: &Utf8PathBuf) -> Utf8PathBuf {
+    let feature_wt = root.join(".ivar/repos/api/checkout");
+    let main_wt = root.join(".ivar/repos/api/main");
+    std::fs::write(feature_wt.join("README.md"), "feature\n").unwrap();
+    git(&feature_wt, &["add", "README.md"]);
+    git(&feature_wt, &["commit", "-m", "feature edit"]);
+    std::fs::write(main_wt.join("README.md"), "main\n").unwrap();
+    git(&main_wt, &["add", "README.md"]);
+    git(&main_wt, &["commit", "-m", "main edit"]);
+    feature_wt
+}
+
+fn in_progress(worktree: &Utf8PathBuf) -> bool {
+    crate::git::System.is_rebase_in_progress(worktree).unwrap()
+}
+
+fn porcelain(worktree: &Utf8PathBuf) -> String {
+    let status = std::process::Command::new("git")
+        .args(["-C", worktree.as_str(), "status", "--porcelain"])
+        .output()
+        .unwrap();
+    String::from_utf8_lossy(&status.stdout).into_owned()
+}
+
+fn resolve_readme(worktree: &Utf8PathBuf) {
+    std::fs::write(worktree.join("README.md"), "resolved\n").unwrap();
+    git(worktree, &["add", "README.md"]);
+}
+
+#[test]
+fn keep_conflicts_leaves_the_rebase_in_progress_and_lists_the_files() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let ctx = Ctx::new(root.clone());
+    let feature_wt = conflicting_edits(&root);
+
+    let report = rebase(&ctx, keep_input("checkout")).unwrap();
+
+    let repo = &report.value.repos[0];
+    assert_eq!(repo.status, RebaseStatus::Conflicted);
+    assert!(repo.in_progress);
+    assert_eq!(repo.conflicted_files, vec![Utf8PathBuf::from("README.md")]);
+    assert!(in_progress(&feature_wt));
+    assert!(!report.is_clean());
+    let warning = report
+        .warnings
+        .iter()
+        .find(|warning| warning.code == "rebase.conflicted")
+        .unwrap();
+    assert_eq!(warning.subject, "api");
+    assert!(warning.what.contains("left in progress"));
+    assert!(warning.what.contains("README.md"));
+
+    let mut human = Vec::new();
+    report.value.write_human(&mut human).unwrap();
+    let human = String::from_utf8(human).unwrap();
+    assert!(human.contains("conflict: README.md"));
+    assert!(human.contains("ivar feature rebase checkout --continue --repo api"));
+    assert!(human.contains("ivar feature rebase checkout --abort --repo api"));
+
+    let json = serde_json::to_value(&report.value).unwrap();
+    assert_eq!(json["repos"][0]["status"], "conflicted");
+    assert_eq!(json["repos"][0]["in_progress"], true);
+    assert_eq!(json["repos"][0]["conflicted_files"][0], "README.md");
+}
+
+#[test]
+fn a_clean_rebase_omits_the_in_progress_fields_from_json() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let ctx = Ctx::new(root);
+
+    let report = rebase(&ctx, keep_input("checkout")).unwrap();
+
+    let json = serde_json::to_value(&report.value).unwrap();
+    assert_eq!(json["repos"][0]["status"], "rebased");
+    assert!(json["repos"][0].get("in_progress").is_none());
+    assert!(json["repos"][0].get("conflicted_files").is_none());
+}
+
+#[test]
+fn keep_conflicts_does_not_report_a_refusal_without_a_rebase_as_a_conflict() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let ctx = Ctx::new(root.clone());
+    let feature_wt = root.join(".ivar/repos/api/checkout");
+
+    // `--onto` is refused with `--keep-conflicts`, so reach the same refusal
+    // through a base that does not exist.
+    let layout = Layout::at(root.clone());
+    let name = FeatureName::new("checkout").unwrap();
+    Feature::update(&layout, &name, |stored| {
+        for promotion in stored.promotions.values_mut() {
+            promotion.base = Some(BranchName::new("no-such-base").unwrap());
+        }
+        Ok(())
+    })
+    .unwrap();
+
+    let report = rebase(&ctx, keep_input("checkout")).unwrap();
+
+    let repo = &report.value.repos[0];
+    assert_eq!(repo.status, RebaseStatus::Skipped);
+    assert!(!repo.in_progress);
+    assert!(repo.conflicted_files.is_empty());
+    assert!(!in_progress(&feature_wt));
+    assert!(
+        report
+            .warnings
+            .iter()
+            .any(|warning| warning.code == "rebase.failed")
+    );
+    assert!(
+        !report
+            .warnings
+            .iter()
+            .any(|warning| warning.code == "rebase.conflicted")
+    );
+}
+
+#[test]
+fn keep_conflicts_with_onto_is_refused() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let ctx = Ctx::new(root);
+
+    let failure = rebase(
+        &ctx,
+        RebaseInput {
+            onto: Some("main".to_owned()),
+            ..keep_input("checkout")
+        },
+    )
+    .unwrap_err();
+
+    assert_eq!(failure.status, Status::Blocked);
+    assert_eq!(failure.code, "rebase.onto_unsupported");
+}
+
+#[test]
+fn a_plain_rebase_over_a_rebase_in_progress_says_so_not_uncommitted_changes() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let ctx = Ctx::new(root.clone());
+    let feature_wt = conflicting_edits(&root);
+    rebase(&ctx, keep_input("checkout")).unwrap();
+
+    let report = rebase(&ctx, offline_input("checkout")).unwrap();
+
+    assert_eq!(report.value.repos[0].status, RebaseStatus::Skipped);
+    assert!(in_progress(&feature_wt));
+    assert!(
+        !report
+            .warnings
+            .iter()
+            .any(|warning| warning.code == "rebase.dirty")
+    );
+    let warning = report
+        .warnings
+        .iter()
+        .find(|warning| warning.code == "rebase.in_progress")
+        .unwrap();
+    assert!(warning.what.contains("--continue"));
+    assert!(warning.what.contains("--abort"));
+    assert!(!warning.what.contains("uncommitted"));
+}
+
+#[test]
+fn continue_finishes_a_resolved_rebase() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let ctx = Ctx::new(root.clone());
+    let feature_wt = conflicting_edits(&root);
+    rebase(&ctx, keep_input("checkout")).unwrap();
+    resolve_readme(&feature_wt);
+
+    let report = rebase(&ctx, mode_input("checkout", RebaseMode::Continue)).unwrap();
+
+    let repo = &report.value.repos[0];
+    assert_eq!(repo.status, RebaseStatus::Rebased);
+    assert!(!repo.in_progress);
+    assert!(!in_progress(&feature_wt));
+    assert_eq!(porcelain(&feature_wt), "");
+    assert_eq!(
+        std::fs::read_to_string(feature_wt.join("README.md")).unwrap(),
+        "resolved\n"
+    );
+    assert!(report.is_clean());
+}
+
+#[test]
+fn continue_with_unresolved_paths_refuses_and_keeps_the_state() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let ctx = Ctx::new(root.clone());
+    let feature_wt = conflicting_edits(&root);
+    rebase(&ctx, keep_input("checkout")).unwrap();
+
+    let report = rebase(&ctx, mode_input("checkout", RebaseMode::Continue)).unwrap();
+
+    let repo = &report.value.repos[0];
+    assert_eq!(repo.status, RebaseStatus::Conflicted);
+    assert!(repo.in_progress);
+    assert_eq!(repo.conflicted_files, vec![Utf8PathBuf::from("README.md")]);
+    assert!(in_progress(&feature_wt));
+    let warning = report
+        .warnings
+        .iter()
+        .find(|warning| warning.code == "rebase.unresolved")
+        .unwrap();
+    assert!(warning.what.contains("README.md"));
+}
+
+#[test]
+fn continue_that_stops_on_a_later_commit_reports_the_new_files() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let ctx = Ctx::new(root.clone());
+    let feature_wt = root.join(".ivar/repos/api/checkout");
+    let main_wt = root.join(".ivar/repos/api/main");
+    for (file, body) in [("one.txt", "feature one\n"), ("two.txt", "feature two\n")] {
+        std::fs::write(feature_wt.join(file), body).unwrap();
+        git(&feature_wt, &["add", file]);
+        git(&feature_wt, &["commit", "-m", file]);
+    }
+    for (file, body) in [("one.txt", "main one\n"), ("two.txt", "main two\n")] {
+        std::fs::write(main_wt.join(file), body).unwrap();
+        git(&main_wt, &["add", file]);
+        git(&main_wt, &["commit", "-m", file]);
+    }
+    let first = rebase(&ctx, keep_input("checkout")).unwrap();
+    assert_eq!(
+        first.value.repos[0].conflicted_files,
+        vec![Utf8PathBuf::from("one.txt")]
+    );
+    std::fs::write(feature_wt.join("one.txt"), "resolved\n").unwrap();
+    git(&feature_wt, &["add", "one.txt"]);
+
+    let report = rebase(&ctx, mode_input("checkout", RebaseMode::Continue)).unwrap();
+
+    let repo = &report.value.repos[0];
+    assert_eq!(repo.status, RebaseStatus::Conflicted);
+    assert!(repo.in_progress);
+    assert_eq!(repo.conflicted_files, vec![Utf8PathBuf::from("two.txt")]);
+    assert!(in_progress(&feature_wt));
+}
+
+#[test]
+fn abort_restores_the_previous_head_and_a_clean_worktree() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let ctx = Ctx::new(root.clone());
+    let feature_wt = conflicting_edits(&root);
+    let before = head_sha(&feature_wt);
+    rebase(&ctx, keep_input("checkout")).unwrap();
+
+    let report = rebase(&ctx, mode_input("checkout", RebaseMode::Abort)).unwrap();
+
+    assert_eq!(report.value.repos[0].status, RebaseStatus::Skipped);
+    assert!(report.is_clean());
+    assert!(
+        report
+            .warnings
+            .iter()
+            .any(|warning| warning.code == "rebase.aborted")
+    );
+    assert!(!in_progress(&feature_wt));
+    assert_eq!(head_sha(&feature_wt), before);
+    assert_eq!(porcelain(&feature_wt), "");
+}
+
+#[test]
+fn continue_and_abort_skip_a_repo_without_a_rebase_in_progress() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let ctx = Ctx::new(root);
+
+    for mode in [RebaseMode::Continue, RebaseMode::Abort] {
+        let report = rebase(&ctx, mode_input("checkout", mode)).unwrap();
+
+        assert_eq!(report.value.repos[0].status, RebaseStatus::Skipped);
+        assert!(
+            report
+                .warnings
+                .iter()
+                .any(|warning| warning.code == "rebase.not_in_progress")
+        );
+    }
+}
+
 #[test]
 fn rebase_is_rejected_for_a_missing_feature() {
     let (_guard, root) = hall_with_promoted_feature();
@@ -466,6 +772,7 @@ fn rebase_onto_collapses_the_base_and_rebases_onto_the_new_target() {
             onto: Some("main".to_owned()),
             repos: Vec::new(),
             offline: true,
+            mode: RebaseMode::default(),
         },
     )
     .unwrap();
@@ -510,6 +817,7 @@ fn rebase_onto_does_not_collapse_the_base_for_a_repo_it_could_not_rebase() {
             onto: Some("main".to_owned()),
             repos: Vec::new(),
             offline: true,
+            mode: RebaseMode::default(),
         },
     )
     .unwrap();
@@ -539,18 +847,24 @@ fn the_human_surface_lists_per_repo_status_and_base() {
                 status: RebaseStatus::Rebased,
                 onto: Some(BranchName::new("main").unwrap()),
                 base_source: Some(BaseSource::Remote),
+                conflicted_files: Vec::new(),
+                in_progress: false,
             },
             RepoRebase {
                 repo: RepoName::new("cli").unwrap(),
                 status: RebaseStatus::Conflicted,
                 onto: Some(BranchName::new("develop").unwrap()),
                 base_source: Some(BaseSource::Local),
+                conflicted_files: Vec::new(),
+                in_progress: false,
             },
             RepoRebase {
                 repo: RepoName::new("web").unwrap(),
                 status: RebaseStatus::Skipped,
                 onto: Some(BranchName::new("main").unwrap()),
                 base_source: None,
+                conflicted_files: Vec::new(),
+                in_progress: false,
             },
         ],
     };
@@ -574,6 +888,8 @@ fn the_json_surface_carries_onto_and_base_source() {
         status: RebaseStatus::Rebased,
         onto: Some(BranchName::new("main").unwrap()),
         base_source: Some(BaseSource::Remote),
+        conflicted_files: Vec::new(),
+        in_progress: false,
     };
     let json = serde_json::to_value(&repo).unwrap();
     assert_eq!(json["onto"], "main");

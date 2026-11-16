@@ -71,7 +71,9 @@ pub enum FeatureCommand {
     Delete(FeatureDeleteArgs),
     /// Rebase promoted repos' worktrees onto the remote tip of their base
     /// (`--offline`: the local ref); `--repo` selects repos. A dirty worktree
-    /// is skipped; a conflict is aborted and reported.
+    /// is skipped; a conflict is aborted and reported, unless `--keep-conflicts`
+    /// leaves it in progress to resolve and finish with `--continue` (or
+    /// give up with `--abort`).
     Rebase(FeatureRebaseArgs),
     /// Open an interactive multi-shell view over the feature's promoted
     /// repos — one shell per repo, each running in its worktree.

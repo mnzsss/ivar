@@ -325,6 +325,7 @@ fn rebase_parent_onto_advanced_main(root: &Utf8PathBuf) {
             onto: None,
             repos: Vec::new(),
             offline: true,
+            mode: Default::default(),
         },
     )
     .unwrap();

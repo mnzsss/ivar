@@ -116,7 +116,8 @@ skipped, never aborting the batch.
 
 **Rebase** — rewriting a feature's promoted worktrees onto the current tip of
 their default branches. Skips dirty worktrees (no autostash, so uncommitted work
-is safe), and on conflict aborts that repo and continues.
+is safe), and on conflict aborts that repo and continues — unless `--keep-conflicts`
+leaves it in progress to finish with `--continue` or give up with `--abort`.
 
 **Deregister** — dropping a repo from `ivar.json` and tearing down its whole
 `.ivar/repos/<name>/` tree, including the feature worktrees of any feature that
