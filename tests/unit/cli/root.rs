@@ -636,6 +636,29 @@ fn parse_optional_feature_positionals_omitted_and_supplied() {
     assert!(Cli::try_parse_from(["ivar", "feature", "rebase", "feat-a"]).is_ok());
 }
 
+#[rstest]
+#[case::keep_conflicts(&["--keep-conflicts"], true)]
+#[case::keep_conflicts_with_repo(&["--keep-conflicts", "--repo", "api"], true)]
+#[case::keep_conflicts_with_offline(&["--keep-conflicts", "--offline"], true)]
+#[case::continue_(&["--continue"], true)]
+#[case::continue_with_repo(&["--continue", "--repo", "api"], true)]
+#[case::abort(&["--abort"], true)]
+#[case::continue_and_abort(&["--continue", "--abort"], false)]
+#[case::continue_with_onto(&["--continue", "--onto", "main"], false)]
+#[case::continue_with_offline(&["--continue", "--offline"], false)]
+#[case::abort_with_onto(&["--abort", "--onto", "main"], false)]
+#[case::abort_with_offline(&["--abort", "--offline"], false)]
+#[case::keep_conflicts_with_continue(&["--keep-conflicts", "--continue"], false)]
+#[case::keep_conflicts_with_abort(&["--keep-conflicts", "--abort"], false)]
+#[case::keep_conflicts_with_onto(&["--keep-conflicts", "--onto", "main"], false)]
+fn feature_rebase_resume_flags_parse_or_conflict(#[case] flags: &[&str], #[case] ok: bool) {
+    let argv = ["ivar", "feature", "rebase", "feat-a"]
+        .into_iter()
+        .chain(flags.iter().copied());
+
+    assert_eq!(Cli::try_parse_from(argv).is_ok(), ok);
+}
+
 #[test]
 fn feature_create_remains_required_positional() {
     assert!(Cli::try_parse_from(["ivar", "feature", "create"]).is_err());

@@ -249,7 +249,7 @@ Delete a feature: its worktrees, its directory under `.ivar/`, and its plans. Re
 
 ## `ivar feature rebase`
 
-Rebase promoted repos' worktrees onto the remote tip of their base (`--offline`: the local ref); `--repo` selects repos. A dirty worktree is skipped; a conflict is aborted and reported
+Rebase promoted repos' worktrees onto the remote tip of their base (`--offline`: the local ref); `--repo` selects repos. A dirty worktree is skipped; a conflict is aborted and reported, unless `--keep-conflicts` leaves it in progress to resolve and finish with `--continue` (or give up with `--abort`)
 
 | argument | required | description |
 | --- | --- | --- |
@@ -260,6 +260,9 @@ Rebase promoted repos' worktrees onto the remote tip of their base (`--offline`:
 | `--onto` | `<ONTO>` |  | Collapse the base: rebase every selected repo onto this branch, and record it as the declared base for each repo that lands there. The verb for once a feature's own base has landed |
 | `--repo` | `<REPO>` |  | Rebase only this promoted repo; repeat to select several. Without it every promoted repo is rebased |
 | `--offline` |  |  | Make no network call: rebase onto the local base ref instead of the remote tip `deliver` checks |
+| `--keep-conflicts` |  |  | On a conflict, leave the rebase in progress instead of aborting it, so it can be resolved in the worktree and finished with `--continue` (or given up with `--abort`) |
+| `--continue` |  |  | Finish the rebase `--keep-conflicts` left in progress, once its conflicts are resolved and staged |
+| `--abort` |  |  | Give up the rebase `--keep-conflicts` left in progress and restore the branch to where it was |
 
 
 ## `ivar feature view`

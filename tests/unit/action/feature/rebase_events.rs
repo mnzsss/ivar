@@ -93,6 +93,7 @@ fn rebase_input(name: &str) -> RebaseInput {
         onto: None,
         repos: Vec::new(),
         offline: false,
+        mode: RebaseMode::default(),
     }
 }
 
@@ -208,4 +209,91 @@ fn a_skipped_dirty_worktree_emits_nothing() {
     rebase(&ctx, offline_input("checkout")).unwrap();
 
     assert!(sink.records().is_empty());
+}
+
+fn conflicting_edits(root: &Utf8PathBuf) -> Utf8PathBuf {
+    let feature_wt = root.join(".ivar/repos/api/checkout");
+    let main_wt = root.join(".ivar/repos/api/main");
+    std::fs::write(feature_wt.join("README.md"), "feature\n").unwrap();
+    git(&feature_wt, &["add", "README.md"]);
+    git(&feature_wt, &["commit", "-m", "feature edit"]);
+    std::fs::write(main_wt.join("README.md"), "main\n").unwrap();
+    git(&main_wt, &["add", "README.md"]);
+    git(&main_wt, &["commit", "-m", "main edit"]);
+    feature_wt
+}
+
+fn keep_input(name: &str) -> RebaseInput {
+    RebaseInput {
+        mode: RebaseMode::Run {
+            keep_conflicts: true,
+        },
+        ..offline_input(name)
+    }
+}
+
+#[test]
+fn a_kept_conflict_emits_rebased_conflicted_without_a_sha_after() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let sink = Arc::new(RecordingSink::default());
+    let ctx = Ctx::new(root.clone()).with_delivery_events(sink.clone());
+    let feature_wt = conflicting_edits(&root);
+    let before = head_of(&feature_wt);
+
+    rebase(&ctx, keep_input("checkout")).unwrap();
+
+    let records = sink.records();
+    assert_eq!(records.len(), 1);
+    match &records[0].event {
+        DeliveryEvent::Rebased {
+            conflicted,
+            sha_before,
+            sha_after,
+            ..
+        } => {
+            assert!(conflicted);
+            assert_eq!(sha_before.as_deref(), Some(before.as_str()));
+            assert_eq!(*sha_after, None);
+        }
+        other => panic!("expected rebased, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_completed_continue_emits_the_new_head_and_the_original_sha_before() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let sink = Arc::new(RecordingSink::default());
+    let ctx = Ctx::new(root.clone()).with_delivery_events(sink.clone());
+    let feature_wt = conflicting_edits(&root);
+    let before = head_of(&feature_wt);
+    rebase(&ctx, keep_input("checkout")).unwrap();
+    std::fs::write(feature_wt.join("README.md"), "resolved\n").unwrap();
+    git(&feature_wt, &["add", "README.md"]);
+
+    rebase(
+        &ctx,
+        RebaseInput {
+            mode: RebaseMode::Continue,
+            ..offline_input("checkout")
+        },
+    )
+    .unwrap();
+
+    let after = head_of(&feature_wt);
+    assert_ne!(after, before);
+    let records = sink.records();
+    assert_eq!(records.len(), 2);
+    match &records[1].event {
+        DeliveryEvent::Rebased {
+            conflicted,
+            sha_before,
+            sha_after,
+            ..
+        } => {
+            assert!(!conflicted);
+            assert_eq!(sha_before.as_deref(), Some(before.as_str()));
+            assert_eq!(sha_after.as_deref(), Some(after.as_str()));
+        }
+        other => panic!("expected rebased, got {other:?}"),
+    }
 }

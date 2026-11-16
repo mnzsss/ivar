@@ -144,6 +144,9 @@ ivar repo pull --resolve      # …and reset branches whose local commits are du
 ivar feature rebase checkout              # rebase promoted worktrees onto their base's remote tip
 ivar feature rebase checkout --repo api   # …only the `api` repo (repeat --repo for more)
 ivar feature rebase checkout --offline    # …onto the local base ref, no network
+ivar feature rebase checkout --keep-conflicts  # …and leave a conflicted rebase in progress
+ivar feature rebase checkout --continue   # …finish it once the conflicts are resolved and staged
+ivar feature rebase checkout --abort      # …or give up and restore the branch
 ```
 
 `rebase` replays onto the base's remote tip, the same tip `deliver` checks,
@@ -151,8 +154,18 @@ so a stale local `main` no longer makes it a no-op. When the remote does not
 carry the base (an unpublished parent feature), the local ref is used; when
 the remote does not answer, the local ref is used and the report warns. It is
 best-effort per repo: a dirty worktree is skipped rather than autostashed,
-and a conflict aborts that repo and moves on. It will not leave you
+and a conflict aborts that repo and moves on. By default it will not leave you
 half-rebased across five repos.
+
+To resolve a conflict instead of retrying later, pass `--keep-conflicts`. A rebase that
+stops is then left in progress in that repo's worktree, the report lists the conflicted
+files and the git output, and the other repos carry on. Resolve the files, `git add`
+them, and run `ivar feature rebase checkout --continue [--repo api]`; if it stops on a
+later commit it reports the new files, and if paths are still unmerged it refuses and
+lists them. `--abort` runs `git rebase --abort` and restores the branch. A plain
+`feature rebase` skips a worktree in that state with a warning that names these two.
+`--keep-conflicts` cannot be combined with `--onto`, because the declared base is
+only recorded for repos whose rebase finished.
 
 `repo pull` never rebases or resets a diverged default branch — it reports the
 branch as skipped rather than guess. `--diagnose` gives you the local-only and

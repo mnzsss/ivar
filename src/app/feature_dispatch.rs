@@ -407,39 +407,44 @@ pub(super) fn dispatch_feature(
                 Err(failure) => respond_failure(&failure, json, stdout, stderr),
             }
         }
-        FeatureCommand::Rebase(args) => match args.name {
-            Some(name) => respond(
-                rebase::rebase(
-                    ctx,
-                    rebase::RebaseInput {
-                        name,
-                        onto: args.onto,
-                        repos: args.repos,
-                        offline: args.offline,
-                    },
+        FeatureCommand::Rebase(args) => {
+            let mode = args.rebase_mode();
+            match args.name {
+                Some(name) => respond(
+                    rebase::rebase(
+                        ctx,
+                        rebase::RebaseInput {
+                            name,
+                            onto: args.onto,
+                            repos: args.repos,
+                            offline: args.offline,
+                            mode,
+                        },
+                    ),
+                    json,
+                    stdout,
+                    stderr,
                 ),
-                json,
-                stdout,
-                stderr,
-            ),
-            None => match resolve_multi_features(ctx, None, "Select features to rebase") {
-                Ok(targets) => {
-                    let items = run_feature_batch(&targets, 4, |f| {
-                        rebase::rebase(
-                            ctx,
-                            rebase::RebaseInput {
-                                name: f.to_owned(),
-                                onto: args.onto.clone(),
-                                repos: args.repos.clone(),
-                                offline: args.offline,
-                            },
-                        )
-                    });
-                    respond_batch(items, json, stdout, stderr)
-                }
-                Err(failure) => respond_failure(&failure, json, stdout, stderr),
-            },
-        },
+                None => match resolve_multi_features(ctx, None, "Select features to rebase") {
+                    Ok(targets) => {
+                        let items = run_feature_batch(&targets, 4, |f| {
+                            rebase::rebase(
+                                ctx,
+                                rebase::RebaseInput {
+                                    name: f.to_owned(),
+                                    onto: args.onto.clone(),
+                                    repos: args.repos.clone(),
+                                    offline: args.offline,
+                                    mode,
+                                },
+                            )
+                        });
+                        respond_batch(items, json, stdout, stderr)
+                    }
+                    Err(failure) => respond_failure(&failure, json, stdout, stderr),
+                },
+            }
+        }
         FeatureCommand::View(args) => {
             match resolve_single_feature(ctx, args.name, "Select a feature to view") {
                 Ok(feature) => respond(

@@ -165,6 +165,25 @@ pub struct FeatureRebaseArgs {
     /// remote tip `deliver` checks.
     #[arg(long)]
     pub offline: bool,
+    /// On a conflict, leave the rebase in progress instead of aborting it, so
+    /// it can be resolved in the worktree and finished with `--continue` (or
+    /// given up with `--abort`).
+    #[arg(long, conflicts_with = "onto")]
+    pub keep_conflicts: bool,
+    /// Finish the rebase `--keep-conflicts` left in progress, once its
+    /// conflicts are resolved and staged.
+    #[arg(
+        long = "continue",
+        conflicts_with_all = ["abort", "onto", "offline", "keep_conflicts"]
+    )]
+    pub r#continue: bool,
+    /// Give up the rebase `--keep-conflicts` left in progress and restore the
+    /// branch to where it was.
+    #[arg(
+        long,
+        conflicts_with_all = ["continue", "onto", "offline", "keep_conflicts"]
+    )]
+    pub abort: bool,
 }
 
 /// Arguments for `ivar feature view`.
@@ -324,19 +343,39 @@ impl From<FeatureDeleteArgs> for delete::DeleteInput {
     }
 }
 
+impl FeatureRebaseArgs {
+    /// The mode the rebase flags select. Clap already refuses `--continue`
+    /// and `--abort` together, and either alongside `--keep-conflicts`.
+    #[must_use]
+    pub fn rebase_mode(&self) -> rebase::RebaseMode {
+        if self.r#continue {
+            rebase::RebaseMode::Continue
+        } else if self.abort {
+            rebase::RebaseMode::Abort
+        } else {
+            rebase::RebaseMode::Run {
+                keep_conflicts: self.keep_conflicts,
+            }
+        }
+    }
+}
+
 impl From<FeatureRebaseArgs> for rebase::RebaseInput {
     fn from(args: FeatureRebaseArgs) -> Self {
+        let mode = args.rebase_mode();
         let FeatureRebaseArgs {
             name,
             onto,
             repos,
             offline,
+            ..
         } = args;
         Self {
             name: name.unwrap_or_default(),
             onto,
             repos,
             offline,
+            mode,
         }
     }
 }

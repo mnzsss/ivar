@@ -102,6 +102,12 @@ It will not stop a determined process running as your user.
 - `integrate` that closes the child also records `delivery.closed` under the same attempt as its
   `delivery.integrated` events.
 - The `rebased` event also carries `base_source`, where the rebase base came from.
+- A `rebased` event for a conflict left in progress (`feature rebase --keep-conflicts`, or a
+  `--continue` that stops again) has `conflicted: true` and no `sha_after`, since HEAD is
+  detached mid-rebase. A `--continue` that finishes records the new HEAD as `sha_after` and
+  the branch's tip before the rebase as `sha_before`. `--abort` records nothing.
+- In `feature rebase --json`, a repo left in progress adds `in_progress: true` and
+  `conflicted_files`; both are omitted otherwise, and the `conflicted` status is unchanged.
 - A failed write prints `ivar: memory.delivery_event_not_recorded: <reason>` on stderr and
   the command still succeeds with its exit code unchanged.
 - `deliver` drains the capture spool before it reads the memory review. A failed drain
