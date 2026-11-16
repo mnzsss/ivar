@@ -7,6 +7,7 @@ use super::{MemoryCaller, SIMILAR_TITLE_THRESHOLD, confine, to_text};
 use crate::action::memory::events::{MemoryEventScope, report_memory_event};
 use crate::action::memory::page_file::{SESSION_PAGES_DIR, publish, render_meta};
 use crate::action::memory::reindex;
+use crate::action::memory::review::owns_page_locked;
 use crate::domain::memory_page::{
     PageIssue, PageKind, PageMeta, Relation, has_number_prefix, is_kebab,
 };
@@ -38,17 +39,19 @@ pub(super) fn write(
         .get("replace")
         .and_then(Value::as_bool)
         .unwrap_or(false);
-    if replace && kind == PageKind::Update {
+    if replace && kind == PageKind::Update && caller.feature.is_none() {
         return Err(refuse_update("replaced"));
     }
     let dir = layout.page_dir(kind);
     confine::refuse_symlinks(layout.root(), &dir)?;
 
     let lock = fs::lock_exclusive(&layout.memory_lock()).map_err(|error| error.to_string())?;
-    let file = if kind.numbered() {
-        format!("{:03}-{slug}.md", next_page_number(&dir))
-    } else {
+    let file = if !kind.numbered() {
         format!("{slug}.md")
+    } else if replace {
+        replaced_file(layout, caller, kind, &dir, &slug)?
+    } else {
+        format!("{:03}-{slug}.md", next_page_number(&dir))
     };
     let rel = format!("docs/memory/{}/{file}", kind.as_str());
     let target = confine::resolve_durable(layout, &rel)?;
@@ -217,6 +220,61 @@ fn page_written(
 
 fn refuse_update(action: &str) -> String {
     format!("`update` pages belong to the delivery record and cannot be {action}")
+}
+
+/// The file `replace: true` overwrites in a numbered kind: the page of the
+/// same slug, whatever its number, else the next number. An `update` is
+/// replaceable only while it is the one the caller's feature wrote and that
+/// feature has not been delivered. The caller holds `memory.lock`.
+fn replaced_file(
+    layout: &Layout,
+    caller: &MemoryCaller,
+    kind: PageKind,
+    dir: &Utf8Path,
+    slug: &str,
+) -> Result<String, String> {
+    let mut matches = numbered_matches(dir, slug);
+    if kind != PageKind::Update {
+        return Ok(matches
+            .pop()
+            .unwrap_or_else(|| format!("{:03}-{slug}.md", next_page_number(dir))));
+    }
+    let feature = caller
+        .feature
+        .as_ref()
+        .ok_or_else(|| refuse_update("replaced"))?;
+    for file in matches {
+        let rel = format!("docs/memory/{}/{file}", kind.as_str());
+        let standing = owns_page_locked(layout, feature, &rel)?;
+        if standing.owned {
+            return if standing.delivered {
+                Err(refuse_update("replaced after its feature was delivered"))
+            } else {
+                Ok(file)
+            };
+        }
+    }
+    Err(refuse_update(
+        "replaced unless the current feature wrote it and has not been delivered",
+    ))
+}
+
+/// The files `NNN-{slug}.md` of `dir`, in number order.
+fn numbered_matches(dir: &Utf8Path, slug: &str) -> Vec<String> {
+    let tail = format!("{slug}.md");
+    let mut files: Vec<String> = std::fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|entry| {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            let (digits, rest) = name.split_once('-')?;
+            (digits.len() == 3 && digits.bytes().all(|b| b.is_ascii_digit()) && rest == tail)
+                .then_some(name)
+        })
+        .collect();
+    files.sort();
+    files
 }
 
 fn patched_fields(source: &str, meta: &PageMeta) -> Result<Map<String, Value>, String> {

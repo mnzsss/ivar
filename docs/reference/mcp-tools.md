@@ -51,7 +51,7 @@ is the scope. The read tools carry `readOnlyHint`. `memory_delete_page` carries
 | `memory_patch_page` | `path` (required), `old`, `new`, `tags`, `pinned`, `relations`, `expires_at`, `feature`; only `pinned` and `expires_at` on a `session` page | `path`, `hash`, `indexed`. |
 | `memory_delete_page` | `path`, `feature` | `path`, `indexed`. |
 | `memory_lint` | none | `issues`: a list of `{path, code, severity, message}`. |
-| `memory_review` | `feature`, `confirm`, `stale[{path, verdict: updated \| still_valid}]`, `not_required` | `feature`, `written`, `gaps`, `stale`, `warnings` and `last`. Without `confirm` it only reads. With `confirm: true` it records `memory.reviewed`, and refuses while a stale page has no verdict, or when `not_required` is given and the feature wrote a page. Outside a feature session it needs `feature`. |
+| `memory_review` | `feature`, `confirm`, `stale[{path, verdict: updated \| still_valid}]`, `not_required` | `feature`, `written`, `gaps`, `stale`, `preexisting_broken`, `warnings` and `last`. Without `confirm` it only reads. With `confirm: true` it records `memory.reviewed`, and refuses while a stale page has no verdict, or when `not_required` is given and the feature wrote a page. Outside a feature session it needs `feature`. |
 | `memory_status` | none | The same block as `ivar memory status`, plus `anchors_pending` and 30-day `usage`: `queries_cli`, `queries_mcp`, `empty`, `followup`, `skipped` and `miss_rate_cli` / `miss_rate_mcp` (empty queries over queries, per source). |
 | `memory_recent` | `limit` (default 20, maximum 100), `source_event` (prefix), `feature` | Observations, newest first, each with a one-line summary, and `drain_error` when the spool drain failed. |
 | `memory_read_session_observations` | `session` (required), `limit` (default 50, maximum 100), `cursor` | Observations of one session, oldest first, `next_cursor` while more remain, and `drain_error` when the spool drain failed. |
@@ -79,6 +79,9 @@ Both observation tools drain the capture spool before they read. A failed drain 
   `hard_link` fails when the target exists, so a page another writer created first is never
   replaced. Without `replace: true`, an existing page fails with its path. With it, the
   tool uses `rename`. A filesystem without hard links fails the write with that cause.
+- For `product` and `update`, `replace: true` has no `path`: it overwrites the page with the
+  same slug and any `NNN-` number, keeping its number, and with no such page it takes the
+  next number as usual.
 - A title whose words overlap an existing title of the same kind at 0.8 or more (shared
   words over all words) still writes. The result lists them in `similar` as `{path, title}`.
 - `memory_patch_page` replaces one exact piece of the body. `old` must appear once, and
@@ -89,8 +92,12 @@ Both observation tools drain the capture spool before they read. A failed drain 
   refuses `old`, `new`, `tags` and `relations`: the consolidation owns the body, and keeps
   both fields when it regenerates the page.
 - `update` pages belong to the delivery record. `memory_delete_page` and
-  `memory_patch_page` refuse them, and `memory_write_page` refuses `replace: true` for
-  the kind `update`.
+  `memory_patch_page` refuse them. `memory_write_page` with `replace: true` replaces an
+  `update` only while it is the one the caller's feature wrote (found in that feature's
+  `memory.page_written` events) and that feature has not begun delivery: no `delivery.pushed`
+  that went through, `delivery.pr`, `delivery.landed` that merged or pushed, or
+  `delivery.closed` with outcome `delivered`. After delivery, for another feature's `update`
+  and without a feature, it is refused as part of the delivery record.
 - Every write parses the result as a page before it publishes, then refreshes the index
   and reports it in `indexed`. The `hash` is the SHA-256 of the file content.
 - The tools never commit. A written page stays uncommitted until you commit it, and
@@ -123,8 +130,12 @@ should count for that feature. A bound server keeps its own feature, and a diffe
 tools record, with captured write tools under `docs/memory/<kind>/`. `gaps` are a
 failed tool without a `gotcha`, no `update` page, and an Analysis approved without a
 `memory_query`. None blocks the confirmation. `stale` lists durable pages anchored to a
-file the feature's diff changed, and pages with a broken anchor. Without `graph.db` the
-broken anchors are left out, with a warning. When `memory.db`, the manifest, a repo's
+file the feature's diff changed, including a broken anchor whose file the diff deleted,
+renamed or changed; each needs a verdict. `preexisting_broken` lists the pages whose
+anchor was already broken and whose file the diff left alone: it is informational, needs
+no verdict and never blocks the confirmation. An `update` page is never listed for a
+broken anchor, because it cannot be edited. Without `graph.db` the broken anchors are
+left out, with a warning. When `memory.db`, the manifest, a repo's
 diff or the anchors cannot be read, the read still answers with a warning, but the
 confirmation is refused with `memory.review_unreadable`. `memory.reviewed` records the
 heads, the verdicts, `not_required`, the written and stale page paths and the gap kinds,

@@ -325,7 +325,15 @@ fn stale_pages_group_reasons_skip_written_pages_and_need_every_verdict() {
         HALL,
     );
 
-    let stale = stale_pages(&changed, &broken, &written);
+    let changed_files = [
+        ("ivar".to_owned(), "src/a.rs".to_owned()),
+        ("ivar".to_owned(), "src/b.rs".to_owned()),
+        ("ivar".to_owned(), "src/gone.rs".to_owned()),
+    ];
+
+    let Staleness { stale, preexisting } = stale_pages(&changed, &changed_files, &broken, &written);
+
+    assert!(preexisting.is_empty());
 
     let paths: Vec<&str> = stale.iter().map(|p| p.path.as_str()).collect();
     assert_eq!(
@@ -354,4 +362,163 @@ fn stale_pages_group_reasons_skip_written_pages_and_need_every_verdict() {
         )
         .is_empty()
     );
+}
+
+fn broken(page: &str, path: &str) -> (String, String, String, Option<String>) {
+    (page.to_owned(), "ivar".to_owned(), path.to_owned(), None)
+}
+
+#[test]
+fn a_broken_anchor_outside_the_diff_is_preexisting_and_needs_no_verdict() {
+    let changed_files = [("ivar".to_owned(), "src/deleted.rs".to_owned())];
+    let broken = [
+        broken("docs/memory/decision/hit.md", "src/deleted.rs"),
+        broken("docs/memory/decision/old.md", "src/never.rs"),
+        // The same path in another repo is not in the diff.
+        (
+            "docs/memory/concept/other.md".to_owned(),
+            "web".to_owned(),
+            "src/deleted.rs".to_owned(),
+            None,
+        ),
+    ];
+
+    let found = stale_pages(&[], &changed_files, &broken, &[]);
+
+    let paths = |pages: &[StalePage]| -> Vec<String> {
+        pages.iter().map(|page| page.path.clone()).collect()
+    };
+    assert_eq!(paths(&found.stale), ["docs/memory/decision/hit.md"]);
+    assert_eq!(
+        found.stale[0].reasons,
+        [StaleReason::BrokenAnchor {
+            repo: "ivar".to_owned(),
+            path: "src/deleted.rs".to_owned(),
+            symbol: None
+        }]
+    );
+    assert_eq!(
+        paths(&found.preexisting),
+        [
+            "docs/memory/concept/other.md",
+            "docs/memory/decision/old.md"
+        ]
+    );
+    assert!(missing_verdicts(&found.preexisting, &[]).len() == 2);
+}
+
+#[test]
+fn an_update_page_is_never_listed_for_a_broken_anchor() {
+    let changed_files = [("ivar".to_owned(), "src/deleted.rs".to_owned())];
+    let broken = [
+        broken("docs/memory/update/001-shipped.md", "src/deleted.rs"),
+        broken("docs/memory/update/002-older.md", "src/never.rs"),
+    ];
+
+    let found = stale_pages(&[], &changed_files, &broken, &[]);
+
+    assert!(found.stale.is_empty(), "{:?}", found.stale);
+    assert!(found.preexisting.is_empty(), "{:?}", found.preexisting);
+}
+
+#[test]
+fn an_update_page_anchored_to_a_changed_file_is_still_stale() {
+    let changed = [(
+        "docs/memory/update/001-shipped.md".to_owned(),
+        "ivar".to_owned(),
+        "src/a.rs".to_owned(),
+    )];
+
+    let found = stale_pages(
+        &changed,
+        &[("ivar".to_owned(), "src/a.rs".to_owned())],
+        &[],
+        &[],
+    );
+
+    assert_eq!(found.stale.len(), 1);
+}
+
+#[test]
+fn a_page_stale_for_the_diff_is_not_repeated_among_the_preexisting() {
+    let changed = [(
+        "docs/memory/decision/a.md".to_owned(),
+        "ivar".to_owned(),
+        "src/a.rs".to_owned(),
+    )];
+    let broken = [broken("docs/memory/decision/a.md", "src/never.rs")];
+
+    let found = stale_pages(
+        &changed,
+        &[("ivar".to_owned(), "src/a.rs".to_owned())],
+        &broken,
+        &[],
+    );
+
+    assert_eq!(found.stale.len(), 1);
+    assert!(found.preexisting.is_empty());
+}
+
+#[test]
+fn a_page_the_feature_wrote_is_in_neither_list() {
+    let written = written_pages(
+        &[tool_write(
+            "t",
+            "docs/memory/decision/w.md",
+            "decision",
+            "written",
+        )],
+        HALL,
+    );
+    let broken = [broken("docs/memory/decision/w.md", "src/never.rs")];
+
+    let found = stale_pages(&[], &[], &broken, &written);
+
+    assert_eq!(found, Staleness::default());
+}
+
+#[test]
+fn a_feature_is_delivered_once_a_push_pr_landing_or_delivered_close_is_recorded() {
+    let event = |source: &str, body: Value| ObservationFact {
+        source_event: source.to_owned(),
+        occurred_at: "2026-11-05T10:00:00Z".to_owned(),
+        importance: 0,
+        body,
+    };
+
+    assert!(!is_delivered(&[]));
+    assert!(!is_delivered(&[event(
+        "delivery.checks",
+        json!({"passed": true})
+    )]));
+    assert!(!is_delivered(&[event("delivery.refused", json!({}))]));
+    assert!(!is_delivered(&[event(
+        "delivery.pushed",
+        json!({"ok": false})
+    )]));
+    assert!(!is_delivered(&[event(
+        "delivery.landed",
+        json!({"merged": false, "pushed": false})
+    )]));
+    assert!(!is_delivered(&[event(
+        "delivery.closed",
+        json!({"outcome": "abandoned"})
+    )]));
+    assert!(is_delivered(&[event(
+        "delivery.pushed",
+        json!({"ok": true})
+    )]));
+    assert!(is_delivered(&[event("delivery.pr", json!({"number": 3}))]));
+    assert!(is_delivered(&[event(
+        "delivery.landed",
+        json!({"merged": false, "pushed": true})
+    )]));
+    assert!(is_delivered(&[event(
+        "delivery.closed",
+        json!({"outcome": "delivered"})
+    )]));
+    assert!(is_delivered(&[event(
+        "delivery.pushed",
+        json!("{\"ok\":tr")
+    )]));
 }

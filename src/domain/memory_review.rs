@@ -106,6 +106,10 @@ fn page_target(rel: &str) -> Option<(String, String)> {
         .then(|| (rel.to_owned(), kind.as_str().to_owned()))
 }
 
+fn is_update_page(rel: &str) -> bool {
+    page_target(rel).is_some_and(|(_, kind)| kind == PageKind::Update.as_str())
+}
+
 #[must_use]
 pub fn is_durable_page(rel: &str) -> bool {
     page_target(rel).is_some()
@@ -183,6 +187,30 @@ pub fn written_pages(facts: &[ObservationFact], hall_root: &str) -> Vec<WrittenP
     pages.into_values().collect()
 }
 
+/// Whether the feature's delivery has begun: a push that went through, a
+/// pull request, a landing that merged or pushed, or a close as `delivered`.
+/// From then on the `update` page it wrote belongs to the delivery record.
+#[must_use]
+pub fn is_delivered(facts: &[ObservationFact]) -> bool {
+    // A body cut by the sanitize limit is no longer JSON: the event happened.
+    let flag = |fact: &ObservationFact, key: &str| match &fact.body {
+        Value::Object(fields) => fields.get(key).and_then(Value::as_bool).unwrap_or(false),
+        _ => true,
+    };
+    facts.iter().any(|fact| match fact.source_event.as_str() {
+        "delivery.pushed" => flag(fact, "ok"),
+        "delivery.pr" => true,
+        "delivery.landed" => flag(fact, "merged") || flag(fact, "pushed"),
+        "delivery.closed" => match &fact.body {
+            Value::Object(fields) => {
+                fields.get("outcome").and_then(Value::as_str) == Some("delivered")
+            }
+            _ => true,
+        },
+        _ => false,
+    })
+}
+
 fn command(body: &Value) -> Option<&str> {
     body.get("input")?.get("command")?.as_str()
 }
@@ -254,15 +282,33 @@ pub fn gaps(
     gaps
 }
 
+/// The durable pages a feature's diff may have made stale, and the broken
+/// anchors it did not cause.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Staleness {
+    /// Pages the diff touched: each needs a verdict.
+    pub stale: Vec<StalePage>,
+    /// Pages whose anchors were already broken and whose file the diff left
+    /// alone. Informational: no verdict, no block.
+    pub preexisting: Vec<StalePage>,
+}
+
+/// `changed` are the pages anchored to a file the diff touched, and
+/// `changed_files` the `(repo, path)` pairs of the diff. A broken anchor is
+/// stale only when its file is in the diff (deleted, renamed, or a symbol
+/// removed); any other is pre-existing. An `update` page is immutable, so a
+/// broken anchor never lists it. Pages the feature wrote are skipped.
 #[must_use]
 pub fn stale_pages(
     changed: &[(String, String, String)],
+    changed_files: &[(String, String)],
     broken: &[(String, String, String, Option<String>)],
     written: &[WrittenPage],
-) -> Vec<StalePage> {
-    let mut pages: BTreeMap<&str, Vec<StaleReason>> = BTreeMap::new();
+) -> Staleness {
+    let mut stale: BTreeMap<&str, Vec<StaleReason>> = BTreeMap::new();
+    let mut preexisting: BTreeMap<&str, Vec<StaleReason>> = BTreeMap::new();
     for (page, repo, path) in changed {
-        pages
+        stale
             .entry(page.as_str())
             .or_default()
             .push(StaleReason::ChangedFile {
@@ -271,23 +317,39 @@ pub fn stale_pages(
             });
     }
     for (page, repo, path, symbol) in broken {
-        pages
-            .entry(page.as_str())
-            .or_default()
-            .push(StaleReason::BrokenAnchor {
-                repo: repo.clone(),
-                path: path.clone(),
-                symbol: symbol.clone(),
-            });
+        if is_update_page(page) {
+            continue;
+        }
+        let reason = StaleReason::BrokenAnchor {
+            repo: repo.clone(),
+            path: path.clone(),
+            symbol: symbol.clone(),
+        };
+        let in_diff = changed_files
+            .iter()
+            .any(|(changed_repo, changed_path)| changed_repo == repo && changed_path == path);
+        let group = if in_diff {
+            &mut stale
+        } else {
+            &mut preexisting
+        };
+        group.entry(page.as_str()).or_default().push(reason);
     }
-    pages
-        .into_iter()
-        .filter(|(path, _)| !written.iter().any(|page| page.path == *path))
-        .map(|(path, reasons)| StalePage {
-            path: path.to_owned(),
-            reasons,
-        })
-        .collect()
+    preexisting.retain(|page, _| !stale.contains_key(page));
+    let pages = |group: BTreeMap<&str, Vec<StaleReason>>| -> Vec<StalePage> {
+        group
+            .into_iter()
+            .filter(|(path, _)| !written.iter().any(|page| page.path == *path))
+            .map(|(path, reasons)| StalePage {
+                path: path.to_owned(),
+                reasons,
+            })
+            .collect()
+    };
+    Staleness {
+        stale: pages(stale),
+        preexisting: pages(preexisting),
+    }
 }
 
 #[must_use]

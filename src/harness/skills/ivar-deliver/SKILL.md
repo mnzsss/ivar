@@ -33,16 +33,19 @@ the feature (a T3 thread, a conversation started outside `ivar`),
 pass `feature: <feature>` to `memory_review`, `memory_write_page` and
 `memory_patch_page`.
 
-1. Call the `memory_review` MCP tool. It returns three lists:
+1. Call the `memory_review` MCP tool. It returns four lists:
    - **written**: the pages the feature wrote under `docs/memory/`;
    - **gaps**: a failed tool with no `gotcha`, no `update` page, an Analysis
      approved without a `memory_query`;
-   - **stale**: durable pages the feature's diff may have made stale.
-2. Show the three lists to the human. Write the `update` page and any gotcha
+   - **stale**: durable pages the feature's diff may have made stale;
+   - **preexisting_broken**: pages whose anchors were already broken before
+     the feature and that its diff did not touch. Informational: they need no
+     verdict.
+2. Show the lists to the human. Write the `update` page and any gotcha
    the human wants now, with `memory_write_page`. A gap never blocks the
    confirmation.
 3. Ask the human for a verdict on each stale page: `updated` (you patched it)
-   or `still_valid`.
+   or `still_valid`. Only the pages in `stale` need one.
 4. Call `memory_review` with `confirm: true`, the verdicts in `stale`, and
    `not_required` with the human's reason when the feature wrote no page.
 

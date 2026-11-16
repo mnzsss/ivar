@@ -532,7 +532,7 @@ fn patch_clears_expires_at_with_null() {
 }
 
 #[test]
-fn update_pages_cannot_be_patched_or_replaced() {
+fn update_pages_cannot_be_patched_or_replaced_without_a_feature() {
     let (_guard, root) = seeded_hall();
     let layout = Layout::at(root);
     let update = call_json(
@@ -626,4 +626,202 @@ fn read_page_refuses_a_fifo_without_blocking() {
     .unwrap_err();
 
     assert!(error.contains("regular file"), "{error}");
+}
+
+mod replace_update {
+    use serde_json::{Value, json};
+
+    use super::*;
+    use crate::action::memory::mcp::{MemoryCaller, call_as};
+    use crate::domain::name::FeatureName;
+    use crate::domain::observation::{Importance, Observation};
+    use crate::domain::sanitize::{SanitizeContext, Sanitized};
+    use crate::store::memory::db::MemoryDb;
+    use crate::store::memory::observations::insert_batch;
+
+    fn caller(feature: &str) -> MemoryCaller {
+        MemoryCaller {
+            session: Some("s1".to_owned()),
+            feature: Some(FeatureName::new(feature).unwrap()),
+            ..MemoryCaller::default()
+        }
+    }
+
+    fn write_as(layout: &Layout, who: &MemoryCaller, args: &Value) -> Result<Value, String> {
+        call_as(layout, "memory_write_page", args, who)
+            .map(|text| serde_json::from_str(&text).unwrap())
+    }
+
+    fn record(layout: &Layout, feature: &str, source_event: &str, body: &Value) {
+        let observation = Observation {
+            event_id: format!("{feature}-{source_event}"),
+            source_event: source_event.to_owned(),
+            occurred_at: "2026-11-05T10:00:00Z".to_owned(),
+            session_id: "s1".to_owned(),
+            native_session_id: String::new(),
+            provider: String::new(),
+            ivar_version: "0".to_owned(),
+            feature: feature.to_owned(),
+            parent_feature: String::new(),
+            repo: String::new(),
+            origin: String::new(),
+            importance: Importance::memory_page_written(),
+            attempt_id: String::new(),
+            body: body.to_string(),
+        };
+        let ctx = SanitizeContext::new(layout.root().to_path_buf(), Vec::new());
+        let mut db = MemoryDb::open(layout.memory_db().as_std_path()).unwrap();
+        insert_batch(&mut db, &[Sanitized::sanitize(observation, &ctx).unwrap()]).unwrap();
+    }
+
+    fn update_args(body: &str, replace: bool) -> Value {
+        json!({"kind": "update", "title": "Shipped", "body": body, "replace": replace})
+    }
+
+    fn files(layout: &Layout) -> Vec<String> {
+        let mut names: Vec<String> = std::fs::read_dir(layout.root().join("docs/memory/update"))
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        names
+    }
+
+    #[test]
+    fn the_feature_replaces_its_own_undelivered_update_in_place() {
+        let (_guard, root) = seeded_hall();
+        let layout = Layout::at(root.clone());
+        let who = caller("checkout");
+        let first = write_as(&layout, &who, &update_args("v1\n", false)).unwrap();
+        page(&layout, "docs/memory/update/002-other.md", "# Other\n");
+
+        let second = write_as(&layout, &who, &update_args("v2\n", true)).unwrap();
+
+        assert_eq!(first["path"], "docs/memory/update/001-shipped.md");
+        assert_eq!(second["path"], first["path"]);
+        assert!(second["similar"].as_array().unwrap().is_empty(), "{second}");
+        assert_eq!(files(&layout), ["001-shipped.md", "002-other.md"]);
+        let source =
+            std::fs::read_to_string(root.join("docs/memory/update/001-shipped.md")).unwrap();
+        assert!(source.contains("v2") && !source.contains("v1"), "{source}");
+    }
+
+    #[test]
+    fn replace_is_refused_once_delivery_began() {
+        let (_guard, root) = seeded_hall();
+        let layout = Layout::at(root);
+        let who = caller("checkout");
+        write_as(&layout, &who, &update_args("v1\n", false)).unwrap();
+        record(
+            &layout,
+            "checkout",
+            "delivery.checks",
+            &json!({"passed": true}),
+        );
+        write_as(&layout, &who, &update_args("v2\n", true)).unwrap();
+        record(&layout, "checkout", "delivery.pushed", &json!({"ok": true}));
+
+        let error = write_as(&layout, &who, &update_args("v3\n", true)).unwrap_err();
+
+        assert!(error.contains("delivery record"), "{error}");
+        assert_eq!(files(&layout), ["001-shipped.md"]);
+    }
+
+    #[test]
+    fn replace_is_refused_after_a_delivered_close() {
+        let (_guard, root) = seeded_hall();
+        let layout = Layout::at(root);
+        let who = caller("checkout");
+        write_as(&layout, &who, &update_args("v1\n", false)).unwrap();
+        record(
+            &layout,
+            "checkout",
+            "delivery.closed",
+            &json!({"outcome": "delivered"}),
+        );
+
+        let error = write_as(&layout, &who, &update_args("v2\n", true)).unwrap_err();
+
+        assert!(error.contains("delivery record"), "{error}");
+    }
+
+    #[test]
+    fn replace_is_refused_for_the_update_of_another_feature() {
+        let (_guard, root) = seeded_hall();
+        let layout = Layout::at(root);
+        write_as(&layout, &caller("checkout"), &update_args("v1\n", false)).unwrap();
+        page(
+            &layout,
+            "docs/memory/update/002-hand-written.md",
+            "---\ntitle: \"Hand\"\n---\nx\n",
+        );
+
+        let other = write_as(&layout, &caller("billing"), &update_args("v2\n", true)).unwrap_err();
+        let unwritten = write_as(
+            &layout,
+            &caller("checkout"),
+            &json!({"kind": "update", "title": "Hand written", "replace": true}),
+        )
+        .unwrap_err();
+        let unbound = write_as(
+            &layout,
+            &MemoryCaller::default(),
+            &update_args("v2\n", true),
+        )
+        .unwrap_err();
+
+        for error in [other, unwritten, unbound] {
+            assert!(
+                error.contains("update") && error.contains("delivery record"),
+                "{error}"
+            );
+        }
+        assert_eq!(files(&layout), ["001-shipped.md", "002-hand-written.md"]);
+    }
+
+    #[test]
+    fn patch_and_delete_still_refuse_the_update_of_the_feature() {
+        let (_guard, root) = seeded_hall();
+        let layout = Layout::at(root);
+        let who = caller("checkout");
+        let written = write_as(&layout, &who, &update_args("v1\n", false)).unwrap();
+
+        let patch = call_as(
+            &layout,
+            "memory_patch_page",
+            &json!({"path": written["path"], "old": "v1", "new": "v2"}),
+            &who,
+        )
+        .unwrap_err();
+        let delete = call_as(
+            &layout,
+            "memory_delete_page",
+            &json!({"path": written["path"]}),
+            &who,
+        )
+        .unwrap_err();
+
+        assert!(patch.contains("delivery record"), "{patch}");
+        assert!(delete.contains("delivery record"), "{delete}");
+    }
+
+    #[test]
+    fn replace_on_a_product_page_overwrites_the_page_with_the_same_slug() {
+        let (_guard, root) = seeded_hall();
+        let layout = Layout::at(root);
+        let args = |body: &str, replace: bool| json!({"kind": "product", "title": "Pricing", "body": body, "replace": replace});
+        write_as(&layout, &MemoryCaller::default(), &args("v1\n", false)).unwrap();
+        page(&layout, "docs/memory/product/002-other.md", "# Other\n");
+
+        let replaced = write_as(&layout, &MemoryCaller::default(), &args("v2\n", true)).unwrap();
+        let fresh = write_as(
+            &layout,
+            &MemoryCaller::default(),
+            &json!({"kind": "product", "title": "Billing", "replace": true}),
+        )
+        .unwrap();
+
+        assert_eq!(replaced["path"], "docs/memory/product/001-pricing.md");
+        assert_eq!(fresh["path"], "docs/memory/product/003-billing.md");
+    }
 }

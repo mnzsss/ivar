@@ -363,12 +363,7 @@ fn a_diff_that_cannot_be_read_is_a_warning_and_refuses_the_confirmation() {
     assert_eq!(refused.code, "memory.review_unreadable");
 }
 
-#[test]
-fn every_broken_anchor_of_a_durable_page_is_stale_wherever_its_file_is() {
-    let (_guard, root) = hall_with_promoted(&["api"]);
-    let layout = Layout::at(root);
-    anchored_page(&layout, "docs/memory/decision/a.md", "api", "src/gone.rs");
-    anchored_page(&layout, "docs/memory/session/s.md", "api", "src/gone.rs");
+fn empty_graph(layout: &Layout) {
     rusqlite::Connection::open(layout.graph_db().as_std_path())
         .unwrap()
         .execute_batch(
@@ -376,6 +371,68 @@ fn every_broken_anchor_of_a_durable_page_is_stale_wherever_its_file_is() {
              CREATE TABLE symbols (file_id INTEGER, name TEXT);",
         )
         .unwrap();
+}
+
+fn broken(path: &str) -> StaleReason {
+    StaleReason::BrokenAnchor {
+        repo: "api".to_owned(),
+        path: path.to_owned(),
+        symbol: None,
+    }
+}
+
+#[test]
+fn a_broken_anchor_outside_the_diff_is_informational_and_never_blocks_the_confirmation() {
+    let (_guard, root) = hall_with_promoted(&["api"]);
+    let layout = Layout::at(root);
+    anchored_page(&layout, "docs/memory/decision/a.md", "api", "src/gone.rs");
+    anchored_page(&layout, "docs/memory/update/001-u.md", "api", "src/gone.rs");
+    anchored_page(&layout, "docs/memory/session/s.md", "api", "src/gone.rs");
+    empty_graph(&layout);
+
+    let report = review_in(&layout, &checkout()).unwrap().value;
+
+    assert!(report.stale.is_empty(), "{:?}", report.stale);
+    let preexisting: Vec<&str> = report
+        .preexisting_broken
+        .iter()
+        .map(|p| p.path.as_str())
+        .collect();
+    assert_eq!(preexisting, ["docs/memory/decision/a.md"]);
+    assert_eq!(
+        report.preexisting_broken[0].reasons,
+        [broken("src/gone.rs")]
+    );
+    let mut human = Vec::new();
+    crate::error::WriteHuman::write_human(&report, &mut human).unwrap();
+    let human = String::from_utf8(human).unwrap();
+    assert!(human.contains("stale: none"), "{human}");
+    assert!(
+        human.contains("pre-existing broken anchor: docs/memory/decision/a.md"),
+        "{human}"
+    );
+    confirm_in(
+        &layout,
+        &scope(),
+        &checkout(),
+        &[],
+        Some("internal".to_owned()),
+    )
+    .unwrap();
+}
+
+#[test]
+fn a_broken_anchor_in_a_file_the_diff_changed_stays_stale() {
+    let (_guard, root) = hall_with_promoted(&["api"]);
+    let layout = Layout::at(root);
+    let worktree = layout.repo_worktree(
+        &RepoName::new("api").unwrap(),
+        &BranchName::new("checkout").unwrap(),
+    );
+    std::fs::write(worktree.join("README.md"), "changed\n").unwrap();
+    anchored_page(&layout, "docs/memory/decision/a.md", "api", "README.md");
+    anchored_page(&layout, "docs/memory/decision/b.md", "api", "src/gone.rs");
+    empty_graph(&layout);
 
     let report = review_in(&layout, &checkout()).unwrap().value;
 
@@ -386,14 +443,22 @@ fn every_broken_anchor_of_a_durable_page_is_stale_wherever_its_file_is() {
         "{:?}",
         report.warnings
     );
-    assert_eq!(
-        report.stale[0].reasons,
-        [StaleReason::BrokenAnchor {
-            repo: "api".to_owned(),
-            path: "src/gone.rs".to_owned(),
-            symbol: None
-        }]
-    );
+    assert!(report.stale[0].reasons.contains(&broken("README.md")));
+    let preexisting: Vec<&str> = report
+        .preexisting_broken
+        .iter()
+        .map(|p| p.path.as_str())
+        .collect();
+    assert_eq!(preexisting, ["docs/memory/decision/b.md"]);
+    let refused = confirm_in(
+        &layout,
+        &scope(),
+        &checkout(),
+        &[],
+        Some("internal".to_owned()),
+    )
+    .unwrap_err();
+    assert_eq!(refused.code, "memory.review_missing_verdicts");
 }
 
 #[test]
