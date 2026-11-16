@@ -60,6 +60,19 @@ read-only. Only the human decides to skip the review:
 applies without it and records `memory.review_skipped` with the reason. It
 lifts no other blocker. Never pass it on your own.
 
+## Deliver without a plan
+
+A feature that never wrote a plan (no `requirements.md`, `analysis.md` or
+`plan.md`) is blocked at the plan gate. The preview says so and names the
+way out. Only the human decides to waive the plan:
+`ivar feature deliver <feature> --fingerprint <fp> --no-plan "<reason>"`
+applies without an approved plan and records `delivery.plan_skipped` with the
+reason. It works with `--land` too, lifts no other blocker, and is not part of
+the fingerprint. It is refused with `deliver.no_plan_with_artifacts` when any
+SPDD artifact exists: approve that plan with `ivar plan approve` instead.
+Never pass `--no-plan` on your own, and never write a plan only to approve it
+and clear the gate.
+
 ## Deliver a subset of repos
 
 `--only <repo>` restricts preview and apply to the named promoted repos;

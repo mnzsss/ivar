@@ -100,7 +100,8 @@ fn all_lists_every_event_once() {
         .map(|event| event.as_str())
         .collect();
     assert_eq!(names.len(), SourceEvent::ALL.len());
-    assert_eq!(SourceEvent::ALL.len(), 25);
+    assert_eq!(SourceEvent::ALL.len(), 26);
+    assert!(names.contains("delivery.plan_skipped"));
     assert!(names.contains("memory.review_skipped"));
     assert!(names.contains("message.popped"));
     assert!(names.contains("agent_task.concluded"));

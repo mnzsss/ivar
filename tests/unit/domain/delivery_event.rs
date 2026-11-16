@@ -255,3 +255,16 @@ fn delivery_ids_separate_attempts_events_repos_and_order() {
         delivery_event_id("att-1", SourceEvent::DeliveryPushed, "api", 1)
     );
 }
+
+#[test]
+fn a_plan_skip_is_a_high_importance_delivery_event_carrying_its_reason() {
+    let event = DeliveryEvent::PlanSkipped {
+        reason: "typo fix".into(),
+    };
+    assert_eq!(event.source_event(), SourceEvent::DeliveryPlanSkipped);
+    assert_eq!(event.source_event().as_str(), "delivery.plan_skipped");
+    assert_eq!(event.importance().get(), 7);
+    let value: serde_json::Value = serde_json::from_str(&event.body(&scope())).unwrap();
+    assert_eq!(value["reason"], "typo fix");
+    assert_eq!(value["branch"], "login");
+}

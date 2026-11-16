@@ -185,6 +185,7 @@ pub(super) fn preview_input(feature: &str) -> DeliverInput {
         repo_overrides: Vec::new(),
         only: Vec::new(),
         skip_memory_review: None,
+        no_plan: None,
     }
 }
 
@@ -215,6 +216,7 @@ pub(super) fn apply_input(feature: &str, fingerprint: &str) -> DeliverInput {
         repo_overrides: Vec::new(),
         only: Vec::new(),
         skip_memory_review: None,
+        no_plan: None,
     }
 }
 
@@ -228,6 +230,7 @@ pub(super) fn land_preview_input(feature: &str) -> DeliverInput {
         repo_overrides: Vec::new(),
         only: Vec::new(),
         skip_memory_review: None,
+        no_plan: None,
     }
 }
 

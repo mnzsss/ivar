@@ -46,6 +46,7 @@ fn a_push_fingerprint_cannot_be_applied_as_a_land() {
             repo_overrides: Vec::new(),
             only: Vec::new(),
             skip_memory_review: None,
+            no_plan: None,
         },
     )
     .expect("push preview");
@@ -61,6 +62,7 @@ fn a_push_fingerprint_cannot_be_applied_as_a_land() {
             repo_overrides: Vec::new(),
             only: Vec::new(),
             skip_memory_review: None,
+            no_plan: None,
         },
     );
     let failure = refused.expect_err("a push fingerprint must not open a land");
@@ -84,6 +86,7 @@ fn a_land_fingerprint_cannot_be_applied_as_a_push() {
             repo_overrides: Vec::new(),
             only: Vec::new(),
             skip_memory_review: None,
+            no_plan: None,
         },
     )
     .expect("land preview");
@@ -99,6 +102,7 @@ fn a_land_fingerprint_cannot_be_applied_as_a_push() {
             repo_overrides: Vec::new(),
             only: Vec::new(),
             skip_memory_review: None,
+            no_plan: None,
         },
     );
     let failure = refused.expect_err("a land fingerprint must not open a push");

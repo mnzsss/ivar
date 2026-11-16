@@ -42,3 +42,32 @@ fn skip_memory_review_without_a_value_is_a_parse_error() {
         .is_err()
     );
 }
+
+#[test]
+fn no_plan_takes_a_reason_and_reaches_the_input() {
+    let cli = Cli::try_parse_from([
+        "ivar",
+        "feature",
+        "deliver",
+        "checkout",
+        "--fingerprint",
+        "abc",
+        "--no-plan",
+        "typo fix",
+    ])
+    .unwrap();
+    let Command::Feature(FeatureCommand::Deliver(args)) = cli.command else {
+        panic!("expected feature deliver");
+    };
+
+    assert_eq!(args.no_plan.as_deref(), Some("typo fix"));
+    assert_eq!(
+        DeliverInput::from(args).no_plan.as_deref(),
+        Some("typo fix")
+    );
+}
+
+#[test]
+fn no_plan_without_a_value_is_a_parse_error() {
+    assert!(Cli::try_parse_from(["ivar", "feature", "deliver", "checkout", "--no-plan"]).is_err());
+}

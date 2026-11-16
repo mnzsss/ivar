@@ -190,6 +190,21 @@ missing, leaving `plan.md` alone. Reach for the short path only when there is
 no real design decision to review; anything riskier earns the full three
 artifacts.
 
+A change that wrote no artifact at all is blocked at the plan gate when it is
+delivered. The preview names the way out. A human who decides it needs no plan
+applies with `--no-plan "<reason>"`:
+
+```sh
+ivar feature deliver fix-typo --fingerprint <fingerprint> --no-plan "typo fix"
+```
+
+The reason is recorded as `delivery.plan_skipped`. The flag lifts only the plan
+gate: it is apply only, not part of the fingerprint, and every other blocker
+still refuses. It is refused (`deliver.no_plan_with_artifacts`) when any of
+`requirements.md`, `analysis.md` or `plan.md` exists, approved or not — the
+escape is "never written," never "written and ignored." Approve that plan with
+`ivar plan approve` instead.
+
 ## Hall scripts
 
 A hall keeps its repeatable automations as **scripts**: `.ivar/scripts/` is

@@ -199,7 +199,9 @@ accept-revision` before it can resume.
 branch, remote, push refspec, PR action, base branch, ordering and blockers.
 Apply is gated on two things — the plan gate being approved, and the preview's
 fingerprint, which refuses if state drifted. The gate state is part of the
-fingerprinted summary, so crossing it is itself drift.
+fingerprinted summary, so crossing it is itself drift. A human can waive the plan
+gate for a feature that never wrote a plan with `--no-plan "<reason>"` at apply,
+recorded as `delivery.plan_skipped`.
 
 **`part of`** — how sibling PRs across repos reference each other. Deliberately
 not `depends on`: `ivar` models co-belonging, not dependency, and claims nothing

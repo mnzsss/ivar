@@ -51,6 +51,15 @@ pub(super) fn emit_refused(
     );
 }
 
+pub(super) fn emit_plan_skipped(emitter: &Emitter<'_>, feature: &Feature, reason: &str) {
+    emitter.emit(
+        DeliveryScope::for_feature(feature),
+        DeliveryEvent::PlanSkipped {
+            reason: reason.to_owned(),
+        },
+    );
+}
+
 pub(super) fn emit_checks(emitter: &Emitter<'_>, scope: DeliveryScope, check: &RepoCheckResult) {
     let failed = check
         .results

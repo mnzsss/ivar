@@ -8,6 +8,7 @@ pub mod outcome;
 pub(crate) mod attribution;
 mod events;
 mod memory_gate;
+mod plan_skip;
 mod preview;
 mod push;
 mod repos;
@@ -35,8 +36,8 @@ use crate::store::layout::Layout;
 use crate::store::manifest::Manifest;
 
 use preview::{
-    apply_command, blocked, blockers, fingerprint_for, plan_gate_state, plan_not_approved,
-    preview_required,
+    Waivers, apply_command, blocked, blockers, fingerprint_for, no_plan_with_artifacts,
+    plan_gate_state, plan_not_approved, preview_required,
 };
 use repos::{build_repos, order_by_dependencies};
 
@@ -198,15 +199,24 @@ fn run(
     let manifest = read_manifest(layout)?;
     let git = git::System;
     let skipping = memory_gate::check_skip(&input)?;
+    let no_plan = plan_skip::check(&input)?;
     let (feature_name, feature, preview, memory_warnings) =
         preflight_and_resolve(ctx, layout, &manifest, &git, &input)?;
+    // Read live, so a plan written after the preview voids `--no-plan`.
+    let plan_artifacts = plan_skip::any_artifact(layout, &feature_name);
 
     if input.preview {
         let apply_command = apply_command(&input, &preview.fingerprint);
         return Ok(Report::with_warnings(
             DeliverOutcome {
                 root: layout.root().to_path_buf(),
-                blockers: blockers(&preview, false),
+                blockers: blockers(
+                    &preview,
+                    Waivers {
+                        plan_artifacts,
+                        ..Waivers::default()
+                    },
+                ),
                 preview,
                 apply_command: Some(apply_command),
                 pushes: Vec::new(),
@@ -217,37 +227,13 @@ fn run(
         ));
     }
 
-    if !preview.tree_blockers.is_empty() {
-        let names = preview
-            .tree_blockers
-            .iter()
-            .map(|blocker| format!("{} ({})", blocker.feature, blocker.state))
-            .collect::<Vec<_>>()
-            .join(", ");
-        return Err(Failure::blocked(
-            "deliver.descendants_block",
-            format!(
-                "cannot deliver `{feature_name}`: {} descendant(s) still block",
-                preview.tree_blockers.len()
-            ),
-        )
-        .expected("every descendant to be integrated, verified, or abandoned")
-        .actual(names)
-        .fix(FixAction::safe(
-            "deliver.integrate_leaves_first",
-            "Integrate the blocking descendants first, leaves first.",
-        )));
-    }
-
-    if preview.plan_gate != GateState::Approved {
-        let plan_written =
-            crate::action::plan::artifact_path(layout, &feature_name, Gate::Plan).exists();
-        return Err(plan_not_approved(
-            &feature_name,
-            preview.plan_gate,
-            plan_written,
-        ));
-    }
+    refuse_descendants(&feature_name, &preview)?;
+    let waivers = Waivers {
+        skip_memory_review: skipping,
+        no_plan,
+        plan_artifacts,
+    };
+    let plan_waived = check_plan_gate(layout, &feature_name, &preview, waivers)?;
 
     if preview.memory_review == MemoryReviewGate::Missing && !skipping {
         return Err(memory_gate::memory_not_reviewed(&feature_name));
@@ -260,7 +246,10 @@ fn run(
 
     if input.land {
         let plans = land::preflight(&git, layout, &feature, &preview)?;
-        refuse_blockers(&feature_name, &preview, skipping)?;
+        refuse_blockers(&feature_name, &preview, waivers)?;
+        if plan_waived && let Some(reason) = &input.no_plan {
+            events::emit_plan_skipped(emitter, &feature, reason);
+        }
         let mut warnings = memory_warnings;
         let checks = run_land_checks(&git, &manifest, layout, &feature, &preview, emitter)?;
         let land_results = land::execute(&git, layout, &plans, &mut warnings)?;
@@ -282,7 +271,10 @@ fn run(
         ));
     }
 
-    refuse_blockers(&feature_name, &preview, skipping)?;
+    refuse_blockers(&feature_name, &preview, waivers)?;
+    if plan_waived && let Some(reason) = &input.no_plan {
+        events::emit_plan_skipped(emitter, &feature, reason);
+    }
     let result = push::execute_with(
         &git,
         layout,
@@ -302,6 +294,61 @@ fn run(
         memory_gate::record_skip(layout, &feature_name, reason);
     }
     result
+}
+
+fn refuse_descendants(
+    feature_name: &FeatureName,
+    preview: &DeliveryPreview,
+) -> Result<(), Failure> {
+    if preview.tree_blockers.is_empty() {
+        return Ok(());
+    }
+    let names = preview
+        .tree_blockers
+        .iter()
+        .map(|blocker| format!("{} ({})", blocker.feature, blocker.state))
+        .collect::<Vec<_>>()
+        .join(", ");
+    Err(Failure::blocked(
+        "deliver.descendants_block",
+        format!(
+            "cannot deliver `{feature_name}`: {} descendant(s) still block",
+            preview.tree_blockers.len()
+        ),
+    )
+    .expected("every descendant to be integrated, verified, or abandoned")
+    .actual(names)
+    .fix(FixAction::safe(
+        "deliver.integrate_leaves_first",
+        "Integrate the blocking descendants first, leaves first.",
+    )))
+}
+
+/// The plan gate at apply. `Ok(true)` means `--no-plan` waived it; the caller
+/// records that once every other blocker is cleared.
+fn check_plan_gate(
+    layout: &Layout,
+    feature_name: &FeatureName,
+    preview: &DeliveryPreview,
+    waivers: Waivers,
+) -> Result<bool, Failure> {
+    if waivers.no_plan && waivers.plan_artifacts {
+        return Err(no_plan_with_artifacts(feature_name, preview.plan_gate));
+    }
+    if waivers.waives_plan(preview.plan_gate) {
+        return Ok(true);
+    }
+    if preview.plan_gate != GateState::Approved {
+        let plan_written =
+            crate::action::plan::artifact_path(layout, feature_name, Gate::Plan).exists();
+        return Err(plan_not_approved(
+            feature_name,
+            preview.plan_gate,
+            plan_written,
+            waivers.plan_artifacts,
+        ));
+    }
+    Ok(false)
 }
 
 fn check_fingerprint(
@@ -334,9 +381,9 @@ fn check_fingerprint(
 fn refuse_blockers(
     feature: &FeatureName,
     preview: &DeliveryPreview,
-    skip_memory_review: bool,
+    waivers: Waivers,
 ) -> Result<(), Failure> {
-    let remaining = blockers(preview, skip_memory_review);
+    let remaining = blockers(preview, waivers);
     if remaining.is_empty() {
         Ok(())
     } else {

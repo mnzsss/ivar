@@ -18,6 +18,7 @@ mod memory_review;
 mod memory_review_confirm;
 mod metadata;
 mod ordering;
+mod plan_skip;
 mod pr_metadata;
 mod prefixed;
 mod preview;

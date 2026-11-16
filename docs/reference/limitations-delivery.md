@@ -113,3 +113,8 @@ It will not stop a determined process running as your user.
 - `--skip-memory-review "<reason>"` records `memory.review_skipped` once the apply
   succeeds. A failed write prints `ivar: memory.event_not_recorded: <reason>` and the
   delivery goes on.
+- `--no-plan "<reason>"` records `delivery.plan_skipped` once every blocker other than the
+  plan gate is cleared, before anything is pushed or landed, so the record exists even if the
+  push then fails. It applies only to a feature with no `requirements.md`, `analysis.md` or
+  `plan.md`, checked live at apply. A failed write prints
+  `ivar: memory.delivery_event_not_recorded: <reason>` and the delivery goes on.

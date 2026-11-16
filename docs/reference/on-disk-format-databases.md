@@ -72,7 +72,7 @@ shared by every session, in WAL mode, with writers serialised on `.ivar/memory.l
 
 `observations` holds the session events captured by the provider hooks and the delivery
 events the binary records. Rows are appended by draining the [capture spool](on-disk-format.md);
-nothing else writes them. Delivery events (`delivery.refused`, `delivery.pushed`,
+nothing else writes them. Delivery events (`delivery.refused`, `delivery.plan_skipped`, `delivery.pushed`,
 `delivery.pr`, `delivery.landed`, `delivery.checks`, `delivery.rebased`,
 `delivery.integrated`, `delivery.merged`, `delivery.cleaned`, `delivery.closed`,
 `delivery.deleted`) travel through the same spool under the key `delivery`, and so does
@@ -85,7 +85,7 @@ nothing else writes them. Delivery events (`delivery.refused`, `delivery.pushed`
 | --- | --- |
 | `id` | integer primary key |
 | `event_id` | unique; a replayed spool file inserts nothing twice |
-| `source_event` | `session.started`, `session.prompted`, `session.tool`, `session.ended`, one of the eleven `delivery.*` names, or `agent_task.concluded` |
+| `source_event` | `session.started`, `session.prompted`, `session.tool`, `session.ended`, one of the twelve `delivery.*` names, or `agent_task.concluded` |
 | `extension` | owner of the event, `'ivar'` by default |
 | `occurred_at` | RFC 3339 time of the event |
 | `session_id` | ivar session id, empty outside a view dir |

@@ -19,6 +19,8 @@ pub struct FeatureDeliverArgs {
     pub only: Vec<String>,
     /// Apply without the memory review, recording this reason.
     pub skip_memory_review: Option<String>,
+    /// Apply without a plan gate for a feature with no plan artifacts.
+    pub no_plan: Option<String>,
 }
 
 impl clap::Args for FeatureDeliverArgs {
@@ -95,6 +97,12 @@ impl clap::Args for FeatureDeliverArgs {
                 .value_name("REASON")
                 .help("Apply without the memory review the delivery requires, and record `memory.review_skipped` with REASON. Apply only: it lifts no other blocker and is not part of the fingerprint."),
         )
+        .arg(
+            clap::Arg::new("no-plan")
+                .long("no-plan")
+                .value_name("REASON")
+                .help("Apply a feature that never wrote a plan without approving one, and record `delivery.plan_skipped` with REASON. A human decision: never pass it on your own. Refused when any of `requirements.md`, `analysis.md` or `plan.md` exists. Apply only: it lifts no other blocker and is not part of the fingerprint."),
+        )
     }
 
     fn augment_args_for_update(cmd: clap::Command) -> clap::Command {
@@ -109,6 +117,7 @@ impl clap::FromArgMatches for FeatureDeliverArgs {
         let land = matches.get_flag("land");
         let fingerprint = matches.get_one::<String>("fingerprint").cloned();
         let skip_memory_review = matches.get_one::<String>("skip-memory-review").cloned();
+        let no_plan = matches.get_one::<String>("no-plan").cloned();
 
         let only = matches
             .get_many::<String>("only")
@@ -126,6 +135,7 @@ impl clap::FromArgMatches for FeatureDeliverArgs {
             repo_overrides,
             only,
             skip_memory_review,
+            no_plan,
         })
     }
 
@@ -270,6 +280,7 @@ impl From<FeatureDeliverArgs> for deliver::DeliverInput {
             repo_overrides,
             only,
             skip_memory_review,
+            no_plan,
         } = args;
 
         Self {
@@ -281,6 +292,7 @@ impl From<FeatureDeliverArgs> for deliver::DeliverInput {
             repo_overrides,
             only,
             skip_memory_review,
+            no_plan,
         }
     }
 }

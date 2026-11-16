@@ -18,6 +18,7 @@ fn apply_requires_a_preview_fingerprint() {
             repo_overrides: Vec::new(),
             only: Vec::new(),
             skip_memory_review: None,
+            no_plan: None,
         },
     )
     .unwrap_err();

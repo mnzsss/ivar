@@ -63,6 +63,10 @@ pub enum DeliveryEvent {
         blockers: Vec<String>,
         fingerprint: String,
     },
+    /// A human waived the plan gate for a feature that never wrote a plan.
+    PlanSkipped {
+        reason: String,
+    },
     Pushed {
         ok: bool,
         detail: Option<String>,
@@ -162,6 +166,7 @@ impl DeliveryEvent {
     pub const fn source_event(&self) -> SourceEvent {
         match self {
             Self::Refused { .. } => SourceEvent::DeliveryRefused,
+            Self::PlanSkipped { .. } => SourceEvent::DeliveryPlanSkipped,
             Self::Pushed { .. } => SourceEvent::DeliveryPushed,
             Self::Pr { .. } => SourceEvent::DeliveryPr,
             Self::Landed { .. } => SourceEvent::DeliveryLanded,
@@ -179,6 +184,7 @@ impl DeliveryEvent {
     pub fn importance(&self) -> Importance {
         match self {
             Self::Refused { .. } => Importance::delivery_failure(),
+            Self::PlanSkipped { .. } => Importance::delivery_plan_skipped(),
             Self::Pushed { ok, .. } | Self::Integrated { ok, .. } => by_success(*ok),
             Self::Checks { passed, .. } => by_success(*passed),
             Self::Landed { merged, pushed, .. } => by_success(*merged && *pushed),
@@ -209,6 +215,7 @@ impl DeliveryEvent {
                 blockers,
                 fingerprint,
             } => json!({ "code": code, "blockers": blockers, "fingerprint": fingerprint }),
+            Self::PlanSkipped { reason } => json!({ "reason": reason }),
             Self::Pushed { ok, detail, base } => {
                 json!({ "ok": ok, "detail": detail, "base": base })
             }

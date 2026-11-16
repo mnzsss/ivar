@@ -283,6 +283,7 @@ pub(super) fn dispatch_feature(
                             repo_overrides: args.repo_overrides,
                             only: args.only,
                             skip_memory_review: args.skip_memory_review,
+                            no_plan: args.no_plan,
                         },
                     ),
                     json,

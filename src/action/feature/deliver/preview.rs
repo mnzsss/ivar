@@ -90,19 +90,47 @@ pub(crate) fn plan_gate_state(
     crate::action::plan::effective_plan_gate(layout, feature)
 }
 
+/// What lifts a blocker at apply, and what the feature has on disk. One value
+/// feeds both the preview and the apply, so the two never diverge.
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct Waivers {
+    /// `--skip-memory-review` was given.
+    pub skip_memory_review: bool,
+    /// `--no-plan` was given.
+    pub no_plan: bool,
+    /// Any of `requirements.md`, `analysis.md` or `plan.md` exists.
+    pub plan_artifacts: bool,
+}
+
+impl Waivers {
+    /// `--no-plan` lifts the plan blocker only for a feature that never wrote
+    /// an SPDD artifact: the escape is "never written", never "written and
+    /// ignored".
+    pub(crate) fn waives_plan(self, plan_gate: GateState) -> bool {
+        self.no_plan && !self.plan_artifacts && plan_gate == GateState::Pending
+    }
+}
+
 /// Everything that refuses apply, in the order apply checks it. The preview
 /// prints this list, and apply refuses exactly when it is non-empty.
-pub(crate) fn blockers(preview: &DeliveryPreview, skip_memory_review: bool) -> Vec<String> {
+pub(crate) fn blockers(preview: &DeliveryPreview, waivers: Waivers) -> Vec<String> {
     let descendants = preview.tree_blockers.iter().map(|blocker| {
         format!(
             "descendant `{}` is {}: {}",
             blocker.feature, blocker.state, blocker.reason
         )
     });
-    let plan = (preview.plan_gate != GateState::Approved)
-        .then(|| format!("the plan gate is {}, not approved", preview.plan_gate));
-    let memory =
-        (preview.memory_review == MemoryReviewGate::Missing && !skip_memory_review).then(|| {
+    let plan = (preview.plan_gate != GateState::Approved && !waivers.waives_plan(preview.plan_gate))
+        .then(|| {
+            if preview.plan_gate == GateState::Pending && !waivers.plan_artifacts {
+                "the plan gate is pending and no plan was written: apply with `--no-plan \"<reason>\"` (human decision) or write and approve a plan".to_owned()
+            } else {
+                format!("the plan gate is {}, not approved", preview.plan_gate)
+            }
+        });
+    let memory = (preview.memory_review == MemoryReviewGate::Missing
+        && !waivers.skip_memory_review)
+        .then(|| {
             format!(
                 "memory review is missing: run `ivar memory review {0} --confirm`, or the memory_review MCP tool with `feature: \"{0}\"` and `confirm`",
                 preview.feature
@@ -149,6 +177,7 @@ pub(crate) fn plan_not_approved(
     feature: &FeatureName,
     state: GateState,
     plan_written: bool,
+    any_artifact: bool,
 ) -> Failure {
     let actual = match state {
         GateState::Pending => format!("`{feature}`'s plan gate has never been approved"),
@@ -173,14 +202,48 @@ pub(crate) fn plan_not_approved(
         )
         .command(format!("ivar plan approve {feature} plan"))
     } else {
+        let waiver = if any_artifact {
+            ""
+        } else {
+            "; or, if the human decided this change needs no plan, apply with `--no-plan \"<reason>\"`"
+        };
         FixAction::safe(
             "deliver.write_plan",
             format!(
-                "Write a plan with `ivar plan create {feature} plan`, approve it with `ivar plan approve {feature} plan`, then preview and apply again."
+                "Write a plan with `ivar plan create {feature} plan`, approve it with `ivar plan approve {feature} plan`, then preview and apply again{waiver}."
             ),
         )
         .command(format!("ivar plan create {feature} plan"))
     })
+}
+
+/// `--no-plan` given to a feature that wrote an SPDD artifact. The flag
+/// waives a plan that was never written, not one that was written and ignored.
+pub(crate) fn no_plan_with_artifacts(feature: &FeatureName, state: GateState) -> Failure {
+    let failure = Failure::blocked(
+        "deliver.no_plan_with_artifacts",
+        format!("`--no-plan` cannot waive the plan of `{feature}`: it has plan artifacts"),
+    )
+    .expected("a feature with no `requirements.md`, `analysis.md` or `plan.md`")
+    .actual(format!(
+        "`{feature}` has plan artifacts and its plan gate is {state}"
+    ));
+    if state == GateState::Approved {
+        failure.fix(FixAction::safe(
+            "deliver.drop_no_plan",
+            "The plan is already approved: apply again without `--no-plan`.",
+        ))
+    } else {
+        failure.fix(
+            FixAction::safe(
+                "deliver.approve_plan",
+                format!(
+                    "Approve the plan with `ivar plan approve {feature} plan` (revise it first if it needs revision), then preview and apply again without `--no-plan`."
+                ),
+            )
+            .command(format!("ivar plan approve {feature} plan")),
+        )
+    }
 }
 
 pub(crate) fn preview_required(feature: &FeatureName) -> Failure {
