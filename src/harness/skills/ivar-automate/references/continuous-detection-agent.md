@@ -39,5 +39,6 @@ carries nothing worth reading.
 
 If you could not run the scan or cannot do the work, end your output with a final
 line `BLOCKED: <reason>`. If the scan failed with an error, end with
-`FAILED: <reason>`. The line starts with that plain, upper-case text, with no
-markdown, and is the last non-empty line of the output.
+`FAILED: <reason>`. The line starts with that upper-case text and is the last
+non-empty line of the output. Plain text is best; a markdown wrapper around it
+(backticks, bold, a `>` quote or a `-` bullet) is also accepted.

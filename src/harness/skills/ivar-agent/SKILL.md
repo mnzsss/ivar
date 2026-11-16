@@ -115,8 +115,9 @@ look at, what to produce and where, and what "nothing to report" looks like. It
 cannot ask questions. Tell it to end its output with a final line
 `BLOCKED: <reason>` when it could not do the work, or `FAILED: <reason>` when
 it hit an error; the run is then recorded as `blocked` or `failed` instead of
-`succeeded`. The line must start with that plain, upper-case text (no markdown
-such as `**BLOCKED:**`) and be the last non-empty line of the output.
+`succeeded`. The line must start with that upper-case text and be the last
+non-empty line of the output. Plain text is best; a markdown wrapper around it
+(backticks, `**bold**`, a `>` quote or a `-` bullet) is also accepted.
 
 Then:
 
