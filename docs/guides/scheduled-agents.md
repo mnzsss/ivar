@@ -123,7 +123,7 @@ When a timer run concludes a task:
 | `ivar agent sync` | installs, updates and removes the systemd user timers for `agents/*.md` |
 | `ivar agent status` | schedule (or the pending `at` of a task), next run, last outcome and timer state per agent |
 | `ivar agent run <name>` | runs now, through the same path the timer uses, in the background: the command returns at once and `ivar agent logs <name>` prints the run once it ends; `--wait` stays attached and prints the receipt. For an Agent Task it is a rehearsal and the task stays pending |
-| `ivar agent logs <name> [--run <id>]` | output of the latest or given run |
+| `ivar agent logs <name> [--run <id>]` | output of the latest or given run; also reads a concluded Agent Task after its file moved to `agents/done/`, as long as its receipts are still on this machine |
 | `ivar agent feedback <run-id> --rating up [--comment <text>]` | records your verdict on the run; `--rating` is `up` or `down` |
 | `ivar agent notify telegram setup` | asks for the bot token, finds the chat, sends a test message and sets `notify` on the agents you pick |
 

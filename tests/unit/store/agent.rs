@@ -294,3 +294,51 @@ fn a_script_path_outside_the_script_folders_is_refused_while_parsing() {
     assert_eq!(failure.code, "agent.invalid");
     assert!(failure.what.contains("`scripts`"), "{}", failure.what);
 }
+
+#[test]
+fn a_name_exists_by_live_file_concluded_file_or_runs_dir() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root);
+    assert!(!name_exists(&layout, "a").unwrap());
+
+    write_agent(
+        &layout,
+        "live",
+        "---\nschedule: \"@daily\"\ntool: codex\n---\n",
+    );
+    assert!(name_exists(&layout, "live").unwrap());
+
+    std::fs::create_dir_all(layout.agents_done_dir()).unwrap();
+    std::fs::write(layout.agents_done_dir().join("done.2026-11-08T0900.md"), "").unwrap();
+    std::fs::write(
+        layout
+            .agents_done_dir()
+            .join("again.2026-11-08T0900.20261108T090000Z-aaaaaaaa.md"),
+        "",
+    )
+    .unwrap();
+    assert!(name_exists(&layout, "done").unwrap());
+    assert!(name_exists(&layout, "again").unwrap());
+
+    std::fs::create_dir_all(layout.agent_runs_dir("ran")).unwrap();
+    assert!(name_exists(&layout, "ran").unwrap());
+}
+
+#[test]
+fn a_name_does_not_match_another_tasks_concluded_file() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root);
+    std::fs::create_dir_all(layout.agents_done_dir()).unwrap();
+    for file in [
+        "a.b.2026-11-08T0900.md",
+        "a.2026-11-08.md",
+        "a.2026-11-08T0900.md.bak",
+        "ab.2026-11-08T0900.md",
+        "a.2026-11-08T0900x.md",
+        "a.2026-11-08T0900..md",
+    ] {
+        std::fs::write(layout.agents_done_dir().join(file), "").unwrap();
+    }
+    assert!(!name_exists(&layout, "a").unwrap());
+    assert!(name_exists(&layout, "a.b").unwrap());
+}

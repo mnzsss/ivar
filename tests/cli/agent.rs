@@ -276,3 +276,56 @@ fn doctor_reports_unsupported_agents_without_linux_fixes() {
         }
     }
 }
+
+#[test]
+fn logs_read_a_task_after_its_file_moved_to_done() {
+    let (_guard, root) = hall_root();
+    ivar().current_dir(&root).arg("init").assert().success();
+    let runs = root.join(".ivar/agents/runs/once");
+    std::fs::create_dir_all(&runs).unwrap();
+    std::fs::write(
+        runs.join("20261108T090000Z-aaaaaaaa.json"),
+        serde_json::json!({
+            "version": 1,
+            "run_id": "20261108T090000Z-aaaaaaaa",
+            "agent": "once",
+            "trigger": "schedule",
+            "started_at": "2026-11-08T09:00:00Z",
+            "ended_at": "2026-11-08T09:00:05Z",
+            "outcome": "succeeded",
+            "output": "all done\n",
+        })
+        .to_string(),
+    )
+    .unwrap();
+    std::fs::create_dir_all(root.join("agents/done")).unwrap();
+    std::fs::write(
+        root.join("agents/done/once.2026-11-08T0900.md"),
+        "---\nat: 2026-11-08T09:00\ntool: claude\n---\nLook.\n",
+    )
+    .unwrap();
+
+    let output = ivar()
+        .current_dir(&root)
+        .args(["--json", "agent", "logs", "once"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let value: serde_json::Value = serde_json::from_slice(&output).expect("valid json");
+    assert_eq!(value["agent"], "once");
+    assert_eq!(value["run_id"], "20261108T090000Z-aaaaaaaa");
+    assert_eq!(value["output"], "all done\n");
+
+    let output = ivar()
+        .current_dir(&root)
+        .args(["--json", "agent", "logs", "ghost"])
+        .assert()
+        .failure()
+        .get_output()
+        .stdout
+        .clone();
+    let value: serde_json::Value = serde_json::from_slice(&output).expect("valid json");
+    assert_eq!(value["code"], "agent.not_found");
+}

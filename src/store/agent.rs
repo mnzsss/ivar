@@ -104,6 +104,52 @@ pub fn load(layout: &Layout, name: &str) -> Result<AgentSpec, Failure> {
     })
 }
 
+/// True when `file` is `<name>.<YYYY-MM-DDTHHMM>.md` or `<name>.<stamp>.<run id>.md`,
+/// the names `move_to_done` gives a concluded task. Another task's name that
+/// merely starts with `<name>.` does not match.
+fn is_done_file_of(file: &str, name: &str) -> bool {
+    let Some(rest) = file
+        .strip_prefix(name)
+        .and_then(|rest| rest.strip_prefix('.'))
+        .and_then(|rest| rest.strip_suffix(".md"))
+    else {
+        return false;
+    };
+    let Some((stamp, tail)) = rest.split_at_checked(15) else {
+        return false;
+    };
+    let digits = |range: std::ops::Range<usize>| {
+        stamp
+            .get(range)
+            .is_some_and(|part| part.bytes().all(|b| b.is_ascii_digit()))
+    };
+    let shaped = digits(0..4)
+        && stamp.get(4..5) == Some("-")
+        && digits(5..7)
+        && stamp.get(7..8) == Some("-")
+        && digits(8..10)
+        && stamp.get(10..11) == Some("T")
+        && digits(11..15);
+    shaped && (tail.is_empty() || tail.strip_prefix('.').is_some_and(|id| !id.is_empty()))
+}
+
+/// Whether `name` belongs to an agent that exists or once existed: a live
+/// `agents/<name>.md`, a concluded `agents/done/<name>.<stamp>[.<run id>].md`,
+/// or a runs directory. `name` must already be a valid agent name.
+///
+/// # Errors
+///
+/// Returns a [`Failure`] when a directory cannot be read.
+pub fn name_exists(layout: &Layout, name: &str) -> Result<bool, Failure> {
+    if fs::is_file(&layout.agent_file(name))? || fs::is_dir(&layout.agent_runs_dir(name))? {
+        return Ok(true);
+    }
+    Ok(entries(&layout.agents_done_dir())?
+        .iter()
+        .filter_map(|path| path.file_name())
+        .any(|file| is_done_file_of(file, name)))
+}
+
 fn with_notify(source: &str, value: &str) -> Result<String, Failure> {
     let split = frontmatter::split(source)?;
     let Some(block) = split.frontmatter else {

@@ -46,7 +46,8 @@ pub struct AgentRunArgs {
 
 #[derive(Debug, Args)]
 pub struct AgentLogsArgs {
-    /// Agent name (the file stem under agents/).
+    /// Agent name (the file stem under agents/). A concluded Agent Task, whose
+    /// file moved to agents/done/, is read by its name too.
     pub name: String,
     /// Run id to print instead of the latest run.
     #[arg(long)]
