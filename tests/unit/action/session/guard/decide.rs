@@ -27,7 +27,7 @@ fn reads_are_never_denied() {
         decide(
             &Resolution::Unresolved {
                 scoped_scratch_dirs: Vec::new(),
-                live_count: 0,
+                promoted_feature: None,
             },
             &req,
             &targets
@@ -344,7 +344,7 @@ fn unresolved_denial_when_target_in_feature_with_live_session_lists_only_that_fe
     let decision = decide(
         &Resolution::Unresolved {
             scoped_scratch_dirs: scoped,
-            live_count: 2,
+            promoted_feature: None,
         },
         &req,
         std::slice::from_ref(&target),
@@ -370,7 +370,7 @@ fn unresolved_denial_when_target_in_feature_with_live_session_lists_only_that_fe
 }
 
 #[test]
-fn feature_scratch_dirs_returns_only_matching_feature_scratches() {
+fn feature_context_returns_only_matching_feature_scratches() {
     let (_guard, root) = hall_with_promoted_feature();
     let layout = Layout::at(root.clone());
     let feature = Feature::read(&layout, &FeatureName::new("checkout").unwrap())
@@ -393,11 +393,11 @@ fn feature_scratch_dirs_returns_only_matching_feature_scratches() {
         .unwrap();
 
     let target = layout.feature_dir(&feature.name).join("plan.md");
-    let scratches = feature_scratch_dirs(&layout, &target);
+    let scratches = feature_context(&layout, &target).scratch_dirs;
     assert_eq!(scratches, vec![Layout::session_scratch(&feat_view)]);
 }
 
-/// Target outside every feature with 1 live session states count rather than listing scratch dir.
+/// Target outside every feature: the denial states no count and names no feature.
 #[test]
 fn an_unresolved_denial_names_the_only_live_sessions_scratch_dir() {
     let (_guard, root) = hall_with_promoted_feature();
@@ -428,13 +428,13 @@ fn an_unresolved_denial_names_the_only_live_sessions_scratch_dir() {
         out.body
     );
     assert!(
-        out.body.contains("; this hall has 1 live session"),
-        "target outside every feature states live session count: {}",
+        !out.body.contains("live session") && !out.body.contains("ivar session connect"),
+        "target outside every feature states no count or connect hint: {}",
         out.body
     );
 }
 
-/// Target outside every feature with multiple live sessions states count rather than listing all scratch dirs.
+/// Target outside every feature with several live sessions: still no count.
 #[test]
 fn an_unresolved_denial_lists_every_live_sessions_scratch_dir() {
     let (_guard, root) = hall_with_promoted_feature();
@@ -473,8 +473,8 @@ fn an_unresolved_denial_lists_every_live_sessions_scratch_dir() {
         out.body
     );
     assert!(
-        out.body.contains("; this hall has 2 live sessions"),
-        "target outside every feature states live session count: {}",
+        !out.body.contains("live session") && !out.body.contains("ivar session connect"),
+        "target outside every feature states no count or connect hint: {}",
         out.body
     );
 }
@@ -491,8 +491,64 @@ fn an_unresolved_denial_with_no_live_session_names_no_path() {
     let out = guard(Provider::Omp, &payload.to_string(), None).unwrap();
     assert!(!out.exit_zero);
     assert!(
-        out.body.contains("no ivar session resolves from the cwd or the target path; this hall has no live session"),
+        out.body
+            .ends_with("no ivar session resolves from the cwd or the target path"),
         "{}",
+        out.body
+    );
+}
+
+/// A write into a promoted worktree with no session names the feature and the
+/// connect command; once the session exists, the view-dir write is allowed.
+#[test]
+fn an_unresolved_denial_in_a_promoted_worktree_says_to_connect_a_session() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let feature = Feature::read(&layout, &FeatureName::new("checkout").unwrap())
+        .unwrap()
+        .unwrap();
+    let worktree = layout.repo_worktree(&RepoName::new("api").unwrap(), &feature.branch);
+    crate::infra::fs::ensure_dir(&worktree.join("src")).unwrap();
+
+    let payload = serde_json::json!({
+        "tool": "write",
+        "args": { "filePath": worktree.join("src/x.rs") },
+        "cwd": root,
+    });
+    let out = guard(Provider::Omp, &payload.to_string(), None).unwrap();
+    assert!(!out.exit_zero);
+    let body = &out.body;
+    assert!(
+        body.contains("no ivar session resolves from the cwd or the target path"),
+        "{body}"
+    );
+    assert!(body.contains("checkout"), "{body}");
+    assert!(
+        body.contains("ivar session connect --feature checkout --create"),
+        "{body}"
+    );
+    assert!(body.contains("view dir"), "{body}");
+    assert!(!body.contains("live session"), "{body}");
+
+    // The session `connect --create` leaves behind: the view dir links the worktree.
+    let session_id = SessionId::new("6f0c9d5f-0000-4000-8000-000000000000").unwrap();
+    let view_dir = layout.feature_session(&feature.name, &session_id);
+    crate::infra::fs::ensure_dir(&view_dir).unwrap();
+    let mut state =
+        crate::domain::session::SessionState::new(Provider::Omp, "2026-08-29T00:00:00Z");
+    state.bind(feature.name.clone(), "2026-08-29T00:00:00Z");
+    state.write(&view_dir).unwrap();
+    std::os::unix::fs::symlink(&worktree, view_dir.join("api")).unwrap();
+
+    let payload = serde_json::json!({
+        "tool": "write",
+        "args": { "filePath": view_dir.join("api/src/x.rs") },
+        "cwd": root,
+    });
+    let out = guard(Provider::Omp, &payload.to_string(), None).unwrap();
+    assert!(
+        out.exit_zero,
+        "view-dir write must be allowed: {}",
         out.body
     );
 }
