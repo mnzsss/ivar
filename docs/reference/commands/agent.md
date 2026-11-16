@@ -35,7 +35,7 @@ Print the output of the latest run, or of --run <id>
 
 | argument | required | description |
 | --- | --- | --- |
-| `name` | yes | Agent name (the file stem under agents/) |
+| `name` | yes | Agent name (the file stem under agents/). A concluded Agent Task, whose file moved to agents/done/, is read by its name too |
 
 | flag | value | default | description |
 | --- | --- | --- | --- |
