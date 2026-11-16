@@ -17,7 +17,7 @@ use crate::store::manifest::Manifest;
 
 use super::events;
 use super::outcome::{DeliverOutcome, PullRequestRef, PushResult, RepoCheckResult};
-use super::repos::push_repo;
+use super::repos::{base_failure, push_repo};
 
 /// Execute non-land delivery apply: run root repo verification checks, push feature branches best-effort, and handle PRs.
 #[cfg(test)]
@@ -168,6 +168,74 @@ pub(crate) fn links_siblings(preview: &DeliveryPreview, feature: &Feature) -> bo
     preview.repos.len() == feature.promotions.len()
 }
 
+/// How a repo's branch reached the remote.
+enum Pushed {
+    /// An ordinary push: the remote's branch was an ancestor of ours.
+    Plain,
+    /// The remote's branch was replaced, with a lease on this tip — the one
+    /// the last delivery recorded.
+    Replaced(String),
+}
+
+/// Push the repo's branch; when git refuses it as non-fast-forward and the
+/// remote branch is exactly the tip ivar's last delivery pushed, replace it
+/// with a lease on that tip.
+///
+/// This is how the branch looks after `ivar feature rebase`: the remote holds
+/// ivar's own earlier push, which the rewritten branch no longer contains.
+/// Any other remote tip — a commit somebody else pushed, or a delivery that
+/// recorded nothing — is not ours to replace, and the original refusal is
+/// returned untouched. So is a lease that fails, the remote having moved in
+/// the instant since it was read: the recovery command re-reads the tip.
+fn push_or_replace_own(
+    git: &impl Git,
+    bare: &camino::Utf8Path,
+    repo: &crate::domain::feature::DeliveryRepo,
+    delivered: Option<&str>,
+) -> Result<Pushed, Failure> {
+    let refusal = match push_repo(git, bare, repo) {
+        Ok(()) => return Ok(Pushed::Plain),
+        Err(failure) => failure,
+    };
+    let Some(delivered) = delivered.filter(|_| rejected_as_non_fast_forward(&refusal)) else {
+        return Err(refusal);
+    };
+    let remote_tip = git
+        .remote_branch_tip(bare, &repo.remote, repo.local_branch.as_str())
+        .ok()
+        .flatten();
+    if remote_tip.as_deref() != Some(delivered) {
+        return Err(refusal);
+    }
+    match git.push_with_lease(
+        bare,
+        &repo.remote,
+        repo.local_branch.as_str(),
+        &format!("refs/heads/{}", repo.local_branch),
+        delivered,
+    ) {
+        Ok(()) => Ok(Pushed::Replaced(delivered.to_owned())),
+        Err(_) => Err(refusal),
+    }
+}
+
+/// Stored on the promotion so a later delivery can tell the remote's tip is
+/// ivar's own push. Written on the push, not on the PR: a branch pushed
+/// whose PR then failed must still be recognised.
+fn remember_delivered_sha(
+    layout: &Layout,
+    feature_name: &FeatureName,
+    repo: &crate::domain::feature::DeliveryRepo,
+    sha: &str,
+) -> Result<(), Failure> {
+    Feature::update(layout, feature_name, |feature| {
+        if let Some(promotion) = feature.promotions.get_mut(&repo.repo) {
+            promotion.delivered_sha = Some(sha.to_owned());
+        }
+        Ok(())
+    })
+}
+
 fn check_and_push_one(
     git: &impl Git,
     layout: &Layout,
@@ -202,14 +270,47 @@ fn check_and_push_one(
     }
 
     let bare = layout.repo_bare(&repo.repo);
-    let push = match push_repo(git, &bare, repo) {
-        Ok(()) => PushResult {
-            repo: repo.repo.clone(),
-            ok: true,
-            detail: None,
-            pr: None,
-            fix: None,
-        },
+    let delivered = feature
+        .promotions
+        .get(&repo.repo)
+        .and_then(|promotion| promotion.delivered_sha.as_deref());
+    // The tip about to be pushed, read before the push so what is recorded
+    // is what was sent, whatever a human does to the branch meanwhile.
+    let pushing = git
+        .revision_commit(&bare, &format!("refs/heads/{}", repo.local_branch))
+        .ok();
+    let push = match push_or_replace_own(git, &bare, repo, delivered) {
+        Ok(pushed) => {
+            match &pushing {
+                Some(sha) => {
+                    if let Err(failure) = remember_delivered_sha(layout, &feature.name, repo, sha) {
+                        warnings.push(Warning::new(
+                            "deliver.delivered_sha_not_saved",
+                            repo.repo.as_str(),
+                            failure.what,
+                        ));
+                    }
+                }
+                None => warnings.push(Warning::new(
+                    "deliver.delivered_sha_not_saved",
+                    repo.repo.as_str(),
+                    "the pushed tip could not be read, so a later delivery cannot recognise this push",
+                )),
+            }
+            PushResult {
+                repo: repo.repo.clone(),
+                ok: true,
+                detail: match pushed {
+                    Pushed::Plain => None,
+                    Pushed::Replaced(sha) => Some(format!(
+                        "force-pushed with lease: replaced `{}` at {sha}, the tip the last delivery pushed",
+                        repo.remote_branch(repo.local_branch.as_str()),
+                    )),
+                },
+                pr: None,
+                fix: None,
+            }
+        }
         Err(failure) => {
             let (detail, fix) = if rejected_as_non_fast_forward(&failure) {
                 (
@@ -259,14 +360,17 @@ fn create_pr_for_repo(
 
     let bare = layout.repo_bare(&repo.repo);
 
-    if let Some(failure) = check_pr_base(git, manifest, &bare, feature_name, repo) {
+    if let Some(failure) = base_failure(git, manifest, &bare, feature_name, repo) {
         warnings.push(Warning::new(
             failure.code,
             repo.repo.as_str(),
             failure.what.clone(),
         ));
         if let Some(push) = pushes.iter_mut().find(|push| push.repo == repo.repo) {
-            push.detail = Some(format!("no pull request: {}", failure.what));
+            push.detail = Some(match push.detail.take() {
+                Some(earlier) => format!("no pull request: {}; {earlier}", failure.what),
+                None => format!("no pull request: {}", failure.what),
+            });
             push.fix = failure.fix_actions.first().cloned();
         }
         return None;
@@ -291,46 +395,6 @@ fn create_pr_for_repo(
     }
 
     Some((repo.repo.clone(), result))
-}
-
-/// The base must still support delivering onto it before a PR is opened or
-/// updated against it: a base gone from the remote, or one this branch has
-/// drifted off of, would make the PR's diff wrong. `None` means the check
-/// passed, or there was nothing to check.
-fn check_pr_base(
-    git: &impl Git,
-    manifest: &Manifest,
-    bare: &camino::Utf8Path,
-    feature_name: &FeatureName,
-    repo: &crate::domain::feature::DeliveryRepo,
-) -> Option<Failure> {
-    let default_branch = manifest
-        .repos()
-        .iter()
-        .find(|manifest_repo| manifest_repo.name() == &repo.repo)
-        .map(|manifest_repo| manifest_repo.default_branch().clone())?;
-
-    let remote_tip = git
-        .remote_branch_tip(bare, &repo.remote, repo.base_branch.as_str())
-        .map_err(|_| ());
-    let secondary = match &remote_tip {
-        // Ignored by `check_base` when the remote did not answer —
-        // no point spending a local read on it.
-        Err(()) => Ok(false),
-        Ok(None) => git
-            .is_ancestor(bare, repo.base_branch.as_str(), default_branch.as_str())
-            .map_err(|_| ()),
-        // Against the remote's own tip, not the local branch name:
-        // `ivar sync` never re-fetches a non-default branch, so a
-        // local `base_branch` ref can be stale — still an ancestor
-        // of the local branch even though the remote has moved on.
-        // A tip this bare clone never fetched is itself the answer
-        // (`is_ancestor` refuses, `check_base` reads that as moved).
-        Ok(Some(tip)) => git
-            .is_ancestor(bare, tip, repo.local_branch.as_str())
-            .map_err(|_| ()),
-    };
-    repo.check_base(feature_name, &remote_tip, secondary, &default_branch)
 }
 
 /// Create or update the PR for a repo. A branch that already has a PR was
@@ -399,8 +463,9 @@ fn rejected_as_non_fast_forward(failure: &Failure) -> bool {
 
 /// The recovery for a rejected push, as a command a human runs themselves.
 ///
-/// ivar never force-pushes on its own: replacing a remote branch can drop work
-/// that is only there.
+/// ivar force-pushes on its own only over the tip its last delivery recorded
+/// (see [`push_or_replace_own`]). Anything else on the remote can be work that
+/// is only there, so replacing it stays a human's decision.
 fn force_with_lease_fix(
     git: &impl Git,
     bare: &camino::Utf8Path,

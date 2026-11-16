@@ -128,9 +128,7 @@ pub(crate) fn remote_branch_tip(
 /// is also why [`record_push`] exists: git moves a remote-tracking ref only
 /// for a push that named a remote, and writes nothing at all for this one.
 pub(crate) fn push(git_dir: &Utf8Path, remote: &str, from: &str, to: &str) -> Result<(), Error> {
-    let mapped = to
-        .strip_prefix("refs/heads/")
-        .map_or_else(|| to.to_owned(), |b| remote_branch_ref(git_dir, b));
+    let mapped = push_destination(git_dir, to);
     run(&git()
         .arg("--git-dir")
         .arg(git_dir.as_str())
@@ -139,6 +137,43 @@ pub(crate) fn push(git_dir: &Utf8Path, remote: &str, from: &str, to: &str) -> Re
         .arg(format!("{from}:{mapped}")))?;
     record_push(git_dir, remote, from, to);
     Ok(())
+}
+
+/// `git --git-dir <git_dir> push --force-with-lease=<mapped>:<expected_tip>
+/// <remote> <from>:<mapped>`.
+///
+/// [`push`] that replaces the remote branch, on one condition: the remote
+/// branch is exactly at `expected_tip`, or git refuses it ("stale info").
+/// The expected tip is always named, never left for git to take from a
+/// remote-tracking ref — `ivar sync`'s fetch rewrites that ref, so it can
+/// vouch for a commit ivar never pushed. `to` is mapped under
+/// [`super::REF_PREFIX_KEY`] exactly as [`push`] maps it, so the lease guards
+/// the same ref the push replaces. On success [`record_push`] updates the
+/// tracking ref as [`push`] does.
+pub(crate) fn push_with_lease(
+    git_dir: &Utf8Path,
+    remote: &str,
+    from: &str,
+    to: &str,
+    expected_tip: &str,
+) -> Result<(), Error> {
+    let mapped = push_destination(git_dir, to);
+    run(&git()
+        .arg("--git-dir")
+        .arg(git_dir.as_str())
+        .arg("push")
+        .arg(format!("--force-with-lease={mapped}:{expected_tip}"))
+        .arg(remote)
+        .arg(format!("{from}:{mapped}")))?;
+    record_push(git_dir, remote, from, to);
+    Ok(())
+}
+
+/// `to` as the remote names it: a `refs/heads/<branch>` is mapped under the
+/// repo's ref prefix, anything else is left as given.
+fn push_destination(git_dir: &Utf8Path, to: &str) -> String {
+    to.strip_prefix("refs/heads/")
+        .map_or_else(|| to.to_owned(), |b| remote_branch_ref(git_dir, b))
 }
 
 /// Move the remote-tracking ref git would have moved itself, had [`push`]

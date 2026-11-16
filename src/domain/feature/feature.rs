@@ -78,6 +78,7 @@ impl Feature {
                 worktree: WorktreeState::Pending,
                 base: None,
                 pr_url: None,
+                delivered_sha: None,
                 integration_receipt: None,
                 reason: None,
             },
@@ -181,6 +182,15 @@ pub struct Promotion {
     /// set by `integrate --via pr` for a child and by `deliver` for a root.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pr_url: Option<String>,
+    /// The tip `ivar feature deliver` last pushed this repo's branch at.
+    ///
+    /// The one record of what ivar itself put on the remote: a later delivery
+    /// whose push is refused as non-fast-forward (the branch was rebased
+    /// since) replaces the remote branch, with a lease, only when the remote
+    /// still sits exactly here. Optional and absent until a delivery pushes,
+    /// the way `pr_url` is, so no `feature.json` version bump.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delivered_sha: Option<String>,
     /// The durable receipt of this repo's integration into the feature's
     /// immediate parent, once `ivar feature integrate` has applied it — on
     /// success *and* on a post-parent failure, so partial multi-repo

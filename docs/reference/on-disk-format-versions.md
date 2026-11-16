@@ -227,3 +227,13 @@ so v2 files migrate in place — local state migrates silently on read. No featu
 stores a child list, and no lifecycle field is persisted: the integration state
 is derived from the close record plus receipt freshness. Child branches and
 worktrees are retained after integration so receipt validation stays exact.
+
+A promotion also carries `delivered_sha`, the tip `ivar feature deliver` last
+pushed that repo's branch at. It is optional and left out until a delivery
+pushes, the same as `pr_url`, so it adds no `feature.json` version: a file
+without it reads as before, and an `ivar` older than the field rejects a file
+that has it.
+
+```json
+{ "promotions": { "api": { "worktree": "ready", "delivered_sha": "9fceb02d0ae598e95dc970b74767f19372d61af8" } } }
+```

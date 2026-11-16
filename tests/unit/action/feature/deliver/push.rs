@@ -183,8 +183,35 @@ fn a_moved_base_reports_no_pull_request_on_the_repo_line() {
     assert!(json["pushes"][0]["fix"].is_object());
 }
 
+/// The tip of `branch` on `origin`, without the ref name `ls-remote` adds.
+fn remote_tip(origin: &str, branch: &str) -> Option<String> {
+    remote_ref(origin, branch).map(|line| line.split_whitespace().next().unwrap().to_owned())
+}
+
+fn tip_of(worktree: &Utf8Path) -> String {
+    git_stdout(worktree, &["rev-parse", "HEAD"])
+        .trim()
+        .to_owned()
+}
+
+fn api_worktree(root: &Utf8Path) -> Utf8PathBuf {
+    Layout::at(root.to_path_buf()).repo_worktree(
+        &RepoName::new("api").unwrap(),
+        &BranchName::new("checkout").unwrap(),
+    )
+}
+
+/// A commit ivar never pushed, landing on the remote's `branch`.
+fn push_stranger_commit(origin: &Utf8Path, branch: &str) {
+    git(origin, &["checkout", branch]);
+    std::fs::write(origin.join("stranger.md"), "stranger\n").unwrap();
+    git(origin, &["add", "stranger.md"]);
+    git(origin, &["commit", "-m", "somebody else's work"]);
+    git(origin, &["checkout", "main"]);
+}
+
 #[test]
-fn a_rejected_non_fast_forward_push_names_the_recovery_command() {
+fn a_rejected_non_fast_forward_push_over_a_stranger_commit_names_the_recovery_command() {
     let (_guard, root) = hall_with_promoted(&["api"]);
     approve_through_plan(&root);
     let ctx = Ctx::new(root.clone());
@@ -195,16 +222,26 @@ fn a_rejected_non_fast_forward_push_names_the_recovery_command() {
     )
     .unwrap();
 
-    // Rewriting the pushed tip is what `ivar feature rebase` does to it: the
-    // remote now holds a commit this branch no longer contains.
-    let layout = Layout::at(root.clone());
-    let worktree = layout.repo_worktree(
-        &RepoName::new("api").unwrap(),
-        &BranchName::new("checkout").unwrap(),
+    // Somebody else adds a commit to the pushed branch, and the branch is
+    // rewritten as `ivar feature rebase` would: the remote now holds a commit
+    // that no delivery of this feature pushed.
+    let origin = root.parent().unwrap().join("origins/api");
+    push_stranger_commit(&origin, "checkout");
+    let stranger = remote_tip(origin.as_str(), "checkout").unwrap();
+    git(
+        &api_worktree(&root),
+        &["commit", "--amend", "-m", "work, rewritten"],
     );
-    git(&worktree, &["commit", "--amend", "-m", "work, rewritten"]);
 
     let approved = deliver(&ctx, preview_input("checkout")).unwrap();
+    assert!(
+        !approved.value.preview.repos[0]
+            .pending
+            .iter()
+            .any(|line| line.contains("--force-with-lease")),
+        "a force-push over a commit nobody delivered must not be announced: {:?}",
+        approved.value.preview.repos[0].pending
+    );
     let report = deliver(
         &ctx,
         apply_input("checkout", &approved.value.preview.fingerprint),
@@ -219,14 +256,162 @@ fn a_rejected_non_fast_forward_push_names_the_recovery_command() {
         "the rejection must be explained, was: {detail}"
     );
     let fix = push.fix.as_ref().expect("a recovery action");
+    assert_eq!(fix.code, "deliver.force_with_lease");
     let command = fix.command.as_deref().expect("the exact command to run");
     assert!(command.contains("--force-with-lease"), "was: {command}");
     assert!(!fix.safe, "force-pushing stays a human's decision");
+    assert_eq!(
+        remote_tip(origin.as_str(), "checkout"),
+        Some(stranger),
+        "the stranger's commit must still be the remote tip"
+    );
 
     let mut out = Vec::new();
     report.value.write_human(&mut out).unwrap();
     let rendered = String::from_utf8(out).unwrap();
     assert!(rendered.contains("--force-with-lease"), "was: {rendered}");
+}
+
+#[test]
+fn a_branch_rewritten_since_its_delivery_is_replaced_with_a_lease_over_the_delivered_tip() {
+    let (_guard, root) = hall_with_promoted(&["api"]);
+    approve_through_plan(&root);
+    let ctx = Ctx::new(root.clone());
+    let approved = deliver(&ctx, preview_input("checkout")).unwrap();
+    deliver(
+        &ctx,
+        apply_input("checkout", &approved.value.preview.fingerprint),
+    )
+    .unwrap();
+    let origin = origin_of(&root, "api");
+    let delivered = remote_tip(&origin, "checkout").unwrap();
+
+    // What `ivar feature rebase` does to the pushed tip.
+    let worktree = api_worktree(&root);
+    git(&worktree, &["commit", "--amend", "-m", "work, rewritten"]);
+    let rewritten = tip_of(&worktree);
+    assert_ne!(rewritten, delivered);
+
+    let approved = deliver(&ctx, preview_input("checkout")).unwrap();
+    let pending = &approved.value.preview.repos[0].pending;
+    assert!(
+        pending
+            .iter()
+            .any(|line| line.contains("rewritten") && line.contains(&delivered)),
+        "the preview must announce the force-push over the delivered tip: {pending:?}"
+    );
+    let report = deliver(
+        &ctx,
+        apply_input("checkout", &approved.value.preview.fingerprint),
+    )
+    .unwrap();
+
+    assert!(report.is_clean(), "{:?}", report.warnings);
+    let push = &report.value.pushes[0];
+    assert!(push.ok);
+    assert!(push.fix.is_none());
+    let detail = push.detail.as_deref().expect("the replacement is reported");
+    assert!(
+        detail.contains("force-pushed with lease") && detail.contains(&delivered),
+        "was: {detail}"
+    );
+    assert_eq!(remote_tip(&origin, "checkout"), Some(rewritten.clone()));
+    let feature = read_feature(
+        &Layout::at(root.clone()),
+        &FeatureName::new("checkout").unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        feature.promotions[&RepoName::new("api").unwrap()]
+            .delivered_sha
+            .as_deref(),
+        Some(rewritten.as_str()),
+        "the replacement is itself what the next delivery recognises"
+    );
+
+    let mut out = Vec::new();
+    report.value.write_human(&mut out).unwrap();
+    let rendered = String::from_utf8(out).unwrap();
+    assert!(
+        rendered.contains("force-pushed with lease"),
+        "was: {rendered}"
+    );
+    assert!(rendered.contains(&delivered), "was: {rendered}");
+}
+
+#[test]
+fn a_rewritten_branch_is_replaced_and_its_pull_request_updated() {
+    let (_guard, root, fake) = on_github(&["api"]);
+    let _gh = fake_gh_on_this_thread(&fake);
+    let origin = root.parent().unwrap().join("origins/api");
+    deliver_json(&root, preview_input("checkout"));
+    let delivered = remote_tip(origin.as_str(), "checkout").unwrap();
+    git(
+        &api_worktree(&root),
+        &["commit", "--amend", "-m", "work, rewritten"],
+    );
+
+    let applied = deliver_json(&root, preview_input("checkout"));
+
+    assert_eq!(applied["pushes"][0]["ok"], true);
+    assert!(
+        applied["pushes"][0]["detail"]
+            .as_str()
+            .unwrap()
+            .contains(&delivered)
+    );
+    assert!(
+        !applied["pushes"][0]["pr"].is_null(),
+        "the PR is reported after the replacement: {applied}"
+    );
+    assert_eq!(
+        remote_tip(origin.as_str(), "checkout"),
+        Some(tip_of(&api_worktree(&root)))
+    );
+}
+
+#[test]
+fn the_pushed_tip_is_recorded_even_when_no_pull_request_follows_and_survives_a_sync() {
+    let (_guard, root) = hall_with_promoted(&["api"]);
+    approve_through_plan(&root);
+    let ctx = Ctx::new(root.clone());
+    let layout = Layout::at(root.clone());
+    let feature_name = FeatureName::new("checkout").unwrap();
+    let preview = deliver(&ctx, preview_input("checkout"))
+        .unwrap()
+        .value
+        .preview;
+    let feature = read_feature(&layout, &feature_name).unwrap();
+    let manifest = Manifest::read(&layout).unwrap().unwrap();
+    let mut preview = preview;
+    // A PR is wanted, but the base is gone from the remote: the push lands
+    // and the PR is refused.
+    preview.repos[0].action = DeliveryAction::NewPr;
+    preview.repos[0].base_branch = BranchName::new("gone").unwrap();
+
+    let report = crate::action::feature::deliver::push::execute(
+        &crate::git::System,
+        &layout,
+        &manifest,
+        &feature_name,
+        &feature,
+        preview,
+    )
+    .unwrap();
+
+    assert!(report.value.pushes[0].ok);
+    assert!(report.value.pushes[0].pr.is_none());
+    let pushed = tip_of(&api_worktree(&root));
+    let recorded = |layout: &Layout| {
+        read_feature(layout, &feature_name).unwrap().promotions[&RepoName::new("api").unwrap()]
+            .delivered_sha
+            .clone()
+    };
+    assert_eq!(recorded(&layout), Some(pushed.clone()));
+
+    // A sync fetches over the bare's tracking refs; the record is not one.
+    crate::action::sync::sync(&ctx, &Default::default()).unwrap();
+    assert_eq!(recorded(&layout), Some(pushed));
 }
 
 #[test]
@@ -294,8 +479,44 @@ fn only_a_delivery_of_every_promotion_links_siblings() {
     ));
 }
 
+/// The blockers in `preview`, as `--preview --json` prints them.
+fn blockers_of(preview: &serde_json::Value) -> Vec<String> {
+    // Absent from the document when there are none.
+    preview["blockers"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|blocker| blocker.as_str().unwrap().to_owned())
+        .collect()
+}
+
+/// Apply the delivery `preview` approved, and expect it refused by the
+/// blockers it listed — with nothing pushed and no PR attempted.
+fn assert_refused_before_any_push(
+    root: &Utf8Path,
+    origin: &Utf8Path,
+    fake: &FakeGh,
+    preview: &serde_json::Value,
+) {
+    let failure = deliver(
+        &Ctx::new(root.to_path_buf()),
+        apply_input(
+            "checkout",
+            preview["preview"]["fingerprint"].as_str().unwrap(),
+        ),
+    )
+    .expect_err("a delivery with a base blocker must be refused");
+
+    assert_eq!(failure.code, "deliver.blocked");
+    assert!(
+        remote_ref(origin.as_str(), "checkout").is_none(),
+        "nothing may be pushed: the remote still has no `checkout`"
+    );
+    assert_eq!(fake.log().matches("pr create").count(), 0);
+}
+
 #[test]
-fn delivering_with_a_never_delivered_base_refuses_the_pr_with_a_deliver_parent_first_fix() {
+fn a_never_delivered_base_blocks_the_preview_with_a_deliver_parent_first_fix() {
     let (_guard, root) = hall_with_promoted_on(&["api"], Some("develop"), with_develop_base(false));
     approve_through_plan(&root);
     let fake = FakeGh::install(&root);
@@ -307,17 +528,16 @@ fn delivering_with_a_never_delivered_base_refuses_the_pr_with_a_deliver_parent_f
     // it was never merged into `main` first: nothing confirms it shipped.
     git(&origin, &["branch", "-D", "develop"]);
 
-    let applied = deliver_json_expecting_warnings(&root, preview_input("checkout"));
+    let preview = preview_json(&root, preview_input("checkout"));
 
-    assert_eq!(applied["pushes"][0]["ok"], true);
-    let warnings = applied["warnings"].as_array().expect("warnings array");
+    let blockers = blockers_of(&preview);
     assert!(
-        warnings
-            .iter()
-            .any(|w| w["code"] == "feature.base_never_delivered"),
-        "warnings were: {warnings:?}"
+        blockers.iter().any(|blocker| blocker.starts_with("api: ")
+            && blocker.contains("nothing confirms it was ever delivered")
+            && blocker.contains("Deliver the feature that owns `develop` first")),
+        "blockers were: {blockers:?}"
     );
-    assert!(applied["preview"]["repos"][0]["pr_url"].is_null());
+    assert_refused_before_any_push(&root, &origin, &fake, &preview);
 }
 
 // `feature deliver` refuses to open or update a PR against a base that no
@@ -334,22 +554,33 @@ fn delivering_with_an_unreachable_remote_never_reports_the_base_absent() {
     let _gh = fake_gh_on_this_thread(&fake);
     as_unreachable_github_remote(&root);
 
-    let applied = deliver_json_expecting_warnings(&root, preview_input("checkout"));
+    // The remote did not answer, so the base is unconfirmed: a blocker of its
+    // own, which the preview owes the human instead of promising an apply
+    // that cannot work.
+    let preview = preview_json(&root, preview_input("checkout"));
 
-    let warnings = applied["warnings"].as_array().expect("warnings array");
+    let blockers = blockers_of(&preview);
     assert!(
-        warnings.iter().any(|w| w["code"] == "deliver.push_failed"),
-        "the unanswered push is reported: {warnings:?}"
+        blockers
+            .iter()
+            .any(|blocker| blocker.contains("could not be confirmed")),
+        "blockers were: {blockers:?}"
     );
     assert!(
-        warnings.iter().all(|w| !w["what"]
-            .as_str()
-            .unwrap()
-            .to_lowercase()
-            .contains("absent")),
-        "an unanswered remote must never be reported as an absent base: {warnings:?}"
+        blockers
+            .iter()
+            .all(|blocker| !blocker.to_lowercase().contains("absent")),
+        "an unanswered remote must never be reported as an absent base: {blockers:?}"
     );
-    assert!(applied["preview"]["repos"][0]["pr_url"].is_null());
+    let failure = deliver(
+        &Ctx::new(root.clone()),
+        apply_input(
+            "checkout",
+            preview["preview"]["fingerprint"].as_str().unwrap(),
+        ),
+    )
+    .expect_err("the unconfirmed base refuses the apply");
+    assert_eq!(failure.code, "deliver.blocked");
     assert_eq!(
         fake.log().matches("pr create").count(),
         0,
@@ -366,7 +597,7 @@ fn advance_develop_on(origin: &Utf8Path) {
 }
 
 #[test]
-fn delivering_with_a_base_that_moved_refuses_the_pr_but_still_pushes() {
+fn a_base_that_moved_blocks_the_preview_with_a_rebase_fix_and_pushes_nothing() {
     let (_guard, root) = hall_with_promoted_on(&["api"], Some("develop"), with_develop_base(false));
     approve_through_plan(&root);
     let fake = FakeGh::install(&root);
@@ -382,19 +613,16 @@ fn delivering_with_a_base_that_moved_refuses_the_pr_but_still_pushes() {
     let bare = root.join(".ivar/repos/api/.bare");
     git(&bare, &["fetch", origin.as_str(), "develop:develop"]);
 
-    let applied = deliver_json_expecting_warnings(&root, preview_input("checkout"));
+    let preview = preview_json(&root, preview_input("checkout"));
 
-    assert_eq!(
-        applied["pushes"][0]["ok"], true,
-        "pushing raw commits does not depend on the base"
-    );
-    let warnings = applied["warnings"].as_array().expect("warnings array");
+    let blockers = blockers_of(&preview);
     assert!(
-        warnings.iter().any(|w| w["code"] == "feature.base_moved"),
-        "warnings were: {warnings:?}"
+        blockers.iter().any(|blocker| blocker.starts_with("api: ")
+            && blocker.contains("no longer built on `develop`'s current tip")
+            && blocker.contains("ivar feature rebase checkout --repo api")),
+        "blockers were: {blockers:?}"
     );
-    assert!(applied["preview"]["repos"][0]["pr_url"].is_null());
-    assert_eq!(fake.log().matches("pr create").count(), 0);
+    assert_refused_before_any_push(&root, &origin, &fake, &preview);
 }
 
 /// The bare clone's own `develop` ref is never re-fetched by anything this
@@ -403,29 +631,55 @@ fn delivering_with_a_base_that_moved_refuses_the_pr_but_still_pushes() {
 /// nothing local knows it yet. The check must ask the remote's own tip, not
 /// trust a local ref that still (trivially) looks like an ancestor.
 #[test]
-fn delivering_with_a_base_that_moved_only_on_the_remote_still_refuses_the_pr() {
+fn a_base_that_moved_only_on_the_remote_still_blocks_the_preview() {
     let (_guard, root) = hall_with_promoted_on(&["api"], Some("develop"), with_develop_base(false));
     approve_through_plan(&root);
     let fake = FakeGh::install(&root);
     let _gh = fake_gh_on_this_thread(&fake);
     as_github_remotes(&root);
+    let origin = root.parent().unwrap().join("origins/api");
 
-    advance_develop_on(&root.parent().unwrap().join("origins/api"));
+    advance_develop_on(&origin);
 
-    let applied = deliver_json_expecting_warnings(&root, preview_input("checkout"));
+    let preview = preview_json(&root, preview_input("checkout"));
 
-    assert_eq!(applied["pushes"][0]["ok"], true);
-    let warnings = applied["warnings"].as_array().expect("warnings array");
+    let blockers = blockers_of(&preview);
     assert!(
-        warnings.iter().any(|w| w["code"] == "feature.base_moved"),
-        "a base advanced only on the remote must still refuse — warnings were: {warnings:?}"
+        blockers
+            .iter()
+            .any(|blocker| blocker.contains("ivar feature rebase checkout --repo api")),
+        "a base advanced only on the remote must still block — blockers were: {blockers:?}"
     );
-    assert!(applied["preview"]["repos"][0]["pr_url"].is_null());
-    assert_eq!(fake.log().matches("pr create").count(), 0);
+    assert_refused_before_any_push(&root, &origin, &fake, &preview);
 }
 
 #[test]
-fn delivering_with_a_merged_and_deleted_base_refuses_the_pr_with_a_rebase_onto_default_fix() {
+fn a_base_that_moves_after_the_preview_is_a_fingerprint_mismatch_not_a_push() {
+    let (_guard, root) = hall_with_promoted_on(&["api"], Some("develop"), with_develop_base(false));
+    approve_through_plan(&root);
+    let fake = FakeGh::install(&root);
+    let _gh = fake_gh_on_this_thread(&fake);
+    as_github_remotes(&root);
+    let origin = root.parent().unwrap().join("origins/api");
+    let preview = preview_json(&root, preview_input("checkout"));
+    assert!(blockers_of(&preview).is_empty(), "{preview}");
+
+    advance_develop_on(&origin);
+
+    let failure = deliver(
+        &Ctx::new(root.clone()),
+        apply_input(
+            "checkout",
+            preview["preview"]["fingerprint"].as_str().unwrap(),
+        ),
+    )
+    .expect_err("the approved state no longer holds");
+    assert_eq!(failure.code, "deliver.fingerprint_mismatch");
+    assert!(remote_ref(origin.as_str(), "checkout").is_none());
+}
+
+#[test]
+fn a_merged_and_deleted_base_blocks_the_preview_with_a_rebase_onto_default_fix() {
     let (_guard, root) = hall_with_promoted_on(&["api"], Some("develop"), with_develop_base(true));
     approve_through_plan(&root);
     let fake = FakeGh::install(&root);
@@ -438,14 +692,27 @@ fn delivering_with_a_merged_and_deleted_base_refuses_the_pr_with_a_rebase_onto_d
     // local `develop` ref, exactly as a developer's clone would.
     git(&origin, &["branch", "-D", "develop"]);
 
-    let applied = deliver_json_expecting_warnings(&root, preview_input("checkout"));
+    let preview = preview_json(&root, preview_input("checkout"));
 
-    assert_eq!(applied["pushes"][0]["ok"], true);
-    let warnings = applied["warnings"].as_array().expect("warnings array");
-    let warning = warnings
+    let blockers = blockers_of(&preview);
+    let blocker = blockers
         .iter()
-        .find(|w| w["code"] == "feature.base_merged_and_deleted")
-        .unwrap_or_else(|| panic!("warnings were: {warnings:?}"));
-    assert!(warning["what"].as_str().unwrap().contains("develop"));
-    assert!(applied["preview"]["repos"][0]["pr_url"].is_null());
+        .find(|blocker| blocker.contains("looks merged into `main`"))
+        .unwrap_or_else(|| panic!("blockers were: {blockers:?}"));
+    assert!(blocker.contains("develop"));
+    assert!(blocker.contains("ivar feature rebase <feature> --onto main"));
+    assert_refused_before_any_push(&root, &origin, &fake, &preview);
+}
+
+#[test]
+fn a_repo_that_only_pushes_is_not_blocked_by_its_base() {
+    // Non-GitHub remotes have no PR to draw a diff for, so no base to check.
+    let (_guard, root) = hall_with_promoted_on(&["api"], Some("develop"), with_develop_base(false));
+    approve_through_plan(&root);
+    let origin = root.parent().unwrap().join("origins/api");
+    git(&origin, &["branch", "-D", "develop"]);
+
+    let preview = preview_json(&root, preview_input("checkout"));
+
+    assert!(blockers_of(&preview).is_empty(), "{preview}");
 }
