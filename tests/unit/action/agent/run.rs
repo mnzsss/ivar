@@ -210,6 +210,13 @@ fn a_run_that_ends_with_failed_is_recorded_failed() {
 }
 
 #[test]
+fn a_failed_line_wrapped_in_backticks_is_recorded_failed() {
+    let receipt = run_with_output("tool: claude\n", "tried\n`FAILED: boom`");
+    assert_eq!(receipt.outcome, AgentRunOutcome::Failed);
+    assert_eq!(receipt.exit_code, Some(0));
+}
+
+#[test]
 fn a_sentinel_before_the_last_line_leaves_the_run_succeeded() {
     let receipt = run_with_output("tool: claude\n", "BLOCKED: x\nall done");
     assert_eq!(receipt.outcome, AgentRunOutcome::Succeeded);

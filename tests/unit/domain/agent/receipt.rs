@@ -55,8 +55,38 @@ fn a_sentinel_anywhere_but_the_last_line_is_ignored() {
     );
     assert_eq!(declared_outcome("done BLOCKED: x"), None);
     assert_eq!(declared_outcome("blocked: x"), None);
-    assert_eq!(declared_outcome("**BLOCKED:** x"), None);
+    assert_eq!(declared_outcome("FAILED: x\nall good"), None);
+    assert_eq!(declared_outcome("done `BLOCKED: x`"), None);
+    assert_eq!(declared_outcome("**done** BLOCKED: x"), None);
+    assert_eq!(declared_outcome("`blocked: x`"), None);
     assert_eq!(declared_outcome(""), None);
+    assert_eq!(declared_outcome("`"), None);
+    assert_eq!(declared_outcome("****"), None);
+    assert_eq!(declared_outcome("> - "), None);
+}
+
+#[test]
+fn markdown_wrappers_around_the_marker_are_ignored() {
+    use AgentRunOutcome::{Blocked, Failed};
+    for line in [
+        "`FAILED: x`",
+        "**FAILED:** x",
+        "__FAILED:__ x",
+        "**FAILED**: x",
+        "- FAILED: x",
+        "* FAILED: x",
+        "+ FAILED: x",
+        "> FAILED: x",
+        ">> - **FAILED:** x",
+        "  `**FAILED: x**`  ",
+        "FAILED: x",
+    ] {
+        assert_eq!(declared_outcome(line), Some(Failed), "{line}");
+    }
+    for line in ["`BLOCKED: x`", "> BLOCKED: x", "**BLOCKED:** x"] {
+        assert_eq!(declared_outcome(line), Some(Blocked), "{line}");
+    }
+    assert_eq!(declared_outcome("work\n\n`FAILED: boom`\n"), Some(Failed));
 }
 
 #[test]

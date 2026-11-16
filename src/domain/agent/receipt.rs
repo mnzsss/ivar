@@ -308,20 +308,47 @@ pub fn classify(
 }
 
 /// The outcome a prompt-driven run declares by ending its output with
-/// `BLOCKED:` or `FAILED:` (case-sensitive, plain text, last non-empty line).
+/// `BLOCKED:` or `FAILED:` (case-sensitive, last non-empty line, at the start
+/// of it). Markdown wrappers around the marker (backticks, `**`, `__`, a
+/// blockquote `>` or a list bullet) are ignored.
 pub fn declared_outcome(output: &str) -> Option<AgentRunOutcome> {
     let last = output
         .lines()
         .rev()
         .map(str::trim)
         .find(|l| !l.is_empty())?;
-    if last.starts_with("BLOCKED:") {
+    let line = strip_markdown_prefix(last);
+    if has_marker(line, "BLOCKED") {
         Some(AgentRunOutcome::Blocked)
-    } else if last.starts_with("FAILED:") {
+    } else if has_marker(line, "FAILED") {
         Some(AgentRunOutcome::Failed)
     } else {
         None
     }
+}
+
+/// Removes leading whitespace, blockquote `>`, list bullets and emphasis or
+/// code markers until the line stops changing. Each step drops at least one
+/// character, so this terminates.
+fn strip_markdown_prefix(line: &str) -> &str {
+    const PREFIXES: [&str; 7] = [">", "- ", "* ", "+ ", "`", "**", "__"];
+    let mut line = line.trim_start();
+    while let Some(rest) = PREFIXES.iter().find_map(|p| line.strip_prefix(p)) {
+        line = rest.trim_start();
+    }
+    line
+}
+
+/// `WORD:` or `WORD**:`, `WORD__:`, `` WORD`: `` (closing wrapper before the colon).
+fn has_marker(line: &str, word: &str) -> bool {
+    let Some(rest) = line.strip_prefix(word) else {
+        return false;
+    };
+    let rest = ["**", "__", "`"]
+        .iter()
+        .find_map(|w| rest.strip_prefix(w))
+        .unwrap_or(rest);
+    rest.starts_with(':')
 }
 
 pub fn scrub(text: &str, secrets: &[&str]) -> String {
