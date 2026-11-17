@@ -12,9 +12,59 @@ fn memory_status_parses_with_json() {
 
     assert!(matches!(
         cli.command,
-        Command::Memory(MemoryCommand::Status)
+        Command::Memory(MemoryCommand::Status { read_only: false })
     ));
     assert!(cli.json);
+}
+
+#[test]
+fn memory_status_parses_read_only() {
+    let cli = Cli::try_parse_from(["ivar", "memory", "status", "--read-only", "--json"]).unwrap();
+
+    assert!(matches!(
+        cli.command,
+        Command::Memory(MemoryCommand::Status { read_only: true })
+    ));
+}
+
+#[test]
+fn memory_review_parses_read_only() {
+    let cli = Cli::try_parse_from(["ivar", "memory", "review", "ship", "--read-only"]).unwrap();
+
+    assert!(matches!(
+        cli.command,
+        Command::Memory(MemoryCommand::Review {
+            confirm: false,
+            read_only: true,
+            ..
+        })
+    ));
+}
+
+#[test]
+fn memory_review_read_only_conflicts_with_every_way_to_record() {
+    for args in [
+        &["--confirm"][..],
+        &["--confirm", "--stale", "p.md=updated"],
+        &["--confirm", "--not-required", "internal refactor"],
+        &["--stale", "p.md=updated"],
+        &["--not-required", "internal refactor"],
+    ] {
+        let error = Cli::try_parse_from(
+            ["ivar", "memory", "review", "ship", "--read-only"]
+                .into_iter()
+                .chain(args.iter().copied()),
+        )
+        .unwrap_err();
+        assert!(
+            matches!(
+                error.kind(),
+                clap::error::ErrorKind::ArgumentConflict
+                    | clap::error::ErrorKind::MissingRequiredArgument
+            ),
+            "{args:?}: {error}"
+        );
+    }
 }
 
 #[test]

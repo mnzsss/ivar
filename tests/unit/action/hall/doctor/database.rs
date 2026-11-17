@@ -218,3 +218,59 @@ fn doctor_names_a_newer_memory_schema_with_extra_tables_as_newer_not_polluted() 
 
     assert_eq!(database_codes(&report.value), vec!["memory.schema_newer"]);
 }
+
+/// The memory database's files: the graph checks that run beside it are not
+/// part of this change.
+fn tree(layout: &Layout) -> Vec<(String, u64)> {
+    let mut files: Vec<_> = std::fs::read_dir(layout.root().join(".ivar"))
+        .unwrap()
+        .flatten()
+        .map(|entry| {
+            (
+                entry.file_name().to_string_lossy().into_owned(),
+                entry.metadata().unwrap().len(),
+            )
+        })
+        .filter(|(name, _)| name.starts_with("memory.db"))
+        .collect();
+    files.sort();
+    files
+}
+
+#[test]
+fn doctor_reads_a_sound_memory_database_in_a_read_only_ivar_dir_without_calling_it_corrupt() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let (_guard, root, layout) = initialised_hall();
+    drop(GraphDb::open(layout.graph_db().as_std_path()).unwrap());
+    drop(MemoryDb::open(layout.memory_db().as_std_path()).unwrap());
+    let before = tree(&layout);
+    let ivar_dir = layout.root().join(".ivar");
+    let restore = std::fs::metadata(&ivar_dir).unwrap().permissions();
+    std::fs::set_permissions(&ivar_dir, std::fs::Permissions::from_mode(0o555)).unwrap();
+
+    let report = doctor(&Ctx::new(root)).unwrap();
+
+    std::fs::set_permissions(&ivar_dir, restore).unwrap();
+    assert!(
+        database_codes(&report.value).is_empty(),
+        "{:?}",
+        report.value.findings
+    );
+    assert_eq!(tree(&layout), before, "doctor must not leave a file behind");
+}
+
+#[test]
+fn a_read_only_or_cannot_open_error_is_unread_not_corrupt() {
+    use super::is_unreadable_here;
+    use rusqlite::ffi;
+
+    for code in [ffi::SQLITE_READONLY, ffi::SQLITE_CANTOPEN] {
+        let error = rusqlite::Error::SqliteFailure(ffi::Error::new(code), None);
+        assert!(is_unreadable_here(&error), "{code}");
+    }
+    for code in [ffi::SQLITE_CORRUPT, ffi::SQLITE_NOTADB] {
+        let error = rusqlite::Error::SqliteFailure(ffi::Error::new(code), None);
+        assert!(!is_unreadable_here(&error), "{code}");
+    }
+}

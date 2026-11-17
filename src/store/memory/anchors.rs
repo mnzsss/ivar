@@ -36,6 +36,30 @@ impl GraphAttach {
 /// Attaches `graph_db` read-only as `graph`.
 /// `ATTACH` is refused inside an open transaction, so callers attach before `BEGIN`.
 pub fn attach_graph(conn: &Connection, graph_db: &Utf8Path) -> GraphAttach {
+    attach_graph_with(conn, graph_db, "mode=ro")
+}
+
+/// [`attach_graph`] for a read that must leave no file behind: a graph nothing
+/// has open (no `-shm`, no `-journal`, nothing in the `-wal`) is attached
+/// `immutable`, so `SQLite` does not create the `-shm` and `-wal` a plain
+/// read-only attach of a WAL database would.
+pub fn attach_graph_untouched(conn: &Connection, graph_db: &Utf8Path) -> GraphAttach {
+    let sidecar = |suffix: &str| std::fs::metadata(format!("{graph_db}{suffix}")).ok();
+    let nothing_open = sidecar("-shm").is_none()
+        && sidecar("-journal").is_none()
+        && sidecar("-wal").is_none_or(|meta| meta.len() == 0);
+    attach_graph_with(
+        conn,
+        graph_db,
+        if nothing_open {
+            "immutable=1"
+        } else {
+            "mode=ro"
+        },
+    )
+}
+
+fn attach_graph_with(conn: &Connection, graph_db: &Utf8Path, query: &str) -> GraphAttach {
     match graph_db.symlink_metadata() {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return GraphAttach::Missing,
         Err(_) => return GraphAttach::Unreadable,
@@ -49,7 +73,7 @@ pub fn attach_graph(conn: &Connection, graph_db: &Utf8Path) -> GraphAttach {
     if conn
         .execute(
             "ATTACH DATABASE ?1 AS graph",
-            [format!("file:{escaped}?mode=ro")],
+            [format!("file:{escaped}?{query}")],
         )
         .is_err()
     {

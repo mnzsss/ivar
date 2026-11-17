@@ -8,6 +8,37 @@ use crate::action::memory::{clean, lint, query, reindex, review, status};
 use crate::cli::MemoryCommand;
 use crate::cli::memory::HandoffCommand;
 
+/// The review, read-only or not; clap keeps `--read-only` and a confirmation
+/// apart, so a confirmation is never dropped here.
+fn review_outcome(
+    ctx: &Ctx,
+    feature: Option<String>,
+    confirm: bool,
+    stale: Vec<(String, review::Verdict)>,
+    not_required: Option<String>,
+    read_only: bool,
+) -> crate::error::Outcome<review::ReviewReport> {
+    if read_only {
+        return review::review_read_only(ctx, feature);
+    }
+    let confirmation = confirm.then_some(review::Confirmation {
+        verdicts: stale,
+        not_required,
+    });
+    review::review_or_confirm(ctx, feature, confirmation)
+}
+
+fn status_outcome(
+    ctx: &Ctx,
+    read_only: bool,
+) -> crate::error::Outcome<status::MemoryStatusOutcome> {
+    if read_only {
+        status::status_read_only(ctx)
+    } else {
+        status::status(ctx)
+    }
+}
+
 pub(super) fn dispatch_memory(
     cmd: MemoryCommand,
     ctx: &Ctx,
@@ -17,7 +48,9 @@ pub(super) fn dispatch_memory(
 ) -> ExitCode {
     match cmd {
         MemoryCommand::Capture { .. } | MemoryCommand::Brief { .. } => ExitCode::SUCCESS,
-        MemoryCommand::Status => respond(status::status(ctx), json, stdout, stderr),
+        MemoryCommand::Status { read_only } => {
+            respond(status_outcome(ctx, read_only), json, stdout, stderr)
+        }
         MemoryCommand::Clean => respond(clean::clean(ctx), json, stdout, stderr),
         MemoryCommand::Query {
             text,
@@ -57,18 +90,13 @@ pub(super) fn dispatch_memory(
             confirm,
             stale,
             not_required,
-        } => {
-            let confirmation = confirm.then_some(review::Confirmation {
-                verdicts: stale,
-                not_required,
-            });
-            respond(
-                review::review_or_confirm(ctx, feature, confirmation),
-                json,
-                stdout,
-                stderr,
-            )
-        }
+            read_only,
+        } => respond(
+            review_outcome(ctx, feature, confirm, stale, not_required, read_only),
+            json,
+            stdout,
+            stderr,
+        ),
         MemoryCommand::Reindex => respond(reindex::reindex(ctx), json, stdout, stderr),
         MemoryCommand::Handoff { command } => match command {
             HandoffCommand::Begin {

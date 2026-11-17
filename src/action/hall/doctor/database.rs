@@ -11,7 +11,7 @@ use camino::Utf8Path;
 use crate::action::graph::mcp_registration::runs_graph_mcp;
 use crate::store::layout::Layout;
 use crate::store::manifest::Manifest;
-use crate::store::memory::db::MemoryDb;
+use crate::store::memory::db::{MemoryDb, MemoryDbError, open_for_reading};
 use crate::store::memory::schema::MEMORY_SCHEMA_VERSION;
 use crate::store::memory::split::{SplitError, ensure_split, probe_legacy_graph_db};
 
@@ -72,13 +72,25 @@ fn memory_db_diagnosis(path: &Utf8Path) -> Option<Diagnosis> {
         what: format!("`{path}` is not a usable memory database: {reason}"),
         fix: "Run `ivar memory clean`, then `ivar memory status` to create it afresh.".to_owned(),
     };
+    let not_checked = |reason: String| {
+        Diagnosis {
+        code: "memory.db_not_checked",
+        what: format!("`{path}` could not be read to check it: {reason}"),
+        fix: "Run `ivar doctor` where `.ivar/` is writable, or `ivar memory status` there to fold the write-ahead log into the database."
+            .to_owned(),
+    }
+    };
     let inspection = match MemoryDb::inspect(path.as_std_path()) {
         Ok(inspection) => inspection,
+        Err(MemoryDbError::Sqlite(error)) if is_unreadable_here(&error) => {
+            return Some(not_checked(error.to_string()));
+        }
         Err(error) => return Some(corrupt(error.to_string())),
     };
     match quick_check(path.as_std_path()) {
         Ok(verdict) if verdict == "ok" => {}
         Ok(verdict) => return Some(corrupt(verdict)),
+        Err(error) if is_unreadable_here(&error) => return Some(not_checked(error.to_string())),
         Err(error) => return Some(corrupt(error.to_string())),
     }
     if inspection.schema_version > MEMORY_SCHEMA_VERSION {
@@ -102,13 +114,20 @@ fn memory_db_diagnosis(path: &Utf8Path) -> Option<Diagnosis> {
     None
 }
 
+/// `SQLite` answers `READONLY` or `CANTOPEN`, never a corruption code, when a
+/// WAL database cannot get its `-shm` file in a directory it cannot write: the
+/// file is unread, not damaged.
+fn is_unreadable_here(error: &rusqlite::Error) -> bool {
+    matches!(
+        error.sqlite_error_code(),
+        Some(rusqlite::ErrorCode::ReadOnly | rusqlite::ErrorCode::CannotOpen)
+    )
+}
+
 // Only memory.db gets a full quick_check: it is small and primary, while
 // graph.db can be hundreds of MB and is rebuilt by `ivar graph index`.
 fn quick_check(path: &Path) -> rusqlite::Result<String> {
-    let conn = rusqlite::Connection::open_with_flags(
-        path,
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
-    )?;
+    let conn = open_for_reading(path)?;
     conn.query_row("PRAGMA quick_check", [], |row| row.get(0))
 }
 

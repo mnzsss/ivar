@@ -13,10 +13,11 @@ use crate::action::{Ctx, discover_hall};
 use crate::error::{Failure, Outcome, Report, WriteHuman};
 use crate::infra::fs;
 use crate::store::layout::Layout;
-use crate::store::memory::db::MemoryDb;
-use crate::store::memory::observations::count_by_source_event;
-use crate::store::memory::pages::count_by_kind;
+use crate::store::memory::db::{MemoryDb, ReadOnlyOpen, open_current_read_only};
+use crate::store::memory::observations::{count_by_source_event, count_by_source_event_on};
+use crate::store::memory::pages::{count_by_kind, count_by_kind_on};
 use crate::store::memory::retention::{SESSION_RETENTION_DAYS, oldest_session_last_observation};
+use crate::store::memory::schema::{APPLICATION_ID, MEMORY_SCHEMA_VERSION};
 use crate::store::memory::spool;
 use crate::store::memory::usage::{self, USAGE_RETENTION_DAYS};
 
@@ -35,6 +36,9 @@ pub struct MemoryStatusOutcome {
     pub pages: PagesStatus,
     pub consolidation: ConsolidationStatus,
     pub usage: UsageStatus,
+    /// Read without writing under `.ivar/`: the spool was not drained, nothing
+    /// was consolidated or reindexed, and `pages.invalid` was not measured.
+    pub read_only: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -65,7 +69,9 @@ pub struct PagesStatus {
     pub last_reindex_at: Option<String>,
     pub last_reindex_error: Option<String>,
     pub refresh_error: Option<String>,
-    pub invalid: usize,
+    /// Pages that break a page rule. `None` when the refresh that measures it
+    /// did not run (`--read-only`).
+    pub invalid: Option<usize>,
     pub anchors_pending: usize,
 }
 
@@ -90,10 +96,13 @@ pub struct SpoolStatus {
     pub bytes: u64,
     pub dropped: u64,
     pub dropped_total: u64,
+    /// Whether this command drained the spool first. `files` and `bytes` are
+    /// what is pending either way; with `false` they are not in the database.
+    pub drained: bool,
 }
 
 impl SpoolStatus {
-    fn read(dir: &Utf8Path) -> Self {
+    pub(crate) fn read(dir: &Utf8Path) -> Self {
         let pending: Vec<_> = std::fs::read_dir(dir)
             .into_iter()
             .flatten()
@@ -114,6 +123,7 @@ impl SpoolStatus {
             bytes,
             dropped: spool::dropped_count(dir),
             dropped_total: 0,
+            drained: true,
         }
     }
 }
@@ -159,8 +169,8 @@ pub fn status_in(layout: &Layout) -> Outcome<MemoryStatusOutcome> {
     })?;
     let _ = consolidate_locked(layout, &mut db, epoch_secs_now(), Scope::Idle);
     let (invalid, refresh_error) = match reindex::refresh_locked(layout, &mut db, false) {
-        Ok(report) => (report.invalid.len(), None),
-        Err(failure) => (0, Some(failure.what)),
+        Ok(report) => (Some(report.invalid.len()), None),
+        Err(failure) => (Some(0), Some(failure.what)),
     };
     let by_kind = count_by_kind(&db)
         .map_err(|error| Failure::failed("memory.read_failed", error.to_string()))?
@@ -229,7 +239,125 @@ pub fn status_in(layout: &Layout) -> Outcome<MemoryStatusOutcome> {
         pages,
         consolidation,
         usage,
+        read_only: false,
     }))
+}
+
+/// [`status_in`] for a session that cannot write `.ivar/`: the same report,
+/// read from what is on disk. Takes no lock, creates, migrates and moves
+/// nothing, and neither drains the spool nor consolidates or reindexes pages,
+/// so `spool.drained` is `false` and `pages.invalid` is `null`.
+///
+/// # Errors
+///
+/// Outside a hall, or when `memory.db` is from an older ivar (a read never
+/// migrates it), a newer one, not a memory database, or cannot be read.
+pub fn status_read_only(ctx: &Ctx) -> Outcome<MemoryStatusOutcome> {
+    let layout = discover_hall(ctx)?;
+    status_read_only_in(&layout)
+}
+
+/// # Errors
+///
+/// As [`status_read_only`], without the hall lookup.
+pub fn status_read_only_in(layout: &Layout) -> Outcome<MemoryStatusOutcome> {
+    let path = layout.memory_db();
+    let state = read_state(layout);
+    let mut spool = SpoolStatus::read(&layout.memory_spool_dir());
+    spool.dropped_total = state.dropped_total;
+    spool.drained = false;
+    let sweep_state = sweep::read_state(layout);
+    let consolidate_state = consolidate_state::read_state(layout);
+    let reindex_state = reindex::read_state(layout);
+    let mut outcome = MemoryStatusOutcome {
+        path: path.clone(),
+        exists: false,
+        schema_version: None,
+        application_id: None,
+        size_bytes: None,
+        observations: Vec::new(),
+        spool,
+        last_drain_at: state.last_drain_at,
+        last_drain_error: state.last_error,
+        retention: RetentionStatus {
+            window_days: SESSION_RETENTION_DAYS,
+            last_sweep_at: sweep_state.last_sweep_at,
+            last_sweep_error: sweep_state.last_error,
+            swept_total: sweep_state.swept_total,
+            oldest_session_observation_at: None,
+        },
+        pages: PagesStatus {
+            by_kind: Vec::new(),
+            last_reindex_at: reindex_state.last_reindex_at,
+            last_reindex_error: reindex_state.last_error,
+            refresh_error: None,
+            invalid: None,
+            anchors_pending: 0,
+        },
+        consolidation: ConsolidationStatus {
+            last_run_at: consolidate_state.last_run_at,
+            last_error: consolidate_state.last_error,
+            written_total: consolidate_state.written_total,
+        },
+        usage: UsageStatus {
+            window_days: USAGE_RETENTION_DAYS,
+            summary: usage::UsageSummary::default(),
+            usage_error: None,
+        },
+        read_only: true,
+    };
+    // A file with no bytes is what an interrupted first open leaves.
+    let size_bytes = fs::stat(&path)?.map(|metadata| metadata.len());
+    let Some(size_bytes) = size_bytes.filter(|len| *len > 0) else {
+        return Ok(Report::new(outcome));
+    };
+    let conn = match open_current_read_only(path.as_std_path()) {
+        Ok(ReadOnlyOpen::Current(conn)) => conn,
+        Ok(ReadOnlyOpen::Outdated { found, current }) => {
+            return Err(crate::action::memory::review::outdated(found, current));
+        }
+        Err(error) => {
+            return Err(Failure::failed(
+                "memory.inspect_failed",
+                format!(
+                    "`ivar memory status --read-only` could not read `{path}`: {error}; \
+                     `ivar memory status` from a session that can write `.ivar/` reports or repairs it"
+                ),
+            ));
+        }
+    };
+    let read_failed =
+        |error: rusqlite::Error| Failure::failed("memory.read_failed", error.to_string());
+    outcome.exists = true;
+    outcome.schema_version = Some(MEMORY_SCHEMA_VERSION);
+    outcome.application_id = Some(APPLICATION_ID);
+    outcome.size_bytes = Some(size_bytes);
+    outcome.pages.by_kind = count_by_kind_on(&conn)
+        .map_err(read_failed)?
+        .into_iter()
+        .map(|(kind, count)| KindCount { kind, count })
+        .collect();
+    outcome.observations = count_by_source_event_on(&conn)
+        .map_err(read_failed)?
+        .into_iter()
+        .map(|(source_event, count)| ObservationCount {
+            source_event,
+            count,
+        })
+        .collect();
+    let mut read_errors = Vec::new();
+    outcome.pages.anchors_pending = crate::store::memory::anchors::pending_count(&conn)
+        .map_err(|error| read_errors.push(format!("anchor count: {error}")))
+        .unwrap_or(0);
+    let since =
+        i64::try_from(epoch_secs_now().saturating_sub(USAGE_RETENTION_DAYS * 86_400)).unwrap_or(0);
+    outcome.usage.summary = usage::summary(&conn, since)
+        .map_err(|error| read_errors.push(format!("usage summary: {error}")))
+        .unwrap_or_default();
+    outcome.usage.usage_error = (!read_errors.is_empty()).then(|| read_errors.join("; "));
+    outcome.retention.oldest_session_observation_at =
+        oldest_session_last_observation(path.as_std_path());
+    Ok(Report::new(outcome))
 }
 
 impl WriteHuman for MemoryStatusOutcome {
@@ -256,10 +384,15 @@ impl WriteHuman for MemoryStatusOutcome {
         }
         writeln!(
             w,
-            "  spool: {} files, {} bytes, {} dropped",
+            "  spool: {} files, {} bytes, {} dropped{}",
             self.spool.files,
             self.spool.bytes,
-            self.spool.dropped_total + self.spool.dropped
+            self.spool.dropped_total + self.spool.dropped,
+            if self.spool.drained {
+                ""
+            } else {
+                " (read-only: pending, not drained, not counted above)"
+            }
         )?;
         writeln!(
             w,
@@ -301,9 +434,12 @@ impl WriteHuman for MemoryStatusOutcome {
         }
         writeln!(
             w,
-            "  last reindex: {}, {} invalid",
+            "  last reindex: {}, {}",
             self.pages.last_reindex_at.as_deref().unwrap_or("never"),
-            self.pages.invalid
+            self.pages.invalid.map_or_else(
+                || "invalid pages not verified".to_owned(),
+                |count| format!("{count} invalid")
+            )
         )?;
         writeln!(w, "  anchors pending: {}", self.pages.anchors_pending)?;
         if let Some(error) = &self.pages.last_reindex_error {

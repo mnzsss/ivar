@@ -780,3 +780,61 @@ fn approvals_are_not_readable_from_a_database_that_predates_them() {
         .unwrap();
     assert_eq!(version, 7, "a read never migrates");
 }
+
+fn sidecars(path: &std::path::Path) -> Vec<String> {
+    let name = path.file_name().unwrap().to_string_lossy().into_owned();
+    std::fs::read_dir(path.parent().unwrap())
+        .unwrap()
+        .flatten()
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .filter(|file| file.starts_with(&name) && *file != name)
+        .collect()
+}
+
+#[test]
+fn inspecting_and_reading_a_closed_database_creates_no_shm_or_wal() {
+    let (_dir, path) = temp_db();
+    drop(MemoryDb::open(&path).unwrap());
+    assert!(sidecars(&path).is_empty(), "{:?}", sidecars(&path));
+
+    let inspection = MemoryDb::inspect(&path).unwrap();
+    drop(open_for_reading(&path).unwrap());
+    drop(open_current_read_only(&path).unwrap());
+
+    assert_eq!(inspection.application_id, APPLICATION_ID);
+    assert_eq!(inspection.schema_version, MEMORY_SCHEMA_VERSION);
+    assert!(sidecars(&path).is_empty(), "{:?}", sidecars(&path));
+}
+
+#[test]
+fn a_database_with_a_writer_open_is_read_through_its_wal() {
+    let (_dir, path) = temp_db();
+    let writer = MemoryDb::open(&path).unwrap();
+    writer
+        .conn()
+        .execute_batch("PRAGMA wal_autocheckpoint = 0;")
+        .unwrap();
+    writer
+        .conn()
+        .execute_batch("UPDATE memory_schema SET version = version;")
+        .unwrap();
+
+    let conn = open_for_reading(&path).unwrap();
+
+    let id: i32 = conn
+        .query_row("PRAGMA application_id", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(id, APPLICATION_ID);
+    drop(conn);
+    drop(writer);
+}
+
+#[test]
+fn a_missing_database_does_not_open_for_reading() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("absent.db");
+
+    assert!(open_for_reading(&path).is_err());
+    assert!(MemoryDb::inspect(&path).is_err());
+    assert!(!path.exists(), "a read must not create it");
+}

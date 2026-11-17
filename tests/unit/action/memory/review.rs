@@ -6,7 +6,7 @@ use crate::action::Ctx;
 use crate::action::feature::create::{CreateInput, create};
 use crate::action::hall::{self, InitInput};
 use crate::action::memory::events::{MemoryEventScope, record_memory_event};
-use crate::action::memory::review::{analysis_queried, review_in};
+use crate::action::memory::review::{analysis_queried, review_in, review_read_only_in};
 use crate::action::plan::approve::ApproveOutcome;
 use crate::domain::memory_review::GapKind;
 use crate::domain::name::FeatureName;
@@ -355,4 +355,105 @@ fn a_page_written_with_no_session_or_feature_is_listed_apart_from_written() {
         update.detail.contains("1 unattributed update page"),
         "{update:?}"
     );
+}
+
+fn ivar_tree(layout: &Layout) -> std::collections::BTreeMap<String, Vec<u8>> {
+    fn walk(
+        dir: &std::path::Path,
+        base: &std::path::Path,
+        out: &mut std::collections::BTreeMap<String, Vec<u8>>,
+    ) {
+        for entry in std::fs::read_dir(dir).unwrap().flatten() {
+            let path = entry.path();
+            let rel = path.strip_prefix(base).unwrap().display().to_string();
+            if path.is_dir() {
+                out.insert(format!("{rel}/"), Vec::new());
+                walk(&path, base, out);
+            } else {
+                out.insert(rel, std::fs::read(&path).unwrap());
+            }
+        }
+    }
+    let base = layout.root().join(".ivar");
+    let mut out = std::collections::BTreeMap::new();
+    walk(base.as_std_path(), base.as_std_path(), &mut out);
+    out
+}
+
+#[test]
+fn a_read_only_review_matches_the_review_and_writes_nothing() {
+    let (_guard, layout) = hall_with_approved_analysis();
+    session_that_wrote_an_update(&layout);
+    captured_approval(&layout, "2099-01-01T00:00:00Z");
+    let name = FeatureName::new("checkout").unwrap();
+    let normal = review_in(&layout, &name).unwrap().value;
+    let before = ivar_tree(&layout);
+
+    let read_only = review_read_only_in(&layout, &name).unwrap().value;
+
+    assert_eq!(ivar_tree(&layout), before);
+    assert_eq!(
+        serde_json::to_value(&read_only.written).unwrap(),
+        serde_json::to_value(&normal.written).unwrap()
+    );
+    assert_eq!(
+        serde_json::to_value(&read_only.gaps).unwrap(),
+        serde_json::to_value(&normal.gaps).unwrap()
+    );
+    assert_eq!(read_only.stale.len(), normal.stale.len());
+    assert_eq!(read_only.last, normal.last);
+    assert!(
+        read_only
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("not drained")),
+        "{:?}",
+        read_only.warnings
+    );
+}
+
+#[test]
+fn a_read_only_review_leaves_a_pending_spool_undrained_and_lists_it() {
+    let (_guard, layout) = hall_with_approved_analysis();
+    session_that_wrote_an_update(&layout);
+    review_in(&layout, &FeatureName::new("checkout").unwrap()).unwrap();
+    let spool = layout.memory_spool_dir();
+    std::fs::create_dir_all(&spool).unwrap();
+    std::fs::write(spool.join("pending.jsonl"), "{}\n").unwrap();
+    let before = ivar_tree(&layout);
+
+    let report = review_read_only_in(&layout, &FeatureName::new("checkout").unwrap())
+        .unwrap()
+        .value;
+
+    assert_eq!(ivar_tree(&layout), before);
+    assert!(
+        report
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("1 file(s), 3 bytes")),
+        "{:?}",
+        report.warnings
+    );
+}
+
+#[test]
+fn a_read_only_review_refuses_an_outdated_schema_without_migrating_it() {
+    let (_guard, layout) = hall_with_approved_analysis();
+    session_that_wrote_an_update(&layout);
+    review_in(&layout, &FeatureName::new("checkout").unwrap()).unwrap();
+    rusqlite::Connection::open(layout.memory_db().as_std_path())
+        .unwrap()
+        .execute_batch("UPDATE memory_schema SET version = 5;")
+        .unwrap();
+    let before = ivar_tree(&layout);
+
+    let failure = review_read_only_in(&layout, &FeatureName::new("checkout").unwrap()).unwrap_err();
+
+    assert!(
+        failure.what.contains("ivar memory status"),
+        "{}",
+        failure.what
+    );
+    assert_eq!(ivar_tree(&layout), before);
 }

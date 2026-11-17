@@ -178,6 +178,36 @@ The tools are in [MCP tools](mcp-tools.md).
   feature and no session. Nothing reassigns it later, so the review shows `written: none`
   for it. `ivar memory review <feature> --confirm` attests the review, not those pages.
 
+## Read-only status and review
+
+`ivar memory status --read-only` and `ivar memory review <feature> --read-only` are for a
+session that cannot write the hall's `.ivar/`, such as a `runtime: host` agent. They are
+a read, not a degraded run of the same command.
+
+- They take no `memory.lock`, drain nothing and migrate nothing. Observations still in the
+  capture spool are not in the counts or the review. `status` reports them as pending
+  (`spool.drained: false`, with `files` and `bytes` still the pending ones) and `review`
+  adds a warning.
+- `status --read-only` consolidates and reindexes nothing, and does not move a pre-split
+  graph. `pages.invalid` is `null` (the text says "not verified"), not `0`, because the
+  page check did not run.
+- A `memory.db` from an older ivar is not migrated: both commands fail and name
+  `ivar memory status`, to run from a session that can write. A newer one, or a file that
+  is not a memory database, also fails. A hall with no `memory.db` reports `exists: false`
+  from `status` and creates none.
+- `review --read-only` cannot be combined with `--confirm`, `--stale` or `--not-required`:
+  recording a review writes.
+- Both read a database in WAL mode without creating its `-shm` and `-wal` files only
+  while nothing else has it open. With a writer open they read it normally. If the
+  `-wal` file holds writes and `.ivar/` is not writable, SQLite cannot read it, and the
+  command fails rather than report a stale file.
+- `review --read-only` attaches `graph.db` the same way. If it cannot be read, the
+  broken-anchor check is skipped and the report warns about it.
+- The MCP tools `memory_status` and `memory_review` have no read-only mode.
+- `ivar doctor` reads `memory.db` the same way, so a sound database in a read-only
+  `.ivar/` is not `memory.db_corrupt`. When SQLite cannot read it at all there (a `-wal`
+  with content), the doctor reports `memory.db_not_checked` instead of corruption.
+
 ## Handoffs and messages
 
 The tools are in [MCP tools](mcp-tools.md#handoffs-and-messages).

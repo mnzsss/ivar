@@ -8,7 +8,11 @@ Inspect, query and maintain the hall memory: pages, handoffs and the session hoo
 
 ## `ivar memory status`
 
-Show the hall memory database: path, schema version, application id, size, observation counts per event, the capture spool, the last drain and the retention sweep
+Show the hall memory database: path, schema version, application id, size, observation counts per event, the capture spool, the last drain and the retention sweep. Drains the spool, consolidates and reindexes pages, so it writes under `.ivar/`
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--read-only` |  |  | Only read: take no lock, drain nothing, migrate, consolidate and reindex nothing, so it works where `.ivar/` is not writable. The spool is reported as pending (`drained: false`) and `pages.invalid` as not verified |
 
 
 ## `ivar memory clean`
@@ -46,7 +50,7 @@ Check the pages under docs/memory against the page rules. Exits non-zero when an
 
 ## `ivar memory review`
 
-Show what a feature wrote to memory, its gaps and the pages its diff may have made stale, plus the last review. Read-only unless `--confirm` records the review that `ivar feature deliver` requires; the memory_review MCP tool confirms the same way
+Show what a feature wrote to memory, its gaps and the pages its diff may have made stale, plus the last review. Drains the capture spool first, unless `--read-only`; `--confirm` records the review that `ivar feature deliver` requires, the way the memory_review MCP tool does
 
 | argument | required | description |
 | --- | --- | --- |
@@ -57,6 +61,7 @@ Show what a feature wrote to memory, its gaps and the pages its diff may have ma
 | `--confirm` |  |  | Record the review as done, with the same checks as the memory_review MCP tool's `confirm` |
 | `--stale` | `<PATH=VERDICT>` |  | A verdict on a possibly stale page, `<path>=updated` or `<path>=still_valid` (repeatable). Needs `--confirm` |
 | `--not-required` | `<REASON>` |  | Confirm a feature that wrote no page, and say why none was needed. Needs `--confirm` |
+| `--read-only` |  |  | Only read: take no lock, drain nothing and migrate nothing, so it works where `.ivar/` is not writable. Observations still in the capture spool are not counted, and a warning says so |
 
 
 ## `ivar memory handoff`

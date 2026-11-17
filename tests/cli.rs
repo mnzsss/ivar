@@ -74,6 +74,9 @@ mod memory_pages_contract;
 #[path = "cli/memory_retrieval_contract.rs"]
 mod memory_retrieval_contract;
 
+#[path = "cli/memory_read_only.rs"]
+mod memory_read_only;
+
 #[path = "cli/memory_review_contract.rs"]
 mod memory_review_contract;
 

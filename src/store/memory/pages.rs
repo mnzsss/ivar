@@ -366,9 +366,17 @@ pub fn page_by_path(
 ///
 /// Returns the `SQLite` error when the query fails.
 pub fn count_by_kind(db: &MemoryDb) -> rusqlite::Result<Vec<(String, i64)>> {
-    let mut stmt = db
-        .conn()
-        .prepare("SELECT kind, count(*) FROM pages GROUP BY kind ORDER BY kind")?;
+    count_by_kind_on(db.conn())
+}
+
+/// [`count_by_kind`] on a bare connection, for a read that opened the
+/// database read-only.
+///
+/// # Errors
+///
+/// Returns the `SQLite` error when the query fails.
+pub fn count_by_kind_on(conn: &Connection) -> rusqlite::Result<Vec<(String, i64)>> {
+    let mut stmt = conn.prepare("SELECT kind, count(*) FROM pages GROUP BY kind ORDER BY kind")?;
     stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
         .collect()
 }
