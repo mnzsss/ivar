@@ -127,3 +127,27 @@ fn memory_lint_returns_the_same_issues_as_the_function_and_the_surface_has_twelv
     );
     assert_eq!(listed["result"]["tools"].as_array().unwrap().len(), 20);
 }
+
+#[test]
+fn an_unattributed_memory_call_ships_its_notice_as_a_separate_block() {
+    let (_guard, root) = crate::test_support::seeded_hall();
+    let call = |arguments: Value| {
+        rpc(
+            root.as_std_path(),
+            ToolSurface::Explore,
+            json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "memory_query", "arguments": arguments}}),
+        )
+    };
+
+    let plain = call(json!({"query": "teardown"}));
+
+    let content = plain["result"]["content"].as_array().unwrap();
+    assert_eq!(content.len(), 2, "{plain}");
+    serde_json::from_str::<Value>(content[0]["text"].as_str().unwrap()).unwrap();
+    assert!(
+        content[1]["text"]
+            .as_str()
+            .unwrap()
+            .contains("`feature: <feature>`")
+    );
+}

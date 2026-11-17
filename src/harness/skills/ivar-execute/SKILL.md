@@ -60,7 +60,7 @@ Print evidence to the transcript: each wave's validation output and result, each
 Process waves in plan order; never start Wave `K+1` before Wave `K` is checkpointed.
 
 1. **Dispatch:** send the wave's task packets to implementation subagents, each prompt built from `references/subagent.md` with absolute paths and the packet's `**Design ref:**`. The coordinator NEVER writes or edits feature code; subagents make every edit.
-   Copy the packet's `**Memory refs:**` into the prompt as well. In a run, only the coordinator writes memory: when a wave goes red and is then fixed, record the cause as a `gotcha` (or the repeatable steps as a `procedure`) with `memory_write_page`; subagents never write it, they report `Learnings` and you decide what becomes a page. Outside a session bound to the feature, pass `feature: <feature>` to `memory_write_page` and `memory_patch_page`.
+   Copy the packet's `**Memory refs:**` into the prompt as well. In a run, only the coordinator writes memory: when a wave goes red and is then fixed, record the cause as a `gotcha` (or the repeatable steps as a `procedure`) with `memory_write_page`; subagents never write it, they report `Learnings` and you decide what becomes a page. Outside a session bound to the feature, pass `feature: <feature>` to `memory_write_page` and `memory_patch_page`; without it the answer carries a notice that the call was not attributed to a feature.
    When the `t3-code` MCP tools `delegate_task` and `task_status` are available,
    you may dispatch each packet with `delegate_task` instead of your harness's own
    subagent tool, so the packet shows up as a child thread in T3 Code. Target the

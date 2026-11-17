@@ -239,3 +239,120 @@ fn approving_analysis_without_a_feature_query_notes_it_without_a_warning() {
     assert!(report.value.analysis_without_query);
     assert!(report.warnings.is_empty());
 }
+
+fn unattributed_query_at(layout: &Layout, ts: Option<i64>) {
+    mcp_query_without_session(layout);
+    if let Some(ts) = ts {
+        let db = MemoryDb::open(layout.memory_db().as_std_path()).unwrap();
+        db.conn()
+            .execute("UPDATE memory_usage SET ts = ?1", [ts])
+            .unwrap();
+    }
+}
+
+fn mcp_query_without_session(layout: &Layout) {
+    let db = MemoryDb::open(layout.memory_db().as_std_path()).unwrap();
+    record_query(
+        db.conn(),
+        &QueryRecord {
+            source: "mcp".to_owned(),
+            session: None,
+            query: "locks".to_owned(),
+            filters: "{}".to_owned(),
+            page_count: 1,
+            observation_count: 0,
+            duration_ms: 1,
+            error: false,
+        },
+    )
+    .unwrap();
+}
+
+fn report(layout: &Layout) -> crate::action::memory::review::ReviewReport {
+    review_in(layout, &FeatureName::new("checkout").unwrap())
+        .unwrap()
+        .value
+}
+
+#[test]
+fn a_query_with_no_session_in_the_window_is_reported_but_the_gap_stays() {
+    let (_guard, layout) = hall_with_approved_analysis();
+    session_that_wrote_an_update(&layout);
+    unattributed_query_at(&layout, None);
+
+    let report = report(&layout);
+
+    assert_eq!(report.unattributed.queries, 1);
+    assert_eq!(report.gaps.len(), 1, "{:?}", report.gaps);
+    let gap = report.gaps.first().unwrap();
+    assert_eq!(gap.kind, GapKind::AnalysisWithoutQuery);
+    assert!(
+        gap.detail.contains("1 unattributed memory_query"),
+        "{gap:?}"
+    );
+    assert!(report.written.iter().all(|page| page.kind == "update"));
+}
+
+#[test]
+fn a_query_with_no_session_outside_the_window_is_not_counted() {
+    let (_guard, layout) = hall_with_approved_analysis();
+    session_that_wrote_an_update(&layout);
+    unattributed_query_at(&layout, Some(1));
+
+    let report = report(&layout);
+
+    assert_eq!(report.unattributed.queries, 0);
+    assert_eq!(report.gaps.len(), 1, "{:?}", report.gaps);
+    let gap = report.gaps.first().unwrap();
+    assert!(!gap.detail.contains("unattributed"), "{gap:?}");
+    let json = serde_json::to_value(&report).unwrap();
+    assert!(json.get("unattributed").is_none(), "{json}");
+}
+
+#[test]
+fn a_query_with_no_session_after_the_captured_approval_does_not_soften_the_gap() {
+    let (_guard, layout) = hall_with_approved_analysis();
+    session_that_wrote_an_update(&layout);
+    captured_approval(&layout, "2000-01-01T00:00:00Z");
+    unattributed_query_at(&layout, None);
+
+    let report = report(&layout);
+
+    assert_eq!(report.unattributed.queries, 1);
+    assert_eq!(report.gaps.len(), 1, "{:?}", report.gaps);
+    let gap = report.gaps.first().unwrap();
+    assert!(!gap.detail.contains("unattributed"), "{gap:?}");
+}
+
+#[test]
+fn a_page_written_with_no_session_or_feature_is_listed_apart_from_written() {
+    let (_guard, layout) = hall_with_approved_analysis();
+    let nobody = MemoryEventScope::default();
+    record_memory_event(
+        &layout,
+        &nobody,
+        SourceEvent::MemoryPageWritten,
+        &json!({"path": "docs/memory/update/2-y.md", "kind": "update", "action": "written", "sha256": "h"}),
+    )
+    .unwrap();
+
+    let report = report(&layout);
+
+    assert!(report.written.is_empty(), "{:?}", report.written);
+    let paths: Vec<&str> = report
+        .unattributed
+        .written
+        .iter()
+        .map(|page| page.path.as_str())
+        .collect();
+    assert_eq!(paths, ["docs/memory/update/2-y.md"]);
+    let update = report
+        .gaps
+        .iter()
+        .find(|gap| gap.kind == GapKind::Update)
+        .unwrap();
+    assert!(
+        update.detail.contains("1 unattributed update page"),
+        "{update:?}"
+    );
+}

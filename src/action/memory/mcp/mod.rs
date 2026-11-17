@@ -140,6 +140,42 @@ pub fn call_as(
     args: &Value,
     caller: &MemoryCaller,
 ) -> Result<String, String> {
+    call_noticed(layout, name, args, caller).map(|(text, _)| text)
+}
+
+/// [`call_as`], and the notice that goes in its own block beside the answer:
+/// the call came from a server with no session and named no feature, so the
+/// review cannot attribute it. The tool's answer is the same either way.
+///
+/// # Errors
+///
+/// The message the MCP answer carries as `isError`.
+pub fn call_noticed(
+    layout: &Layout,
+    name: &str,
+    args: &Value,
+    caller: &MemoryCaller,
+) -> Result<(String, Option<String>), String> {
+    let text = dispatch(layout, name, args, caller)?;
+    Ok((text, unattributed_notice(name, args, caller)))
+}
+
+fn unattributed_notice(name: &str, args: &Value, caller: &MemoryCaller) -> Option<String> {
+    let named = !matches!(args.get("feature"), None | Some(Value::Null));
+    (takes_feature(name) && caller.session.is_none() && caller.feature.is_none() && !named)
+        .then(|| {
+            format!(
+                "`{name}` was not attributed to any feature: this memory server has no session. Pass `feature: <feature>` so `memory_review` counts it."
+            )
+        })
+}
+
+fn dispatch(
+    layout: &Layout,
+    name: &str,
+    args: &Value,
+    caller: &MemoryCaller,
+) -> Result<String, String> {
     if let Some(result) = coordination::call(layout, name, args, caller) {
         return result;
     }
