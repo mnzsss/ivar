@@ -1,4 +1,5 @@
 use super::*;
+use crate::action::memory::legacy;
 
 const FINGERPRINT_PREFIX: &str = "sha256:";
 
@@ -23,6 +24,14 @@ pub(super) fn write_record_outcome(
     })
 }
 
+/// The migration command, when `docs/updates` still holds pages `feature cleanup` cannot read.
+fn legacy_migration_fix(layout: &crate::store::layout::Layout) -> Option<String> {
+    if !legacy::updates_need_migration(layout) {
+        return None;
+    }
+    legacy::migration_command(layout, crate::git::inside_work_tree(layout.root()))
+}
+
 pub(super) fn load_and_validate_record(
     record_path: &Utf8Path,
     layout: &crate::store::layout::Layout,
@@ -35,11 +44,24 @@ pub(super) fn load_and_validate_record(
         layout.root().join(record_path)
     };
 
+    let outside = |reason: String| {
+        let mut failure = Failure::blocked("feature.cleanup_record_outside_docs_updates", reason);
+        if let Some(command) = legacy_migration_fix(layout) {
+            failure = failure.fix(
+                FixAction::safe(
+                    "feature.cleanup_migrate_legacy_updates",
+                    "This hall still keeps its pages in `docs/updates`; move them under `docs/memory`, commit the move, then pass the record from `docs/memory/update`.",
+                )
+                .command(command),
+            );
+        }
+        failure
+    };
+
     let canonical_update_pages = fs_err::canonicalize(&update_pages).map_err(|_| {
-        Failure::blocked(
-            "feature.cleanup_record_outside_docs_updates",
-            format!("cleanup record `{record_path}` must resolve inside `{update_pages}`"),
-        )
+        outside(format!(
+            "the update pages directory `{update_pages}` does not exist, so cleanup record `{record_path}` cannot be read from it"
+        ))
     })?;
 
     let canonical_record = fs_err::canonicalize(&abs_record_path).map_err(|_| {
@@ -50,10 +72,9 @@ pub(super) fn load_and_validate_record(
     })?;
 
     if !canonical_record.starts_with(&canonical_update_pages) {
-        return Err(Failure::blocked(
-            "feature.cleanup_record_outside_docs_updates",
-            format!("cleanup record `{record_path}` must resolve inside `{update_pages}`"),
-        ));
+        return Err(outside(format!(
+            "cleanup record `{record_path}` must resolve inside `{update_pages}`"
+        )));
     }
 
     let content = crate::infra::fs::read_text(&abs_record_path)

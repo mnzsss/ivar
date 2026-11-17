@@ -9,6 +9,7 @@ pub mod coordination;
 pub mod delivery;
 pub mod drain;
 pub mod events;
+pub(crate) mod legacy;
 pub mod lint;
 pub mod mcp;
 pub mod page_file;

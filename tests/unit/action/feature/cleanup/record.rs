@@ -360,3 +360,96 @@ fn record_fingerprint_with_a_sha256_prefix_is_accepted() {
             .feature_removed
     );
 }
+
+const MIGRATION_COMMAND: &str = "mkdir -p docs/memory && mv docs/updates docs/memory/update";
+
+fn refuse_record(root: &Utf8PathBuf, record: &str) -> crate::error::Failure {
+    cleanup(
+        &Ctx::new(root.clone()),
+        CleanupInput {
+            feature: "checkout".to_owned(),
+            preview: false,
+            record: Some(Utf8PathBuf::from(record)),
+            session_id: None,
+        },
+    )
+    .unwrap_err()
+}
+
+fn write_legacy_page(root: &Utf8PathBuf) {
+    let page = root.join("docs/updates/001-checkout.md");
+    fs::ensure_dir(page.parent().unwrap()).unwrap();
+    fs::write_text(&page, "# Checkout\n").unwrap();
+    fs::write_text(&page.with_file_name("001-checkout.cleanup.json"), "{}").unwrap();
+}
+
+#[test]
+fn missing_update_directory_is_reported_as_missing_not_as_outside() {
+    let (_guard, root) = hall_with_feature(&["api"], None);
+
+    let err = refuse_record(&root, "docs/memory/update/001-checkout.cleanup.json");
+
+    assert_eq!(err.code, "feature.cleanup_record_outside_docs_updates");
+    assert!(err.what.contains("does not exist"), "{}", err.what);
+    assert!(!err.what.contains("must resolve inside"), "{}", err.what);
+    assert!(err.fix_actions.is_empty());
+}
+
+#[test]
+fn legacy_updates_folder_gets_the_doctor_migration_command() {
+    let (_guard, root) = hall_with_feature(&["api"], None);
+    write_legacy_page(&root);
+
+    let err = refuse_record(&root, "docs/updates/001-checkout.cleanup.json");
+
+    assert_eq!(err.code, "feature.cleanup_record_outside_docs_updates");
+    assert!(err.what.contains("does not exist"), "{}", err.what);
+    let commands: Vec<_> = err
+        .fix_actions
+        .iter()
+        .filter_map(|f| f.command.as_deref())
+        .collect();
+    assert_eq!(commands, [MIGRATION_COMMAND]);
+
+    let doctor_fix = crate::action::hall::doctor(&Ctx::new(root.clone()))
+        .unwrap()
+        .value
+        .findings
+        .into_iter()
+        .find(|d| d.code == "memory.legacy_docs")
+        .expect("doctor reports the legacy folder")
+        .fix;
+    assert_eq!(commands[0], doctor_fix);
+}
+
+#[test]
+fn record_in_legacy_updates_is_refused_with_the_fix_even_when_the_new_root_exists() {
+    let (_guard, root) = hall_with_feature(&["api"], None);
+    write_legacy_page(&root);
+    fs::ensure_dir(&Layout::at(root.clone()).update_pages_dir()).unwrap();
+
+    let err = refuse_record(&root, "docs/updates/001-checkout.cleanup.json");
+
+    assert_eq!(err.code, "feature.cleanup_record_outside_docs_updates");
+    assert!(err.what.contains("must resolve inside"), "{}", err.what);
+    let commands: Vec<_> = err
+        .fix_actions
+        .iter()
+        .filter_map(|f| f.command.as_deref())
+        .collect();
+    assert_eq!(
+        commands,
+        ["mkdir -p docs/memory && mv -n docs/updates/* docs/memory/update/"]
+    );
+}
+
+#[test]
+fn legacy_folder_without_pages_adds_no_fix() {
+    let (_guard, root) = hall_with_feature(&["api"], None);
+    fs::ensure_dir(&root.join("docs/updates")).unwrap();
+
+    let err = refuse_record(&root, "docs/updates/001-checkout.cleanup.json");
+
+    assert_eq!(err.code, "feature.cleanup_record_outside_docs_updates");
+    assert!(err.fix_actions.is_empty());
+}
