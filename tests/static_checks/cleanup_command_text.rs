@@ -37,3 +37,41 @@ fn cleanup_command_ends_with_a_non_blocking_automation_checkpoint() {
     assert!(body.contains("never produces a warning"));
     assert!(body.contains("Retirable automations never appear here"));
 }
+
+const FINGERPRINT_PLACEHOLDER: &str = "<hex from --preview --json>";
+
+/// The first fenced `json` block after `### JSON Schema`.
+fn schema_example(doc: &str) -> &str {
+    let heading = doc
+        .find("### JSON Schema")
+        .expect("the JSON Schema heading");
+    let after = &doc[heading..];
+    let open = after.find("```json\n").expect("a json block") + "```json\n".len();
+    let body = &after[open..];
+    &body[..body.find("```").expect("the json block closes")]
+}
+
+#[test]
+fn cleanup_command_record_example_parses_as_a_cleanup_record() {
+    let cleanup = shipped("commands/feature-cleanup.md");
+    let example = schema_example(&cleanup);
+    assert!(
+        example.contains(FINGERPRINT_PLACEHOLDER),
+        "the example marks where the preview hex goes"
+    );
+
+    // The preview prints a SHA-256 as bare lowercase hex.
+    let hex = "a".repeat(64);
+    let json = example.replace(FINGERPRINT_PLACEHOLDER, &hex);
+
+    let record: ivar::domain::feature::CleanupRecord = serde_json::from_str(&json)
+        .unwrap_or_else(|err| panic!("the documented record must deserialize: {err}"));
+    record
+        .validate()
+        .unwrap_or_else(|err| panic!("the documented record must validate: {err}"));
+    assert_eq!(record.fingerprint, hex);
+    assert!(
+        record.approvals.delivery.approved && record.approvals.teardown.approved,
+        "the example is an applicable record"
+    );
+}
