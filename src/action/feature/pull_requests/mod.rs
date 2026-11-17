@@ -15,7 +15,9 @@ mod mutate;
 mod observation;
 mod siblings;
 
-pub(crate) use lookup::{existing_pr, find_pull_request, list_pull_requests};
+pub(crate) use lookup::{
+    BranchPullRequests, branch_pull_requests, existing_pr, find_pull_request, list_pull_requests,
+};
 pub(crate) use mutate::{convert_pull_request_to_draft, create_pull_request, edit_pull_request};
 pub(crate) use observation::{observe_merge, pull_request_state, request_merge, required_checks};
 pub(crate) use siblings::link_sibling_prs;
@@ -25,6 +27,9 @@ use serde::Deserialize;
 use crate::domain::delivery_event::{DeliveryEvent, ObservedBy};
 use crate::error::{Failure, FixAction};
 use crate::infra::proc;
+
+/// The forge's state word for a pull request that is open.
+pub(crate) const OPEN: &str = "OPEN";
 
 /// The forge's state word for a pull request that has landed.
 pub(crate) const MERGED: &str = "MERGED";

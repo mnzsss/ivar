@@ -16,6 +16,7 @@ mod land;
 mod memory_gate;
 mod memory_review;
 mod memory_review_confirm;
+mod merged_pr;
 mod metadata;
 mod ordering;
 mod plan_skip;

@@ -271,6 +271,7 @@ fn run(
         ));
     }
 
+    refuse_already_merged(&feature_name, &manifest, &preview)?;
     refuse_blockers(&feature_name, &preview, waivers)?;
     if plan_waived && let Some(reason) = &input.no_plan {
         events::emit_plan_skipped(emitter, &feature, reason);
@@ -372,6 +373,28 @@ fn check_fingerprint(
                 "Run `ivar feature deliver {feature_name} --preview` again, then apply with the new fingerprint."
             ),
         )));
+    }
+    Ok(())
+}
+
+/// A repo whose branch already shipped in a merged PR refuses with its own
+/// code, before the generic blocker list: the preview lists the same fact as a
+/// blocker, and this is the refusal an agent can match on.
+fn refuse_already_merged(
+    feature_name: &FeatureName,
+    manifest: &Manifest,
+    preview: &DeliveryPreview,
+) -> Result<(), Failure> {
+    for repo in &preview.repos {
+        let Some(merged) = &repo.merged_pr else {
+            continue;
+        };
+        let default_branch = manifest
+            .repos()
+            .iter()
+            .find(|declared| declared.name() == &repo.repo)
+            .map_or(&repo.base_branch, |declared| declared.default_branch());
+        return Err(merged.failure(feature_name, &repo.repo, &repo.local_branch, default_branch));
     }
     Ok(())
 }

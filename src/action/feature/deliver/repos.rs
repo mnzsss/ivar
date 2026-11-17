@@ -8,7 +8,7 @@ use camino::Utf8Path;
 
 use crate::action::feature::deliver::input::PullRequestMetadata;
 use crate::domain::feature::Feature;
-use crate::domain::feature::{DeliveryAction, DeliveryMode, DeliveryRepo, DraftAction};
+use crate::domain::feature::{DeliveryAction, DeliveryMode, DeliveryRepo, DraftAction, MergedPr};
 use crate::domain::name::{FeatureName, RepoName};
 use crate::error::{Failure, FixAction};
 use crate::git::{self, TargetState};
@@ -16,7 +16,7 @@ use crate::store::layout::Layout;
 use crate::store::manifest::{Manifest, Repo};
 
 use super::super::base;
-use super::super::pull_requests::existing_pr;
+use super::super::pull_requests::{BranchPullRequests, branch_pull_requests};
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn build_repos(
@@ -265,22 +265,15 @@ fn build_repo_entry(
     let (mut blockers, pending) =
         push_readiness(git, &bare, &worktree, feature, declared, delivered)?;
 
-    // Predict the delivery action: only GitHub remotes get a PR. A repo
-    // on any other host (a local path, a mirror, GitLab) is push-only —
-    // `gh` cannot raise a PR there. For GitHub, check the remote: if an
-    // open PR already exists for this branch we update it, otherwise we
-    // create one. In land mode, the action is landing onto default.
-    //
-    // The observation is made once and shared with the draft decision
-    // below. Two separate `gh pr list` calls would leave a window in
-    // which a PR opened between them yields `NewPr` paired with
-    // `ConvertToDraft` — and apply would then create a second PR.
-    // A non-GitHub remote or land mode observes nothing and calls no `gh`.
-    let existing = if mode == DeliveryMode::Push && opens_pull_requests(declared) {
-        existing_pr(&bare, feature.branch.as_str())?
-    } else {
-        None
-    };
+    let observed = observe_pull_requests(mode, declared, &bare, feature)?;
+    let existing = observed.as_ref().and_then(|seen| seen.open.as_ref());
+
+    // A branch that carries the head of a merged PR and has no open PR would
+    // be delivered as a second PR re-sending what the merge already landed.
+    let merged_pr = already_merged(git, &bare, feature, observed.as_ref())?;
+    if let Some(merged) = &merged_pr {
+        blockers.push(merged.blocker(&feature.branch, declared.default_branch()));
+    }
 
     let action = match mode {
         DeliveryMode::Push => {
@@ -322,7 +315,7 @@ fn build_repo_entry(
         if d {
             // Intent: draft. Derived from the single observation above,
             // so the baseline action and this decision can never disagree.
-            match &existing {
+            match existing {
                 Some(pr) if pr.is_draft => None,              // already draft: no-op
                 Some(_) => Some(DraftAction::ConvertToDraft), // ready → draft
                 None => Some(DraftAction::CreateAsDraft),     // new PR
@@ -351,6 +344,7 @@ fn build_repo_entry(
         pr_title: metadata.title,
         pr_body: metadata.body,
         draft: draft_action,
+        merged_pr,
     };
     repo.push_refspec = format!(
         "{}:refs/heads/{}",
@@ -378,6 +372,72 @@ fn build_repo_entry(
         });
     }
     Ok(repo)
+}
+
+/// Predict the delivery action's input: only GitHub remotes get a PR. A repo
+/// on any other host (a local path, a mirror, GitLab) is push-only — `gh`
+/// cannot raise a PR there. For GitHub, check the remote: if an open PR
+/// already exists for this branch we update it, otherwise we create one. In
+/// land mode, the action is landing onto default.
+///
+/// The observation is made once — every state, so a PR that already merged is
+/// seen too — and shared with the draft decision. Two separate `gh pr list`
+/// calls would leave a window in which a PR opened between them yields
+/// `NewPr` paired with `ConvertToDraft` — and apply would then create a second
+/// PR. A non-GitHub remote or land mode observes nothing and calls no `gh`.
+fn observe_pull_requests(
+    mode: DeliveryMode,
+    declared: &Repo,
+    bare: &Utf8Path,
+    feature: &Feature,
+) -> Result<Option<BranchPullRequests>, Failure> {
+    if mode == DeliveryMode::Push && opens_pull_requests(declared) {
+        branch_pull_requests(bare, feature.branch.as_str()).map(Some)
+    } else {
+        Ok(None)
+    }
+}
+
+/// The merged PR this branch still carries the head of, if any — the newest
+/// such PR.
+///
+/// A merged PR for the branch *name* is not enough: a name reused after the
+/// merge, cut fresh from the default branch, still has the old PR on record.
+/// What marks the branch as already delivered is the PR's head being in the
+/// branch's history. When that cannot be shown either way — the head object is
+/// not in the bare clone, or the record carries none — the proof that the
+/// branch is new is missing, so it counts as carrying it.
+fn already_merged(
+    git: &impl git::Git,
+    bare: &Utf8Path,
+    feature: &Feature,
+    observed: Option<&BranchPullRequests>,
+) -> Result<Option<MergedPr>, Failure> {
+    // An open PR is the one to update, and nothing observed means no `gh` ran.
+    let Some(seen) = observed.filter(|seen| seen.open.is_none()) else {
+        return Ok(None);
+    };
+    if seen.merged.is_empty()
+        || !git
+            .list_branches(bare)?
+            .iter()
+            .any(|branch| branch == feature.branch.as_str())
+    {
+        return Ok(None);
+    }
+    Ok(seen
+        .merged
+        .iter()
+        .find(|pr| {
+            pr.head_oid.as_deref().is_none_or(|head| {
+                git.is_ancestor(bare, head, feature.branch.as_str())
+                    .unwrap_or(true)
+            })
+        })
+        .map(|pr| MergedPr {
+            number: pr.number,
+            merge_commit: pr.merge_commit.clone().filter(|sha| !sha.is_empty()),
+        }))
 }
 
 /// Whether the base still supports delivering onto it — a base gone from the

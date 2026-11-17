@@ -201,7 +201,7 @@ Abandon an active or blocked run, transitioning it to interrupted
 
 ## `ivar feature deliver`
 
-Preview, then push, a feature's promoted repos. `--preview` prints the side-effect-free summary (with its fingerprint) and pushes nothing; applying with `--fingerprint` is refused if the state has drifted. A branch whose base has moved is a blocker, found before anything is pushed. A branch rebased since the last delivery is replaced with `--force-with-lease` over the tip that delivery pushed, and only over it
+Preview, then push, a feature's promoted repos. `--preview` prints the side-effect-free summary (with its fingerprint) and pushes nothing; applying with `--fingerprint` is refused if the state has drifted. A branch whose base has moved is a blocker, found before anything is pushed. So is a branch that still carries the head of a merged pull request (`deliver.pr_already_merged`): delivering it would open a second PR re-sending the merged commits. A branch rebased since the last delivery is replaced with `--force-with-lease` over the tip that delivery pushed, and only over it
 
 | argument | required | description |
 | --- | --- | --- |

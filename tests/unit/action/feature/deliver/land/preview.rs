@@ -169,6 +169,7 @@ fn land_preview_names_the_target_and_the_mode() {
                 pr_title: None,
                 pr_body: None,
                 draft: None,
+                merged_pr: None,
             }],
             tree_blockers: Vec::new(),
             memory_review: MemoryReviewGate::Reviewed,

@@ -134,7 +134,8 @@ It will not stop a determined process running as your user.
 `feature delete` record delivery events into the hall memory database. A merge observed by
 `cleanup` or `integrate` is recorded as `delivery.merged`.
 
-- The `deliver` preview records nothing: it never sees a merged pull request.
+- The `deliver` preview records nothing. It does see a merged pull request, but only to
+  refuse with `deliver.pr_already_merged`; the merge is recorded by `cleanup` or `integrate`.
 - `feature rename` and `feature status` record nothing.
 - The `cleanup` preview records a merge it observes. It records it once, because the event
   id derives from the pull request.
