@@ -17,9 +17,9 @@ on:
 permissions:
   contents: read
 
-# Only PR runs cancel in-progress: release-plz.yml fires on push to main and
-# publishes to crates.io with no CI gate in front of it, so cancelling a main
-# run would widen the window where a published commit has no green CI.
+# Only PR runs cancel in-progress: release-plz.yml publishes from the ci run
+# on main, so a cancelled main run would leave that commit unpublished until
+# the next push.
 concurrency:
   group: ci-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -29,49 +29,23 @@ env:
   RUSTFLAGS: -D warnings
 
 jobs:
-  # The commit that merging the release PR puts on main only bumps the version
-  # and the changelog; the PR that produced it already passed this gate. This
-  # job recognises that commit so the jobs below skip it. It still succeeds, so
-  # the run concludes `success` and release.yml, which waits on this workflow,
-  # goes straight to publishing.
-  #
-  # The commit message alone is not trusted: a squash title is editable by
-  # whoever merges. The commit must also touch nothing but the files
-  # release-plz writes, so a code change cannot skip CI by being titled
-  # `chore: release`.
-  release-commit:
-    name: release commit
+  # Every push to main runs the whole gate, the commit that merging the
+  # release PR creates included. release-plz opens that PR with
+  # GITHUB_TOKEN, which starts no workflow, so this run is the only one that
+  # tests the version bump, and release-plz.yml publishes only after it
+  # succeeds.
+  scope:
+    name: change scope
     runs-on: ubuntu-latest
     outputs:
-      release: ${{ steps.detect.outputs.release }}
       scope: ${{ steps.scope.outputs.scope }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           fetch-depth: 2
-      - name: detect release commit
-        id: detect
-        env:
-          EVENT: ${{ github.event_name }}
-          MESSAGE: ${{ github.event.head_commit.message }}
-        run: |
-          release=false
-          if [ "$EVENT" = push ]; then
-            subject=$(printf '%s' "$MESSAGE" | head -n1)
-            case "$subject" in
-              "chore: release"*)
-                extra=$(git diff --name-only HEAD^ HEAD | grep -v -x -e Cargo.toml -e Cargo.lock -e CHANGELOG.md || true)
-                if [ -z "$extra" ]; then release=true; fi
-                ;;
-            esac
-          fi
-          echo "release=$release" >> "$GITHUB_OUTPUT"
-          echo "release commit: $release" >> "$GITHUB_STEP_SUMMARY"
-
       # Decides how much of the gate a pull request needs. The rules name what
       # may be skipped, never what triggers, so a path nobody classified runs
-      # everything. Pushes to main always run everything: release-plz publishes
-      # from there. ci.yml itself is code, since a change to it changes the gate.
+      # everything. ci.yml itself is code, since a change to it changes the gate.
       #   none: only .github/ files other than ci.yml
       #   docs: docs/ and root Markdown, which static_checks reads
       #   full: anything else
@@ -96,8 +70,8 @@ jobs:
     name: gate (${{ matrix.os }})
     # Draft PRs are a work-in-progress marker, not a review request — skip
     # their runs and arm CI via ready_for_review instead.
-    needs: release-commit
-    if: github.event.pull_request.draft == false && needs.release-commit.outputs.release != 'true' && needs.release-commit.outputs.scope == 'full'
+    needs: scope
+    if: github.event.pull_request.draft == false && needs.scope.outputs.scope == 'full'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -156,8 +130,8 @@ jobs:
   # here instead of passing on a runner that happens to be online.
   personas:
     name: personas (network off)
-    needs: release-commit
-    if: github.event.pull_request.draft == false && needs.release-commit.outputs.release != 'true' && needs.release-commit.outputs.scope == 'full'
+    needs: scope
+    if: github.event.pull_request.draft == false && needs.scope.outputs.scope == 'full'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -174,8 +148,8 @@ jobs:
 
   msrv:
     name: msrv
-    needs: release-commit
-    if: github.event.pull_request.draft == false && needs.release-commit.outputs.release != 'true' && needs.release-commit.outputs.scope == 'full'
+    needs: scope
+    if: github.event.pull_request.draft == false && needs.scope.outputs.scope == 'full'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -193,8 +167,8 @@ jobs:
 
   coverage:
     name: coverage (report only)
-    needs: release-commit
-    if: github.event.pull_request.draft == false && needs.release-commit.outputs.release != 'true' && needs.release-commit.outputs.scope == 'full'
+    needs: scope
+    if: github.event.pull_request.draft == false && needs.scope.outputs.scope == 'full'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -218,8 +192,8 @@ jobs:
   # from the binary, so it still runs.
   docs:
     name: docs
-    needs: release-commit
-    if: github.event.pull_request.draft == false && needs.release-commit.outputs.scope == 'docs'
+    needs: scope
+    if: github.event.pull_request.draft == false && needs.scope.outputs.scope == 'docs'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5

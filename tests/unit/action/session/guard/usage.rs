@@ -239,38 +239,28 @@ fn a_search_after_only_graph_feedback_is_recorded_as_skipped() {
 #[test]
 fn graph_explore_tool_names_are_recognised_across_providers() {
     assert!(is_graph_explore_tool("mcp__gaio-graph__graph_explore"));
-    assert!(is_graph_explore_tool("gaio-graph_graph_explore"));
+    assert!(!is_graph_explore_tool("gaio-graph_graph_explore"));
     assert!(!is_graph_explore_tool("mcp__gaio-graph__graph_feedback"));
     assert!(!is_graph_explore_tool("Grep"));
     assert!(is_graph_explore_tool("graph_explore"));
-    assert!(is_graph_explore_tool("valhalla-hall-graph_graph_explore"));
     assert!(!is_graph_explore_tool("mcp__other__my_graph_explore"));
     assert!(!is_graph_explore_tool("foo_graph_explore"));
     assert!(!is_graph_explore_tool("foo_graph_explore_v2"));
 }
 
 #[test]
-fn the_guard_accepts_the_ivar_server_and_keeps_the_graph_one() {
+fn the_guard_accepts_the_ivar_server_and_drops_the_graph_one() {
     assert!(is_graph_explore_tool("valhalla-hall-ivar_graph_explore"));
     assert!(is_graph_explore_tool("foo_ivar_graph_explore"));
     assert!(is_graph_explore_tool(
         "mcp__valhalla-hall-ivar__graph_explore"
     ));
-    assert!(is_graph_explore_tool("valhalla-hall-graph_graph_explore"));
+    assert!(!is_graph_explore_tool("valhalla-hall-graph_graph_explore"));
+    assert!(!is_graph_explore_tool("-graph_graph_explore"));
     assert!(!is_graph_explore_tool(
         "mcp__valhalla-hall-ivar__graph_feedback"
     ));
     assert!(!is_graph_explore_tool("foo_ivar_graph_explore_v2"));
-}
-
-#[test]
-fn the_graph_suffixes_leave_in_the_0_20_line() {
-    let major: u32 = env!("CARGO_PKG_VERSION_MAJOR").parse().unwrap();
-    let minor: u32 = env!("CARGO_PKG_VERSION_MINOR").parse().unwrap();
-    assert!(
-        (major, minor) < (0, 20) || LEGACY_SERVER_SUFFIXES.is_empty(),
-        "remove the `graph` server suffixes from the guard"
-    );
 }
 
 #[test]
@@ -318,7 +308,7 @@ fn assert_hook_payload_records_graph_call(provider: Provider) {
         .write(&env.view_dir)
         .unwrap();
     let payload = serde_json::json!({
-        "tool": "valhalla-hall-graph_graph_explore",
+        "tool": "valhalla-hall-ivar_graph_explore",
         "args": { "query": "record_graph_call_at" },
         "cwd": env.view_dir,
     });

@@ -180,11 +180,12 @@ place as more commits land — one PR per release cycle, not one per merge.
 **Merging that PR is the act of publishing.** It tags the commit, creates the
 GitHub Release, and publishes to crates.io. Do not merge it to "keep it tidy".
 
-Merging it does not rerun the test suite. The release PR is the only change in
-that commit (the version, `Cargo.lock` and the changelog), and CI already ran on
-the PR. The `ci` run on `main` for that commit skips its jobs and still
-succeeds, which is what lets `release` publish. A commit titled `chore: release`
-that touches any other file runs CI as usual.
+Merging it runs the whole `ci` gate on `main` before anything is published.
+release-plz opens the release PR with the workflow's own token, and GitHub
+starts no workflow for that, so the version bump is first tested on `main`.
+`release` waits for that `ci` run and publishes only when it succeeds. A red
+run publishes nothing: fix it on `main`, and the next green run publishes the
+same version.
 
 Three things then happen on that tag, in order:
 
@@ -208,7 +209,9 @@ Before merging the release PR, and right after it publishes, go through the
 release checklist. The site and the packages live outside this repository, so
 nothing here checks them for you:
 
-- [ ] The persona suite passes on the release PR (`personas` job in CI).
+- [ ] Before merging the release PR, `cargo test --test personas` passes
+      locally on its branch; after merging, the `personas` job passes on the
+      `ci` run for the release commit on `main`.
 - [ ] In `valhalla`, `apps/heimdall/content/docs/quickstart.mdx` says the
       commands were verified against the version being released.
 - [ ] `apps/heimdall/content/docs/changelog.mdx` has an entry for the version,

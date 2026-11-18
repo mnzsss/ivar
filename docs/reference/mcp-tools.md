@@ -217,9 +217,7 @@ session guard sees the call. Three kinds of miss are recorded:
 
 The guard recognises `graph_explore` calls by name suffix. Claude Code and T3 use
 `__graph_explore`. OpenCode and OMP use `-ivar_graph_explore` and `_ivar_graph_explore`.
-It also keeps `-graph_graph_explore` and `_graph_graph_explore` for sessions that still run
-under the old name. The old suffixes leave in 0.20.0, and a test fails from that version
-while they remain. Memory tool calls are not written to `usage`.
+Memory tool calls are not written to `usage`.
 
 Capture classifies `memory_query`, `memory_read_page`, `memory_lint`, `memory_status`,
 `memory_recent`, `memory_read_session_observations`, `memory_handoff_list` and
