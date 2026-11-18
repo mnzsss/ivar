@@ -17,9 +17,9 @@ on:
 permissions:
   contents: read
 
-# Only PR runs cancel in-progress: release-plz.yml fires on push to main and
-# publishes to crates.io with no CI gate in front of it, so cancelling a main
-# run would widen the window where a published commit has no green CI.
+# Only PR runs cancel in-progress: release-plz.yml publishes from the ci run
+# on main, so a cancelled main run would leave that commit unpublished until
+# the next push.
 concurrency:
   group: ci-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -45,8 +45,7 @@ jobs:
           fetch-depth: 2
       # Decides how much of the gate a pull request needs. The rules name what
       # may be skipped, never what triggers, so a path nobody classified runs
-      # everything. Pushes to main always run everything: release-plz publishes
-      # from there. ci.yml itself is code, since a change to it changes the gate.
+      # everything. ci.yml itself is code, since a change to it changes the gate.
       #   none: only .github/ files other than ci.yml
       #   docs: docs/ and root Markdown, which static_checks reads
       #   full: anything else
