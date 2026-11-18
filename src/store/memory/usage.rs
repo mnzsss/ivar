@@ -152,6 +152,21 @@ pub fn session_queries(conn: &Connection, sessions: &[String]) -> rusqlite::Resu
     stmt.query_map([list], |row| row.get(0))?.collect()
 }
 
+/// The `ts` of every query no session claimed, at or after `since_ts`, oldest
+/// first: a memory server started outside any session answers with none.
+/// Hook-recorded rows are not agent queries and are left out.
+///
+/// # Errors
+///
+/// When the lookup fails.
+pub fn unattributed_queries(conn: &Connection, since_ts: i64) -> rusqlite::Result<Vec<i64>> {
+    let mut stmt = conn.prepare(
+        "SELECT ts FROM memory_usage
+         WHERE session IS NULL AND source != 'hook' AND ts >= ?1 ORDER BY ts, id",
+    )?;
+    stmt.query_map([since_ts], |row| row.get(0))?.collect()
+}
+
 /// # Errors
 ///
 /// When the lookup fails.

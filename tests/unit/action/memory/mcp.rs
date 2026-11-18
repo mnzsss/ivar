@@ -244,3 +244,124 @@ fn the_instructions_say_that_ending_a_discovery_session_commits_its_pages() {
     assert!(instructions.contains("discovery session"), "{instructions}");
     assert!(instructions.contains("ivar session stop"), "{instructions}");
 }
+
+fn hall_with_feature() -> (tempfile::TempDir, Layout) {
+    use crate::action::Ctx;
+    use crate::action::feature::create::{CreateInput, create};
+    use crate::action::hall::{self, InitInput};
+
+    let (guard, root) = crate::test_support::hall_root();
+    let ctx = Ctx::new(root.clone());
+    hall::init(
+        &ctx,
+        &InitInput {
+            path: camino::Utf8PathBuf::from("."),
+            name: Some("acme".to_owned()),
+            provider: None,
+            git: false,
+            origin: None,
+        },
+    )
+    .unwrap();
+    create(
+        &ctx,
+        CreateInput {
+            name: "checkout".to_owned(),
+            branch: None,
+            base: None,
+            parent: None,
+            via: None,
+            strategy: None,
+        },
+    )
+    .unwrap();
+    (guard, Layout::at(root))
+}
+
+#[test]
+fn a_server_started_at_the_hall_root_attributes_a_page_to_the_feature_argument() {
+    let (_guard, layout) = hall_with_feature();
+    let caller = caller_in(&layout, layout.root(), None, None);
+    assert_eq!(caller.session, None);
+    assert_eq!(caller.feature, None);
+
+    call_as(
+        &layout,
+        "memory_write_page",
+        &json!({"kind": "update", "title": "Shipped", "body": "Done.\n", "feature": "checkout"}),
+        &caller,
+    )
+    .unwrap();
+
+    crate::action::memory::drain::drain(&layout).unwrap();
+    let report: Value = serde_json::from_str(
+        &call_as(
+            &layout,
+            "memory_review",
+            &json!({"feature": "checkout"}),
+            &caller,
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let written: Vec<&str> = report["written"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|page| page["path"].as_str().unwrap())
+        .collect();
+    assert_eq!(written.len(), 1, "{report}");
+    assert!(written[0].starts_with("docs/memory/update/"), "{report}");
+    assert!(report.get("unattributed").is_none(), "{report}");
+}
+
+#[test]
+fn a_call_with_no_session_and_no_feature_carries_a_notice_and_the_same_answer() {
+    let (_guard, layout) = hall_with_feature();
+    let sessionless = MemoryCaller::default();
+    let args = json!({"query": "locks"});
+
+    let (text, notice) = call_noticed(&layout, "memory_query", &args, &sessionless).unwrap();
+
+    assert_eq!(
+        text,
+        call_as(&layout, "memory_query", &args, &sessionless).unwrap()
+    );
+    let notice = notice.unwrap();
+    assert!(notice.contains("not attributed"), "{notice}");
+    assert!(notice.contains("`feature: <feature>`"), "{notice}");
+    let write = json!({"kind": "gotcha", "title": "Sharp", "body": "Edge.\n"});
+    let (_, notice) = call_noticed(&layout, "memory_write_page", &write, &sessionless).unwrap();
+    assert!(notice.is_some());
+}
+
+#[test]
+fn a_call_that_names_a_feature_or_has_a_session_carries_no_notice() {
+    let (_guard, layout) = hall_with_feature();
+    let sessionless = MemoryCaller::default();
+    let in_session = MemoryCaller {
+        session: Some("s1".to_owned()),
+        ..Default::default()
+    };
+    let named = json!({"query": "locks", "feature": "checkout"});
+    let plain = json!({"query": "locks"});
+
+    assert_eq!(
+        call_noticed(&layout, "memory_query", &named, &sessionless)
+            .unwrap()
+            .1,
+        None
+    );
+    assert_eq!(
+        call_noticed(&layout, "memory_query", &plain, &in_session)
+            .unwrap()
+            .1,
+        None
+    );
+    assert_eq!(
+        call_noticed(&layout, "memory_status", &json!({}), &sessionless)
+            .unwrap()
+            .1,
+        None
+    );
+}

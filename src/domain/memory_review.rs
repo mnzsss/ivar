@@ -222,18 +222,24 @@ fn is_memory_query(body: &Value) -> bool {
         || command(body).is_some_and(|command| command.contains("ivar memory query"))
 }
 
+/// When a captured tool call approved the feature's Analysis, if one was.
+#[must_use]
+pub fn analysis_approved_at<'a>(facts: &'a [ObservationFact], feature: &str) -> Option<&'a str> {
+    let approval = format!("ivar plan approve {feature} analysis");
+    facts
+        .iter()
+        .filter(|fact| fact.source_event == "session.tool")
+        .find(|fact| command(&fact.body).is_some_and(|command| command.contains(&approval)))
+        .map(|fact| fact.occurred_at.as_str())
+}
+
 #[must_use]
 pub fn queried_before_approval(facts: &[ObservationFact], feature: &str) -> bool {
-    let approval = format!("ivar plan approve {feature} analysis");
-    let tools = || {
-        facts
-            .iter()
-            .filter(|fact| fact.source_event == "session.tool")
-    };
-    let approved_at = tools()
-        .find(|fact| command(&fact.body).is_some_and(|command| command.contains(&approval)))
-        .map(|fact| fact.occurred_at.as_str());
-    let captured = tools().filter(|fact| is_memory_query(&fact.body));
+    let approved_at = analysis_approved_at(facts, feature);
+    let captured = facts
+        .iter()
+        .filter(|fact| fact.source_event == "session.tool")
+        .filter(|fact| is_memory_query(&fact.body));
     let served = facts.iter().filter(|fact| fact.source_event == USAGE_EVENT);
     captured
         .chain(served)
@@ -280,6 +286,50 @@ pub fn gaps(
         });
     }
     gaps
+}
+
+/// What a memory server with no session wrote and asked without naming a
+/// feature, inside the feature's window. It may belong to another feature
+/// running in the same hall, so it is reported beside `written`, never in it,
+/// and it never closes a gap.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Unattributed {
+    pub written: Vec<WrittenPage>,
+    /// `memory_query` calls, from the feature's start until now.
+    pub queries: usize,
+}
+
+impl Unattributed {
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.written.is_empty() && self.queries == 0
+    }
+}
+
+/// Notes on the gaps `unattributed` may explain. A gap stays: the calls might
+/// be another feature's. `queries_before_approval` is the share of
+/// `unattributed.queries` that preceded the Analysis approval.
+pub fn explain_gaps(gaps: &mut [Gap], unattributed: &Unattributed, queries_before_approval: usize) {
+    let pages = |kind: PageKind| {
+        unattributed
+            .written
+            .iter()
+            .filter(|page| page.kind == kind.as_str() && page.action != PageAction::Deleted)
+            .count()
+    };
+    for gap in gaps {
+        let (count, what) = match gap.kind {
+            GapKind::Gotcha => (pages(PageKind::Gotcha), "gotcha page write(s)"),
+            GapKind::Update => (pages(PageKind::Update), "update page write(s)"),
+            GapKind::AnalysisWithoutQuery => (queries_before_approval, "memory_query call(s)"),
+        };
+        if count > 0 {
+            gap.detail = format!(
+                "{}; {count} unattributed {what} in the feature's window do not count: pass `feature` to attribute them",
+                gap.detail
+            );
+        }
+    }
 }
 
 /// The durable pages a feature's diff may have made stale, and the broken

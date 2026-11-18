@@ -126,8 +126,16 @@ descendants' sessions. An MCP server takes its feature from the environment it s
 in, so one started before the session existed (a T3 thread, OMP, a converted discovery)
 is unbound: it passes `feature`, and so do the page tools and `memory_query` whose calls
 should count for that feature. A bound server keeps its own feature, and a different
-`feature` argument is an error naming both. `written` joins `memory.page_written`, which the three write
-tools record, with captured write tools under `docs/memory/<kind>/`. `gaps` are a
+`feature` argument is an error naming both. A page or query tool called by an unbound
+server without `feature` still works, but its answer carries a second `content` block
+noting that the call was not attributed to a feature; pass `feature` to attribute it.
+`written` joins `memory.page_written`, which the three write
+tools record, with captured write tools under `docs/memory/<kind>/`. `unattributed` lists,
+apart from `written`, the `memory.page_written` events and the `memory_query` calls that carried neither a session nor a feature since the feature began
+(the earlier of its directory's creation and its first observation), as `written` pages and
+a `queries` count; it is omitted when empty. Another feature running in the same hall can
+own them, so they never join `written` and never close a gap: a gap they might explain keeps
+its kind and its `detail` says how many were left out. `gaps` are a
 failed tool without a `gotcha`, no `update` page, and an Analysis approved without a
 `memory_query`. None blocks the confirmation. `stale` lists durable pages anchored to a
 file the feature's diff changed, including a broken anchor whose file the diff deleted,

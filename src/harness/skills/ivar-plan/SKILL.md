@@ -131,7 +131,7 @@ never blocks approval of this artifact. This checkpoint never edits `HALL.md`;
 4. **Gate.** Show the analysis and ask: **(a) Approve and continue** to the
    Plan, **(b) Revise**. On (a), call `ivar plan approve <feature> analysis` and
    start Phase 3 in the same turn.
-   When the Analysis is approved, record one `decision` per trade-off you chose: `memory_write_page` with `kind: decision`, or, when the tool does not exist, write `docs/memory/decision/<slug>.md` with a `title` and `tags` frontmatter, the options considered and why one won. Outside a session bound to the feature, pass `feature: <feature>` to `memory_write_page`.
+   When the Analysis is approved, record one `decision` per trade-off you chose: `memory_write_page` with `kind: decision`, or, when the tool does not exist, write `docs/memory/decision/<slug>.md` with a `title` and `tags` frontmatter, the options considered and why one won. Outside a session bound to the feature, pass `feature: <feature>` to `memory_write_page`; without it the answer carries a notice that the call was not attributed to a feature.
 
 ## Phase 3: Plan
 

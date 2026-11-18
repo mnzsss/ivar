@@ -365,12 +365,17 @@ fn memory_tool_response(
     };
     let layout = Layout::at(utf8_root);
     let caller = crate::action::memory::mcp::caller_for(&layout, cwd, client);
-    match crate::action::memory::mcp::call_as(&layout, name, args, &caller) {
-        Ok(text) => json!({
-            "jsonrpc": "2.0",
-            "id": id,
-            "result": { "content": [{"type": "text", "text": text}] }
-        }),
+    match crate::action::memory::mcp::call_noticed(&layout, name, args, &caller) {
+        Ok((text, notice)) => {
+            // The notice is its own block: the answer's JSON stays parseable.
+            let mut content = vec![json!({"type": "text", "text": text})];
+            content.extend(notice.map(|text| json!({"type": "text", "text": text})));
+            json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "result": { "content": content }
+            })
+        }
         Err(message) => tool_error(id, &message),
     }
 }

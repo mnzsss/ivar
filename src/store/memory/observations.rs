@@ -239,6 +239,38 @@ pub fn feature_observations_on(
     .collect()
 }
 
+/// The `memory.page_written` rows that no session and no feature claimed,
+/// recorded at or after `since` (an RFC 3339 UTC timestamp), oldest first:
+/// what a memory server started outside any session wrote without `feature`.
+///
+/// # Errors
+///
+/// Returns the `SQLite` error when the query fails.
+pub fn unattributed_page_writes(
+    conn: &Connection,
+    since: &str,
+) -> rusqlite::Result<Vec<FeatureObservation>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, source_event, occurred_at, session_id, feature, importance, body
+           FROM observations
+          WHERE source_event = 'memory.page_written'
+            AND feature = '' AND session_id = '' AND occurred_at >= ?1
+          ORDER BY occurred_at, id",
+    )?;
+    stmt.query_map([since], |row| {
+        Ok(FeatureObservation {
+            id: row.get(0)?,
+            source_event: row.get(1)?,
+            occurred_at: row.get(2)?,
+            session_id: row.get(3)?,
+            feature: row.get(4)?,
+            importance: row.get(5)?,
+            body: row.get(6)?,
+        })
+    })?
+    .collect()
+}
+
 fn observation_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ObservationRow> {
     let body: String = row.get(5)?;
     Ok(ObservationRow {

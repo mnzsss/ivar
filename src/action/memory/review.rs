@@ -17,12 +17,13 @@ use crate::action::{Ctx, discover_hall, read_manifest};
 use crate::domain::feature::{Feature, Gate, GateState, WorktreeState};
 pub use crate::domain::memory_review::Verdict;
 use crate::domain::memory_review::{
-    Gap, ObservationFact, PageAction, StalePage, USAGE_EVENT, WrittenPage, gaps, is_delivered,
-    is_durable_page, missing_verdicts, queried_before_approval, stale_pages, written_pages,
+    Gap, ObservationFact, PageAction, StalePage, USAGE_EVENT, Unattributed, WrittenPage,
+    analysis_approved_at, explain_gaps, gaps, is_delivered, is_durable_page, missing_verdicts,
+    queried_before_approval, stale_pages, written_pages,
 };
 use crate::domain::name::FeatureName;
 use crate::domain::observation::SourceEvent;
-use crate::domain::session::rfc3339_from_epoch_secs;
+use crate::domain::session::{epoch_secs_from_rfc3339, rfc3339_from_epoch_secs};
 use crate::error::{Failure, FixAction, Outcome, Report, WriteHuman};
 use crate::git::{self, Git};
 use crate::store::layout::Layout;
@@ -30,8 +31,10 @@ use crate::store::memory::anchors::{
     GraphAttach, anchored_files, attach_graph, broken_anchors, detach_graph,
 };
 use crate::store::memory::db::MemoryDb;
-use crate::store::memory::observations::{FeatureObservation, feature_observations};
-use crate::store::memory::usage::session_queries;
+use crate::store::memory::observations::{
+    FeatureObservation, feature_observations, unattributed_page_writes,
+};
+use crate::store::memory::usage::{session_queries, unattributed_queries};
 
 const MAX_RECORDED_ENTRIES: usize = 50;
 
@@ -39,6 +42,11 @@ const MAX_RECORDED_ENTRIES: usize = 50;
 pub struct ReviewReport {
     pub feature: String,
     pub written: Vec<WrittenPage>,
+    /// Writes and queries from a server with no session that named no feature,
+    /// inside the feature's window. Possibly another feature's: informational,
+    /// and they never close a gap.
+    #[serde(skip_serializing_if = "Unattributed::is_empty")]
+    pub unattributed: Unattributed,
     pub gaps: Vec<Gap>,
     pub stale: Vec<StalePage>,
     /// Anchors that were already broken and that the diff did not touch:
@@ -132,6 +140,20 @@ impl WriteHuman for ReviewReport {
                 page.path, page.action, page.source
             )?;
         }
+        for page in &self.unattributed.written {
+            writeln!(
+                out,
+                "unattributed write: {} ({:?}; no session or feature named, may not be this feature's)",
+                page.path, page.action
+            )?;
+        }
+        if self.unattributed.queries > 0 {
+            writeln!(
+                out,
+                "unattributed queries: {} (no session or feature named, may not be this feature's)",
+                self.unattributed.queries
+            )?;
+        }
         for gap in &self.gaps {
             writeln!(out, "gap {}: {}", gap.kind.as_str(), gap.detail)?;
         }
@@ -199,13 +221,17 @@ pub fn review_in(layout: &Layout, name: &FeatureName) -> Result<Report<ReviewRep
     let written = written_pages(&facts, layout.root().as_str());
     let analysis_approved =
         crate::action::plan::effective_gate(layout, name, Gate::Analysis)? == GateState::Approved;
-    let gaps = gaps(&facts, &written, name.as_str(), analysis_approved);
+    let mut gaps = gaps(&facts, &written, name.as_str(), analysis_approved);
+    let (unattributed, queries_before_approval) =
+        unattributed_since_start(layout, &feature, &rows, &facts, &written, &mut notes);
+    explain_gaps(&mut gaps, &unattributed, queries_before_approval);
     let changed = changed_files(layout, &feature, &mut notes);
     let (anchored, broken) = anchor_matches(layout, &changed, &mut notes);
     let staleness = stale_pages(&anchored, &changed, &broken, &written);
     Ok(Report::new(ReviewReport {
         feature: name.to_string(),
         written,
+        unattributed,
         gaps,
         stale: staleness.stale,
         preexisting_broken: staleness.preexisting,
@@ -474,6 +500,83 @@ fn usage_facts(
             Vec::new()
         }
     }
+}
+
+/// The epoch second the feature's window opens at: the earlier of its
+/// directory's creation and its first observation. A feature records no
+/// creation time of its own.
+fn window_start(layout: &Layout, feature: &Feature, rows: &[FeatureObservation]) -> Option<i64> {
+    let created = std::fs::metadata(layout.feature_dir(&feature.name))
+        .and_then(|meta| meta.created())
+        .ok()
+        .and_then(|at| at.duration_since(std::time::UNIX_EPOCH).ok())
+        .and_then(|elapsed| i64::try_from(elapsed.as_secs()).ok());
+    let first = rows
+        .iter()
+        .filter(|row| row.feature == feature.name.as_str())
+        .filter_map(|row| epoch_secs_from_rfc3339(&row.occurred_at))
+        .min();
+    created.into_iter().chain(first).min()
+}
+
+/// The writes and queries no session or feature claimed since the feature
+/// began, and how many of those queries preceded the Analysis approval (the
+/// whole window while no approval was captured). They never reach `written`
+/// or the gaps' facts: a call of another feature in the hall can fall inside
+/// the window.
+fn unattributed_since_start(
+    layout: &Layout,
+    feature: &Feature,
+    rows: &[FeatureObservation],
+    facts: &[ObservationFact],
+    written: &[WrittenPage],
+    notes: &mut Notes,
+) -> (Unattributed, usize) {
+    let none = (Unattributed::default(), 0);
+    let Some(start) = window_start(layout, feature, rows) else {
+        return none;
+    };
+    if !layout.memory_db().exists() {
+        return none;
+    }
+    let since = rfc3339_from_epoch_secs(start as f64);
+    let read = open(layout).and_then(|db| {
+        let writes =
+            unattributed_page_writes(db.conn(), &since).map_err(|error| unreadable(&error))?;
+        let queries = unattributed_queries(db.conn(), start).map_err(|error| unreadable(&error))?;
+        Ok((writes, queries))
+    });
+    let (writes, queries) = match read {
+        Ok(read) => read,
+        Err(failure) => {
+            notes.warn(format!(
+                "unattributed memory calls could not be read: {}",
+                failure.what
+            ));
+            return none;
+        }
+    };
+    let write_facts: Vec<ObservationFact> = writes.iter().map(fact).collect();
+    let attributed: std::collections::BTreeSet<&str> =
+        written.iter().map(|page| page.path.as_str()).collect();
+    let pages = written_pages(&write_facts, layout.root().as_str())
+        .into_iter()
+        .filter(|page| !attributed.contains(page.path.as_str()))
+        .collect();
+    let before_approval = match analysis_approved_at(facts, feature.name.as_str()) {
+        Some(approved_at) => queries
+            .iter()
+            .filter(|ts| rfc3339_from_epoch_secs(**ts as f64).as_str() < approved_at)
+            .count(),
+        None => queries.len(),
+    };
+    (
+        Unattributed {
+            written: pages,
+            queries: queries.len(),
+        },
+        before_approval,
+    )
 }
 
 /// The latest `memory.reviewed` of the feature, else its latest

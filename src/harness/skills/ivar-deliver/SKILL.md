@@ -31,7 +31,9 @@ Delivery refuses a feature whose memory was not reviewed
 Before the preview, review the feature's memory. Outside a session bound to
 the feature (a T3 thread, a conversation started outside `ivar`),
 pass `feature: <feature>` to `memory_review`, `memory_write_page` and
-`memory_patch_page`.
+`memory_patch_page`. A call from such a server that omits `feature` is answered with a
+notice that it was not attributed to any feature, and `memory_review` lists it only as
+`unattributed`: it never closes a gap.
 
 1. Call the `memory_review` MCP tool. It returns four lists:
    - **written**: the pages the feature wrote under `docs/memory/`;
