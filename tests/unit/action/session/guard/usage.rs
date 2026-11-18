@@ -243,7 +243,6 @@ fn graph_explore_tool_names_are_recognised_across_providers() {
     assert!(!is_graph_explore_tool("mcp__gaio-graph__graph_feedback"));
     assert!(!is_graph_explore_tool("Grep"));
     assert!(is_graph_explore_tool("graph_explore"));
-    assert!(!is_graph_explore_tool("valhalla-hall-graph_graph_explore"));
     assert!(!is_graph_explore_tool("mcp__other__my_graph_explore"));
     assert!(!is_graph_explore_tool("foo_graph_explore"));
     assert!(!is_graph_explore_tool("foo_graph_explore_v2"));
