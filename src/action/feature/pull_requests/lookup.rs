@@ -1,6 +1,6 @@
 use camino::Utf8Path;
 
-use super::{GhPrRecord, PullRequest, capture, parse_gh};
+use super::{GhPrRecord, OPEN, PullRequest, capture, parse_gh};
 use crate::error::Failure;
 use crate::infra::proc;
 
@@ -48,4 +48,36 @@ pub(crate) fn existing_pr(
     branch: &str,
 ) -> Result<Option<PullRequest>, Failure> {
     find_pull_request(git_dir, branch, "open")
+}
+
+/// What one `gh pr list --state all` says about a head branch: the PR that is
+/// open, and the ones that merged. Made in a single call so a decision built
+/// from both — the delivery action and the draft decision, and whether the
+/// branch was already merged — rests on one fact.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub(crate) struct BranchPullRequests {
+    /// The open PR, when there is one.
+    pub open: Option<PullRequest>,
+    /// Every merged PR, newest (highest number) first. A `CLOSED` PR that
+    /// never merged is not kept: it blocks nothing.
+    pub merged: Vec<PullRequest>,
+}
+
+/// Every open and merged pull request whose head is `branch`.
+pub(crate) fn branch_pull_requests(
+    git_dir: &Utf8Path,
+    branch: &str,
+) -> Result<BranchPullRequests, Failure> {
+    let mut observed = BranchPullRequests::default();
+    for pr in list_pull_requests(git_dir, branch, "all")? {
+        if pr.state == OPEN {
+            observed.open.get_or_insert(pr);
+        } else if pr.is_merged() {
+            observed.merged.push(pr);
+        }
+    }
+    observed
+        .merged
+        .sort_by_key(|pr| std::cmp::Reverse(pr.number));
+    Ok(observed)
 }

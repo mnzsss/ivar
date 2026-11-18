@@ -82,6 +82,16 @@ repeat it to select several. Use it when one repo's PR is already merged and
 another repo of the same feature still needs its PR updated — delivering
 every repo would push the merged branch again and open a new PR for it.
 
+The preview lists that case as a blocker, and apply refuses it with
+`deliver.pr_already_merged`, when the repo's branch has no open PR, a merged
+PR exists for it, and the merged PR's head is in the branch's history (or
+cannot be shown to be absent from it). The usual way out is a new feature
+cut from the default branch that carries only the commits made after the
+merge; `ivar feature rebase` re-applies the already-merged commits after a
+squash merge, so check its result. A `CLOSED` PR that never merged blocks
+nothing, and neither does a branch recreated from the default branch after
+the merge.
+
 ```bash
 ivar feature deliver <feature> --only web --preview
 ivar feature deliver <feature> --only web --fingerprint <fp>

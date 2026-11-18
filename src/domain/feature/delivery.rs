@@ -171,6 +171,90 @@ pub struct DeliveryRepo {
     /// How the remote PR should be drafted, if at all.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub draft: Option<DraftAction>,
+    /// The already-merged pull request this branch still carries the head of.
+    /// Present only when delivering would re-send squashed work as a second
+    /// PR. Its blocker text is also listed in [`Self::blockers`]; this is the
+    /// typed fact apply refuses on with its own code.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub merged_pr: Option<MergedPr>,
+}
+
+/// A merged pull request whose head is an ancestor of a delivered branch —
+/// the branch was already merged once and has grown since. Opening a new PR
+/// would re-send the commits the merge already put on the default branch.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MergedPr {
+    /// The host-assigned PR number.
+    pub number: u64,
+    /// The commit the merge produced, when the forge reported it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub merge_commit: Option<String>,
+}
+
+impl MergedPr {
+    /// The code of the refusal, in the blocker text and on the apply failure.
+    pub const CODE: &'static str = "deliver.pr_already_merged";
+
+    fn merge_commit_text(&self) -> String {
+        self.merge_commit.as_deref().map_or_else(
+            || "merge commit unknown".to_owned(),
+            |sha| format!("merge commit {sha}"),
+        )
+    }
+
+    /// The preview blocker. Part of the fingerprint, so it holds only facts
+    /// that are stable between the preview and apply — never a network error.
+    #[must_use]
+    pub fn blocker(&self, branch: &BranchName, default_branch: &BranchName) -> String {
+        format!(
+            "{}: PR #{} for `{branch}` is already merged ({}) and this branch still carries its head; delivering would open a second PR re-sending the merged commits — start a new feature from `{default_branch}` with only the new commit, or run `ivar feature rebase <feature>`, or deliver without this repo (`--only`)",
+            Self::CODE,
+            self.number,
+            self.merge_commit_text(),
+        )
+    }
+
+    /// The refusal apply returns for this repo.
+    #[must_use]
+    pub fn failure(
+        &self,
+        feature: &FeatureName,
+        repo: &RepoName,
+        branch: &BranchName,
+        default_branch: &BranchName,
+    ) -> Failure {
+        Failure::blocked(
+            Self::CODE,
+            format!(
+                "`{repo}`'s branch `{branch}` already shipped in PR #{}",
+                self.number
+            ),
+        )
+        .expected("a branch with no already-merged PR head in its history, or a repo left out of the delivery")
+        .actual(format!(
+            "PR #{} ({}) is merged and its head is in `{branch}`; a new PR would re-send those commits",
+            self.number,
+            self.merge_commit_text(),
+        ))
+        .fix(FixAction::unsafe_(
+            "deliver.new_feature_from_default",
+            format!(
+                "Create a new feature from `{default_branch}` and carry over only the commits made after PR #{} merged."
+                , self.number
+            ),
+        ))
+        .fix(FixAction::unsafe_(
+            "deliver.rebase_merged_branch",
+            format!(
+                "Run `ivar feature rebase {feature} --repo {repo}` — after a squash merge it re-applies the already-merged commits, so check the result before delivering."
+            ),
+        ))
+        .fix(FixAction::safe(
+            "deliver.only_without_repo",
+            format!("Preview `ivar feature deliver {feature} --only <repo>` naming the other repos, leaving `{repo}` out."),
+        ))
+    }
 }
 
 /// The remote draft transition attached to a `DeliveryRepo`.

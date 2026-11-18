@@ -37,7 +37,7 @@ use camino::Utf8PathBuf;
 pub(crate) struct FakeGh {
     /// The bin dir holding the `gh` script; prepend to `PATH`.
     pub(crate) dir: Utf8PathBuf,
-    /// PR state: `cwd|head|url|base|state|queue|created_oid|title|body|is_draft` lines.
+    /// PR state: `cwd|head|url|base|state|queue|created_oid|title|body|is_draft|pinned_head` lines.
     pub(crate) state: Utf8PathBuf,
     /// Check state: `url|name|bucket|state|link` lines.
     pub(crate) checks: Utf8PathBuf,
@@ -192,6 +192,12 @@ fi
 if [ -n "$lookup_head" ] && git rev-parse --verify -q "refs/heads/$lookup_head" >/dev/null 2>&1; then
   head_oid=$(git rev-parse "refs/heads/$lookup_head")
 fi
+# A record may pin the head the PR was merged or opened at (field 11), so a
+# branch that moved on since is visible: the PR's head is behind the tip.
+pinned_head=$(printf '%s' "$record" | awk -F'|' '{print $11}')
+if [ -n "$pinned_head" ]; then
+  head_oid="$pinned_head"
+fi
 
 # The origin the insteadOf rewrite points at — where a fake merge really lands.
 origin=""
@@ -235,6 +241,9 @@ case "$sub" in
       mv "$GH_FAKE_STATE.tmp" "$GH_FAKE_STATE"
       printf '[]\n'
     elif [ -z "$pr_url" ]; then
+      printf '[]\n'
+    elif [ "$state" = "open" ] && [ "$pr_state" != "OPEN" ] && [ "$pr_state" != "QUEUED" ]; then
+      # Like the real `gh`, `--state open` hides a merged or closed PR.
       printf '[]\n'
     else
       printf '[%s]\n' "$(emit_pr)"
@@ -542,6 +551,26 @@ impl FakeGh {
         use std::fmt::Write as _;
         let _ = writeln!(content, "{cwd}|{branch}|{url}|{base}|{state}|||||");
         std::fs::write(&self.state, content).unwrap();
+    }
+
+    /// Pin the head commit `gh` reports for the PR at `url` to `oid`, instead
+    /// of the live tip of its branch — a PR whose branch has moved on since.
+    pub(crate) fn set_pr_head(&self, url: &str, oid: &str) {
+        let state = std::fs::read_to_string(&self.state).unwrap_or_default();
+        let updated: String = state
+            .lines()
+            .map(|line| {
+                let mut fields: Vec<&str> = line.split('|').collect();
+                if fields.get(2) == Some(&url) {
+                    while fields.len() < 11 {
+                        fields.push("");
+                    }
+                    fields[10] = oid;
+                }
+                format!("{}\n", fields.join("|"))
+            })
+            .collect();
+        std::fs::write(&self.state, updated).unwrap();
     }
 
     /// Seed a pre-existing draft PR in the fake state, so `pr list` returns

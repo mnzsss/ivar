@@ -57,7 +57,7 @@ pub use cleanup::{
 };
 pub use delivery::{
     DeliveryAction, DeliveryMode, DeliveryPreview, DeliveryRepo, DeliveryTreeBlocker, DraftAction,
-    Guard, MemoryReviewGate,
+    Guard, MemoryReviewGate, MergedPr,
 };
 pub use integration::{
     ClassificationFacts, FeatureIntegrationState, IntegrationOverride, IntegrationPolicy,

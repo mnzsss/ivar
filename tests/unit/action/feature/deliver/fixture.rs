@@ -327,6 +327,7 @@ pub(super) fn delivery_repo(name: &str, dependencies: Vec<&str>) -> DeliveryRepo
         pr_title: None,
         pr_body: None,
         draft: None,
+        merged_pr: None,
     }
 }
 
