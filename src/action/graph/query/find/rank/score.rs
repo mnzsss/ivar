@@ -24,7 +24,7 @@ pub(super) fn collect_pinned_candidates(
             continue;
         }
         for (file_id, f_repo, f_path) in res_path.files() {
-            let key = (f_repo.clone(), f_path.clone());
+            let key = (f_repo, f_path);
             if is_pinned {
                 pinned_files.insert(key.clone(), true);
             }

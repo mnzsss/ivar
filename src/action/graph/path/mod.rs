@@ -135,7 +135,7 @@ fn run_bidirectional_bfs(
                     if let std::collections::hash_map::Entry::Vacant(e) =
                         forward_visited.entry(next_id)
                     {
-                        e.insert(Some((curr, step.clone())));
+                        e.insert(Some((curr, step)));
                         forward_queue.push_back((next_id, depth + 1));
                     }
 
@@ -169,7 +169,7 @@ fn run_bidirectional_bfs(
                     if let std::collections::hash_map::Entry::Vacant(e) =
                         backward_visited.entry(prev_id)
                     {
-                        e.insert(Some((curr, step.clone())));
+                        e.insert(Some((curr, step)));
                         backward_queue.push_back((prev_id, depth + 1));
                     }
 

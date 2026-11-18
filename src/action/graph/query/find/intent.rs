@@ -95,15 +95,11 @@ pub(crate) fn is_identifier_shaped(token: &str) -> bool {
             return true;
         }
     }
-    if token.contains('.')
+    token.contains('.')
         && token
             .split('.')
             .next_back()
             .is_some_and(|ext| !ext.is_empty())
-    {
-        return true;
-    }
-    false
 }
 
 /// Extensionless file names that identify a file on their own.

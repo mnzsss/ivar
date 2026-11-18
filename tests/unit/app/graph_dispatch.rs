@@ -11,7 +11,7 @@ fn a_cli_graph_call_records_its_session_and_query() {
     let session_id = SessionId::new("6f0c9d5f-0000-4000-8000-0000000008bb").unwrap();
     let view_dir = graph_session_view(&root, &session_id);
 
-    dispatch_graph(
+    let _exit = dispatch_graph(
         GraphCommand::Explore(GraphExploreArgs {
             query: "enforceSession".to_owned(),
             repo: None,

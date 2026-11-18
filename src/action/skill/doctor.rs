@@ -142,7 +142,7 @@ fn collision_problems(collisions: Vec<crate::error::Warning>) -> Vec<Problem> {
         problems.push(Problem {
             code: "skill.collision",
             subject: collision.subject.clone(),
-            what: collision.what.clone(),
+            what: collision.what,
             fix_action: FixAction::unsafe_(
                 "skill.rename_one",
                 "Rename one of the two directories so the id is unique.",
