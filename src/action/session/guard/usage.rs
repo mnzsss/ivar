@@ -145,22 +145,56 @@ pub(super) fn memory_access(request: &ToolRequest, cwd: &Utf8Path) -> Option<Mem
     } else {
         request.search_pattern.clone()
     };
-    let kind = if structured_search || request.search_pattern.is_some() {
-        MemoryAccessKind::Search
-    } else {
-        MemoryAccessKind::Read
-    };
-    request
+    let searching = structured_search || request.search_pattern.is_some();
+    let in_memory = |candidate: &str| MEMORY_DIRS.iter().any(|dir| under_dir(candidate, dir));
+    let paths: Vec<Utf8PathBuf> = request
         .targets
         .iter()
         .cloned()
         .chain(path_arg)
         .chain(searches_cwd.then(|| cwd.to_owned()))
         .map(|p| if p.is_absolute() { p } else { cwd.join(p) })
-        .map(|p| p.to_string())
-        .chain(search_text)
-        .find(|candidate| MEMORY_DIRS.iter().any(|dir| under_dir(candidate, dir)))
-        .map(|pattern| MemoryAccess { pattern, kind })
+        .filter(|p| in_memory(p.as_str()))
+        .collect();
+    let text = search_text.filter(|text| in_memory(text));
+    let pattern = paths
+        .first()
+        .map(ToString::to_string)
+        .or_else(|| text.clone())?;
+    // A search whose every memory target is an existing file is the agent
+    // reading a page with `grep -n` instead of Read; anything else, including
+    // a target that does not exist, still searches.
+    let text_paths: Vec<Utf8PathBuf> = text
+        .as_deref()
+        .map(|text| memory_tokens(text, cwd))
+        .unwrap_or_default();
+    let names_only_files = (text.is_none() || !text_paths.is_empty())
+        && paths.iter().chain(&text_paths).all(|p| p.is_file());
+    let kind = if searching && !names_only_files {
+        MemoryAccessKind::Search
+    } else {
+        MemoryAccessKind::Read
+    };
+    Some(MemoryAccess { pattern, kind })
+}
+
+/// The words of a bash search command that name a memory path, resolved
+/// against `cwd`. Whitespace tokenising: a quoted path with spaces is misread
+/// and so resolves to nothing, which classifies the search as a search.
+fn memory_tokens(command: &str, cwd: &Utf8Path) -> Vec<Utf8PathBuf> {
+    command
+        .split_whitespace()
+        .map(|word| word.trim_matches(['\'', '"']))
+        .filter(|word| MEMORY_DIRS.iter().any(|dir| under_dir(word, dir)))
+        .map(|word| {
+            let path = Utf8PathBuf::from(word);
+            if path.is_absolute() {
+                path
+            } else {
+                cwd.join(path)
+            }
+        })
+        .collect()
 }
 
 fn under_dir(candidate: &str, dir: &str) -> bool {

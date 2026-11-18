@@ -217,6 +217,158 @@ fn memory_access_kind_is_search_for_grep_glob_and_bash_searches_and_read_otherwi
     );
 }
 
+fn page_in(root: &Utf8Path) -> Utf8PathBuf {
+    let dir = root.join("docs/memory/decision");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("a.md"), "page").unwrap();
+    root.join("docs/memory/decision/a.md")
+}
+
+fn bash_search(command: &str) -> crate::domain::guard::ToolRequest {
+    let input = serde_json::json!({ "command": command });
+    crate::domain::guard::ToolRequest {
+        search_pattern: crate::providers::extract_search_pattern("Bash", &input),
+        ..request("Bash", input, &[], false)
+    }
+}
+
+fn kind_of(request: &crate::domain::guard::ToolRequest, cwd: &Utf8Path) -> MemoryAccessKind {
+    memory_access(request, cwd).expect("memory access").kind
+}
+
+#[test]
+fn a_search_inside_one_memory_page_is_a_read_and_any_other_memory_search_is_not() {
+    let (_guard, root) = hall();
+    let page = page_in(&root);
+    let grep_page = request(
+        "Grep",
+        serde_json::json!({"pattern": "x", "path": page}),
+        &[],
+        false,
+    );
+    assert_eq!(kind_of(&grep_page, &root), MemoryAccessKind::Read);
+    assert_eq!(
+        kind_of(
+            &bash_search("grep -n \"x\" docs/memory/decision/a.md"),
+            &root
+        ),
+        MemoryAccessKind::Read
+    );
+
+    let in_memory_dir = root.join("docs/memory");
+    let searches = [
+        (bash_search("rg x docs/memory"), &root),
+        (bash_search("rg x docs/memory/decision"), &root),
+        (
+            bash_search("rg x docs/memory/decision/a.md docs/memory"),
+            &root,
+        ),
+        (bash_search("rg x docs/memory/decision/missing.md"), &root),
+        (bash_search("rg docs/memory src"), &root),
+        (
+            request("Grep", serde_json::json!({"pattern": "x"}), &[], false),
+            &in_memory_dir,
+        ),
+        (
+            request(
+                "Grep",
+                serde_json::json!({"pattern": "x", "path": "docs/memory/decision"}),
+                &[],
+                false,
+            ),
+            &root,
+        ),
+        (
+            request(
+                "Glob",
+                serde_json::json!({"pattern": "*.md", "path": "docs/memory"}),
+                &[],
+                false,
+            ),
+            &root,
+        ),
+    ];
+    for (request, cwd) in searches {
+        assert_eq!(
+            kind_of(&request, cwd),
+            MemoryAccessKind::Search,
+            "{request:?}"
+        );
+    }
+}
+
+#[test]
+fn a_search_of_one_memory_page_after_a_query_records_nothing_and_without_one_is_skipped() {
+    let (_guard, root) = hall();
+    page_in(&root);
+    let access = memory_access(
+        &bash_search("grep -n \"x\" docs/memory/decision/a.md"),
+        &root,
+    )
+    .unwrap();
+
+    assert!(record_memory_access_at(
+        &root,
+        None,
+        Some("s1".into()),
+        &access
+    ));
+    record_memory_call_at(&root, None, Some("s1".into()), Some("teardown"));
+    assert!(!record_memory_access_at(
+        &root,
+        None,
+        Some("s1".into()),
+        &access
+    ));
+    let grep_dir = memory_access(&bash_search("rg x docs/memory"), &root).unwrap();
+    record_memory_access_at(&root, None, Some("s1".into()), &grep_dir);
+
+    assert_eq!(
+        misses(&root),
+        vec![
+            ("skipped".to_owned(), None, None),
+            ("followup".to_owned(), Some(1), Some("teardown".to_owned())),
+        ]
+    );
+}
+
+#[test]
+fn a_claude_bash_grep_of_one_memory_page_goes_through_the_hook_as_a_read() {
+    let (_guard, root) = hall();
+    let env = session_env_in_hall(&root, "6f0c9d5f-0000-4000-8000-0000000007b2");
+    page_in(&env.view_dir);
+    crate::domain::session::SessionState::new(Provider::ClaudeCode, "2026-11-09T00:00:00Z")
+        .write(&env.view_dir)
+        .unwrap();
+    let call = |name: &str, input: serde_json::Value, id: &str| {
+        let payload = serde_json::json!({
+            "session_id": "sess-main",
+            "tool_use_id": id,
+            "tool_name": name,
+            "tool_input": input,
+            "cwd": env.view_dir,
+        });
+        guard(Provider::ClaudeCode, &payload.to_string(), None).unwrap();
+    };
+    call(
+        "mcp__acme-ivar__memory_query",
+        serde_json::json!({"query": "teardown"}),
+        "toolu_1",
+    );
+    call(
+        "Bash",
+        serde_json::json!({"command": "grep -n \"x\" docs/memory/decision/a.md"}),
+        "toolu_2",
+    );
+    assert!(misses(&root).is_empty());
+    call(
+        "Bash",
+        serde_json::json!({"command": "rg x docs/memory"}),
+        "toolu_3",
+    );
+    assert_eq!(misses(&root).len(), 1);
+}
+
 #[test]
 fn a_read_after_the_window_closes_is_skipped() {
     let (_guard, root) = hall();
