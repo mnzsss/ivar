@@ -9,17 +9,14 @@ use crate::store::memory::usage::{self, MemoryMiss, MemoryMissKind, QueryRecord}
 use camino::{Utf8Path, Utf8PathBuf};
 
 const IVAR_SERVER_SUFFIXES: [&str; 2] = ["-ivar_graph_explore", "_ivar_graph_explore"];
-pub(super) const LEGACY_SERVER_SUFFIXES: [&str; 2] =
-    ["-graph_graph_explore", "_graph_graph_explore"];
 
 /// Claude Code spells MCP tools `mcp__<server>__<tool>`; OpenCode and OMP
-/// join the server (named `…ivar`, formerly `…graph`) and tool with a single `_`.
+/// join the server (named `…ivar`) and tool with a single `_`.
 pub(super) fn is_graph_explore_tool(tool: &str) -> bool {
     tool == "graph_explore"
         || tool.ends_with("__graph_explore")
         || IVAR_SERVER_SUFFIXES
             .iter()
-            .chain(&LEGACY_SERVER_SUFFIXES)
             .any(|suffix| tool.ends_with(suffix))
 }
 
