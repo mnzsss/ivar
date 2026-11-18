@@ -209,7 +209,9 @@ Before merging the release PR, and right after it publishes, go through the
 release checklist. The site and the packages live outside this repository, so
 nothing here checks them for you:
 
-- [ ] The persona suite passes on the release PR (`personas` job in CI).
+- [ ] Before merging the release PR, `cargo test --test personas` passes
+      locally on its branch; after merging, the `personas` job passes on the
+      `ci` run for the release commit on `main`.
 - [ ] In `valhalla`, `apps/heimdall/content/docs/quickstart.mdx` says the
       commands were verified against the version being released.
 - [ ] `apps/heimdall/content/docs/changelog.mdx` has an entry for the version,
