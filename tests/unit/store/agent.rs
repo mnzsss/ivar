@@ -342,3 +342,36 @@ fn a_name_does_not_match_another_tasks_concluded_file() {
     assert!(!name_exists(&layout, "a").unwrap());
     assert!(name_exists(&layout, "a.b").unwrap());
 }
+
+#[test]
+fn the_current_run_is_written_read_and_removed_only_by_its_own_run() {
+    use crate::domain::agent::current::CurrentRun;
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root);
+    assert_eq!(read_current_run(&layout, "nightly"), None);
+
+    let run = CurrentRun {
+        run_id: "r1".into(),
+        trigger: Trigger::Manual,
+        started_at: "2026-11-18T09:00:00Z".into(),
+        pid: 42,
+        pid_start: Some("7".into()),
+    };
+    write_current_run(&layout, "nightly", &run).unwrap();
+    assert_eq!(read_current_run(&layout, "nightly"), Some(run));
+
+    remove_current_run(&layout, "nightly", "someone-else").unwrap();
+    assert!(read_current_run(&layout, "nightly").is_some());
+    remove_current_run(&layout, "nightly", "r1").unwrap();
+    assert_eq!(read_current_run(&layout, "nightly"), None);
+    remove_current_run(&layout, "nightly", "r1").unwrap();
+}
+
+#[test]
+fn a_malformed_current_run_reads_as_none() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root);
+    std::fs::create_dir_all(layout.agent_current_run("nightly").parent().unwrap()).unwrap();
+    std::fs::write(layout.agent_current_run("nightly"), "{not json").unwrap();
+    assert_eq!(read_current_run(&layout, "nightly"), None);
+}

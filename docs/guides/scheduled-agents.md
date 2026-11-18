@@ -116,12 +116,20 @@ When a timer run concludes a task:
 `ivar agent status` lists each pending task with its time and the resolved
 `OnCalendar` value. Concluded tasks are not listed.
 
+The `NOW` column shows `running since <time>` while a run of the agent is going, from
+the timer, `ivar agent run` in the background or `--wait`, and `-` otherwise. With
+`--json`, each agent has `run`: `{"state": "idle"}`, or `{"state": "running", "run_id",
+"trigger", "started_at"}`. A run records itself in `.ivar/agents/current/<name>.json`
+while it holds the agent's lock. Status reads that file and checks that its process is
+still alive, so a run that died does not show as running, and the query never touches
+the lock.
+
 ## Commands
 
 | Command | Does |
 | --- | --- |
 | `ivar agent sync` | installs, updates and removes the systemd user timers for `agents/*.md` |
-| `ivar agent status` | schedule (or the pending `at` of a task), next run, last outcome and timer state per agent |
+| `ivar agent status` | schedule (or the pending `at` of a task), next run, last outcome, whether a run is going now (`running` and since when, or `-`) and timer state per agent |
 | `ivar agent run <name>` | runs now, through the same path the timer uses, in the background: the command returns at once and `ivar agent logs <name>` prints the run once it ends; `--wait` stays attached and prints the receipt. For an Agent Task it is a rehearsal and the task stays pending |
 | `ivar agent logs <name> [--run <id>]` | output of the latest or given run; also reads a concluded Agent Task after its file moved to `agents/done/`, as long as its receipts are still on this machine |
 | `ivar agent feedback <run-id> --rating up [--comment <text>]` | records your verdict on the run; `--rating` is `up` or `down` |

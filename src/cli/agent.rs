@@ -7,7 +7,7 @@ use crate::action::agent::logs::LogsInput;
 pub enum AgentCommand {
     /// Install, update and remove the systemd timers for agents/*.md.
     Sync,
-    /// List agents with schedule (or a task's `at`), next run, last outcome and timer state.
+    /// List agents with schedule (or a task's `at`), next run, last outcome, whether a run is going now and timer state.
     Status,
     /// Run an agent now, through the same path its timer uses. The run starts
     /// in the background and the command returns at once; `ivar agent logs

@@ -65,9 +65,11 @@ use camino::Utf8PathBuf;
 
 use crate::error::{Failure, FixAction};
 
+mod alive;
 mod cwd;
 mod streaming;
 
+pub use alive::{is_alive, start_time};
 pub use cwd::is_program_running_in;
 pub use streaming::{Stream, stream};
 

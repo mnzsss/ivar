@@ -1,4 +1,5 @@
-//! `ivar agent status`: each agent's schedule or pending `at`, next and last run, and unit drift.
+//! `ivar agent status`: each agent's schedule or pending `at`, next and last run,
+//! whether a run is going now, and unit drift.
 
 use std::io;
 
@@ -8,14 +9,15 @@ use serde::Serialize;
 use super::hall_hash;
 use super::sync::current_ivar_bin;
 use crate::action::{Ctx, discover_hall};
-use crate::domain::agent::receipt::AgentRunOutcome;
+use crate::domain::agent::receipt::{AgentRunOutcome, Trigger};
 use crate::domain::agent::spec::Timing;
 use crate::domain::agent::unit::{
     exec_binary, render_service, render_spec_timer, service_path, unit_stem,
 };
 use crate::error::{Outcome, Report, WriteHuman};
-use crate::infra::{fs, systemd, table};
+use crate::infra::{fs, proc, systemd, table};
 use crate::store;
+use crate::store::layout::Layout;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case", tag = "state")]
@@ -39,6 +41,42 @@ impl UnitSync {
     }
 }
 
+/// Whether a run of the agent is going on at this moment.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case", tag = "state")]
+pub enum RunState {
+    Idle,
+    Running {
+        run_id: String,
+        trigger: Trigger,
+        started_at: String,
+    },
+}
+
+impl RunState {
+    fn label(&self) -> String {
+        match self {
+            Self::Idle => "-".to_owned(),
+            Self::Running { started_at, .. } => format!("running since {started_at}"),
+        }
+    }
+}
+
+/// `Running` only when the record of a run exists and the process that wrote it
+/// is still alive. It reads the record and asks the process table; it never
+/// touches the agent's lock, which a run starting just now would find taken and
+/// record as skipped.
+fn run_state(layout: &Layout, agent: &str) -> RunState {
+    match store::agent::read_current_run(layout, agent) {
+        Some(run) if proc::is_alive(run.pid, run.pid_start.as_deref()) => RunState::Running {
+            run_id: run.run_id,
+            trigger: run.trigger,
+            started_at: run.started_at,
+        },
+        _ => RunState::Idle,
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct AgentStatus {
     pub name: String,
@@ -49,6 +87,8 @@ pub struct AgentStatus {
     pub next_run: Option<String>,
     pub last_run_id: Option<String>,
     pub last_outcome: Option<AgentRunOutcome>,
+    /// Whether a run is going now, and which.
+    pub run: RunState,
     pub sync: UnitSync,
 }
 
@@ -63,7 +103,7 @@ impl WriteHuman for StatusOutcome {
         if self.agents.is_empty() {
             return writeln!(w, "No agents in {}.", self.root);
         }
-        let mut t = table::new(&["NAME", "SCHEDULE", "NEXT", "LAST", "SYNC"]);
+        let mut t = table::new(&["NAME", "SCHEDULE", "NEXT", "LAST", "NOW", "SYNC"]);
         for agent in &self.agents {
             let schedule = agent.at.as_ref().map_or_else(
                 || agent.schedule.clone().unwrap_or_else(|| "-".to_owned()),
@@ -84,6 +124,7 @@ impl WriteHuman for StatusOutcome {
                 &schedule,
                 next.unwrap_or("-"),
                 &last,
+                &agent.run.label(),
                 agent.sync.label(),
             ]);
         }
@@ -134,6 +175,7 @@ pub fn status_in(ctx: &Ctx, unit_dir: &Utf8Path, ivar_bin: &Utf8Path) -> Outcome
             next_run: None,
             last_run_id: last.as_ref().map(|r| r.run_id.clone()),
             last_outcome: last.map(|r| r.outcome),
+            run: run_state(&layout, &file.name),
             sync: UnitSync::NotInstalled,
         };
         match store::agent::parse(&file) {

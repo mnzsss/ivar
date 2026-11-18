@@ -287,6 +287,49 @@ fn a_held_lock_records_a_skipped_run_without_touching_docker() {
 }
 
 #[test]
+fn a_run_records_itself_while_it_holds_the_lock_and_removes_the_record_after() {
+    let (_guard, root) = hall_with_agent("tool: claude\n");
+    let layout = Layout::at(root.clone());
+    let fake = FakeDocker::install(&root);
+    let _r = redirect_on_this_thread("docker", fake_docker_command(&fake));
+    assert_eq!(
+        crate::store::agent::read_current_run(&layout, "nightly"),
+        None
+    );
+    let receipt = run_manual(&root);
+    assert_eq!(receipt.outcome, AgentRunOutcome::Succeeded);
+    assert_eq!(
+        crate::store::agent::read_current_run(&layout, "nightly"),
+        None
+    );
+}
+
+#[test]
+fn a_skipped_run_leaves_the_record_of_the_run_that_holds_the_lock() {
+    use crate::domain::agent::current::CurrentRun;
+    let (_guard, root) = hall_with_agent("tool: claude\n");
+    let layout = Layout::at(root.clone());
+    let fake = FakeDocker::install(&root);
+    let _r = redirect_on_this_thread("docker", fake_docker_command(&fake));
+    let _held = crate::infra::fs::try_lock_exclusive(&layout.agent_lock("nightly"))
+        .unwrap()
+        .unwrap();
+    let current = CurrentRun {
+        run_id: "holder".into(),
+        trigger: Trigger::Schedule,
+        started_at: "t".into(),
+        pid: std::process::id(),
+        pid_start: None,
+    };
+    crate::store::agent::write_current_run(&layout, "nightly", &current).unwrap();
+    assert_eq!(run_manual(&root).outcome, AgentRunOutcome::Skipped);
+    assert_eq!(
+        crate::store::agent::read_current_run(&layout, "nightly"),
+        Some(current)
+    );
+}
+
+#[test]
 fn a_missing_secret_is_a_failed_receipt_and_starts_no_container() {
     let (_guard, root) = hall_with_agent("tool: claude\nsecrets: [ABSENT]\n");
     let fake = FakeDocker::install(&root);

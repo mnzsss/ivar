@@ -14,6 +14,7 @@ use crate::action::{Ctx, discover_hall, read_manifest};
 use crate::domain::agent::container::{
     ContainerPlan, Mount, agent_run_args, proxy_run_args, tinyproxy_conf, tinyproxy_filter,
 };
+use crate::domain::agent::current::CurrentRun;
 use crate::domain::agent::images::{BASE_IMAGE, PROXY_IMAGE};
 use crate::domain::agent::receipt::{
     self, AgentRunReceipt, Trigger, classify, declared_outcome, scrub,
@@ -126,6 +127,8 @@ pub(crate) fn run_spec(
             return finish(layout, spec, failed);
         }
     };
+    // Dropped before `lock` on every path: the record is gone before the lock is let go.
+    let running = RunningMark::set(layout, &spec.name, &run_id, trigger, &started_at);
     // Before the DNS wait and before anything is launched or mounted.
     if let Err(failure) = scripts::ensure_approved(layout, spec) {
         let failed = AgentRunReceipt::failed(
@@ -137,6 +140,7 @@ pub(crate) fn run_spec(
             failure.what,
         );
         let result = finish(layout, spec, failed);
+        drop(running);
         drop(lock);
         return result;
     }
@@ -191,8 +195,49 @@ pub(crate) fn run_spec(
         Ok(attempt) => completed(spec, run_id, trigger, started_at, &attempt, &values),
     };
     let result = finish(layout, spec, receipt);
+    drop(running);
     drop(lock);
     result
+}
+
+/// The record of the run in progress, from taking the agent's lock until the
+/// run is over. Best effort: a status that cannot tell a run is going is a
+/// lesser harm than a run that does not happen.
+struct RunningMark<'a> {
+    layout: &'a Layout,
+    agent: String,
+    run_id: String,
+}
+
+impl<'a> RunningMark<'a> {
+    fn set(
+        layout: &'a Layout,
+        agent: &str,
+        run_id: &str,
+        trigger: Trigger,
+        started_at: &str,
+    ) -> Self {
+        let pid = std::process::id();
+        let current = CurrentRun {
+            run_id: run_id.to_owned(),
+            trigger,
+            started_at: started_at.to_owned(),
+            pid,
+            pid_start: proc::start_time(pid),
+        };
+        let _ = store::agent::write_current_run(layout, agent, &current);
+        Self {
+            layout,
+            agent: agent.to_owned(),
+            run_id: run_id.to_owned(),
+        }
+    }
+}
+
+impl Drop for RunningMark<'_> {
+    fn drop(&mut self) {
+        let _ = store::agent::remove_current_run(self.layout, &self.agent, &self.run_id);
+    }
 }
 
 fn tool_name(spec: &AgentSpec) -> &'static str {
