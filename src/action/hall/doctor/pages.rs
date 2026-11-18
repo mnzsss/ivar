@@ -1,19 +1,14 @@
 //! Read-only checks on the memory pages under `docs/memory/` and `.ivar/memory/`.
 
-use crate::action::memory::reindex::{collect, read_state, walk_pages};
+use crate::action::memory::legacy::migration_command;
+use crate::action::memory::reindex::{read_state, walk_pages};
 use crate::domain::memory_page::PageIssueCode;
 use crate::git::exec::changed_paths;
 use crate::store::layout::Layout;
 use crate::store::memory::page_source::validate_page;
 
-use camino::Utf8Path;
-
 use super::Diagnosis;
 
-const LEGACY_FOLDERS: [(&str, &str); 2] = [
-    ("docs/product", "docs/memory/product"),
-    ("docs/updates", "docs/memory/update"),
-];
 /// Regions `ivar feature cleanup` used to maintain in `HALL.md` before memory pages.
 const LEGACY_HALL_REGIONS: [&str; 2] = ["ivar:product-docs", "ivar:updates"];
 const UNCOMMITTED_EXAMPLES: usize = 5;
@@ -69,33 +64,11 @@ fn page_issues(layout: &Layout) -> Vec<Diagnosis> {
         .collect()
 }
 
-/// A legacy folder only counts when it still holds a Markdown page at any depth.
-fn holds_pages(dir: &Utf8Path) -> bool {
-    let mut found = Vec::new();
-    collect(dir, &mut found);
-    !found.is_empty()
-}
-
 fn legacy_docs(layout: &Layout, hall_is_git: bool) -> Option<Diagnosis> {
-    // `git mv` refuses to overwrite; plain `mv` needs `-n` to do the same.
-    let mv = if hall_is_git { "git mv" } else { "mv -n" };
-    let moves: Vec<String> = LEGACY_FOLDERS
-        .into_iter()
-        .filter(|(old, _)| holds_pages(&layout.root().join(old)))
-        .map(|(old, new)| {
-            if layout.root().join(new).is_dir() {
-                format!("{mv} {old}/* {new}/")
-            } else if hall_is_git {
-                format!("git mv {old} {new}")
-            } else {
-                format!("mv {old} {new}")
-            }
-        })
-        .collect();
-    (!moves.is_empty()).then(|| Diagnosis {
+    migration_command(layout, hall_is_git).map(|fix| Diagnosis {
         code: "memory.legacy_docs",
         what: "pages still live in docs/product or docs/updates".to_owned(),
-        fix: format!("mkdir -p docs/memory && {}", moves.join(" && ")),
+        fix,
     })
 }
 
