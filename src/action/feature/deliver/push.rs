@@ -102,7 +102,7 @@ pub(super) fn execute_with(
                 warnings.push(Warning::new(
                     "deliver.pr_create_failed",
                     repo_name.as_str(),
-                    failure.what.clone(),
+                    failure.what,
                 ));
             }
         }

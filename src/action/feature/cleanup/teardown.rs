@@ -27,7 +27,7 @@ pub(super) fn teardown_descendants(
                     warnings.push(Warning::new(
                         "feature.cleanup_dir_failed",
                         node.name.as_str(),
-                        failure.what.clone(),
+                        failure.what,
                     ));
                 }
             }

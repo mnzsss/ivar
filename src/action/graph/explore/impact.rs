@@ -134,7 +134,7 @@ fn collect_caller_relations(
         );
         if seen_relations.insert(rel_key) {
             let rel = OperationalRelation {
-                source: caller_endpoint.clone(),
+                source: caller_endpoint,
                 target: candidate_endpoint.clone(),
                 direction: RelationDirection::Incoming,
                 edge_kind: caller.edge_kind,
@@ -229,7 +229,7 @@ fn collect_callee_relations(
 
         let target_endpoint = RelationEndpoint {
             repo: callee_repo.clone(),
-            file_path: callee_file_path.clone(),
+            file_path: callee_file_path,
             symbol_name: callee.callee_name.clone(),
             symbol_kind: callee_kind,
         };
