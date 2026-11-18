@@ -1,8 +1,4 @@
-use rstest::rstest;
-
 use super::*;
-use crate::domain::agent::spec::WritePath;
-use crate::domain::agent::tool::Tool;
 
 const LAUNCHER: &str = "/opt/ivar/bin/ivar";
 
@@ -323,175 +319,6 @@ fn a_missing_write_path_fails_the_run_before_launching() {
 }
 
 #[test]
-fn write_roots_names_a_missing_path_with_its_code() {
-    let (_guard, root) = hall_with_agent("runtime: host\ntool: claude\n");
-    let fake = HostFake::new(&root);
-    let failure = write_roots(&[WritePath::Hall("nope".into())], &fake.home, &root, &[])
-        .expect_err("nope does not exist");
-    assert_eq!(failure.code, "agent.write_missing");
-}
-
-#[rstest]
-#[case::filesystem_root("/")]
-#[case::home("~")]
-#[case::hall_root(".")]
-#[case::hall_state(".ivar/secrets")]
-#[case::hall_scripts(".ivar/scripts")]
-#[case::hall_scripts_local(".ivar/scripts-local")]
-#[case::hall_git(".git")]
-#[case::agent_files("agents")]
-#[case::tool_login_dir("~/.claude")]
-#[case::inside_tool_login_dir("~/.claude/hooks")]
-#[case::hall_env(".env")]
-#[case::hall_mcp_config(".mcp.json")]
-#[case::provider_hook_config_dir(".claude")]
-fn write_roots_refuse_what_would_expose_the_hall_home_or_login(#[case] raw: &str) {
-    let (_guard, root) = hall_with_agent("runtime: host\ntool: claude\n");
-    let fake = HostFake::new(&root);
-    for dir in [
-        ".ivar/secrets",
-        ".ivar/scripts",
-        ".ivar/scripts-local",
-        ".git",
-        "agents",
-    ] {
-        std::fs::create_dir_all(root.join(dir)).unwrap();
-    }
-    std::fs::create_dir_all(root.join(".claude")).unwrap();
-    std::fs::write(root.join(".env"), "").unwrap();
-    std::fs::write(root.join(".mcp.json"), "{}").unwrap();
-    std::fs::create_dir_all(fake.home.join(".claude/hooks")).unwrap();
-    let credentials = Tool::Claude.credentials(&fake.home, &|_| None);
-
-    let failure = write_roots(
-        &[WritePath::parse(raw).unwrap()],
-        &fake.home,
-        &root,
-        &credentials,
-    )
-    .expect_err(raw);
-    assert_eq!(failure.code, "agent.write_refused", "{}", failure.what);
-}
-
-#[test]
-fn write_roots_allow_a_sibling_sharing_the_hall_name_prefix() {
-    let (_guard, root) = hall_with_agent("runtime: host\ntool: claude\n");
-    let fake = HostFake::new(&root);
-    let sibling = Utf8PathBuf::from(format!("{root}-out"));
-    std::fs::create_dir_all(&sibling).unwrap();
-
-    let roots = write_roots(
-        &[WritePath::Absolute(sibling.clone())],
-        &fake.home,
-        &root,
-        &[],
-    )
-    .unwrap();
-    assert_eq!(roots, vec![sibling]);
-}
-
-#[test]
-fn write_roots_grant_hall_and_home_paths_when_the_hall_lives_in_the_home() {
-    let (_guard, tmp) = crate::test_support::canonical_temp_dir();
-    let home = tmp.join("home");
-    let hall = home.join("personal/hall");
-    std::fs::create_dir_all(hall.join("brand/metricas")).unwrap();
-    std::fs::create_dir_all(home.join(".cache/ivar-metrics")).unwrap();
-    let credentials = Tool::Claude.credentials(&home, &|_| None);
-
-    let roots = write_roots(
-        &[
-            WritePath::Hall("brand/metricas".into()),
-            WritePath::Home(".cache/ivar-metrics".into()),
-        ],
-        &home,
-        &hall,
-        &credentials,
-    )
-    .unwrap();
-    assert_eq!(
-        roots,
-        vec![
-            hall.join("brand/metricas"),
-            home.join(".cache/ivar-metrics")
-        ]
-    );
-}
-
-#[cfg(unix)]
-#[test]
-fn write_roots_refuse_a_symlink_into_the_hall_state() {
-    let (_guard, root) = hall_with_agent("runtime: host\ntool: claude\n");
-    let fake = HostFake::new(&root);
-    std::fs::create_dir_all(root.join(".ivar/secrets")).unwrap();
-    std::os::unix::fs::symlink(root.join(".ivar/secrets"), fake.home.join("out")).unwrap();
-
-    let failure = write_roots(&[WritePath::Home("out".into())], &fake.home, &root, &[])
-        .expect_err("the link resolves into .ivar");
-    assert_eq!(failure.code, "agent.write_refused");
-}
-
-#[test]
-fn a_login_dir_that_holds_the_home_refuses_write_with_its_variable() {
-    let (_guard, root) = hall_with_agent("runtime: host\ntool: claude\n");
-    let fake = HostFake::new(&root);
-    std::fs::create_dir_all(fake.home.join(".cache/m")).unwrap();
-    let home = fake.home.to_string();
-    let credentials = Tool::Claude.credentials(&fake.home, &|key| {
-        (key == "CLAUDE_CONFIG_DIR").then(|| home.clone())
-    });
-
-    let failure = write_roots(
-        &[WritePath::Home(".cache/m".into())],
-        &fake.home,
-        &root,
-        &credentials,
-    )
-    .expect_err("tool config would sit directly in the home");
-    assert_eq!(failure.code, "agent.write_refused");
-    assert!(
-        failure.what.contains("CLAUDE_CONFIG_DIR"),
-        "{}",
-        failure.what
-    );
-}
-
-#[test]
-fn an_agent_without_write_never_checks_protected_paths() {
-    let (_guard, root) = hall_with_agent("runtime: host\ntool: claude\n");
-    let fake = HostFake::new(&root);
-    let home = fake.home.to_string();
-    let credentials = Tool::Claude.credentials(&fake.home, &|key| {
-        (key == "CLAUDE_CONFIG_DIR").then(|| home.clone())
-    });
-    assert!(
-        write_roots(&[], &fake.home, &root, &credentials)
-            .unwrap()
-            .is_empty()
-    );
-}
-
-#[cfg(unix)]
-#[test]
-fn an_unresolvable_protected_path_is_named_in_the_refusal() {
-    let (_guard, root) = hall_with_agent("runtime: host\ntool: claude\n");
-    let fake = HostFake::new(&root);
-    std::fs::create_dir_all(root.join("brand")).unwrap();
-    let _ = std::fs::remove_file(root.join(".mcp.json"));
-    std::os::unix::fs::symlink("missing/../elsewhere", root.join(".mcp.json")).unwrap();
-
-    let failure = write_roots(&[WritePath::Hall("brand".into())], &fake.home, &root, &[])
-        .expect_err("an unresolvable protected path fails closed");
-    assert_eq!(failure.code, "agent.write_refused");
-    assert!(failure.what.contains(".mcp.json"), "{}", failure.what);
-    assert!(
-        failure.what.contains("does not resolve"),
-        "{}",
-        failure.what
-    );
-}
-
-#[test]
 fn a_host_run_passes_the_agents_env_to_the_tool() {
     let (_guard, root) = hall_with_agent(
         "runtime: host\ntool: claude\nenv:\n  XDG_CURRENT_DESKTOP: KDE\n  TMPDIR: /tmp\n",
@@ -511,157 +338,39 @@ fn a_host_run_passes_the_agents_env_to_the_tool() {
     assert!(env.lines().any(|l| l == "TMPDIR=/tmp"), "{env}");
 }
 
-/// Logs the login the run was seeded with at start, and `end` when it ends, so
-/// a test reads the order of runs and what each one saw.
-const TIMELINE_LAUNCHER: &str = r#"echo "start $HOST_FAKE_TAG $(cat "$CLAUDE_CONFIG_DIR/.credentials.json" "$CODEX_HOME/auth.json" 2>/dev/null)" >> "$HOST_FAKE_LOG"
-[ -n "$HOST_FAKE_REFRESH" ] && printf '%s' "$HOST_FAKE_REFRESH" > "$CLAUDE_CONFIG_DIR/.credentials.json"
-[ -n "$HOST_FAKE_SLEEP" ] && sleep "$HOST_FAKE_SLEEP"
-echo "end $HOST_FAKE_TAG" >> "$HOST_FAKE_LOG"
-exit 0
-"#;
-
-fn add_agent(root: &Utf8Path, name: &str, frontmatter: &str) {
-    std::fs::write(
-        root.join(format!("agents/{name}.md")),
-        format!("---\nschedule: \"@daily\"\n{frontmatter}---\nGo.\n"),
-    )
-    .unwrap();
-}
-
-fn timeline_command(fake: &HostFake, tag: &str, sleep: &str, refresh: &str) -> Command {
-    Command::new("sh")
-        .args(["-c", TIMELINE_LAUNCHER, "ivar"])
-        .env("HOST_FAKE_LOG", fake.dir.join("timeline.log").as_str())
-        .env("HOST_FAKE_TAG", tag)
-        .env("HOST_FAKE_SLEEP", sleep)
-        .env("HOST_FAKE_REFRESH", refresh)
-}
-
-/// Runs `name` on its own thread, since a redirect is per thread.
-fn spawn_timeline_run(
-    root: &Utf8Path,
-    fake: &HostFake,
-    name: &'static str,
-    sleep: &'static str,
-    refresh: &'static str,
-) -> std::thread::JoinHandle<AgentRunReceipt> {
-    let (root, dir, home) = (root.to_path_buf(), fake.dir.clone(), fake.home.clone());
-    std::thread::spawn(move || {
-        let fake = HostFake { dir, home };
-        let _r = redirect_on_this_thread(LAUNCHER, timeline_command(&fake, name, sleep, refresh));
-        run_named(&root, name, host_deps(&fake.home, true))
-    })
-}
-
-fn timeline(fake: &HostFake) -> Vec<String> {
-    fake.read("timeline.log")
-        .lines()
-        .map(str::to_owned)
-        .collect()
-}
-
-fn wait_for_timeline(fake: &HostFake, lines: usize) {
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
-    while timeline(fake).len() < lines {
-        assert!(
-            std::time::Instant::now() < deadline,
-            "the run never started"
-        );
-        std::thread::sleep(std::time::Duration::from_millis(10));
-    }
-}
-
 #[test]
-fn host_runs_of_one_tool_go_one_at_a_time_and_the_second_reads_the_renewed_login() {
-    let (_guard, root) = hall_with_agent("runtime: host\ntool: claude\n");
-    add_agent(&root, "second", "runtime: host\ntool: claude\n");
-    let fake = HostFake::new(&root);
-
-    let first = spawn_timeline_run(&root, &fake, "nightly", "1", "{\"token\":\"new\"}");
-    wait_for_timeline(&fake, 1);
-    let second = spawn_timeline_run(&root, &fake, "second", "", "");
-    let receipts = [first.join().unwrap(), second.join().unwrap()];
-
-    for receipt in &receipts {
-        assert_eq!(
-            receipt.outcome,
-            AgentRunOutcome::Succeeded,
-            "{}",
-            receipt.output
-        );
-    }
+fn host_workspace_links_each_mount_and_grants_only_writable_ones() {
+    let (_guard, dir) = crate::test_support::utf8_temp_dir();
+    let ws = Workspace {
+        mounts: vec![
+            Mount {
+                source: "/hall/.ivar/repos/api/main".into(),
+                target: "/workspace/api".into(),
+                read_only: true,
+            },
+            Mount {
+                source: "/hall/.ivar/repos/web/agent-x".into(),
+                target: "/workspace/web".into(),
+                read_only: false,
+            },
+        ],
+        workdir: "/workspace/web/src".into(),
+    };
+    let (cwd, writable) = host_workspace(&dir, &ws).unwrap();
+    assert_eq!(cwd, dir.join("workspace/web/src"));
     assert_eq!(
-        timeline(&fake),
-        [
-            "start nightly {\"token\":\"old\"}",
-            "end nightly",
-            "start second {\"token\":\"new\"}",
-            "end second",
-        ]
-        .map(str::to_owned)
+        writable,
+        [Utf8PathBuf::from("/hall/.ivar/repos/web/agent-x")]
     );
-}
-
-#[test]
-fn host_runs_of_different_tools_do_not_wait_for_each_other() {
-    let (_guard, root) = hall_with_agent("runtime: host\ntool: claude\n");
-    add_agent(&root, "second", "runtime: host\ntool: codex\n");
-    let fake = HostFake::new(&root);
-
-    let first = spawn_timeline_run(&root, &fake, "nightly", "2", "");
-    wait_for_timeline(&fake, 1);
-    let second = spawn_timeline_run(&root, &fake, "second", "", "");
-    let receipts = [first.join().unwrap(), second.join().unwrap()];
-
-    for receipt in &receipts {
-        assert_eq!(
-            receipt.outcome,
-            AgentRunOutcome::Succeeded,
-            "{}",
-            receipt.output
-        );
-    }
-    let lines = timeline(&fake);
-    let position = |prefix: &str| lines.iter().position(|l| l.starts_with(prefix)).unwrap();
-    assert!(
-        position("end second") < position("end nightly"),
-        "{lines:?}"
-    );
-}
-
-#[test]
-fn waiting_for_the_tool_lock_does_not_spend_the_agents_timeout() {
-    let (_guard, root) = hall_with_agent("runtime: host\ntool: claude\n");
-    add_agent(
-        &root,
-        "second",
-        "runtime: host\ntool: claude\ntimeout: 1s\n",
-    );
-    let fake = HostFake::new(&root);
-
-    let first = spawn_timeline_run(&root, &fake, "nightly", "2.5", "");
-    wait_for_timeline(&fake, 1);
-    let second = spawn_timeline_run(&root, &fake, "second", "", "");
-
-    assert_eq!(first.join().unwrap().outcome, AgentRunOutcome::Succeeded);
-    let second = second.join().unwrap();
     assert_eq!(
-        second.outcome,
-        AgentRunOutcome::Succeeded,
-        "{}",
-        second.output
+        std::fs::read_link(dir.join("workspace/api")).unwrap(),
+        std::path::PathBuf::from("/hall/.ivar/repos/api/main")
     );
 }
 
-#[test]
-fn a_timed_out_host_run_releases_the_tool_lock() {
-    let (_guard, root) = hall_with_agent("runtime: host\ntool: claude\ntimeout: 1s\n");
-    add_agent(&root, "second", "runtime: host\ntool: claude\n");
-    let fake = HostFake::new(&root);
-
-    let first = spawn_timeline_run(&root, &fake, "nightly", "20", "");
-    assert_eq!(first.join().unwrap().outcome, AgentRunOutcome::TimedOut);
-    let second = spawn_timeline_run(&root, &fake, "second", "", "");
-
-    assert_eq!(second.join().unwrap().outcome, AgentRunOutcome::Succeeded);
-}
+#[path = "host/credentials.rs"]
+mod credentials;
+#[path = "host/tool_lock.rs"]
+mod tool_lock;
+#[path = "host/write_roots.rs"]
+mod write_roots;
