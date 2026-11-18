@@ -82,7 +82,9 @@ fn a_successful_run_is_recorded_scrubbed_and_cleaned_up() {
         receipt.run_id
     )));
     assert!(log.contains("--network-alias proxy"));
-    assert!(log.contains("claude -p --permission-mode bypassPermissions Go.\n"));
+    assert!(
+        log.contains("claude -p --permission-mode bypassPermissions --output-format json Go.\n")
+    );
     assert!(
         !log.contains(".bare"),
         "the bare clone and its config are never mounted"

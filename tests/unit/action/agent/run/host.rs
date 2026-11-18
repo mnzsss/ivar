@@ -116,7 +116,11 @@ fn a_host_run_launches_the_tool_in_the_sandbox_without_git_credentials() {
     );
     assert!(!fake.home.join(".claude/settings.json").exists());
     assert!(argv.contains("--write /dev/null"));
-    assert!(argv.contains("-- claude -p --permission-mode bypassPermissions Go.\n"));
+    assert!(
+        argv.contains(
+            "-- claude -p --permission-mode bypassPermissions --output-format json Go.\n"
+        )
+    );
 
     let env = fake.read("env.txt");
     assert!(env.contains("GIT_CONFIG_GLOBAL=/dev/null\n"));

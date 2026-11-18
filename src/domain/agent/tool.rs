@@ -57,6 +57,20 @@ impl Tool {
         }
     }
 
+    /// The run's last assistant message. Only `claude --output-format json`
+    /// names it (`result`); other tools keep their whole output.
+    pub fn final_message(self, output: &str) -> String {
+        let result = match self {
+            Self::Claude => output
+                .lines()
+                .rev()
+                .filter_map(|line| serde_json::from_str::<serde_json::Value>(line.trim()).ok())
+                .find_map(|v| v.get("result").and_then(|r| r.as_str()).map(str::to_owned)),
+            Self::Codex | Self::Opencode => None,
+        };
+        result.unwrap_or_else(|| output.to_owned())
+    }
+
     pub fn argv(self, model: Option<&str>, prompt: &str) -> Vec<String> {
         let (head, model_flag): (&[&str], &str) = match self {
             Self::Codex => (
@@ -69,7 +83,14 @@ impl Tool {
                 "-m",
             ),
             Self::Claude => (
-                &["claude", "-p", "--permission-mode", "bypassPermissions"],
+                &[
+                    "claude",
+                    "-p",
+                    "--permission-mode",
+                    "bypassPermissions",
+                    "--output-format",
+                    "json",
+                ],
                 "--model",
             ),
             Self::Opencode => (&["opencode", "run"], "-m"),
