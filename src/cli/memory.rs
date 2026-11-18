@@ -26,8 +26,12 @@ fn parse_stale(raw: &str) -> Result<(String, Verdict), String> {
 
 #[derive(Debug, Subcommand)]
 pub enum MemoryCommand {
-    /// Show the hall memory database: path, schema version, application id, size, observation counts per event, the capture spool, the last drain and the retention sweep.
-    Status,
+    /// Show the hall memory database: path, schema version, application id, size, observation counts per event, the capture spool, the last drain and the retention sweep. Drains the spool, consolidates and reindexes pages, so it writes under `.ivar/`.
+    Status {
+        /// Only read: take no lock, drain nothing, migrate, consolidate and reindex nothing, so it works where `.ivar/` is not writable. The spool is reported as pending (`drained: false`) and `pages.invalid` as not verified.
+        #[arg(long)]
+        read_only: bool,
+    },
     /// Delete the hall memory database after confirmation. Nothing else deletes it.
     Clean,
     /// Search the pages under docs/memory. When no page matches and no filter is set, retained observations answer instead.
@@ -57,19 +61,27 @@ pub enum MemoryCommand {
     Reindex,
     /// Check the pages under docs/memory against the page rules. Exits non-zero when any rule is broken.
     Lint,
-    /// Show what a feature wrote to memory, its gaps and the pages its diff may have made stale, plus the last review. Read-only unless `--confirm` records the review that `ivar feature deliver` requires; the memory_review MCP tool confirms the same way.
+    /// Show what a feature wrote to memory, its gaps and the pages its diff may have made stale, plus the last review. Drains the capture spool first, unless `--read-only`; `--confirm` records the review that `ivar feature deliver` requires, the way the memory_review MCP tool does.
     Review {
         /// Feature to review. Defaults to the session's feature.
         feature: Option<String>,
         /// Record the review as done, with the same checks as the memory_review MCP tool's `confirm`.
-        #[arg(long)]
+        #[arg(long, conflicts_with = "read_only")]
         confirm: bool,
         /// A verdict on a possibly stale page, `<path>=updated` or `<path>=still_valid` (repeatable). Needs `--confirm`.
-        #[arg(long, value_name = "PATH=VERDICT", value_parser = parse_stale, requires = "confirm")]
+        #[arg(long, value_name = "PATH=VERDICT", value_parser = parse_stale, requires = "confirm", conflicts_with = "read_only")]
         stale: Vec<(String, Verdict)>,
         /// Confirm a feature that wrote no page, and say why none was needed. Needs `--confirm`.
-        #[arg(long, value_name = "REASON", requires = "confirm")]
+        #[arg(
+            long,
+            value_name = "REASON",
+            requires = "confirm",
+            conflicts_with = "read_only"
+        )]
         not_required: Option<String>,
+        /// Only read: take no lock, drain nothing and migrate nothing, so it works where `.ivar/` is not writable. Observations still in the capture spool are not counted, and a warning says so.
+        #[arg(long)]
+        read_only: bool,
     },
     /// Open, list or cancel a handoff for the next session. Accepting one and messages are MCP-only.
     Handoff {

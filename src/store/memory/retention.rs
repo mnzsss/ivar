@@ -4,8 +4,6 @@
 
 use std::path::Path;
 
-use rusqlite::{Connection, OpenFlags};
-
 use super::db::MemoryDb;
 use crate::domain::session::rfc3339_from_epoch_secs;
 
@@ -118,7 +116,7 @@ pub fn delete_expired_fingerprints(db: &MemoryDb, cutoff_day: &str) -> rusqlite:
 
 #[must_use]
 pub fn oldest_session_last_observation(path: &Path) -> Option<String> {
-    let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY).ok()?;
+    let conn = crate::store::memory::db::open_for_reading(path).ok()?;
     conn.query_row(&oldest_session_sql(), [], |row| {
         row.get::<_, Option<String>>(0)
     })

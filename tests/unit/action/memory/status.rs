@@ -1,5 +1,7 @@
+#![allow(clippy::indexing_slicing)]
+
 use crate::action::Ctx;
-use crate::action::memory::status::{status, status_in};
+use crate::action::memory::status::{status, status_in, status_read_only_in};
 use crate::error::WriteHuman;
 use crate::store::graph::db::GraphDb;
 use crate::store::layout::Layout;
@@ -191,7 +193,7 @@ fn status_reports_pages_per_kind_and_the_last_reindex() {
         [("gotcha", 1)]
     );
     assert!(value.pages.last_reindex_at.is_some());
-    assert_eq!(value.pages.invalid, 1);
+    assert_eq!(value.pages.invalid, Some(1));
 }
 
 #[test]
@@ -301,4 +303,122 @@ fn status_surfaces_a_failed_usage_summary_instead_of_reporting_zero_queries() {
     let mut human = Vec::new();
     value.write_human(&mut human).unwrap();
     assert!(String::from_utf8(human).unwrap().contains("usage failed"));
+}
+
+/// Every file under `.ivar/` with its bytes.
+fn ivar_tree(layout: &Layout) -> std::collections::BTreeMap<String, Vec<u8>> {
+    fn walk(
+        dir: &std::path::Path,
+        base: &std::path::Path,
+        out: &mut std::collections::BTreeMap<String, Vec<u8>>,
+    ) {
+        for entry in std::fs::read_dir(dir).unwrap().flatten() {
+            let path = entry.path();
+            let rel = path.strip_prefix(base).unwrap().display().to_string();
+            if path.is_dir() {
+                out.insert(format!("{rel}/"), Vec::new());
+                walk(&path, base, out);
+            } else {
+                out.insert(rel, std::fs::read(&path).unwrap());
+            }
+        }
+    }
+    let base = layout.root().join(".ivar");
+    let mut out = std::collections::BTreeMap::new();
+    walk(base.as_std_path(), base.as_std_path(), &mut out);
+    out
+}
+
+#[test]
+fn status_read_only_in_reports_what_status_in_does_and_writes_nothing() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root);
+    let normal = status_in(&layout).unwrap().value;
+    let before = ivar_tree(&layout);
+
+    let value = status_read_only_in(&layout).unwrap().value;
+
+    assert_eq!(ivar_tree(&layout), before);
+    assert!(value.read_only && !normal.read_only);
+    assert!(!value.spool.drained && normal.spool.drained);
+    assert!(value.pages.invalid.is_none());
+    assert!(!layout.memory_lock().as_std_path().exists() || before.contains_key("memory.lock"));
+    assert_eq!(value.schema_version, normal.schema_version);
+    assert_eq!(value.application_id, normal.application_id);
+    assert_eq!(value.size_bytes, normal.size_bytes);
+    assert_eq!(
+        serde_json::to_value(&value.observations).unwrap(),
+        serde_json::to_value(&normal.observations).unwrap()
+    );
+}
+
+#[test]
+fn status_read_only_in_keeps_the_pending_spool_and_counts_it() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root);
+    status_in(&layout).unwrap();
+    let spool = layout.memory_spool_dir();
+    std::fs::create_dir_all(&spool).unwrap();
+    std::fs::write(spool.join("pending.jsonl"), "not an observation\n").unwrap();
+    let before = ivar_tree(&layout);
+
+    let value = status_read_only_in(&layout).unwrap().value;
+
+    assert_eq!(ivar_tree(&layout), before);
+    assert_eq!((value.spool.files, value.spool.bytes), (1, 19));
+    assert!(!value.spool.drained);
+    let json = serde_json::to_value(&value).unwrap();
+    assert_eq!(json["spool"]["drained"], false);
+    assert!(json["pages"]["invalid"].is_null());
+}
+
+#[test]
+fn status_read_only_in_says_not_verified_instead_of_zero_invalid() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root);
+    status_in(&layout).unwrap();
+
+    let value = status_read_only_in(&layout).unwrap().value;
+    let mut human = Vec::new();
+    value.write_human(&mut human).unwrap();
+
+    let human = String::from_utf8(human).unwrap();
+    assert!(human.contains("not verified"), "{human}");
+    assert!(human.contains("not drained"), "{human}");
+}
+
+#[test]
+fn status_read_only_in_reports_a_hall_with_no_database_and_creates_none() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root);
+    let _ = std::fs::remove_file(layout.memory_db());
+    let _ = std::fs::remove_file(format!("{}-wal", layout.memory_db()));
+    let _ = std::fs::remove_file(format!("{}-shm", layout.memory_db()));
+
+    let value = status_read_only_in(&layout).unwrap().value;
+
+    assert!(!value.exists && value.read_only);
+    assert!(!layout.memory_db().as_std_path().exists());
+}
+
+#[test]
+fn status_read_only_in_refuses_an_outdated_schema_without_migrating_it() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root);
+    status_in(&layout).unwrap();
+    rusqlite::Connection::open(layout.memory_db().as_std_path())
+        .unwrap()
+        .execute_batch("UPDATE memory_schema SET version = 5;")
+        .unwrap();
+    let before = ivar_tree(&layout);
+
+    let failure = status_read_only_in(&layout).unwrap_err();
+
+    assert!(failure.what.contains("schema 5"), "{}", failure.what);
+    assert!(
+        failure.what.contains("ivar memory status"),
+        "{}",
+        failure.what
+    );
+    assert_eq!(ivar_tree(&layout), before);
 }

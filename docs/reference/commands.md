@@ -169,25 +169,26 @@ Misses and usage rows are pruned after 30 days, the window `ivar graph stats` re
 | `graph.repo_not_in_manifest` | an indexed repo `ivar.json` no longer declares | `ivar graph clean --repo <name>` or `ivar graph index` |
 | `graph.layer_orphaned` | a layer of a feature that no longer exists | `ivar graph index` |
 | `graph.watch_scope_orphaned` | a watcher scope with no repo, feature or path behind it | `ivar graph index` |
-| `graph.watch_scope_failed` | a scope with a live target the watcher could not reindex | `ivar graph index`; a leader retries once the scope is watched again |
+| `graph.watch_scope_failed` | a live scope the watcher could not reindex | `ivar graph index`; a leader retries once it is watched again |
 | `graph.repo_stale` | a repo indexed behind its worktree HEAD | `ivar graph index --repo <name>` |
-| `graph.hall_paths_unset` | the hall has `docs`, `brand` or `.ivar/skills` with files and `graph.paths` is empty | `ivar graph index --path <dir>` lists and indexes it |
+| `graph.hall_paths_unset` | `docs`, `brand` or `.ivar/skills` has files and `graph.paths` is empty | `ivar graph index --path <dir>` lists and indexes it |
 | `graph.schema_mismatch` | database schema older or newer than the binary | `ivar graph index` or `ivar upgrade` |
 | `graph.open_failed` | `.ivar/graph.db` exists but cannot be opened | remove it, then `ivar graph index` rebuilds it |
 | `graph.watch_catchup_pending` | no watcher leader is running and a scope has changes nobody indexed | `ivar graph index`, or start `ivar graph mcp` to catch up |
 | `graph.db_missing` | the graph MCP server is registered but `.ivar/graph.db` is gone | `ivar graph index` |
 | `memory.db_missing` | `.ivar/graph.db` exists without `.ivar/memory.db` | `ivar memory status` creates it |
-| `memory.db_corrupt` | `.ivar/memory.db` fails to open, fails `quick_check`, or carries another `application_id` | `ivar memory clean`, then `ivar memory status` |
+| `memory.db_corrupt` | `.ivar/memory.db` fails to open or `quick_check`, or has another `application_id` | `ivar memory clean`, then `ivar memory status` |
+| `memory.db_not_checked` | `memory.db` unreadable in a read-only `.ivar/` | `ivar doctor` where it is writable |
 | `memory.schema_newer` | memory schema newer than the binary | `ivar upgrade` |
-| `memory.db_polluted` | an older `ivar` created graph tables inside `.ivar/memory.db` | stop the older `ivar`, then `ivar memory status` repairs it |
-| `memory.split_busy` | a legacy graph at `.ivar/memory.db` is open in another process, so it was not moved | stop sessions and MCP servers of an older `ivar`, then `ivar doctor` |
-| `memory.split_failed` | moving the legacy graph failed for another reason | check `.ivar/` permissions and space, then `ivar doctor` |
+| `memory.db_polluted` | an older `ivar` put graph tables in `.ivar/memory.db` | stop the older `ivar`, then `ivar memory status` repairs it |
+| `memory.split_busy` | a legacy graph at `.ivar/memory.db` is open elsewhere, so not moved | stop sessions and MCP servers of an older `ivar`, then `ivar doctor` |
+| `memory.split_failed` | moving the legacy graph failed | check `.ivar/` permissions and space, then `ivar doctor` |
 | `memory.spool_orphan` | a capture spool file has waited over an hour to be drained | `ivar memory status` drains it |
-| `memory.spool_dropped` | events were dropped because a session spool reached 8 MiB, and the last drop was within 7 days | `ivar memory status`, or keep `ivar graph mcp` running; it clears after 7 days without new drops |
-| `memory.drain_failed` | the last drain of the capture spool failed | `ivar memory status`; if it repeats, read the `ivar doctor` database findings |
-| `memory.sweep_failed` | the last retention sweep failed | `ivar memory status`; if it repeats, read the `ivar doctor` database findings |
-| `memory.consolidate_failed` | the last consolidation of session pages failed | `ivar memory status`; if it repeats, read the `ivar doctor` database findings |
-| `memory.retention_overdue` | session observations older than 37 days are still stored | keep `ivar graph mcp` running; its leader deletes expired session observations hourly |
+| `memory.spool_dropped` | events were dropped because a session spool reached 8 MiB, and the last drop was within 7 days | `ivar memory status`, or keep `ivar graph mcp` running; clears after 7 days without drops |
+| `memory.drain_failed` | the last drain of the capture spool failed | `ivar memory status`; if it repeats, see the `ivar doctor` database findings |
+| `memory.sweep_failed` | the last retention sweep failed | `ivar memory status`; if it repeats, see the `ivar doctor` database findings |
+| `memory.consolidate_failed` | the last consolidation of session pages failed | `ivar memory status`; if it repeats, see the `ivar doctor` database findings |
+| `memory.retention_overdue` | session observations older than 37 days are still stored | keep `ivar graph mcp` running; its leader deletes them hourly |
 | `provider.capture_hook_missing` | `memory.capture` is on and a provider has no capture hook | `ivar sync`, or set `memory.capture` to false in `ivar.json` |
 | `repo.worktree_orphaned` | a worktree on a branch no feature owns | safe to remove (clean, pushed, on the default branch) or needs a look; `--github` checks its PR, `--fix` removes safe ones: [rules](doctor-worktrees.md) |
 | `repo.worktree_unregistered` | a checkout under `repos/<repo>/` that git does not list as a worktree, often from a failed removal | if unneeded, `rm -rf` it (`chmod u+w` first if read-only) |

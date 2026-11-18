@@ -68,7 +68,17 @@ pub fn insert_batch(
 ///
 /// Returns the `SQLite` error when the query fails.
 pub fn count_by_source_event(db: &MemoryDb) -> rusqlite::Result<Vec<(String, i64)>> {
-    let mut stmt = db.conn().prepare(
+    count_by_source_event_on(db.conn())
+}
+
+/// [`count_by_source_event`] on a bare connection, for a read that opened the
+/// database read-only.
+///
+/// # Errors
+///
+/// Returns the `SQLite` error when the query fails.
+pub fn count_by_source_event_on(conn: &Connection) -> rusqlite::Result<Vec<(String, i64)>> {
+    let mut stmt = conn.prepare(
         "SELECT source_event, count(*) FROM observations GROUP BY source_event ORDER BY source_event",
     )?;
     stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?

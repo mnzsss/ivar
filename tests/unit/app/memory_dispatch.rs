@@ -9,7 +9,7 @@ fn memory_status_is_rendered_through_the_memory_dispatch() {
     let mut out = Vec::new();
 
     let code = dispatch_memory(
-        MemoryCommand::Status,
+        MemoryCommand::Status { read_only: false },
         &Ctx::new(root),
         true,
         &mut out,

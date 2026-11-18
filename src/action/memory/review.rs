@@ -4,6 +4,7 @@
 
 use std::collections::BTreeMap;
 
+use rusqlite::Connection;
 use serde::Serialize;
 use serde_json::{Value, json};
 
@@ -11,6 +12,7 @@ use super::capture::CaptureEnv;
 use super::drain;
 use super::events::{MemoryEventScope, record_memory_event};
 use super::mcp::feature_usage_session;
+use super::status::SpoolStatus;
 use crate::action::feature::select::resolve_single_feature;
 use crate::action::feature::{base, relations};
 use crate::action::{Ctx, discover_hall, read_manifest};
@@ -28,11 +30,11 @@ use crate::error::{Failure, FixAction, Outcome, Report, WriteHuman};
 use crate::git::{self, Git};
 use crate::store::layout::Layout;
 use crate::store::memory::anchors::{
-    GraphAttach, anchored_files, attach_graph, broken_anchors, detach_graph,
+    GraphAttach, anchored_files, attach_graph, attach_graph_untouched, broken_anchors, detach_graph,
 };
-use crate::store::memory::db::MemoryDb;
+use crate::store::memory::db::{MemoryDb, MemoryDbError, ReadOnlyOpen, open_current_read_only};
 use crate::store::memory::observations::{
-    FeatureObservation, feature_observations, unattributed_page_writes,
+    FeatureObservation, feature_observations, feature_observations_on, unattributed_page_writes,
 };
 use crate::store::memory::usage::{session_queries, unattributed_queries};
 
@@ -196,9 +198,15 @@ pub fn analysis_queried(layout: &Layout, name: &FeatureName) -> Option<bool> {
     }
     let feature = relations::read_feature(layout, name).ok()?;
     let mut notes = Notes::default();
-    let rows = observations(layout, &feature, &mut notes).ok()?;
+    let rows = observations(layout, &feature, Access::Drain, &mut notes).ok()?;
     let mut facts: Vec<ObservationFact> = rows.iter().map(fact).collect();
-    facts.extend(usage_facts(layout, &feature, &rows, &mut notes));
+    facts.extend(usage_facts(
+        layout,
+        &feature,
+        &rows,
+        Access::Drain,
+        &mut notes,
+    ));
     (!notes.incomplete).then(|| queried_before_approval(&facts, name.as_str()))
 }
 
@@ -207,26 +215,88 @@ pub fn analysis_queried(layout: &Layout, name: &FeatureName) -> Option<bool> {
 /// When the feature does not exist. Unreadable state is a warning with
 /// empty or partial lists, never an error.
 pub fn review_in(layout: &Layout, name: &FeatureName) -> Result<Report<ReviewReport>, Failure> {
+    review_with(layout, name, Access::Drain)
+}
+
+/// [`review_in`] for a session that cannot write `.ivar/`: the same report,
+/// read without draining the capture spool, taking `memory.lock`, migrating or
+/// creating anything. Observations still in the spool are not counted, and a
+/// warning says so.
+///
+/// # Errors
+///
+/// As [`review_in`]; also when `memory.db` is from an older ivar (a read never
+/// migrates it), a newer one, or not a memory database.
+pub fn review_read_only_in(
+    layout: &Layout,
+    name: &FeatureName,
+) -> Result<Report<ReviewReport>, Failure> {
+    review_with(layout, name, Access::ReadOnly)
+}
+
+/// [`review_read_only_in`] for the hall around `ctx`.
+///
+/// # Errors
+///
+/// Outside a hall, for an unknown feature, or as [`review_read_only_in`].
+pub fn review_read_only(ctx: &Ctx, feature: Option<String>) -> Outcome<ReviewReport> {
+    let layout = discover_hall(ctx)?;
+    let name = FeatureName::new(resolve_single_feature(
+        ctx,
+        feature,
+        "Select a feature to review",
+    )?)?;
+    review_read_only_in(&layout, &name)
+}
+
+/// How a review reaches `memory.db`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Access {
+    /// Drains the spool first and opens the database for writing, which
+    /// migrates it.
+    Drain,
+    /// Writes nothing under `.ivar/`.
+    ReadOnly,
+}
+
+fn review_with(
+    layout: &Layout,
+    name: &FeatureName,
+    access: Access,
+) -> Result<Report<ReviewReport>, Failure> {
     let feature = relations::read_feature(layout, name)?;
     let mut notes = Notes::default();
-    if let Err(failure) = drain::drain(layout) {
-        notes.warn(format!(
-            "the capture spool could not be drained: {}",
-            failure.what
-        ));
+    match access {
+        Access::Drain => {
+            if let Err(failure) = drain::drain(layout) {
+                notes.warn(format!(
+                    "the capture spool could not be drained: {}",
+                    failure.what
+                ));
+            }
+        }
+        Access::ReadOnly => {
+            refuse_unreadable_schema(layout)?;
+            let pending = SpoolStatus::read(&layout.memory_spool_dir());
+            notes.warn(format!(
+                "the capture spool was not drained (read-only): {} file(s), {} bytes still pending and not counted",
+                pending.files, pending.bytes
+            ));
+        }
     }
-    let rows = observations(layout, &feature, &mut notes)?;
+    let rows = observations(layout, &feature, access, &mut notes)?;
     let mut facts: Vec<ObservationFact> = rows.iter().map(fact).collect();
-    facts.extend(usage_facts(layout, &feature, &rows, &mut notes));
+    facts.extend(usage_facts(layout, &feature, &rows, access, &mut notes));
     let written = written_pages(&facts, layout.root().as_str());
     let analysis_approved =
         crate::action::plan::effective_gate(layout, name, Gate::Analysis)? == GateState::Approved;
     let mut gaps = gaps(&facts, &written, name.as_str(), analysis_approved);
-    let (unattributed, queries_before_approval) =
-        unattributed_since_start(layout, &feature, &rows, &facts, &written, &mut notes);
+    let (unattributed, queries_before_approval) = unattributed_since_start(
+        layout, &feature, &rows, &facts, &written, access, &mut notes,
+    );
     explain_gaps(&mut gaps, &unattributed, queries_before_approval);
     let changed = changed_files(layout, &feature, &mut notes);
-    let (anchored, broken) = anchor_matches(layout, &changed, &mut notes);
+    let (anchored, broken) = anchor_matches(layout, &changed, access, &mut notes);
     let staleness = stale_pages(&anchored, &changed, &broken, &written);
     Ok(Report::new(ReviewReport {
         feature: name.to_string(),
@@ -239,6 +309,43 @@ pub fn review_in(layout: &Layout, name: &FeatureName) -> Result<Report<ReviewRep
         warnings: notes.warnings,
         incomplete: notes.incomplete,
     }))
+}
+
+/// A read-only review of a database it can never read as a memory database
+/// fails instead of reporting an empty memory: older (a read never migrates
+/// it), newer, or another program's.
+fn refuse_unreadable_schema(layout: &Layout) -> Result<(), Failure> {
+    if !layout.memory_db().exists() {
+        return Ok(());
+    }
+    match open_current_read_only(layout.memory_db().as_std_path()) {
+        Ok(ReadOnlyOpen::Outdated { found, current }) => Err(outdated(found, current)),
+        Err(
+            error @ (MemoryDbError::ForeignApplication { .. } | MemoryDbError::NewerSchema { .. }),
+        ) => Err(Failure::failed(
+            "memory.review_unreadable",
+            format!("could not read `{}`: {error}", layout.memory_db()),
+        )),
+        Ok(ReadOnlyOpen::Current(_)) | Err(MemoryDbError::Sqlite(_)) => Ok(()),
+    }
+}
+
+/// Why a read-only command cannot use a `memory.db` an older ivar wrote.
+pub(crate) fn outdated(found: i64, current: i64) -> Failure {
+    Failure::blocked(
+        "memory.read_only_outdated",
+        format!(
+            "memory.db has schema {found} and this ivar reads schema {current}; \
+             `--read-only` never migrates it, so run `ivar memory status` from a session that can write `.ivar/`"
+        ),
+    )
+    .fix(
+        FixAction::safe(
+            "memory.migrate",
+            "Migrate memory.db from a session that can write `.ivar/`, then run the command again.",
+        )
+        .command("ivar memory status"),
+    )
 }
 
 /// # Errors
@@ -418,6 +525,22 @@ fn open(layout: &Layout) -> Result<MemoryDb, Failure> {
         .map_err(|error| Failure::failed("memory.review_unreadable", error.to_string()))
 }
 
+/// The connection a review reads through: the writable database, or for
+/// [`Access::ReadOnly`] one that never creates, migrates or writes a file.
+fn open_conn(layout: &Layout, access: Access) -> Result<Connection, Failure> {
+    match access {
+        Access::Drain => open(layout).map(MemoryDb::into_conn),
+        Access::ReadOnly => match open_current_read_only(layout.memory_db().as_std_path()) {
+            Ok(ReadOnlyOpen::Current(conn)) => Ok(conn),
+            Ok(ReadOnlyOpen::Outdated { found, current }) => Err(outdated(found, current)),
+            Err(error) => Err(Failure::failed(
+                "memory.review_unreadable",
+                error.to_string(),
+            )),
+        },
+    }
+}
+
 fn unreadable(error: &rusqlite::Error) -> Failure {
     Failure::failed("memory.review_unreadable", error.to_string())
 }
@@ -425,6 +548,7 @@ fn unreadable(error: &rusqlite::Error) -> Failure {
 fn observations(
     layout: &Layout,
     feature: &Feature,
+    access: Access,
     notes: &mut Notes,
 ) -> Result<Vec<FeatureObservation>, Failure> {
     if !layout.memory_db().exists() {
@@ -437,8 +561,9 @@ fn observations(
             .into_iter()
             .map(|child| child.name.to_string()),
     );
-    let rows = open(layout)
-        .and_then(|db| feature_observations(&db, &names).map_err(|error| unreadable(&error)));
+    let rows = open_conn(layout, access).and_then(|conn| {
+        feature_observations_on(&conn, &names).map_err(|error| unreadable(&error))
+    });
     Ok(rows.unwrap_or_else(|failure| {
         notes.unread(format!("memory could not be read: {}", failure.what));
         Vec::new()
@@ -462,6 +587,7 @@ fn usage_facts(
     layout: &Layout,
     feature: &Feature,
     rows: &[FeatureObservation],
+    access: Access,
     notes: &mut Notes,
 ) -> Vec<ObservationFact> {
     let attributed = std::iter::once(feature.name.clone())
@@ -483,8 +609,8 @@ fn usage_facts(
     if sessions.is_empty() {
         return Vec::new();
     }
-    let queries = open(layout)
-        .and_then(|db| session_queries(db.conn(), &sessions).map_err(|error| unreadable(&error)));
+    let queries = open_conn(layout, access)
+        .and_then(|conn| session_queries(&conn, &sessions).map_err(|error| unreadable(&error)));
     match queries {
         Ok(queries) => queries
             .into_iter()
@@ -530,6 +656,7 @@ fn unattributed_since_start(
     rows: &[FeatureObservation],
     facts: &[ObservationFact],
     written: &[WrittenPage],
+    access: Access,
     notes: &mut Notes,
 ) -> (Unattributed, usize) {
     let none = (Unattributed::default(), 0);
@@ -540,10 +667,9 @@ fn unattributed_since_start(
         return none;
     }
     let since = rfc3339_from_epoch_secs(start as f64);
-    let read = open(layout).and_then(|db| {
-        let writes =
-            unattributed_page_writes(db.conn(), &since).map_err(|error| unreadable(&error))?;
-        let queries = unattributed_queries(db.conn(), start).map_err(|error| unreadable(&error))?;
+    let read = open_conn(layout, access).and_then(|conn| {
+        let writes = unattributed_page_writes(&conn, &since).map_err(|error| unreadable(&error))?;
+        let queries = unattributed_queries(&conn, start).map_err(|error| unreadable(&error))?;
         Ok((writes, queries))
     });
     let (writes, queries) = match read {
@@ -678,20 +804,25 @@ type Broken = Vec<(String, String, String, Option<String>)>;
 fn anchor_matches(
     layout: &Layout,
     changed: &[(String, String)],
+    access: Access,
     notes: &mut Notes,
 ) -> (Anchored, Broken) {
-    let db = match open(layout) {
-        Ok(db) => db,
+    let conn = match open_conn(layout, access) {
+        Ok(conn) => conn,
         Err(failure) => {
             notes.unread(format!("the anchors could not be read: {}", failure.what));
             return (Vec::new(), Vec::new());
         }
     };
-    let anchored = anchored_files(db.conn(), changed).unwrap_or_else(|error| {
+    let anchored = anchored_files(&conn, changed).unwrap_or_else(|error| {
         notes.unread(format!("the anchors could not be read: {error}"));
         Vec::new()
     });
-    match attach_graph(db.conn(), &layout.graph_db()) {
+    let graph = match access {
+        Access::Drain => attach_graph(&conn, &layout.graph_db()),
+        Access::ReadOnly => attach_graph_untouched(&conn, &layout.graph_db()),
+    };
+    match graph {
         GraphAttach::Attached => {}
         GraphAttach::Missing => {
             notes.warn("graph.db is missing: broken anchors were not checked".to_owned());
@@ -702,7 +833,7 @@ fn anchor_matches(
             return (anchored, Vec::new());
         }
     }
-    let broken = broken_anchors(db.conn())
+    let broken = broken_anchors(&conn)
         .map(|rows| {
             rows.into_iter()
                 .filter(|(page, _)| is_durable_page(page))
@@ -713,6 +844,6 @@ fn anchor_matches(
             notes.unread(format!("broken anchors could not be read: {error}"));
             Vec::new()
         });
-    detach_graph(db.conn());
+    detach_graph(&conn);
     (anchored, broken)
 }

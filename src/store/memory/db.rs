@@ -79,32 +79,46 @@ pub fn open_coordination_read_only(path: &Path) -> rusqlite::Result<Option<Conne
     Ok((stored_version(&conn)? >= COORDINATION_SCHEMA_VERSION).then_some(conn))
 }
 
-/// Opens `path` read-only and reads it once.
+/// Opens `path` read-only and reads it once, without leaving a file behind.
 ///
-/// A reader of a WAL database needs its `-shm` file, and creates it when it is
-/// absent; in a directory that cannot be written it cannot, and the read fails.
-/// That is the one case this falls back to an `immutable` open, which takes no
-/// lock and creates no file. It is only safe while nothing is in the `-wal`
-/// file, since an immutable open never reads it, so a database with
-/// uncommitted-to-file writes keeps the first error.
-fn open_for_reading(path: &Path) -> rusqlite::Result<Connection> {
+/// A reader of a WAL database needs its `-shm` file, and creates it, with an
+/// empty `-wal`, when it is absent; in a directory that cannot be written it
+/// cannot, and the read fails. So a database nothing has open (no `-shm`, no
+/// hot `-journal`, nothing in the `-wal`) is read with an `immutable` open,
+/// which takes no lock and creates no file. An immutable open never reads the
+/// `-wal` file, so it is only used when that holds nothing: a database with
+/// writes still in its `-wal` is opened normally, and where that fails keeps
+/// the first error instead of reading a stale file.
+pub(crate) fn open_for_reading(path: &Path) -> rusqlite::Result<Connection> {
+    let sidecar = |suffix: &str| {
+        let mut name = path.as_os_str().to_owned();
+        name.push(suffix);
+        std::fs::metadata(name).ok()
+    };
+    let wal_has_content = sidecar("-wal").is_some_and(|meta| meta.len() > 0);
+    let nothing_open =
+        sidecar("-shm").is_none() && sidecar("-journal").is_none() && !wal_has_content;
+    if nothing_open && let Ok(conn) = open_immutable(path) {
+        return Ok(conn);
+    }
     let first = match open_read_only(path).and_then(|conn| application_id(&conn).map(|_| conn)) {
         Ok(conn) => return Ok(conn),
         Err(error) => error,
     };
-    let mut wal = path.as_os_str().to_owned();
-    wal.push("-wal");
-    let wal_has_content = std::fs::metadata(&wal).is_ok_and(|meta| meta.len() > 0);
     if wal_has_content {
         return Err(first);
     }
-    Connection::open_with_flags(
+    open_immutable(path).map_err(|_| first)
+}
+
+fn open_immutable(path: &Path) -> rusqlite::Result<Connection> {
+    let conn = Connection::open_with_flags(
         immutable_uri(path),
         OpenFlags::SQLITE_OPEN_READ_ONLY
             | OpenFlags::SQLITE_OPEN_URI
             | OpenFlags::SQLITE_OPEN_NO_MUTEX,
-    )
-    .map_err(|_| first)
+    )?;
+    application_id(&conn).map(|_| conn)
 }
 
 /// `file:<path>?immutable=1`, with every byte a URI cannot carry as is
@@ -240,7 +254,7 @@ impl MemoryDb {
     /// [`MemoryDbError::ForeignApplication`] when the file is not a memory
     /// database, and [`MemoryDbError::Sqlite`] when `SQLite` fails.
     pub fn inspect(path: &Path) -> Result<MemoryInspection, MemoryDbError> {
-        let conn = open_read_only(path)?;
+        let conn = open_for_reading(path)?;
         let application_id = application_id(&conn)?;
         if application_id != APPLICATION_ID {
             return Err(MemoryDbError::ForeignApplication {
@@ -276,6 +290,12 @@ impl MemoryDb {
     #[must_use]
     pub fn conn(&self) -> &Connection {
         &self.conn
+    }
+
+    /// The underlying connection, owned.
+    #[must_use]
+    pub(crate) fn into_conn(self) -> Connection {
+        self.conn
     }
 
     /// The underlying connection, for callers that open a transaction.

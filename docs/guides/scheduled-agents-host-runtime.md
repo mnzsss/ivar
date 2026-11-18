@@ -66,6 +66,14 @@ which ends the run `blocked`. `ivar agent sync` warns
 temporary files can ignore it. `/tmp` is shared with every process of your
 user, so list it only for an agent you trust with that.
 
+A host agent cannot write the hall's `.ivar/`, and `ivar memory status` and
+`ivar memory review` write there (they take `memory.lock`, drain the capture
+spool, migrate and reindex). Have the agent run them with `--read-only`
+instead: `ivar memory status --read-only` and
+`ivar memory review <feature> --read-only` read `memory.db` without creating or
+changing anything under `.ivar/`. They report the spool as pending
+(`spool.drained: false`), so observations not yet drained are not counted.
+
 Chrome's own sandbox writes `/proc/self/uid_map`, so a host agent that
 drives Chrome needs `/proc` in `write`. Landlock fixes each rule's path when
 the run starts, and Chrome writes from child processes, so nothing narrower
