@@ -210,13 +210,17 @@ fn completed(
     attempt: &Attempt,
     values: &[&str],
 ) -> AgentRunReceipt {
-    let output = scrub(&attempt.ran.output, values);
+    let raw_output = scrub(&attempt.ran.output, values);
     let tool = match spec.launch {
         Launch::Tool { tool, .. } => Some(tool),
         Launch::Image { .. } => None,
     };
-    let blocked =
-        attempt.ran.finished == Finished::Stopped || tool.is_some_and(|t| t.is_blocked(&output));
+    let output = match tool {
+        Some(t) => t.final_message(&raw_output),
+        None => raw_output.clone(),
+    };
+    let blocked = attempt.ran.finished == Finished::Stopped
+        || tool.is_some_and(|t| t.is_blocked(&raw_output));
     let declared = tool.and_then(|_| declared_outcome(&output));
     let (exit_code, timed_out) = match attempt.ran.finished {
         Finished::Exited(code) => (code, false),
@@ -226,7 +230,7 @@ fn completed(
     let mut receipt = AgentRunReceipt {
         outcome: classify(exit_code, timed_out, blocked, declared),
         exit_code,
-        cost_usd: tool.and_then(|t| t.cost_usd(&output)),
+        cost_usd: tool.and_then(|t| t.cost_usd(&raw_output)),
         output,
         ended_at: rfc3339_now(),
         ..AgentRunReceipt::skipped(run_id, spec.name.clone(), trigger, started_at)

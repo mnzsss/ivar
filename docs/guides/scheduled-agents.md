@@ -160,7 +160,8 @@ repeated request.
 
 `notify: telegram:<chat_id>` sends each run's outcome and the last 2000
 characters of its output to a Telegram chat, fewer when the message would
-pass Telegram's 4096-unit limit. `<chat_id>` is a number
+pass Telegram's 4096-unit limit. For `tool: claude` the output is Claude's
+final message only, so progress text written mid-run never reaches it. `<chat_id>` is a number
 (`123456`, `-1001234567890` for a group) or a public channel's
 `@username`; to post in a channel, the bot must be one of its admins.
 

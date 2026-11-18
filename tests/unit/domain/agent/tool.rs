@@ -50,6 +50,8 @@ fn claude_runs_print_mode_bypassing_permissions() {
             "-p",
             "--permission-mode",
             "bypassPermissions",
+            "--output-format",
+            "json",
             "--model",
             "sonnet",
             "fix it"
@@ -156,4 +158,15 @@ fn state_env_points_each_tool_at_its_private_state_dir() {
             pair("XDG_CACHE_HOME", "/hall/.ivar/agents/state/a/t/cache"),
         ]
     );
+}
+
+#[test]
+fn extracts_final_message_from_tool_json_output() {
+    let out = "Metrics script still running in the background...
+{\"type\":\"assistant\",\"message\":\"intermediate\"}
+{\"type\":\"result\",\"result\":\"Final summary report\"}\n";
+    assert_eq!(Tool::Claude.final_message(out), "Final summary report");
+    assert_eq!(Tool::Codex.final_message(out), out);
+    assert_eq!(Tool::Opencode.final_message(out), out);
+    assert_eq!(Tool::Claude.final_message("plain text"), "plain text");
 }
