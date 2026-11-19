@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.21.0](https://github.com/mnzsss/ivar/compare/v0.20.0...v0.21.0) - 2026-11-19
+
+### Added
+
+- add agent resume, provider preflight and problem notifier ([#329](https://github.com/mnzsss/ivar/pull/329))
+- show a running agent in ivar agent status ([#326](https://github.com/mnzsss/ivar/pull/326))
+- add --read-only to memory status and review ([#320](https://github.com/mnzsss/ivar/pull/320))
+
+### Fixed
+
+- create missing catchup stamp for agent timers ([#328](https://github.com/mnzsss/ivar/pull/328))
+- *(agent)* keep only Claude's final message in run output ([#324](https://github.com/mnzsss/ivar/pull/324))
+- treat a search of one memory page as a read, not a followup ([#321](https://github.com/mnzsss/ivar/pull/321))
+- block deliver when the branch's PR is already merged ([#319](https://github.com/mnzsss/ivar/pull/319))
+- explain and fix cleanup records outside docs/memory/update ([#318](https://github.com/mnzsss/ivar/pull/318))
+- report memory calls not attributed to a feature ([#317](https://github.com/mnzsss/ivar/pull/317))
+- gate the release commit and drop the legacy graph suffixes ([#322](https://github.com/mnzsss/ivar/pull/322))
+
 ## [0.20.0](https://github.com/mnzsss/ivar/compare/v0.19.0...v0.20.0) - 2026-11-16
 
 ### Added
