@@ -330,12 +330,13 @@ fn a_skipped_run_leaves_the_record_of_the_run_that_holds_the_lock() {
 }
 
 #[test]
-fn a_missing_secret_is_a_failed_receipt_and_starts_no_container() {
+fn a_missing_secret_is_a_blocked_receipt_and_starts_no_container() {
     let (_guard, root) = hall_with_agent("tool: claude\nsecrets: [ABSENT]\n");
     let fake = FakeDocker::install(&root);
     let _r = redirect_on_this_thread("docker", fake_docker_command(&fake));
     let receipt = run_manual(&root);
-    assert_eq!(receipt.outcome, AgentRunOutcome::Failed);
+    assert_eq!(receipt.outcome, AgentRunOutcome::Blocked);
+    assert!(receipt.is_resumable());
     assert!(receipt.output.contains("ABSENT"));
     assert_eq!(stored(&root, &receipt), receipt);
     assert_eq!(fake.log(), "");
@@ -357,14 +358,14 @@ fn a_failure_message_never_carries_a_secret_value() {
 }
 
 #[test]
-fn an_unspawnable_docker_is_a_failed_receipt() {
+fn an_unspawnable_docker_is_a_blocked_receipt() {
     let (_guard, root) = hall_with_agent("tool: claude\n");
     let _r = redirect_on_this_thread(
         "docker",
         crate::infra::proc::Command::new("/nonexistent/docker"),
     );
     let receipt = run_manual(&root);
-    assert_eq!(receipt.outcome, AgentRunOutcome::Failed);
+    assert_eq!(receipt.outcome, AgentRunOutcome::Blocked);
     assert_eq!(stored(&root, &receipt), receipt);
 }
 
@@ -444,5 +445,7 @@ fn a_delivery_preview_error_never_carries_a_secret_value() {
 
 #[path = "run/host.rs"]
 mod host;
+#[path = "run/preflight.rs"]
+mod preflight_tests;
 #[path = "run/scripts.rs"]
 mod scripts;

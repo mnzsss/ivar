@@ -21,6 +21,14 @@ pub enum AgentCommand {
     /// and `auto_push: false` only the push. A hall sync that cannot finish is
     /// recorded in the receipt's `sync_warnings` and never changes the outcome.
     Run(AgentRunArgs),
+    /// Run again every agent whose latest run is blocked, or only <name>'s.
+    /// A run is blocked when the tool needs a person (an approval, a script to
+    /// approve) or the provider failed its preflight (tool missing, not
+    /// logged in). Each goes through the same path as `run` and waits for the
+    /// result, one after the other; the output lists what was resumed and how
+    /// it ended. Fix the cause first: a run that is blocked again is blocked
+    /// again.
+    Resume(AgentResumeArgs),
     /// Print the output of the latest run, or of --run <id>.
     Logs(AgentLogsArgs),
     /// Record your verdict on a run.
@@ -42,6 +50,12 @@ pub struct AgentRunArgs {
     /// Stay attached until the run ends and print its receipt. A scheduled run always waits.
     #[arg(long)]
     pub wait: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct AgentResumeArgs {
+    /// Agent name (the file stem under agents/). Without it, every agent whose latest run is blocked.
+    pub name: Option<String>,
 }
 
 #[derive(Debug, Args)]

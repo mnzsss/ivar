@@ -170,3 +170,29 @@ fn extracts_final_message_from_tool_json_output() {
     assert_eq!(Tool::Opencode.final_message(out), out);
     assert_eq!(Tool::Claude.final_message("plain text"), "plain text");
 }
+
+#[test]
+fn login_files_are_the_credentials_a_refresh_rewrites() {
+    use camino::Utf8Path;
+    let home = Utf8Path::new("/home/u");
+    let none = |_: &str| None;
+    let names = |tool: Tool| {
+        tool.login_files(home, &none)
+            .into_iter()
+            .map(|c| c.real.to_string())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(names(Tool::Claude), ["/home/u/.claude/.credentials.json"]);
+    assert_eq!(names(Tool::Codex), ["/home/u/.codex/auth.json"]);
+    assert_eq!(
+        names(Tool::Opencode),
+        ["/home/u/.local/share/opencode/auth.json"]
+    );
+}
+
+#[test]
+fn every_tool_names_the_api_keys_that_log_it_in() {
+    assert!(Tool::Claude.api_key_vars().contains(&"ANTHROPIC_API_KEY"));
+    assert!(Tool::Codex.api_key_vars().contains(&"OPENAI_API_KEY"));
+    assert!(!Tool::Opencode.api_key_vars().is_empty());
+}

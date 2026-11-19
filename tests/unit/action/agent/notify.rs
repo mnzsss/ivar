@@ -225,3 +225,141 @@ fn a_missing_telegram_token_names_the_key() {
     let error = telegram_token(&layout).unwrap_err();
     assert!(error.contains("TELEGRAM_BOT_TOKEN"), "{error}");
 }
+
+fn blocked() -> AgentRunReceipt {
+    AgentRunReceipt::blocked(
+        "r1".into(),
+        "nightly".into(),
+        Trigger::Schedule,
+        "t".into(),
+        "t".into(),
+        "agent.provider_auth: auth error: not logged in".into(),
+    )
+}
+
+fn webhook(url: &str) -> NotifyTarget {
+    NotifyTarget::Webhook(url.to_owned())
+}
+
+#[test]
+fn the_problem_notifier_posts_a_blocked_run_tagged_as_a_problem() {
+    let (url, server) = one_shot_server("200 OK");
+    let mut receipt = blocked();
+    problem_to(
+        Some(&webhook(&url)),
+        &spec(None),
+        &mut receipt,
+        "valhalla-hall",
+        no_token,
+        "",
+    );
+    let request = server.join().unwrap();
+    assert!(request.starts_with("POST /hook "), "{request}");
+    assert!(request.contains(r#""kind": "agent_problem""#), "{request}");
+    assert!(request.contains(r#""outcome": "blocked""#), "{request}");
+    assert!(request.contains("auth error"), "{request}");
+    assert_eq!(receipt.notify_error, None);
+    assert_eq!(receipt.outcome, AgentRunOutcome::Blocked);
+}
+
+#[test]
+fn the_problem_notifier_reaches_telegram_with_the_hall_token() {
+    let fake = FakeTelegram::start(vec![(200, r#"{"ok":true,"result":{}}"#)]);
+    let mut receipt = blocked();
+    problem_to(
+        Some(&NotifyTarget::Telegram {
+            chat_id: "-100123".into(),
+        }),
+        &spec(None),
+        &mut receipt,
+        "valhalla-hall",
+        || Ok("123:secret".into()),
+        &fake.api,
+    );
+    let request = &fake.requests()[0];
+    assert!(request.contains(r#""chat_id":"-100123""#), "{request}");
+    assert!(request.contains("nightly</b> · blocked"), "{request}");
+    assert_eq!(receipt.notify_error, None);
+}
+
+#[test]
+fn a_failed_problem_delivery_is_recorded_and_leaves_the_outcome() {
+    let (url, server) = one_shot_server("500 Internal Server Error");
+    let mut receipt = blocked();
+    problem_to(
+        Some(&webhook(&url)),
+        &spec(None),
+        &mut receipt,
+        "valhalla-hall",
+        no_token,
+        "",
+    );
+    server.join().unwrap();
+    let error = receipt.notify_error.as_deref().unwrap();
+    assert!(error.starts_with("problem notifier: "), "{error}");
+    assert!(error.contains("500"), "{error}");
+    assert_eq!(receipt.outcome, AgentRunOutcome::Blocked);
+}
+
+#[test]
+fn a_failed_problem_delivery_keeps_the_agents_own_notify_error() {
+    let (url, server) = one_shot_server("500 Internal Server Error");
+    let mut receipt = blocked();
+    receipt.notify_error = Some("agent notify down".into());
+    problem_to(
+        Some(&webhook(&url)),
+        &spec(Some("https://agent.example/hook".into())),
+        &mut receipt,
+        "valhalla-hall",
+        no_token,
+        "",
+    );
+    server.join().unwrap();
+    let error = receipt.notify_error.as_deref().unwrap();
+    assert!(
+        error.starts_with("agent notify down; problem notifier: "),
+        "{error}"
+    );
+}
+
+#[test]
+fn the_problem_notifier_ignores_a_run_that_is_not_blocked() {
+    let mut receipt = skipped();
+    problem_to(
+        Some(&webhook("http://127.0.0.1:1/never")),
+        &spec(None),
+        &mut receipt,
+        "valhalla-hall",
+        no_token,
+        "",
+    );
+    assert_eq!(receipt.notify_error, None);
+}
+
+#[test]
+fn without_a_problem_notifier_a_blocked_run_tells_nobody_more() {
+    let mut receipt = blocked();
+    problem_to(
+        None,
+        &spec(None),
+        &mut receipt,
+        "valhalla-hall",
+        no_token,
+        "",
+    );
+    assert_eq!(receipt.notify_error, None);
+}
+
+#[test]
+fn a_target_the_agent_already_notifies_is_not_told_twice() {
+    let mut receipt = blocked();
+    problem_to(
+        Some(&webhook("http://127.0.0.1:1/same")),
+        &spec(Some("http://127.0.0.1:1/same".into())),
+        &mut receipt,
+        "valhalla-hall",
+        no_token,
+        "",
+    );
+    assert_eq!(receipt.notify_error, None);
+}

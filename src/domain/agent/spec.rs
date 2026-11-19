@@ -93,6 +93,12 @@ pub(crate) fn is_telegram_chat_id(id: &str) -> bool {
     !digits.is_empty() && digits.chars().all(|c| c.is_ascii_digit())
 }
 
+/// A `notify`-style target for a setting that is not an agent's own, with the
+/// reason it is refused.
+pub(crate) fn parse_notify_target(value: &str) -> Result<NotifyTarget, String> {
+    notify_target(value).map_err(|e| e.reason)
+}
+
 fn notify_target(value: &str) -> Result<NotifyTarget, SpecError> {
     if let Some(chat_id) = value.strip_prefix("telegram:") {
         return if is_telegram_chat_id(chat_id) {

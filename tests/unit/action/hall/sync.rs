@@ -814,7 +814,8 @@ impl Agent {
             ),
         );
         let home = dir.join("home");
-        std::fs::create_dir_all(&home).unwrap();
+        std::fs::create_dir_all(home.join(".claude")).unwrap();
+        std::fs::write(home.join(".claude/.credentials.json"), "{\"token\":\"x\"}").unwrap();
         Self { bin, home }
     }
 
@@ -828,6 +829,7 @@ impl Agent {
                 ("HOME".to_owned(), self.home.to_string()),
             ],
             landlock: true,
+            tool_check: |_, _, _| crate::action::agent::run::ToolCheck::Ready,
         })
     }
 

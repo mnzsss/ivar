@@ -29,6 +29,15 @@ Run an agent now, through the same path its timer uses. The run starts in the ba
 | `--wait` |  |  | Stay attached until the run ends and print its receipt. A scheduled run always waits |
 
 
+## `ivar agent resume`
+
+Run again every agent whose latest run is blocked, or only <name>'s. A run is blocked when the tool needs a person (an approval, a script to approve) or the provider failed its preflight (tool missing, not logged in). Each goes through the same path as `run` and waits for the result, one after the other; the output lists what was resumed and how it ended. Fix the cause first: a run that is blocked again is blocked again
+
+| argument | required | description |
+| --- | --- | --- |
+| `name` | no | Agent name (the file stem under agents/). Without it, every agent whose latest run is blocked |
+
+
 ## `ivar agent logs`
 
 Print the output of the latest run, or of --run <id>

@@ -296,7 +296,7 @@ fn a_run_that_starts_while_status_is_queried_is_never_skipped() {
     use std::sync::atomic::{AtomicBool, Ordering};
 
     let (_guard, root) = hall_with_alpha();
-    // No secret `NEEDED` exists, so each run takes the lock, fails and
+    // No secret `NEEDED` exists, so each run takes the lock, is blocked and
     // releases it, with no container started.
     std::fs::write(
         root.join("agents/alpha.md"),
@@ -323,7 +323,7 @@ fn a_run_that_starts_while_status_is_queried_is_never_skipped() {
             )
             .unwrap()
             .value;
-            assert_eq!(receipt.outcome, AgentRunOutcome::Failed, "{receipt:?}");
+            assert_eq!(receipt.outcome, AgentRunOutcome::Blocked, "{receipt:?}");
         }
         stop.store(true, Ordering::Relaxed);
         assert!(querier.join().unwrap() > 0);

@@ -30,8 +30,8 @@ mod settings;
 
 pub use repo::{Repo, local_ref_prefix};
 pub use settings::Graph;
-use settings::MemorySettings;
 pub(crate) use settings::normalise_graph_path;
+use settings::{AgentSettings, MemorySettings};
 use settings::{enabled, is_enabled};
 
 /// `ivar.json`'s schema version. v1 was the first public version; v2 adds the
@@ -69,6 +69,9 @@ pub struct Manifest {
     /// Session memory settings; absent means capture is on.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     memory: Option<MemorySettings>,
+    /// Hall-wide scheduled-agent settings.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    agents: Option<AgentSettings>,
     /// Whether operations that write to the hall commit what they wrote. On unless set to `false`, which also stops them pushing. `ivar hall sync` ignores it.
     #[serde(default = "enabled", skip_serializing_if = "is_enabled")]
     auto_commit: bool,
@@ -165,6 +168,7 @@ impl Manifest {
             mcp: None,
             graph: None,
             memory: None,
+            agents: None,
             auto_commit: true,
             auto_push: true,
             auto_resolve: true,
@@ -383,7 +387,7 @@ impl Manifest {
     }
 
     /// The common rebuild every `with_*` ends at: the same name, integration,
-    /// MCP definitions, graph paths, memory settings, and auto-commit switches as `self`, with `providers` and `repos`
+    /// MCP definitions, graph paths, memory and agent settings, and auto-commit switches as `self`, with `providers` and `repos`
     /// replaced — so no mutation can silently drop a field it is not about.
     /// Validates, because the new combination may violate an invariant.
     fn rebuild(&self, providers: Providers, repos: Vec<Repo>) -> Result<Self, Error> {
@@ -397,6 +401,7 @@ impl Manifest {
             mcp: self.mcp.clone(),
             graph: self.graph.clone(),
             memory: self.memory.clone(),
+            agents: self.agents.clone(),
             auto_commit: self.auto_commit,
             auto_push: self.auto_push,
             auto_resolve: self.auto_resolve,
@@ -479,6 +484,10 @@ impl Manifest {
                         reason: format!("{reason}"),
                     })?;
             }
+        }
+
+        if let Some(agents) = &self.agents {
+            agents.validate()?;
         }
 
         if let Some(graph) = &self.graph {

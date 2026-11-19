@@ -451,11 +451,12 @@ mod agent {
         ] {
             std::fs::create_dir_all(dir).unwrap();
         }
+        std::fs::write(home.join(".claude/.credentials.json"), "{\"token\":\"x\"}").unwrap();
         let script = bin.join("claude");
         std::fs::write(
             &script,
             format!(
-                "#!/bin/sh\nprintf report > '{root}/reports/memory-health/run.md'\nprintf out > '{elsewhere}/out.md'\nexit {exit}\n"
+                "#!/bin/sh\n[ \"$1\" = --version ] && {{ echo 2.0.0; exit 0; }}\nprintf report > '{root}/reports/memory-health/run.md'\nprintf out > '{elsewhere}/out.md'\nexit {exit}\n"
             ),
         )
         .unwrap();

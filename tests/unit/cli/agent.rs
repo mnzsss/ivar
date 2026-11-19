@@ -82,3 +82,19 @@ fn notify_telegram_setup_parses() {
         ))
     ));
 }
+
+#[test]
+fn resume_takes_an_optional_agent_name() {
+    let cli = Cli::try_parse_from(["ivar", "agent", "resume"]).unwrap();
+    let Command::Agent(AgentCommand::Resume(args)) = cli.command else {
+        panic!("not agent resume")
+    };
+    assert_eq!(args.name, None);
+
+    let cli = Cli::try_parse_from(["ivar", "agent", "resume", "nightly"]).unwrap();
+    let Command::Agent(AgentCommand::Resume(args)) = cli.command else {
+        panic!("not agent resume")
+    };
+    assert_eq!(args.name.as_deref(), Some("nightly"));
+    assert!(Cli::try_parse_from(["ivar", "agent", "resume", "a", "b"]).is_err());
+}
