@@ -10,6 +10,9 @@ use camino::{Utf8Path, Utf8PathBuf};
 
 const FAKE_SYSTEMCTL: &str = r#"#!/bin/sh
 printf '%s\n' "$*" >> "$SYSTEMCTL_FAKE_LOG"
+if [ "$2" = enable ] && [ -n "$SYSTEMCTL_FAKE_STAMP" ]; then
+  if [ -e "$SYSTEMCTL_FAKE_STAMP" ]; then echo present > "$SYSTEMCTL_FAKE_STAMP_SEEN"; else echo missing > "$SYSTEMCTL_FAKE_STAMP_SEEN"; fi
+fi
 case "$2" in
   show) [ -n "$SYSTEMCTL_FAKE_NEXT" ] && echo "$SYSTEMCTL_FAKE_NEXT" ;;
   show-environment)

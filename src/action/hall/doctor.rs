@@ -33,6 +33,7 @@ use crate::action::graph::reconcile::HallFacts;
 use crate::action::session::base_view::{self, BaseView};
 use camino::{Utf8Path, Utf8PathBuf};
 
+mod agent_timers;
 mod automation;
 mod database;
 mod features;
@@ -113,6 +114,25 @@ impl WriteHuman for DoctorOutcome {
     }
 }
 
+/// Agent timer stamps. systemd timers are Linux-only, and a machine whose unit or
+/// state directory, or ivar binary, is unknown has nothing installed to check.
+fn installed_agent_timer_diagnoses(
+    layout: &Layout,
+    specs: &[crate::domain::agent::spec::AgentSpec],
+) -> Vec<Diagnosis> {
+    if !cfg!(target_os = "linux") || !specs.iter().any(|spec| spec.catchup) {
+        return Vec::new();
+    }
+    let (Ok(unit_dir), Ok(data_dir), Ok(ivar_bin)) = (
+        crate::infra::systemd::user_unit_dir(),
+        crate::infra::systemd::user_data_dir(),
+        crate::action::agent::sync::current_ivar_bin(),
+    ) else {
+        return Vec::new();
+    };
+    agent_timers::catchup_stamp_diagnoses(layout, specs, &unit_dir, &data_dir, &ivar_bin)
+}
+
 /// Diagnose the hall with no network and no removals: [`doctor_with`] on the
 /// default [`DoctorInput`].
 pub fn doctor(ctx: &Ctx) -> Outcome<DoctorOutcome> {
@@ -168,6 +188,7 @@ pub fn doctor_with(
         !agent_files.is_empty(),
         &crate::action::agent::requirements::system_probes(),
     ));
+    findings.extend(installed_agent_timer_diagnoses(&layout, &agent_specs));
     check_legacy_working_docs(&layout, &mut findings)?;
 
     let graph_watch_leader = crate::action::graph::watch::lease::leader_pid(&layout);

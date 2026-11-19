@@ -261,7 +261,7 @@ fn three_numbers(text: &str, separator: char) -> Option<[i64; 3]> {
 }
 
 /// The inverse of [`civil_from_days`], from the same Hinnant algorithms.
-fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
+pub(crate) fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
     let year = if month <= 2 { year - 1 } else { year };
     let era = year.div_euclid(400);
     let year_of_era = year.rem_euclid(400);
@@ -274,7 +274,7 @@ fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
 ///
 /// Howard Hinnant's `civil_from_days` algorithm — the standard, well-tested
 /// way to do this without a date library.
-fn civil_from_days(days: i64) -> (i64, u32, u32) {
+pub(crate) fn civil_from_days(days: i64) -> (i64, u32, u32) {
     let z = days + 719_468;
     let era = z.div_euclid(146_097);
     let day_of_era = z.rem_euclid(146_097);
