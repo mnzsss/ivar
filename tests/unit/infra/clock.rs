@@ -19,3 +19,9 @@ fn a_local_time_resolves_within_a_day_of_its_utc_reading() {
 fn nonsense_is_not_placed() {
     assert_eq!(local_epoch_secs("not a time"), None);
 }
+
+#[test]
+fn a_local_time_reads_back_as_itself() {
+    let secs = local_epoch_secs("2030-06-15 08:45").unwrap();
+    assert_eq!(local_wall(secs).as_deref(), Some("2030-06-15 08:45"));
+}

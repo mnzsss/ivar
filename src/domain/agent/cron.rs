@@ -5,6 +5,8 @@ use std::fmt;
 
 use serde::{Serialize, Serializer};
 
+use crate::domain::session::{civil_from_days, days_from_civil};
+
 struct Field {
     name: &'static str,
     min: u32,
@@ -50,7 +52,72 @@ const SYSTEMD_DAYS: [&str; 7] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"
 pub struct CronExpr {
     source: String,
     on_calendar: String,
+    minutes: BTreeSet<u32>,
+    hours: BTreeSet<u32>,
+    days_of_month: BTreeSet<u32>,
+    months: BTreeSet<u32>,
+    /// `0` is Sunday; `7` is already folded into it.
+    days_of_week: BTreeSet<u32>,
 }
+
+/// A civil date and time to the minute, with no zone: what `OnCalendar` is read
+/// against.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct WallTime {
+    pub year: i64,
+    pub month: u32,
+    pub day: u32,
+    pub hour: u32,
+    pub minute: u32,
+}
+
+impl WallTime {
+    /// Reads `YYYY-MM-DD HH:MM`, the form [`fmt::Display`] writes.
+    #[must_use]
+    pub fn parse(text: &str) -> Option<Self> {
+        let (date, time) = text.trim().split_once(' ')?;
+        let mut date = date.split('-');
+        let mut time = time.trim().split(':');
+        let wall = Self {
+            year: date.next()?.parse().ok()?,
+            month: date.next()?.parse().ok()?,
+            day: date.next()?.parse().ok()?,
+            hour: time.next()?.parse().ok()?,
+            minute: time.next()?.parse().ok()?,
+        };
+        let real = date.next().is_none()
+            && time.next().is_none()
+            && (1..=12).contains(&wall.month)
+            && (1..=days_in_month(wall.year, wall.month)).contains(&wall.day)
+            && wall.hour < 24
+            && wall.minute < 60;
+        real.then_some(wall)
+    }
+}
+
+impl fmt::Display for WallTime {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{:04}-{:02}-{:02} {:02}:{:02}",
+            self.year, self.month, self.day, self.hour, self.minute
+        )
+    }
+}
+
+fn days_in_month(year: i64, month: u32) -> u32 {
+    match month {
+        2 if (year % 4 == 0 && year % 100 != 0) || year % 400 == 0 => 29,
+        2 => 28,
+        4 | 6 | 9 | 11 => 30,
+        _ => 31,
+    }
+}
+
+/// The longest gap between two occurrences of a schedule that has any: 29 Feb
+/// across a skipped leap year (1896 to 1904, 2096 to 2104) is just under eight
+/// years.
+const LOOKBACK_DAYS: i64 = 366 * 8;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CronError {
@@ -125,7 +192,60 @@ impl CronExpr {
         Ok(Self {
             source: text.to_owned(),
             on_calendar,
+            minutes: minute,
+            hours: hour,
+            days_of_month: dom,
+            months: month,
+            days_of_week: dow,
         })
+    }
+
+    /// The latest occurrence at or before `wall`, read as a civil time; `None`
+    /// when the schedule never matches a real date (`0 0 31 2 *`) within
+    /// eight years back.
+    ///
+    /// Inclusive on purpose: `wall` is a minute, and an occurrence in that same
+    /// minute has already come, so a timer stamped with it must not fire for it
+    /// again.
+    #[must_use]
+    pub fn last_at_or_before(&self, wall: WallTime) -> Option<WallTime> {
+        let today = days_from_civil(wall.year, i64::from(wall.month), i64::from(wall.day));
+        for back in 0..=LOOKBACK_DAYS {
+            let (year, month, day) = civil_from_days(today - back);
+            if !self.matches_date(today - back, month, day) {
+                continue;
+            }
+            let (hour_limit, minute_limit) = if back == 0 {
+                (wall.hour, wall.minute)
+            } else {
+                (23, 59)
+            };
+            let found = self.hours.range(..=hour_limit).rev().find_map(|&hour| {
+                let limit = if hour == hour_limit { minute_limit } else { 59 };
+                self.minutes
+                    .range(..=limit)
+                    .next_back()
+                    .map(|&minute| (hour, minute))
+            });
+            if let Some((hour, minute)) = found {
+                return Some(WallTime {
+                    year,
+                    month,
+                    day,
+                    hour,
+                    minute,
+                });
+            }
+        }
+        None
+    }
+
+    fn matches_date(&self, days: i64, month: u32, day: u32) -> bool {
+        // 1970-01-01 was a Thursday.
+        let weekday = u32::try_from((days + 4).rem_euclid(7)).unwrap_or(0);
+        self.months.contains(&month)
+            && self.days_of_month.contains(&day)
+            && self.days_of_week.contains(&weekday)
     }
 
     pub fn as_str(&self) -> &str {

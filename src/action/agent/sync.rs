@@ -10,6 +10,7 @@ use super::hall_hash;
 use super::requirements::{self, Probes};
 use super::scripts;
 use crate::action::{Ctx, discover_hall};
+use crate::domain::agent::cron::{CronExpr, WallTime};
 use crate::domain::agent::spec::{AgentSpec, Launch, Runtime, WritePath};
 use crate::domain::agent::tool::Tool;
 use crate::domain::agent::unit::{
@@ -25,6 +26,8 @@ use crate::store::layout::Layout;
 pub struct Clock<'a> {
     pub now_secs: i64,
     pub local_epoch_secs: &'a dyn Fn(&str) -> Option<i64>,
+    /// The inverse of `local_epoch_secs`: `YYYY-MM-DD HH:MM` of an epoch second.
+    pub local_wall: &'a dyn Fn(i64) -> Option<String>,
 }
 
 impl Clock<'static> {
@@ -34,6 +37,7 @@ impl Clock<'static> {
         Self {
             now_secs: clock::now_epoch_secs(),
             local_epoch_secs: &clock::local_epoch_secs,
+            local_wall: &clock::local_wall,
         }
     }
 }
@@ -49,6 +53,8 @@ impl std::fmt::Debug for Clock<'_> {
 #[derive(Debug)]
 pub struct SyncEnv<'a> {
     pub unit_dir: Utf8PathBuf,
+    /// Where the systemd user manager keeps its state; see [`systemd::stamp_path`].
+    pub data_dir: Utf8PathBuf,
     pub ivar_bin: Utf8PathBuf,
     /// The `PATH` each service pins; see [`render_service`].
     pub path: Option<String>,
@@ -67,6 +73,9 @@ pub struct SyncOutcome {
     pub unchanged: Vec<String>,
     /// Agent Tasks whose `at` had already passed, started now as a timer run.
     pub fired: Vec<String>,
+    /// `catchup` agents whose timer had no stamp, given one at the last
+    /// scheduled time so a missed run is caught up without this sync running one.
+    pub stamped: Vec<String>,
 }
 
 impl WriteHuman for SyncOutcome {
@@ -77,7 +86,10 @@ impl WriteHuman for SyncOutcome {
             ("removed", &self.removed),
             ("unchanged", &self.unchanged),
         ];
-        if lists.iter().all(|(_, names)| names.is_empty()) && self.fired.is_empty() {
+        if lists.iter().all(|(_, names)| names.is_empty())
+            && self.fired.is_empty()
+            && self.stamped.is_empty()
+        {
             return writeln!(w, "No agents.");
         }
         for (label, names) in lists {
@@ -90,6 +102,13 @@ impl WriteHuman for SyncOutcome {
                 w,
                 "fired now (`at` already passed, started as a timer run): {}",
                 self.fired.join(", ")
+            )?;
+        }
+        if !self.stamped.is_empty() {
+            writeln!(
+                w,
+                "stamped (catchup timer had no last-run stamp, set to its last scheduled time): {}",
+                self.stamped.join(", ")
             )?;
         }
         Ok(())
@@ -105,6 +124,7 @@ pub fn sync(ctx: &Ctx) -> Outcome<SyncOutcome> {
         ctx,
         &SyncEnv {
             unit_dir: systemd::user_unit_dir()?,
+            data_dir: systemd::user_data_dir()?,
             ivar_bin,
             path: std::env::var("PATH").ok().filter(|p| !p.is_empty()),
             is_linux: cfg!(target_os = "linux"),
@@ -153,6 +173,7 @@ pub fn sync_with(ctx: &Ctx, env: &SyncEnv<'_>) -> Outcome<SyncOutcome> {
         removed: vec![],
         unchanged: vec![],
         fired: vec![],
+        stamped: vec![],
     };
     let mut wanted = BTreeSet::new();
     for spec in &specs {
@@ -208,11 +229,21 @@ pub fn sync_with(ctx: &Ctx, env: &SyncEnv<'_>) -> Outcome<SyncOutcome> {
             .removed
             .push(stem.trim_start_matches(&prefix).to_owned());
     }
+    // Before `enable --now`: a timer reads its stamp as it starts.
+    outcome.stamped = write_missing_stamps(&specs, &hash, env)?;
     if !(outcome.created.is_empty() && outcome.updated.is_empty() && outcome.removed.is_empty()) {
         systemd::daemon_reload()?;
     }
     for name in outcome.created.iter().chain(&outcome.updated) {
         systemd::enable_now(&format!("{}.timer", unit_stem(&hash, name)))?;
+    }
+    // A timer that was already running read its stamp, or the lack of one, when
+    // it started; restarting it makes it count from the stamp just written, which
+    // is its last scheduled time, so nothing fires.
+    for name in &outcome.stamped {
+        if !outcome.created.contains(name) {
+            systemd::restart(&format!("{}.timer", unit_stem(&hash, name)))?;
+        }
     }
     outcome.removed.sort();
     outcome.fired = fire_due_tasks(&layout, &specs, &hash, &env.clock)?;
@@ -224,6 +255,47 @@ pub fn sync_with(ctx: &Ctx, env: &SyncEnv<'_>) -> Outcome<SyncOutcome> {
     warnings.extend(scripts::env_warnings(&layout, &specs));
     warnings.extend(build_dir_warning(&env.ivar_bin, specs.len()));
     Ok(Report::with_warnings(outcome, warnings))
+}
+
+/// Gives every `catchup` timer without a stamp one dated at the schedule's last
+/// occurrence, so `Persistent=true` has something to count from. Dated any
+/// earlier it would run the agent at the next start; any later it would hide
+/// a run that was missed. A stamp that exists is left alone.
+///
+/// Skips a timer whose last occurrence cannot be placed (a local time skipped by
+/// a clock change, or one still in the future), as `fire_due_tasks` does for a
+/// task: a guessed stamp is worse than none.
+fn write_missing_stamps(
+    specs: &[AgentSpec],
+    hash: &str,
+    env: &SyncEnv<'_>,
+) -> Result<Vec<String>, Failure> {
+    let mut stamped = Vec::new();
+    for spec in specs.iter().filter(|spec| spec.catchup) {
+        let Some(cron) = spec.schedule() else {
+            continue;
+        };
+        let timer = format!("{}.timer", unit_stem(hash, &spec.name));
+        if systemd::stamp_exists(&env.data_dir, &timer) {
+            continue;
+        }
+        let Some(last) = last_occurrence_secs(cron, &env.clock) else {
+            continue;
+        };
+        if systemd::write_stamp_if_missing(&env.data_dir, &timer, last)? {
+            stamped.push(spec.name.clone());
+        }
+    }
+    Ok(stamped)
+}
+
+fn last_occurrence_secs(cron: &CronExpr, clock: &Clock<'_>) -> Option<u64> {
+    let now = WallTime::parse(&(clock.local_wall)(clock.now_secs)?)?;
+    let last = (clock.local_epoch_secs)(&cron.last_at_or_before(now)?.to_string())?;
+    if last > clock.now_secs {
+        return None;
+    }
+    u64::try_from(last).ok()
 }
 
 /// Starts every Agent Task whose `at` is not in the future: its timer has no

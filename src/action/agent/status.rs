@@ -10,11 +10,11 @@ use super::hall_hash;
 use super::sync::current_ivar_bin;
 use crate::action::{Ctx, discover_hall};
 use crate::domain::agent::receipt::{AgentRunOutcome, Trigger};
-use crate::domain::agent::spec::Timing;
+use crate::domain::agent::spec::{AgentSpec, Timing};
 use crate::domain::agent::unit::{
     exec_binary, render_service, render_spec_timer, service_path, unit_stem,
 };
-use crate::error::{Outcome, Report, WriteHuman};
+use crate::error::{Failure, Outcome, Report, WriteHuman};
 use crate::infra::{fs, proc, systemd, table};
 use crate::store;
 use crate::store::layout::Layout;
@@ -25,8 +25,16 @@ pub enum UnitSync {
     InSync,
     NotInstalled,
     Stale,
-    BinaryMissing { path: String },
-    Invalid { reason: String },
+    /// Installed and current, but a `catchup` timer has no systemd stamp, so a
+    /// run missed while the machine was off is never caught up; `ivar agent
+    /// sync` writes it.
+    StaleCatchup,
+    BinaryMissing {
+        path: String,
+    },
+    Invalid {
+        reason: String,
+    },
 }
 
 impl UnitSync {
@@ -35,6 +43,7 @@ impl UnitSync {
             Self::InSync => "in sync",
             Self::NotInstalled => "not installed",
             Self::Stale => "stale",
+            Self::StaleCatchup => "stale catchup",
             Self::BinaryMissing { .. } => "binary missing",
             Self::Invalid { .. } => "invalid",
         }
@@ -154,14 +163,68 @@ fn unit_sync(
 ///
 /// See [`status_in`]; also when the unit directory or the running binary is unknown.
 pub fn status(ctx: &Ctx) -> Outcome<StatusOutcome> {
-    status_in(ctx, &systemd::user_unit_dir()?, &current_ivar_bin()?)
+    status_in(
+        ctx,
+        &systemd::user_unit_dir()?,
+        &systemd::user_data_dir()?,
+        &current_ivar_bin()?,
+    )
+}
+
+/// Whether `spec`'s timer is a `catchup` one that systemd has no stamp for.
+/// Only meaningful for a timer that is installed.
+pub(crate) fn catchup_stamp_missing(
+    spec: &AgentSpec,
+    hall_hash: &str,
+    data_dir: &Utf8Path,
+) -> bool {
+    spec.catchup
+        && spec.schedule().is_some()
+        && !systemd::stamp_exists(
+            data_dir,
+            &format!("{}.timer", unit_stem(hall_hash, &spec.name)),
+        )
+}
+
+/// How the installed units of `spec` compare with what `sync` would write.
+///
+/// # Errors
+///
+/// When a unit file cannot be read.
+pub(crate) fn installed_sync(
+    layout: &Layout,
+    hall_hash: &str,
+    spec: &AgentSpec,
+    unit_dir: &Utf8Path,
+    ivar_bin: &Utf8Path,
+) -> Result<UnitSync, Failure> {
+    let stem = unit_stem(hall_hash, &spec.name);
+    let service = fs::read_text(&unit_dir.join(format!("{stem}.service")))?;
+    let timer = fs::read_text(&unit_dir.join(format!("{stem}.timer")))?;
+    Ok(unit_sync(
+        service.as_deref(),
+        timer.as_deref(),
+        &render_service(
+            hall_hash,
+            &spec.name,
+            layout.root().as_str(),
+            ivar_bin.as_str(),
+            service.as_deref().and_then(service_path).as_deref(),
+        ),
+        &render_spec_timer(hall_hash, spec),
+    ))
 }
 
 /// # Errors
 ///
 /// When there is no hall or the agent directory or a unit file cannot be read;
 /// an invalid agent file is reported in its row, never as a failure.
-pub fn status_in(ctx: &Ctx, unit_dir: &Utf8Path, ivar_bin: &Utf8Path) -> Outcome<StatusOutcome> {
+pub fn status_in(
+    ctx: &Ctx,
+    unit_dir: &Utf8Path,
+    data_dir: &Utf8Path,
+    ivar_bin: &Utf8Path,
+) -> Outcome<StatusOutcome> {
     let layout = discover_hall(ctx)?;
     let hash = hall_hash(&layout);
     let mut agents = Vec::new();
@@ -186,21 +249,15 @@ pub fn status_in(ctx: &Ctx, unit_dir: &Utf8Path, ivar_bin: &Utf8Path) -> Outcome
             }
             Ok(spec) => {
                 let stem = unit_stem(&hash, &spec.name);
-                let service = fs::read_text(&unit_dir.join(format!("{stem}.service")))?;
-                let timer = fs::read_text(&unit_dir.join(format!("{stem}.timer")))?;
-                status.sync = unit_sync(
-                    service.as_deref(),
-                    timer.as_deref(),
-                    &render_service(
-                        &hash,
-                        &spec.name,
-                        layout.root().as_str(),
-                        ivar_bin.as_str(),
-                        service.as_deref().and_then(service_path).as_deref(),
-                    ),
-                    &render_spec_timer(&hash, &spec),
-                );
-                if matches!(status.sync, UnitSync::InSync | UnitSync::Stale) {
+                status.sync = installed_sync(&layout, &hash, &spec, unit_dir, ivar_bin)?;
+                if status.sync == UnitSync::InSync && catchup_stamp_missing(&spec, &hash, data_dir)
+                {
+                    status.sync = UnitSync::StaleCatchup;
+                }
+                if matches!(
+                    status.sync,
+                    UnitSync::InSync | UnitSync::Stale | UnitSync::StaleCatchup
+                ) {
                     status.next_run = systemd::next_elapse(&format!("{stem}.timer"));
                 }
                 status.schedule = spec.schedule().map(|s| s.as_str().to_owned());

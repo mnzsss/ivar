@@ -43,6 +43,7 @@ fn reports_schedule_next_run_last_outcome_and_drift() {
         &ctx,
         &SyncEnv {
             unit_dir: units.clone(),
+            data_dir: root.join("data"),
             ivar_bin: bin.clone(),
             path: Some("/a/shell/that/synced:/usr/bin".to_owned()),
             is_linux: true,
@@ -59,6 +60,7 @@ fn reports_schedule_next_run_last_outcome_and_drift() {
             clock: Clock {
                 now_secs: 0,
                 local_epoch_secs: &|_| None,
+                local_wall: &|_| None,
             },
         },
     )
@@ -90,7 +92,10 @@ fn reports_schedule_next_run_last_outcome_and_drift() {
     )
     .unwrap();
 
-    let agents = status_in(&ctx, &units, &bin).unwrap().value.agents;
+    let agents = status_in(&ctx, &units, &root.join("data"), &bin)
+        .unwrap()
+        .value
+        .agents;
     let by = |n: &str| agents.iter().find(|a| a.name == n).unwrap().clone();
     assert_eq!(by("alpha").sync, UnitSync::InSync);
     assert_eq!(
@@ -108,7 +113,10 @@ fn reports_schedule_next_run_last_outcome_and_drift() {
     );
 
     std::fs::remove_file(&bin).unwrap();
-    let agents = status_in(&ctx, &units, &bin).unwrap().value.agents;
+    let agents = status_in(&ctx, &units, &root.join("data"), &bin)
+        .unwrap()
+        .value
+        .agents;
     assert!(matches!(
         agents.iter().find(|a| a.name == "alpha").unwrap().sync,
         UnitSync::BinaryMissing { .. }
@@ -137,7 +145,9 @@ fn lists_a_pending_task_with_its_resolved_time_and_never_a_concluded_one() {
     .unwrap();
 
     let ctx = Ctx::new(root.clone());
-    let status = status_in(&ctx, &units, &bin).unwrap().value;
+    let status = status_in(&ctx, &units, &root.join("data"), &bin)
+        .unwrap()
+        .value;
     let [task] = status.agents.as_slice() else {
         panic!("{:?}", status.agents);
     };
@@ -167,7 +177,13 @@ fn hall_with_alpha() -> (tempfile::TempDir, camino::Utf8PathBuf) {
 
 fn alpha_run(root: &camino::Utf8PathBuf) -> RunState {
     let ctx = Ctx::new(root.clone());
-    let status = status_in(&ctx, &root.join("units"), &root.join("ivar-bin")).unwrap();
+    let status = status_in(
+        &ctx,
+        &root.join("units"),
+        &root.join("data"),
+        &root.join("ivar-bin"),
+    )
+    .unwrap();
     status.value.agents.into_iter().next().unwrap().run
 }
 
@@ -205,9 +221,14 @@ fn a_run_in_progress_shows_as_running_with_its_start() {
     assert_eq!(alpha_run(&root), expected);
 
     let ctx = Ctx::new(root.clone());
-    let status = status_in(&ctx, &root.join("units"), &root.join("ivar-bin"))
-        .unwrap()
-        .value;
+    let status = status_in(
+        &ctx,
+        &root.join("units"),
+        &root.join("data"),
+        &root.join("ivar-bin"),
+    )
+    .unwrap()
+    .value;
     let mut human = Vec::new();
     status.write_human(&mut human).unwrap();
     let human = String::from_utf8(human).unwrap();
@@ -241,9 +262,14 @@ fn a_finished_run_is_idle_and_shows_a_dash() {
     assert_eq!(alpha_run(&root), RunState::Idle);
 
     let ctx = Ctx::new(root.clone());
-    let status = status_in(&ctx, &root.join("units"), &root.join("ivar-bin"))
-        .unwrap()
-        .value;
+    let status = status_in(
+        &ctx,
+        &root.join("units"),
+        &root.join("data"),
+        &root.join("ivar-bin"),
+    )
+    .unwrap()
+    .value;
     assert_eq!(
         serde_json::to_value(&status).unwrap()["agents"][0]["run"],
         serde_json::json!({"state": "idle"})
@@ -329,4 +355,107 @@ fn a_run_that_starts_while_status_is_queried_is_never_skipped() {
         assert!(querier.join().unwrap() > 0);
     });
     assert_eq!(alpha_run(&root), RunState::Idle);
+}
+
+fn status_after_sync(
+    root: &camino::Utf8PathBuf,
+    catchup: bool,
+) -> (Ctx, camino::Utf8PathBuf, camino::Utf8PathBuf) {
+    let units = root.join("units");
+    let bin = root.join("ivar-bin");
+    std::fs::write(&bin, "").unwrap();
+    std::fs::create_dir_all(root.join("agents")).unwrap();
+    std::fs::write(
+        root.join("agents/alpha.md"),
+        format!("---\nschedule: \"0 9 * * *\"\ncatchup: {catchup}\ntool: codex\n---\n"),
+    )
+    .unwrap();
+    let ctx = Ctx::new(root.clone());
+    sync_with(
+        &ctx,
+        &SyncEnv {
+            unit_dir: units.clone(),
+            data_dir: root.join("data"),
+            ivar_bin: bin.clone(),
+            path: None,
+            is_linux: true,
+            probes: Probes {
+                is_linux: true,
+                systemd_user: &yes,
+                linger: &yes,
+                docker_client: &yes,
+                docker_daemon: &yes,
+                docker_rootless: &rootless,
+                tool_on_path: &|_| true,
+                landlock: &yes,
+            },
+            // No clock: sync writes no stamp, as on a machine that never had one.
+            clock: Clock {
+                now_secs: 0,
+                local_epoch_secs: &|_| None,
+                local_wall: &|_| None,
+            },
+        },
+    )
+    .unwrap();
+    (ctx, units, bin)
+}
+
+#[test]
+fn a_catchup_timer_without_a_stamp_is_stale_catchup_and_in_sync_with_one() {
+    let (_guard, root) = seeded_hall();
+    let fake = FakeSystemctl::install(&root);
+    let _r =
+        crate::infra::proc::redirect_on_this_thread("systemctl", fake_systemctl_command(&fake));
+    let (ctx, units, bin) = status_after_sync(&root, true);
+    let data = root.join("data");
+
+    let status = status_in(&ctx, &units, &data, &bin).unwrap().value;
+    assert_eq!(status.agents[0].sync, UnitSync::StaleCatchup);
+    let mut human = Vec::new();
+    status.write_human(&mut human).unwrap();
+    assert!(String::from_utf8(human).unwrap().contains("stale catchup"));
+    assert_eq!(
+        serde_json::to_value(&status).unwrap()["agents"][0]["sync"],
+        serde_json::json!({"state": "stale_catchup"})
+    );
+
+    let hash = hall_hash(&Layout::at(root.clone()));
+    let timer = format!("ivar-agent-{hash}-alpha.timer");
+    assert!(crate::infra::systemd::write_stamp_if_missing(&data, &timer, 1_700_000_000).unwrap());
+    let status = status_in(&ctx, &units, &data, &bin).unwrap().value;
+    assert_eq!(status.agents[0].sync, UnitSync::InSync);
+}
+
+#[test]
+fn an_agent_without_catchup_is_in_sync_without_a_stamp() {
+    let (_guard, root) = seeded_hall();
+    let fake = FakeSystemctl::install(&root);
+    let _r =
+        crate::infra::proc::redirect_on_this_thread("systemctl", fake_systemctl_command(&fake));
+    let (ctx, units, bin) = status_after_sync(&root, false);
+    let status = status_in(&ctx, &units, &root.join("data"), &bin)
+        .unwrap()
+        .value;
+    assert_eq!(status.agents[0].sync, UnitSync::InSync);
+}
+
+#[test]
+fn a_catchup_agent_that_is_not_installed_is_not_stale_catchup() {
+    let (_guard, root) = seeded_hall();
+    std::fs::create_dir_all(root.join("agents")).unwrap();
+    std::fs::write(
+        root.join("agents/alpha.md"),
+        "---\nschedule: \"0 9 * * *\"\ncatchup: true\ntool: codex\n---\n",
+    )
+    .unwrap();
+    let status = status_in(
+        &Ctx::new(root.clone()),
+        &root.join("units"),
+        &root.join("data"),
+        &root.join("ivar-bin"),
+    )
+    .unwrap()
+    .value;
+    assert_eq!(status.agents[0].sync, UnitSync::NotInstalled);
 }

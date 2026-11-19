@@ -20,6 +20,25 @@ pub fn local_epoch_secs(wall: &str) -> Option<i64> {
     gnu_date(wall).or_else(|| bsd_date(wall))
 }
 
+/// `YYYY-MM-DD HH:MM` of `epoch_secs` in the machine's time zone, the inverse of
+/// [`local_epoch_secs`]; `None` when `date` cannot print it. GNU `date -d @N`
+/// is tried first, then the BSD/macOS `date -r N`.
+#[must_use]
+pub fn local_wall(epoch_secs: i64) -> Option<String> {
+    const FORMAT: &str = "+%Y-%m-%d %H:%M";
+    date_text(&Command::new("date").args(["-d", &format!("@{epoch_secs}"), FORMAT]))
+        .or_else(|| date_text(&Command::new("date").args(["-r", &epoch_secs.to_string(), FORMAT])))
+}
+
+fn date_text(command: &Command) -> Option<String> {
+    let output = capture(command).ok()?;
+    if !output.success() {
+        return None;
+    }
+    let text = output.stdout.trim();
+    (!text.is_empty()).then(|| text.to_owned())
+}
+
 fn gnu_date(wall: &str) -> Option<i64> {
     date_seconds(&Command::new("date").args(["-d", wall, "+%s"]))
 }

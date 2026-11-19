@@ -39,7 +39,7 @@ ivar runs no process of its own between runs. Linux with systemd only.
 | `notify` | — | `http(s)://` URL that receives a JSON run summary, or `telegram:<chat_id>` to message a Telegram chat (see [Telegram](#telegram)) |
 | `scripts` | `[]` | hall scripts the agent calls, as hall-relative paths under `.ivar/scripts/` or `.ivar/scripts-local/` (`.ivar/scripts/deploy-staging.sh`). Each must exist, and each must be approved before the run launches; see [Scripts](#scripts) |
 | `timeout` | `30m` | `90s`, `45m`, `2h`; at most `24h` |
-| `catchup` | `false` | recurring agents only. `true`: when the machine was off or asleep at the scheduled time, run once as soon as the timer is active again, however many runs were missed. Sets `Persistent=true` on the timer; run `ivar agent sync` after changing it |
+| `catchup` | `false` | recurring agents only. `true`: when the machine was off or asleep at the scheduled time, run once as soon as the timer is active again, however many runs were missed. Sets `Persistent=true` on the timer and `ivar agent sync` gives it the systemd stamp that catch-up needs (see [Catch-up stamp](#catch-up-stamp)); run `ivar agent sync` after changing it |
 
 ## Agent Tasks
 
@@ -300,6 +300,32 @@ that pair lets it push from inside the container.
 `.ivar/secrets/agents.env` holds `NAME=value` lines and must be mode 600.
 Only the names an agent lists are passed in, and their values are removed
 from receipts, logs and notifications.
+
+## Catch-up stamp
+
+`Persistent=true` only works from a stamp file systemd keeps for the timer,
+`$XDG_DATA_HOME/systemd/timers/stamp-<timer>` (`~/.local/share/...` by
+default), whose mtime is the last time the timer fired. A timer that never
+fired, or whose stamp was lost, has no last run to count from, so a run missed
+while the machine was off is never caught up, and nothing else shows it.
+
+`ivar agent sync` writes the stamp of every `catchup: true` timer that lacks
+one, dated at the last occurrence of its schedule, so the next boot catches up
+what was missed after that and the sync itself runs nothing. A stamp that
+exists is left as it is. When a running timer gains a stamp this way, `sync`
+restarts that timer so systemd reads it. It skips a timer whose last occurrence
+it cannot place, such as a local time a clock change skipped.
+
+Because the stamp starts at the last scheduled time, the run of that occurrence
+is not caught up if it was already missed when `sync` wrote the stamp: with a
+`0 7 * * *` agent, a `sync` at 09:30 on a stampless timer does not run the 07:00
+one.
+
+`ivar agent status` shows `stale catchup` in the SYNC column for an installed
+`catchup` timer with no stamp (`"state": "stale_catchup"` in JSON), and
+`ivar doctor` reports `agent.catchup_stamp_missing` on Linux for the same case,
+with `ivar agent sync` as the fix. Agent Tasks and agents without `catchup` are
+not checked.
 
 ## Requirements
 

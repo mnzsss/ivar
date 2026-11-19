@@ -39,8 +39,14 @@ fn utc_wall(wall: &str) -> Option<i64> {
     ))
 }
 
+/// The inverse of [`utc_wall`].
+fn utc_wall_of(secs: i64) -> Option<String> {
+    Some(crate::domain::session::utc_calendar_from_epoch_secs(secs)[..16].to_owned())
+}
+
 fn env(unit_dir: Utf8PathBuf) -> SyncEnv<'static> {
     SyncEnv {
+        data_dir: unit_dir.parent().unwrap().join("data"),
         unit_dir,
         ivar_bin: Utf8PathBuf::from("/opt/ivar/bin/ivar"),
         path: Some("/home/me/.local/bin:/usr/bin".to_owned()),
@@ -58,6 +64,7 @@ fn env(unit_dir: Utf8PathBuf) -> SyncEnv<'static> {
         clock: Clock {
             now_secs: NOW,
             local_epoch_secs: &utc_wall,
+            local_wall: &utc_wall_of,
         },
     }
 }
@@ -503,4 +510,188 @@ fn sync_warns_about_an_env_variable_a_listed_script_reads_and_the_agent_does_not
     assert_eq!(warning.subject, "nightly");
     assert!(warning.what.contains("`URL`"), "{}", warning.what);
     assert!(!warning.what.contains("`TOKEN`"), "{}", warning.what);
+}
+
+fn catchup_agent(root: &Utf8PathBuf, name: &str, schedule: &str) {
+    let dir = root.join("agents");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join(format!("{name}.md")),
+        format!("---\nschedule: \"{schedule}\"\ncatchup: true\ntool: claude\n---\nGo.\n"),
+    )
+    .unwrap();
+}
+
+fn stamp_of(root: &Utf8PathBuf, name: &str) -> Utf8PathBuf {
+    let hash = hall_hash(&Layout::at(root.clone()));
+    crate::infra::systemd::stamp_path(
+        &root.join("data"),
+        &format!("ivar-agent-{hash}-{name}.timer"),
+    )
+}
+
+fn mtime(path: &Utf8PathBuf) -> i64 {
+    let since = std::fs::metadata(path)
+        .unwrap()
+        .modified()
+        .unwrap()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap();
+    i64::try_from(since.as_secs()).unwrap()
+}
+
+/// 2026-11-06T07:00:00Z, 5 hours before `NOW`.
+const SEVEN_TODAY: i64 = NOW - 5 * 3600;
+
+#[test]
+fn a_new_catchup_timer_gets_a_stamp_at_its_last_occurrence_before_it_is_enabled() {
+    let (_guard, root) = seeded_hall();
+    let fake = FakeSystemctl::install(&root);
+    let _r = fake_systemctl_on_this_thread(&fake);
+    catchup_agent(&root, "metrics", "0 7 * * *");
+
+    let outcome = sync_with(&Ctx::new(root.clone()), &env(root.join("units")))
+        .unwrap()
+        .value;
+
+    assert_eq!(outcome.created, ["metrics"]);
+    assert_eq!(outcome.stamped, ["metrics"]);
+    assert_eq!(mtime(&stamp_of(&root, "metrics")), SEVEN_TODAY);
+    let log = fake.log();
+    assert!(log.contains("enable --now"), "{log}");
+    assert!(!log.contains("restart"), "{log}");
+    let mut human = Vec::new();
+    outcome.write_human(&mut human).unwrap();
+    assert!(String::from_utf8(human).unwrap().contains(
+        "stamped (catchup timer had no last-run stamp, set to its last scheduled time): metrics"
+    ));
+}
+
+#[test]
+fn the_stamp_is_dated_before_now_when_the_hour_has_not_come_yet() {
+    let (_guard, root) = seeded_hall();
+    let fake = FakeSystemctl::install(&root);
+    let _r = fake_systemctl_on_this_thread(&fake);
+    catchup_agent(&root, "late", "0 13 * * *");
+
+    sync_with(&Ctx::new(root.clone()), &env(root.join("units"))).unwrap();
+
+    assert_eq!(mtime(&stamp_of(&root, "late")), NOW + 3600 - 24 * 3600);
+}
+
+#[test]
+fn a_stamp_that_exists_keeps_its_mtime() {
+    let (_guard, root) = seeded_hall();
+    let fake = FakeSystemctl::install(&root);
+    let _r = fake_systemctl_on_this_thread(&fake);
+    catchup_agent(&root, "metrics", "0 7 * * *");
+    let ctx = Ctx::new(root.clone());
+    sync_with(&ctx, &env(root.join("units"))).unwrap();
+    let stamp = stamp_of(&root, "metrics");
+    let earlier = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_700_000_000);
+    std::fs::File::options()
+        .write(true)
+        .open(&stamp)
+        .unwrap()
+        .set_modified(earlier)
+        .unwrap();
+
+    let outcome = sync_with(&ctx, &env(root.join("units"))).unwrap().value;
+
+    assert!(outcome.stamped.is_empty());
+    assert_eq!(mtime(&stamp), 1_700_000_000);
+    assert!(!fake.log().contains("restart"), "{}", fake.log());
+}
+
+#[test]
+fn an_unchanged_timer_that_lost_its_stamp_is_stamped_and_restarted() {
+    let (_guard, root) = seeded_hall();
+    let fake = FakeSystemctl::install(&root);
+    let _r = fake_systemctl_on_this_thread(&fake);
+    let hash = hall_hash(&Layout::at(root.clone()));
+    catchup_agent(&root, "metrics", "0 7 * * *");
+    let ctx = Ctx::new(root.clone());
+    sync_with(&ctx, &env(root.join("units"))).unwrap();
+    std::fs::remove_file(stamp_of(&root, "metrics")).unwrap();
+
+    let outcome = sync_with(&ctx, &env(root.join("units"))).unwrap().value;
+
+    assert_eq!(outcome.unchanged, ["metrics"]);
+    assert_eq!(outcome.stamped, ["metrics"]);
+    assert_eq!(mtime(&stamp_of(&root, "metrics")), SEVEN_TODAY);
+    let log = fake.log();
+    let restarts = format!("--user restart ivar-agent-{hash}-metrics.timer");
+    assert_eq!(log.matches(&restarts).count(), 1, "{log}");
+    assert!(!log.contains("start --no-block"), "{log}");
+}
+
+#[test]
+fn the_stamp_is_written_before_the_timer_is_enabled() {
+    let (_guard, root) = seeded_hall();
+    let hash = hall_hash(&Layout::at(root.clone()));
+    let stamp = stamp_of(&root, "metrics");
+    let seen = root.join("stamp-seen-at-enable");
+    let fake = FakeSystemctl::install(&root);
+    let _r = crate::infra::proc::redirect_on_this_thread(
+        "systemctl",
+        crate::test_support::fake_systemctl_command(&fake)
+            .env("SYSTEMCTL_FAKE_STAMP", stamp.as_str())
+            .env("SYSTEMCTL_FAKE_STAMP_SEEN", seen.as_str()),
+    );
+    catchup_agent(&root, "metrics", "0 7 * * *");
+
+    sync_with(&Ctx::new(root.clone()), &env(root.join("units"))).unwrap();
+
+    assert!(
+        fake.log()
+            .contains(&format!("enable --now ivar-agent-{hash}-metrics.timer"))
+    );
+    assert_eq!(std::fs::read_to_string(&seen).unwrap().trim(), "present");
+}
+
+#[test]
+fn no_stamp_for_an_agent_without_catchup_or_for_a_task() {
+    let (_guard, root) = seeded_hall();
+    let fake = FakeSystemctl::install(&root);
+    let _r = fake_systemctl_on_this_thread(&fake);
+    agent(&root, "plain", "0 7 * * *");
+    task(&root, "once", "2026-11-08T09:00");
+
+    let outcome = sync_with(&Ctx::new(root.clone()), &env(root.join("units")))
+        .unwrap()
+        .value;
+
+    assert!(outcome.stamped.is_empty());
+    assert!(!root.join("data").exists());
+}
+
+#[test]
+fn no_stamp_when_the_last_occurrence_cannot_be_placed() {
+    let (_guard, root) = seeded_hall();
+    let fake = FakeSystemctl::install(&root);
+    let _r = fake_systemctl_on_this_thread(&fake);
+    catchup_agent(&root, "gap", "0 7 * * *");
+    let mut e = env(root.join("units"));
+    e.clock.local_epoch_secs = &|_| None;
+    let outcome = sync_with(&Ctx::new(root.clone()), &e).unwrap().value;
+    assert!(outcome.stamped.is_empty());
+    assert!(!stamp_of(&root, "gap").exists());
+
+    let mut e = env(root.join("units"));
+    e.clock.local_wall = &|_| None;
+    let outcome = sync_with(&Ctx::new(root.clone()), &e).unwrap().value;
+    assert!(outcome.stamped.is_empty());
+    assert!(!stamp_of(&root, "gap").exists());
+}
+
+#[test]
+fn an_occurrence_that_reads_as_later_than_now_is_not_stamped() {
+    let (_guard, root) = seeded_hall();
+    let fake = FakeSystemctl::install(&root);
+    let _r = fake_systemctl_on_this_thread(&fake);
+    catchup_agent(&root, "ahead", "0 7 * * *");
+    let mut e = env(root.join("units"));
+    e.clock.local_epoch_secs = &|_| Some(NOW + 3600);
+    let outcome = sync_with(&Ctx::new(root.clone()), &e).unwrap().value;
+    assert!(outcome.stamped.is_empty());
 }
