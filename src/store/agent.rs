@@ -2,6 +2,7 @@
 
 use camino::{Utf8Path, Utf8PathBuf};
 
+use crate::domain::agent::current::CurrentRun;
 use crate::domain::agent::receipt::{AgentRunReceipt, RECEIPT_VERSION};
 use crate::domain::agent::spec::{AgentFrontmatter, AgentSpec};
 use crate::error::Failure;
@@ -247,6 +248,48 @@ pub fn find_receipt(layout: &Layout, run_id: &str) -> Result<Option<AgentRunRece
         }
     }
     Ok(None)
+}
+
+/// Record `run` as the one going on for `agent`, replacing whatever a run that
+/// died left behind. Written whole, so a reader never sees half of it.
+///
+/// # Errors
+///
+/// Returns a [`Failure`] when the record cannot be written.
+pub fn write_current_run(layout: &Layout, agent: &str, run: &CurrentRun) -> Result<(), Failure> {
+    let path = layout.agent_current_run(agent);
+    if let Some(dir) = path.parent() {
+        fs::ensure_dir(dir)?;
+    }
+    let json = serde_json::to_vec_pretty(run).map_err(|e| {
+        Failure::failed(
+            "agent.current_run_unwritable",
+            format!("cannot encode the current run of `{agent}`: {e}"),
+        )
+    })?;
+    fs::write_atomic(&path, &json)?;
+    Ok(())
+}
+
+/// The record of the run in progress, as written; whether that run is alive is
+/// for the caller to check. An unreadable or malformed record is `None`: the
+/// record is a hint, never something a run or a status can fail on.
+#[must_use]
+pub fn read_current_run(layout: &Layout, agent: &str) -> Option<CurrentRun> {
+    let text = fs::read_text(&layout.agent_current_run(agent)).ok()??;
+    serde_json::from_str(&text).ok()
+}
+
+/// Remove the record, but only the one `run_id` wrote.
+///
+/// # Errors
+///
+/// Returns a [`Failure`] when the record exists and cannot be removed.
+pub fn remove_current_run(layout: &Layout, agent: &str, run_id: &str) -> Result<(), Failure> {
+    if read_current_run(layout, agent).is_some_and(|current| current.run_id == run_id) {
+        fs::remove_path(&layout.agent_current_run(agent))?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]

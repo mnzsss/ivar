@@ -97,6 +97,15 @@ impl Layout {
             .join(format!("{agent}.lock"))
     }
 
+    /// `<hall>/.ivar/agents/current/<agent>.json` — the run holding the agent's
+    /// lock right now. Present only while it runs, or after it died.
+    #[must_use]
+    pub fn agent_current_run(&self, agent: &str) -> Utf8PathBuf {
+        self.agent_state_dir()
+            .join("current")
+            .join(format!("{agent}.json"))
+    }
+
     /// `<hall>/.ivar/agents/locks/tools/<tool>.lock` — held while a host run of
     /// the tool holds a copy of its login, so such runs go one at a time.
     #[must_use]

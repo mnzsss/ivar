@@ -164,6 +164,13 @@ Local, `Policy::Local`, `version: 1`. Fields: `run_id`, `agent`, `trigger`
 `recorded_at`). Absent optional fields are omitted. See
 [Scheduled agents](../guides/scheduled-agents.md).
 
+## Current agent run (`.ivar/agents/current/<agent>.json`)
+
+Local, unversioned, and present only while a run holds the agent's lock (or after
+the run died). Fields: `run_id`, `trigger`, `started_at`, `pid` (the process that
+holds the lock) and `pid_start` (that process's start time, where the platform
+reports one). `ivar agent status` shows `running` only when the process is alive.
+
 ## Two migration policies
 
 The split matters, and it is not a detail.

@@ -153,3 +153,180 @@ fn lists_a_pending_task_with_its_resolved_time_and_never_a_concluded_one() {
     assert!(human.contains("at 2026-11-08T09:00-03:00"), "{human}");
     assert!(human.contains("2026-11-08 12:00:00 UTC"), "{human}");
 }
+
+fn hall_with_alpha() -> (tempfile::TempDir, camino::Utf8PathBuf) {
+    let (guard, root) = seeded_hall();
+    std::fs::create_dir_all(root.join("agents")).unwrap();
+    std::fs::write(
+        root.join("agents/alpha.md"),
+        "---\nschedule: \"0 9 * * *\"\ntool: codex\n---\n",
+    )
+    .unwrap();
+    (guard, root)
+}
+
+fn alpha_run(root: &camino::Utf8PathBuf) -> RunState {
+    let ctx = Ctx::new(root.clone());
+    let status = status_in(&ctx, &root.join("units"), &root.join("ivar-bin")).unwrap();
+    status.value.agents.into_iter().next().unwrap().run
+}
+
+fn record(root: &camino::Utf8PathBuf, pid: u32, pid_start: Option<String>) {
+    crate::store::agent::write_current_run(
+        &Layout::at(root.clone()),
+        "alpha",
+        &crate::domain::agent::current::CurrentRun {
+            run_id: "20261118T090000Z-aaaaaaaa".into(),
+            trigger: Trigger::Schedule,
+            started_at: "2026-11-18T09:00:00Z".into(),
+            pid,
+            pid_start,
+        },
+    )
+    .unwrap();
+}
+
+#[test]
+fn an_agent_with_no_run_going_is_idle() {
+    let (_guard, root) = hall_with_alpha();
+    assert_eq!(alpha_run(&root), RunState::Idle);
+}
+
+#[test]
+fn a_run_in_progress_shows_as_running_with_its_start() {
+    let (_guard, root) = hall_with_alpha();
+    let me = std::process::id();
+    record(&root, me, crate::infra::proc::start_time(me));
+    let expected = RunState::Running {
+        run_id: "20261118T090000Z-aaaaaaaa".into(),
+        trigger: Trigger::Schedule,
+        started_at: "2026-11-18T09:00:00Z".into(),
+    };
+    assert_eq!(alpha_run(&root), expected);
+
+    let ctx = Ctx::new(root.clone());
+    let status = status_in(&ctx, &root.join("units"), &root.join("ivar-bin"))
+        .unwrap()
+        .value;
+    let mut human = Vec::new();
+    status.write_human(&mut human).unwrap();
+    let human = String::from_utf8(human).unwrap();
+    assert!(
+        human.contains("running since 2026-11-18T09:00:00Z"),
+        "{human}"
+    );
+    let json = serde_json::to_value(&status).unwrap();
+    assert_eq!(
+        json["agents"][0]["run"],
+        serde_json::json!({
+            "state": "running",
+            "run_id": "20261118T090000Z-aaaaaaaa",
+            "trigger": "schedule",
+            "started_at": "2026-11-18T09:00:00Z",
+        })
+    );
+}
+
+#[test]
+fn a_finished_run_is_idle_and_shows_a_dash() {
+    let (_guard, root) = hall_with_alpha();
+    let me = std::process::id();
+    record(&root, me, crate::infra::proc::start_time(me));
+    crate::store::agent::remove_current_run(
+        &Layout::at(root.clone()),
+        "alpha",
+        "20261118T090000Z-aaaaaaaa",
+    )
+    .unwrap();
+    assert_eq!(alpha_run(&root), RunState::Idle);
+
+    let ctx = Ctx::new(root.clone());
+    let status = status_in(&ctx, &root.join("units"), &root.join("ivar-bin"))
+        .unwrap()
+        .value;
+    assert_eq!(
+        serde_json::to_value(&status).unwrap()["agents"][0]["run"],
+        serde_json::json!({"state": "idle"})
+    );
+}
+
+#[test]
+fn a_record_left_by_a_dead_process_is_not_running() {
+    let (_guard, root) = hall_with_alpha();
+    let mut child = std::process::Command::new("true").spawn().unwrap();
+    let pid = child.id();
+    child.wait().unwrap();
+    record(&root, pid, None);
+    assert_eq!(alpha_run(&root), RunState::Idle);
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn a_record_whose_pid_now_belongs_to_another_process_is_not_running() {
+    let (_guard, root) = hall_with_alpha();
+    record(&root, std::process::id(), Some("0".into()));
+    assert_eq!(alpha_run(&root), RunState::Idle);
+}
+
+#[test]
+fn status_neither_takes_nor_waits_for_the_agents_lock() {
+    let (_guard, root) = hall_with_alpha();
+    let layout = Layout::at(root.clone());
+    let me = std::process::id();
+    record(&root, me, crate::infra::proc::start_time(me));
+    // A run holds the lock for as long as it goes on; status reports it
+    // without waiting for it.
+    let held = crate::infra::fs::try_lock_exclusive(&layout.agent_lock("alpha"))
+        .unwrap()
+        .unwrap();
+    assert!(matches!(alpha_run(&root), RunState::Running { .. }));
+    drop(held);
+    // And it leaves no hold of its own behind.
+    assert!(
+        crate::infra::fs::try_lock_exclusive(&layout.agent_lock("alpha"))
+            .unwrap()
+            .is_some()
+    );
+}
+
+#[test]
+fn a_run_that_starts_while_status_is_queried_is_never_skipped() {
+    use crate::action::agent::run::{RunInput, run};
+    use crate::domain::agent::receipt::AgentRunOutcome;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    let (_guard, root) = hall_with_alpha();
+    // No secret `NEEDED` exists, so each run takes the lock, fails and
+    // releases it, with no container started.
+    std::fs::write(
+        root.join("agents/alpha.md"),
+        "---\nschedule: \"0 9 * * *\"\ntool: codex\nsecrets: [NEEDED]\n---\n",
+    )
+    .unwrap();
+    let stop = AtomicBool::new(false);
+    std::thread::scope(|scope| {
+        let querier = scope.spawn(|| {
+            let mut queries = 0_u32;
+            while !stop.load(Ordering::Relaxed) {
+                alpha_run(&root);
+                queries += 1;
+            }
+            queries
+        });
+        for _ in 0..25 {
+            let receipt = run(
+                &Ctx::new(root.clone()),
+                RunInput {
+                    name: "alpha".into(),
+                    trigger: Trigger::Manual,
+                },
+            )
+            .unwrap()
+            .value;
+            assert_eq!(receipt.outcome, AgentRunOutcome::Failed, "{receipt:?}");
+        }
+        stop.store(true, Ordering::Relaxed);
+        assert!(querier.join().unwrap() > 0);
+    });
+    assert_eq!(alpha_run(&root), RunState::Idle);
+}
