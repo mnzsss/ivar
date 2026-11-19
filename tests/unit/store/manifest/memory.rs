@@ -213,3 +213,72 @@ fn the_schema_declares_both_switches_as_optional_booleans() {
         assert!(!required.iter().any(|v| v == key), "{key} must be optional");
     }
 }
+
+#[test]
+fn problem_notify_is_absent_by_default_and_parses_a_webhook_or_a_telegram_chat() {
+    use crate::domain::agent::spec::NotifyTarget;
+
+    let manifest = empty_manifest();
+    assert_eq!(manifest.agent_problem_notify(), None);
+    assert!(!serde_json::to_string(&manifest).unwrap().contains("agents"));
+
+    let json =
+        format!(r#"{BASE},"agents":{{"problem_notify":"https://hooks.example.com/ivar"}}}}"#);
+    let manifest: Manifest = serde_json::from_str(&json).unwrap();
+    manifest.validate().unwrap();
+    assert_eq!(
+        manifest.agent_problem_notify(),
+        Some(NotifyTarget::Webhook(
+            "https://hooks.example.com/ivar".into()
+        ))
+    );
+
+    let json = format!(r#"{BASE},"agents":{{"problem_notify":"telegram:-100123"}}}}"#);
+    let manifest: Manifest = serde_json::from_str(&json).unwrap();
+    manifest.validate().unwrap();
+    assert_eq!(
+        manifest.agent_problem_notify(),
+        Some(NotifyTarget::Telegram {
+            chat_id: "-100123".into()
+        })
+    );
+}
+
+#[test]
+fn problem_notify_survives_other_builders_and_the_round_trip() {
+    let json = format!(r#"{BASE},"agents":{{"problem_notify":"telegram:@ops_room"}}}}"#);
+    let manifest: Manifest = serde_json::from_str(&json).unwrap();
+    let rebuilt = manifest.with_graph_path_added("brand").unwrap();
+    assert_eq!(
+        rebuilt.agent_problem_notify(),
+        manifest.agent_problem_notify()
+    );
+    let text = serde_json::to_string(&rebuilt).unwrap();
+    assert!(
+        text.contains(r#""agents":{"problem_notify":"telegram:@ops_room"}"#),
+        "{text}"
+    );
+}
+
+#[test]
+fn a_problem_notify_target_that_is_neither_a_url_nor_telegram_is_refused_on_validate() {
+    use crate::store::manifest::Error;
+
+    for bad in ["ftp://x", "hooks.example.com", "telegram:not-a-chat", ""] {
+        let json = format!(r#"{BASE},"agents":{{"problem_notify":"{bad}"}}}}"#);
+        let manifest: Manifest = serde_json::from_str(&json).unwrap();
+        let error = manifest.validate().unwrap_err();
+        assert!(
+            matches!(&error, Error::InvalidProblemNotify { value, .. } if value == bad),
+            "{bad}: {error:?}"
+        );
+        let failure = crate::error::Failure::from(error);
+        assert_eq!(failure.code, "manifest.invalid_problem_notify");
+    }
+}
+
+#[test]
+fn an_unknown_key_under_agents_is_a_parse_error() {
+    let json = format!(r#"{BASE},"agents":{{"problem_nofity":"https://x.example"}}}}"#);
+    assert!(serde_json::from_str::<Manifest>(&json).is_err());
+}

@@ -8,6 +8,7 @@ pub mod notify;
 pub mod notify_setup;
 pub mod record;
 pub mod requirements;
+pub mod resume;
 pub mod run;
 pub mod sandbox;
 pub mod scripts;

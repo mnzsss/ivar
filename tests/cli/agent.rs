@@ -104,10 +104,12 @@ fn a_host_run_writes_its_private_state_dir_and_scratch_but_not_home() {
     let home = root.parent().unwrap().join("home");
     let bin = root.parent().unwrap().join("bin");
     std::fs::create_dir_all(home.join(".claude")).unwrap();
+    std::fs::write(home.join(".claude/.credentials.json"), "{\"token\":\"x\"}").unwrap();
     std::fs::create_dir_all(&bin).unwrap();
     std::fs::write(
         bin.join("claude"),
         "#!/bin/sh\n\
+         [ \"$1\" = --version ] && { echo 2.0.0; exit 0; }\n\
          printf x > \"$CLAUDE_CONFIG_DIR/.tmp\" && mv \"$CLAUDE_CONFIG_DIR/.tmp\" \"$CLAUDE_CONFIG_DIR/state\" && echo state-ok\n\
          printf x > \"$TMPDIR/t\" && echo tmp-ok\n\
          [ \"$TMP\" = \"$TMPDIR\" ] && [ \"$TEMP\" = \"$TMPDIR\" ] && echo tmp-vars-ok\n\
@@ -133,7 +135,7 @@ fn a_host_run_writes_its_private_state_dir_and_scratch_but_not_home() {
     let value: serde_json::Value = serde_json::from_slice(&output.stdout).expect("valid json");
     let text = value["output"].as_str().unwrap_or_default().to_owned();
     if text.contains("Landlock") {
-        assert_eq!(value["outcome"], "failed");
+        assert_eq!(value["outcome"], "blocked");
         eprintln!("skipped: this kernel has no Landlock");
         return;
     }

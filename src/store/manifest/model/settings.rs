@@ -3,6 +3,7 @@ use std::num::NonZeroU32;
 use serde::{Deserialize, Serialize};
 
 use super::{Error, Manifest};
+use crate::domain::agent::spec::{NotifyTarget, parse_notify_target};
 use crate::domain::coordination::DEFAULT_TTL_DAYS;
 
 /// Which hall-root directories `ivar graph index` keeps in the graph.
@@ -65,6 +66,27 @@ pub(super) struct MemorySettings {
     handoff_ttl_days: Option<NonZeroU32>,
 }
 
+/// How `ivar` treats the hall's scheduled agents as a whole.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub(super) struct AgentSettings {
+    /// Where to announce a failed provider preflight or a blocked run: an `http(s)://` URL that receives a JSON summary, or `telegram:<chat_id>`; the same values an agent's `notify` takes. Absent means nobody is told beyond each agent's own `notify`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    problem_notify: Option<String>,
+}
+
+impl AgentSettings {
+    pub(super) fn validate(&self) -> Result<(), Error> {
+        match self.problem_notify.as_deref().map(parse_notify_target) {
+            Some(Err(reason)) => Err(Error::InvalidProblemNotify {
+                value: self.problem_notify.clone().unwrap_or_default(),
+                reason,
+            }),
+            _ => Ok(()),
+        }
+    }
+}
+
 /// The default of every on-unless-disabled switch in `ivar.json`.
 pub(super) const fn enabled() -> bool {
     true
@@ -84,6 +106,14 @@ impl MemorySettings {
 }
 
 impl Manifest {
+    /// Where `agents.problem_notify` sends a failed preflight or a blocked run;
+    /// `None` when `ivar.json` sets none.
+    #[must_use]
+    pub fn agent_problem_notify(&self) -> Option<NotifyTarget> {
+        let value = self.agents.as_ref()?.problem_notify.as_deref()?;
+        parse_notify_target(value).ok()
+    }
+
     /// Whether session hooks record Observations; on unless the hall opted out.
     #[must_use]
     pub fn memory_capture(&self) -> bool {

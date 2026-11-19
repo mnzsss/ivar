@@ -25,6 +25,7 @@ fn host_deps(home: &Utf8Path, landlock: bool) -> HostDeps {
             ("ANTHROPIC_API_KEY".into(), "sk-parent".into()),
         ],
         landlock,
+        tool_check: |_, _, _| ToolCheck::Ready,
     }
 }
 
@@ -45,6 +46,8 @@ impl HostFake {
         )
         .unwrap();
         std::fs::write(home.join(".claude.json"), "{\"oauthAccount\":1}").unwrap();
+        std::fs::create_dir_all(home.join(".codex")).unwrap();
+        std::fs::write(home.join(".codex/auth.json"), "{\"token\":\"codex\"}").unwrap();
         Self { dir, home }
     }
 
@@ -221,12 +224,12 @@ fn an_overrunning_host_run_is_timed_out() {
 }
 
 #[test]
-fn a_host_run_without_landlock_is_a_failed_receipt_and_launches_nothing() {
+fn a_host_run_without_landlock_is_a_blocked_receipt_and_launches_nothing() {
     let (_guard, root) = hall_with_agent("runtime: host\ntool: claude\n");
     let fake = HostFake::new(&root);
     let _r = redirect_on_this_thread(LAUNCHER, fake.command());
     let receipt = run_host(&root, host_deps(&fake.home, false));
-    assert_eq!(receipt.outcome, AgentRunOutcome::Failed);
+    assert_eq!(receipt.outcome, AgentRunOutcome::Blocked);
     assert!(receipt.output.contains("Landlock"), "{}", receipt.output);
     assert_eq!(fake.read("launcher.log"), "");
 }

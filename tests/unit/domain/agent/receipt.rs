@@ -252,3 +252,66 @@ fn the_webhook_summary_names_the_scheduled_time_only_for_an_agent_task() {
         serde_json::from_str(&serde_json::to_string(&receipt).unwrap()).unwrap();
     assert_eq!(stored, receipt);
 }
+
+#[test]
+fn a_blocked_receipt_carries_the_reason_and_can_be_resumed() {
+    let receipt = AgentRunReceipt::blocked(
+        "r".into(),
+        "nightly".into(),
+        Trigger::Schedule,
+        "s".into(),
+        "e".into(),
+        "agent.provider_auth: auth error: not logged in".into(),
+    );
+    assert_eq!(receipt.outcome, AgentRunOutcome::Blocked);
+    assert_eq!(
+        receipt.output,
+        "agent.provider_auth: auth error: not logged in"
+    );
+    assert_eq!(receipt.exit_code, None);
+    assert!(receipt.is_resumable());
+}
+
+#[test]
+fn only_a_blocked_run_or_a_legacy_failed_one_with_a_blocked_reason_is_resumable() {
+    let with = |outcome, output: &str| {
+        let mut receipt =
+            AgentRunReceipt::skipped("r".into(), "a".into(), Trigger::Manual, "t".into());
+        receipt.outcome = outcome;
+        receipt.output = output.into();
+        receipt.is_resumable()
+    };
+    assert!(with(AgentRunOutcome::Blocked, ""));
+    assert!(with(
+        AgentRunOutcome::Failed,
+        "blocked: agent.secrets_mode: x"
+    ));
+    assert!(with(AgentRunOutcome::Failed, "\n  blocked: x"));
+    assert!(!with(AgentRunOutcome::Failed, "the tool crashed"));
+    assert!(!with(AgentRunOutcome::Failed, "tool said blocked: later"));
+    assert!(!with(AgentRunOutcome::Succeeded, "blocked: in the output"));
+    assert!(!with(AgentRunOutcome::Skipped, ""));
+    assert!(!with(AgentRunOutcome::TimedOut, ""));
+}
+
+#[test]
+fn the_problem_summary_is_the_run_summary_tagged_as_a_problem() {
+    let receipt = AgentRunReceipt::blocked(
+        "r".into(),
+        "nightly".into(),
+        Trigger::Manual,
+        "s".into(),
+        "e".into(),
+        "why".into(),
+    );
+    let plain = serde_json::to_value(receipt.notify_summary("h")).unwrap();
+    let problem = serde_json::to_value(ProblemSummary::new(receipt.notify_summary("h"))).unwrap();
+    assert!(plain.get("kind").is_none());
+    assert_eq!(problem["kind"], "agent_problem");
+    assert_eq!(problem["outcome"], "blocked");
+    assert_eq!(problem["tail"], "why");
+    assert_eq!(problem["agent"], "nightly");
+    let mut without_kind = problem;
+    without_kind.as_object_mut().unwrap().remove("kind");
+    assert_eq!(without_kind, plain);
+}

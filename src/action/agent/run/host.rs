@@ -2,11 +2,12 @@
 
 use camino::{Utf8Path, Utf8PathBuf};
 
+use super::preflight::{ToolCheck, probe_tool};
 use super::{Ran, Workspace};
 use crate::action::session::guard::canonicalize_lenient;
 use crate::domain::agent::host_env::host_env;
 use crate::domain::agent::spec::{AgentSpec, Launch, WritePath};
-use crate::domain::agent::tool::Credential;
+use crate::domain::agent::tool::{Credential, Tool};
 use crate::error::Failure;
 use crate::infra::fs;
 use crate::infra::proc::{self, Command};
@@ -18,6 +19,9 @@ pub(crate) struct HostDeps {
     pub home: Utf8PathBuf,
     pub parent_env: Vec<(String, String)>,
     pub landlock: bool,
+    /// Asks the tool whether it is there and answering, with the run's
+    /// environment and a scratch directory for the probe's log.
+    pub tool_check: fn(Tool, &[(String, String)], &Utf8Path) -> ToolCheck,
 }
 
 impl HostDeps {
@@ -40,6 +44,7 @@ impl HostDeps {
             home,
             parent_env,
             landlock: crate::action::session::sandbox::landlock_available(),
+            tool_check: probe_tool,
         })
     }
 }
@@ -122,7 +127,7 @@ pub(crate) fn seed_credentials(
         .collect()
 }
 
-fn is_login(bytes: &[u8]) -> bool {
+pub(super) fn is_login(bytes: &[u8]) -> bool {
     serde_json::from_slice::<serde_json::Value>(bytes)
         .ok()
         .and_then(|v| v.as_object().map(|o| !o.is_empty()))

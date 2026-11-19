@@ -88,6 +88,10 @@ pub enum Error {
     #[error("graph path `{path}` is invalid: {reason}")]
     InvalidGraphPath { path: String, reason: String },
 
+    /// `agents.problem_notify` is neither an `http(s)://` URL nor `telegram:<chat_id>`.
+    #[error("`agents.problem_notify` is invalid: {reason}")]
+    InvalidProblemNotify { value: String, reason: String },
+
     /// `ivar graph clean --path <dir>` named a directory `graph.paths` does not list.
     #[error("graph path `{path}` is not in `ivar.json`")]
     GraphPathNotFound { path: String },
@@ -222,6 +226,13 @@ impl From<Error> for Failure {
             .fix(FixAction::safe(
                 "manifest.fix_graph_path",
                 format!("Give `graph.paths` a hall-relative directory such as `docs` instead of `{path}`."),
+            )),
+            Error::InvalidProblemNotify { value, reason } => Failure::blocked("manifest.invalid_problem_notify", what)
+            .expected("an http:// or https:// URL, or telegram:<chat_id>")
+            .actual(format!("`{value}`: {reason}"))
+            .fix(FixAction::safe(
+                "manifest.fix_problem_notify",
+                "Set `agents.problem_notify` to a webhook URL or `telegram:<chat_id>`, or remove it.",
             )),
             Error::GraphPathNotFound { path } => Failure::blocked("manifest.graph_path_not_found", what)
             .expected(format!("`{path}` to be listed in `graph.paths`"))

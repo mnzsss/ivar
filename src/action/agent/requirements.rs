@@ -48,7 +48,14 @@ fn tool_present(tool: Tool) -> bool {
 }
 
 fn on_path(program: &str, path: &std::ffi::OsStr) -> bool {
-    std::env::split_paths(path).any(|dir| is_executable_file(&dir.join(program)))
+    find_on_path(program, path).is_some()
+}
+
+/// The first executable `program` in the `path` directories.
+pub(crate) fn find_on_path(program: &str, path: &std::ffi::OsStr) -> Option<std::path::PathBuf> {
+    std::env::split_paths(path)
+        .map(|dir| dir.join(program))
+        .find(|candidate| is_executable_file(candidate))
 }
 
 #[cfg(unix)]

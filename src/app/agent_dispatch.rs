@@ -25,6 +25,12 @@ pub(super) fn dispatch_agent(
             stdout,
             stderr,
         ),
+        AgentCommand::Resume(args) => respond(
+            agent::resume::resume(ctx, agent::resume::ResumeInput { name: args.name }),
+            json,
+            stdout,
+            stderr,
+        ),
         AgentCommand::Logs(args) => {
             respond(agent::logs::logs(ctx, args.into()), json, stdout, stderr)
         }

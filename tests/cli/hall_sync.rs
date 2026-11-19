@@ -224,12 +224,13 @@ fn a_prose_conflict_is_settled_by_the_embedded_agent_and_pushed() {
 
     let home = parent.join("home");
     let bin = parent.join("bin");
-    std::fs::create_dir_all(&home).unwrap();
+    std::fs::create_dir_all(home.join(".claude")).unwrap();
+    std::fs::write(home.join(".claude/.credentials.json"), "{\"token\":\"x\"}").unwrap();
     std::fs::create_dir_all(&bin).unwrap();
     std::fs::write(
         bin.join("claude"),
         format!(
-            "#!/bin/sh\nprintf '# FTS\\n\\nbase\\nremote note\\nlocal note\\n' > '{root}/{page}'\necho merged\n"
+            "#!/bin/sh\n[ \"$1\" = --version ] && {{ echo 2.0.0; exit 0; }}\nprintf '# FTS\\n\\nbase\\nremote note\\nlocal note\\n' > '{root}/{page}'\necho merged\n"
         ),
     )
     .unwrap();

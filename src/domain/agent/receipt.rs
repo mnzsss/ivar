@@ -142,6 +142,26 @@ pub struct NotifySummary<'a> {
     pub tail_is_cut: bool,
 }
 
+/// What the hall's problem notifier receives: the run summary, tagged so a
+/// receiver can tell it from the agent's own `notify` message.
+#[derive(Debug, Serialize)]
+pub struct ProblemSummary<'a> {
+    pub kind: &'static str,
+    #[serde(flatten)]
+    pub summary: NotifySummary<'a>,
+}
+
+impl<'a> ProblemSummary<'a> {
+    pub const KIND: &'static str = "agent_problem";
+
+    pub fn new(summary: NotifySummary<'a>) -> Self {
+        Self {
+            kind: Self::KIND,
+            summary,
+        }
+    }
+}
+
 impl NotifySummary<'_> {
     /// Duration and a non-zero exit code; exit 0 repeats what `succeeded` says.
     pub(super) fn run_details(&self) -> String {
@@ -267,6 +287,37 @@ impl AgentRunReceipt {
             AgentRunOutcome::Failed,
             reason,
         )
+    }
+
+    /// A run refused before the tool started, or stopped because it needs a
+    /// person: `reason` is what to fix. `ivar agent resume` runs it again.
+    pub fn blocked(
+        run_id: String,
+        agent: String,
+        trigger: Trigger,
+        started_at: String,
+        ended_at: String,
+        reason: String,
+    ) -> Self {
+        Self::new(
+            run_id,
+            agent,
+            trigger,
+            started_at,
+            ended_at,
+            AgentRunOutcome::Blocked,
+            reason,
+        )
+    }
+
+    /// Whether `ivar agent resume` may run this again: a `blocked` run, or a
+    /// `failed` one an older `ivar` recorded with a `blocked:` reason.
+    pub fn is_resumable(&self) -> bool {
+        match self.outcome {
+            AgentRunOutcome::Blocked => true,
+            AgentRunOutcome::Failed => self.output.trim_start().starts_with("blocked:"),
+            _ => false,
+        }
     }
 
     pub fn notify_summary<'a>(&'a self, hall: &'a str) -> NotifySummary<'a> {

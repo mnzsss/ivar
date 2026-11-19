@@ -153,6 +153,37 @@ impl Tool {
         }
     }
 
+    /// The [`credentials`](Self::credentials) that hold the tool's login: the
+    /// ones a refresh rewrites, not the settings that ride along.
+    pub fn login_files(
+        self,
+        home: &Utf8Path,
+        var: &dyn Fn(&str) -> Option<String>,
+    ) -> Vec<Credential> {
+        let mut files = self.credentials(home, var);
+        files.retain(|c| c.write_back);
+        files
+    }
+
+    /// Variables that log the tool in without a login file; a host run gets
+    /// them only when the agent lists them in `secrets`.
+    pub fn api_key_vars(self) -> &'static [&'static str] {
+        match self {
+            Self::Claude => &[
+                "ANTHROPIC_API_KEY",
+                "ANTHROPIC_AUTH_TOKEN",
+                "CLAUDE_CODE_OAUTH_TOKEN",
+            ],
+            Self::Codex => &["OPENAI_API_KEY", "CODEX_API_KEY"],
+            Self::Opencode => &[
+                "ANTHROPIC_API_KEY",
+                "OPENAI_API_KEY",
+                "OPENROUTER_API_KEY",
+                "GEMINI_API_KEY",
+            ],
+        }
+    }
+
     /// Variables that make the tool keep all its state under `state`.
     pub fn state_env(self, state: &Utf8Path) -> Vec<(String, String)> {
         let pair = |key: &str, dir: Utf8PathBuf| (key.to_owned(), dir.into_string());

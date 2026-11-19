@@ -182,6 +182,22 @@ the key rejects a file that sets it. A key at its default is left out of the fil
 { "auto_resolve": false }
 ```
 
+### `ivar.json` `agents` key
+
+An optional object of hall-wide scheduled-agent settings. Its one key today is
+`problem_notify`, a string: an `http(s)://` URL or `telegram:<chat_id>`, the values an
+agent's `notify` takes. The hall tells that target when an agent run ends `blocked`,
+including when the provider check before a `runtime: host` run fails; see
+[Hall problem notifier](../guides/scheduled-agents-recovery.md#hall-problem-notifier). A value that
+is neither a URL nor a Telegram chat is refused when the file is read
+(`manifest.invalid_problem_notify`), and an unknown key under `agents` is a parse error.
+It adds no `ivar.json` version, and an `ivar` older than the key rejects a file that sets it.
+The key is left out of the file while unset.
+
+```json
+{ "agents": { "problem_notify": "https://hooks.example.com/ivar" } }
+```
+
 The hall memory database has its own schema version, `memory_schema.version`, which is
 8 today; see [Memory database](on-disk-format-databases.md#memory-database-ivarmemorydb).
 

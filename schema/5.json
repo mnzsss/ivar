@@ -1,5 +1,19 @@
 {
   "$defs": {
+    "AgentSettings": {
+      "additionalProperties": false,
+      "description": "How `ivar` treats the hall's scheduled agents as a whole.",
+      "properties": {
+        "problem_notify": {
+          "description": "Where to announce a failed provider preflight or a blocked run: an `http(s)://` URL that receives a JSON summary, or `telegram:<chat_id>`; the same values an agent's `notify` takes. Absent means nobody is told beyond each agent's own `notify`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
     "Graph": {
       "additionalProperties": false,
       "description": "Which hall-root directories `ivar graph index` keeps in the graph.",
@@ -216,6 +230,17 @@
       "const": "https://ivar.run/schema/5.json",
       "description": "URL of the JSON Schema for this file.",
       "type": "string"
+    },
+    "agents": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/AgentSettings"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Hall-wide scheduled-agent settings."
     },
     "auto_commit": {
       "description": "Whether operations that write to the hall commit what they wrote. On unless set to `false`, which also stops them pushing. `ivar hall sync` ignores it.",

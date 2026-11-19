@@ -21,7 +21,7 @@ use crate::domain::agent::receipt::{
 };
 use crate::domain::agent::spec::{Access, AgentSpec, Launch, Runtime};
 use crate::domain::session::rfc3339_now;
-use crate::error::{Failure, Outcome, Report, Warning, WriteHuman};
+use crate::error::{Failure, Outcome, Report, Status, Warning, WriteHuman};
 use crate::infra::proc::{self, Finished};
 use crate::infra::{docker, fs};
 use crate::store;
@@ -31,11 +31,15 @@ use crate::store::manifest::Manifest;
 
 mod host;
 mod network;
+mod preflight;
 
 pub(crate) use host::HostDeps;
 use host::execute_host;
 #[cfg(test)]
 use host::{host_workspace, seed_credentials, write_back_credentials, write_roots};
+pub(crate) use network::resolves;
+#[cfg(test)]
+pub(crate) use preflight::ToolCheck;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RunInput {
@@ -116,32 +120,34 @@ pub(crate) fn run_spec(
             return finish(layout, spec, skipped);
         }
         Err(error) => {
-            let failed = AgentRunReceipt::failed(
-                run_id,
-                spec.name.clone(),
-                trigger,
-                started_at,
-                rfc3339_now(),
-                Failure::from(error).what,
-            );
-            return finish(layout, spec, failed);
+            let failure = Failure::from(error);
+            let receipt = failure_receipt(run_id, spec, trigger, started_at, &failure, &[]);
+            return finish(layout, spec, receipt);
         }
     };
     // Dropped before `lock` on every path: the record is gone before the lock is let go.
     let running = RunningMark::set(layout, &spec.name, &run_id, trigger, &started_at);
     // Before the DNS wait and before anything is launched or mounted.
     if let Err(failure) = scripts::ensure_approved(layout, spec) {
-        let failed = AgentRunReceipt::failed(
+        let receipt = failure_receipt(run_id, spec, trigger, started_at, &failure, &[]);
+        let result = finish(layout, spec, receipt);
+        drop((running, lock));
+        return result;
+    }
+    let scratch = layout.agent_run_scratch(&run_id);
+    let checked = preflight::check(spec, host, &scratch);
+    let _ = fs::remove_path(&scratch);
+    if let Err(block) = checked {
+        let blocked = AgentRunReceipt::blocked(
             run_id,
             spec.name.clone(),
             trigger,
             started_at,
             rfc3339_now(),
-            failure.what,
+            block.message(&spec.name),
         );
-        let result = finish(layout, spec, failed);
-        drop(running);
-        drop(lock);
+        let result = finish(layout, spec, blocked);
+        drop((running, lock));
         return result;
     }
     if trigger == Trigger::Schedule
@@ -156,7 +162,6 @@ pub(crate) fn run_spec(
             network::INTERVAL,
         );
     }
-    let scratch = layout.agent_run_scratch(&run_id);
     let mut secret_values: Vec<String> = Vec::new();
     let attempt = (|| -> Result<Attempt, Failure> {
         let secrets = AgentSecrets::read(layout)?.select(&spec.secrets)?;
@@ -184,20 +189,38 @@ pub(crate) fn run_spec(
     let _ = fs::remove_path(&scratch);
     let values: Vec<&str> = secret_values.iter().map(String::as_str).collect();
     let receipt = match attempt {
-        Err(failure) => AgentRunReceipt::failed(
-            run_id,
-            spec.name.clone(),
-            trigger,
-            started_at,
-            rfc3339_now(),
-            scrub(&failure.what, &values),
-        ),
+        Err(failure) => failure_receipt(run_id, spec, trigger, started_at, &failure, &values),
         Ok(attempt) => completed(spec, run_id, trigger, started_at, &attempt, &values),
     };
     let result = finish(layout, spec, receipt);
     drop(running);
     drop(lock);
     result
+}
+
+/// The receipt of a run that stopped on `failure`: `blocked` when `ivar`
+/// refused a precondition before doing anything (`Status::Blocked`, which a
+/// person can fix and `ivar agent resume` then retries), `failed` otherwise.
+fn failure_receipt(
+    run_id: String,
+    spec: &AgentSpec,
+    trigger: Trigger,
+    started_at: String,
+    failure: &Failure,
+    values: &[&str],
+) -> AgentRunReceipt {
+    let make = match failure.status {
+        Status::Blocked => AgentRunReceipt::blocked,
+        Status::Failed => AgentRunReceipt::failed,
+    };
+    make(
+        run_id,
+        spec.name.clone(),
+        trigger,
+        started_at,
+        rfc3339_now(),
+        scrub(&failure.what, values),
+    )
 }
 
 /// The record of the run in progress, from taking the agent's lock until the
@@ -296,6 +319,7 @@ pub(crate) fn finish(
 ) -> Outcome<AgentRunReceipt> {
     receipt.scheduled_at = spec.at().map(|at| at.to_string());
     notify::deliver(layout, spec, &mut receipt);
+    notify::problem(layout, spec, &mut receipt);
     store::agent::write_receipt(layout, &receipt)?;
     let mut report = Report::new(receipt);
     if conclude::concludes(spec, &report.value) {

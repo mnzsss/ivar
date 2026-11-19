@@ -131,6 +131,7 @@ the lock.
 | `ivar agent sync` | installs, updates and removes the systemd user timers for `agents/*.md` |
 | `ivar agent status` | schedule (or the pending `at` of a task), next run, last outcome, whether a run is going now (`running` and since when, or `-`) and timer state per agent |
 | `ivar agent run <name>` | runs now, through the same path the timer uses, in the background: the command returns at once and `ivar agent logs <name>` prints the run once it ends; `--wait` stays attached and prints the receipt. For an Agent Task it is a rehearsal and the task stays pending |
+| `ivar agent resume [<name>]` | runs again every agent whose latest run is `blocked`, or only `<name>`'s, and prints how each ended; see [Blocked runs](#blocked-runs) |
 | `ivar agent logs <name> [--run <id>]` | output of the latest or given run; also reads a concluded Agent Task after its file moved to `agents/done/`, as long as its receipts are still on this machine |
 | `ivar agent feedback <run-id> --rating up [--comment <text>]` | records your verdict on the run; `--rating` is `up` or `down` |
 | `ivar agent notify telegram setup` | asks for the bot token, finds the chat, sends a test message and sets `notify` on the agents you pick |
@@ -235,6 +236,14 @@ The next run proceeds, whether the timer fires it or you run `ivar agent run
 <name>`. Editing a script invalidates its approval, so approve it again after
 every change.
 
+## Blocked runs
+
+A `runtime: host` run first checks that its `tool` is installed, answering and logged
+in; if not, it does not start and the receipt is `blocked`. `ivar agent resume [<name>]`
+runs blocked agents again once you fixed the cause, and `agents.problem_notify` in
+`ivar.json` tells a webhook or Telegram chat whenever a run ends `blocked`. See
+[Scheduled agents: blocked runs](scheduled-agents-recovery.md).
+
 ## What a run can reach
 
 The container runs as uid 1000 with every capability dropped, no Docker
@@ -252,7 +261,9 @@ what it can write, the environment it gets and how it differs from `runtime: doc
 ## Outcomes
 
 `succeeded`, `failed`, `blocked` (the tool asked for input, and the run is
-stopped at once; or the run declared it, see below), `skipped` (the previous
+stopped at once; the run declared it, see below; the provider check failed; or
+`ivar` refused a precondition before launching, such as a secrets file that is not
+owner-only; `ivar agent resume` runs it again), `skipped` (the previous
 run was still going), `timed_out`. Receipts live in
 `.ivar/agents/runs/<agent>/<run-id>.json`. For an Agent Task, every outcome
 except `skipped` concludes it when the timer fired the run; see
@@ -342,7 +353,7 @@ reachable daemon, and a warning when Docker runs as root.
 For `runtime: host` agents it checks instead that the tool is on `PATH`
 (`agent.tool_missing`) and that the kernel has Landlock
 (`agent.landlock_unavailable`); without Landlock a host run is refused
-and its receipt is `failed`. Docker is not checked when no agent uses it.
+and its receipt is `blocked`. Docker is not checked when no agent uses it.
 
 Each service pins the `PATH` that `ivar agent sync` ran with, because a
 `catchup` run fires as soon as the systemd user manager starts, before your
