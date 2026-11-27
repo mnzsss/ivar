@@ -407,6 +407,7 @@ fn the_human_report_names_the_anchored_pages() {
         removed: 0,
         anchored: 3,
         invalid: Vec::new(),
+        ..ReindexReport::default()
     };
     let mut human = Vec::new();
 
@@ -451,5 +452,145 @@ fn a_full_rebuild_keeps_every_automation_decision() {
     assert_eq!(
         count(&layout, "SELECT count(*) FROM automation_decision_texts"),
         1
+    );
+}
+
+fn seed_symbol(layout: &Layout, name: &str) {
+    let g = crate::store::graph::db::GraphDb::open(layout.graph_db().as_std_path()).unwrap();
+    g.conn().execute("DELETE FROM symbols", []).unwrap();
+    g.conn()
+        .execute(
+            "INSERT INTO symbols (file_id, repo, name, kind, start_line, start_col, end_line, end_col)
+             VALUES (1, 'ivar', ?1, 'function', 1, 0, 1, 1)",
+            [name],
+        )
+        .unwrap();
+}
+
+#[test]
+fn an_unchanged_page_with_a_renamed_symbol_is_reanchored_and_valid_pages_stay_unchanged() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root);
+    seed_graph(&layout);
+    seed_symbol(&layout, "old_name");
+    write_page(
+        &layout,
+        "docs/memory/gotcha/a.md",
+        "# A\n\nSee `src/a.rs` and `old_name` and `new_name`.\n",
+    );
+    write_page(
+        &layout,
+        "docs/memory/gotcha/b.md",
+        "# B\n\nSee `src/a.rs`.\n",
+    );
+    refresh(&layout).unwrap();
+    let symbol_anchors = "SELECT count(*) FROM page_anchors WHERE page_path = 'docs/memory/gotcha/a.md' AND symbol = ";
+    assert_eq!(count(&layout, &format!("{symbol_anchors}'old_name'")), 1);
+
+    let calm = refresh(&layout).unwrap();
+    assert_eq!((calm.indexed, calm.unchanged), (0, 2));
+
+    seed_symbol(&layout, "new_name");
+    let report = refresh(&layout).unwrap();
+    assert_eq!((report.indexed, report.unchanged), (1, 1));
+    assert_eq!(count(&layout, &format!("{symbol_anchors}'old_name'")), 0);
+    assert_eq!(count(&layout, &format!("{symbol_anchors}'new_name'")), 1);
+
+    let after = refresh(&layout).unwrap();
+    assert_eq!((after.indexed, after.unchanged), (0, 2));
+}
+
+#[test]
+fn without_a_usable_graph_an_unchanged_page_is_not_reresolved() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root);
+    seed_graph(&layout);
+    write_page(
+        &layout,
+        "docs/memory/gotcha/a.md",
+        "# A\n\nSee `src/a.rs`.\n",
+    );
+    refresh(&layout).unwrap();
+    std::fs::remove_file(layout.graph_db()).unwrap();
+
+    let report = refresh(&layout).unwrap();
+
+    assert_eq!(
+        (report.indexed, report.unchanged, report.anchored),
+        (0, 1, 0)
+    );
+    assert_eq!(count(&layout, "SELECT count(*) FROM page_anchors"), 1);
+}
+
+fn seed_two_pages_with_old_symbol(layout: &Layout) {
+    seed_graph(layout);
+    seed_symbol(layout, "old_name");
+    write_page(
+        layout,
+        "docs/memory/gotcha/a.md",
+        "# A\n\nSee `src/a.rs` and `old_name`.\n",
+    );
+    write_page(
+        layout,
+        "docs/memory/gotcha/b.md",
+        "# B\n\nSee `src/a.rs`.\n",
+    );
+    refresh(layout).unwrap();
+}
+
+#[test]
+fn keeping_anchors_leaves_a_broken_anchor_for_lint_and_a_routine_refresh_repairs_it() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root);
+    seed_two_pages_with_old_symbol(&layout);
+    seed_symbol(&layout, "new_name");
+    let symbol = "SELECT count(*) FROM page_anchors WHERE symbol = 'old_name'";
+
+    let kept = refresh_if_free_keeping_anchors(&layout).unwrap();
+    assert_eq!((kept.indexed, kept.unchanged), (0, 2));
+    assert_eq!(count(&layout, symbol), 1);
+
+    let routine = refresh_if_free(&layout).unwrap();
+    assert_eq!((routine.indexed, routine.unchanged), (1, 1));
+    assert_eq!(count(&layout, symbol), 0);
+}
+
+#[test]
+fn an_anchor_that_stays_broken_is_not_reresolved_until_the_graph_changes() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root);
+    seed_two_pages_with_old_symbol(&layout);
+    {
+        let db = MemoryDb::open(layout.memory_db().as_std_path()).unwrap();
+        db.conn()
+            .execute(
+                "INSERT INTO page_anchors (page_path, repo, path, symbol)
+                 VALUES ('docs/memory/gotcha/b.md', 'ivar', 'src/deleted.rs', NULL)",
+                [],
+            )
+            .unwrap();
+    }
+
+    let first = refresh(&layout).unwrap();
+    assert_eq!((first.indexed, first.unchanged), (0, 2));
+    let second = refresh_if_free(&layout).unwrap();
+    assert_eq!((second.indexed, second.unchanged), (0, 2));
+    assert_eq!(
+        count(
+            &layout,
+            "SELECT count(*) FROM page_anchors WHERE path = 'src/deleted.rs'"
+        ),
+        1
+    );
+
+    seed_symbol(&layout, "other_name");
+    let changed = refresh(&layout).unwrap();
+    assert_eq!(changed.indexed, 2);
+    assert_eq!(
+        count(
+            &layout,
+            "SELECT count(*) FROM page_anchors WHERE path = 'src/deleted.rs'"
+        ),
+        0
     );
 }

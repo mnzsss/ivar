@@ -175,7 +175,7 @@ delete, lint and review pages, read captured observations, and hand work between
 `ivar feature deliver`
 requires the review (`memory_review`) before it applies. The tools never commit. See the
 [MCP tools](docs/reference/mcp-tools.md).
-Pages cite code as anchors: `memory_query` lists them, and `graph_explore` names the pages anchored to what it returns.
+Pages cite code as anchors: `memory_query` lists them, and `graph_explore` names the pages anchored to what it returns. The routine reindex re-resolves the anchors of a page when the graph no longer has one of them.
 
 A session can leave a handoff for the next one: a summary, pending tasks, open decisions
 and changed files. `ivar memory handoff` opens, lists and cancels them from a terminal. On

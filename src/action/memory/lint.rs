@@ -87,11 +87,13 @@ pub fn lint(ctx: &Ctx) -> Outcome<LintOutcome> {
     }))
 }
 
+const ANCHOR_BROKEN_HINT: &str = "which the graph does not have; fix or remove the citation, or run `ivar memory reindex` if the graph was just updated";
+
 fn broken_anchor_warnings(layout: &Layout) -> Vec<LintIssue> {
     if !layout.graph_db().exists() || !layout.memory_db().exists() {
         return Vec::new();
     }
-    let refresh_failure = crate::action::memory::reindex::refresh_if_free(layout)
+    let refresh_failure = crate::action::memory::reindex::refresh_if_free_keeping_anchors(layout)
         .err()
         .map(|failure| LintIssue {
             path: "docs/memory".to_owned(),
@@ -116,11 +118,11 @@ fn broken_anchor_warnings(layout: &Layout) -> Vec<LintIssue> {
             severity: "warning",
             message: match anchor.symbol {
                 Some(symbol) => format!(
-                    "cites `{symbol}` in {}:{}, which the graph no longer has",
+                    "cites `{symbol}` in {}:{}, {ANCHOR_BROKEN_HINT}",
                     anchor.repo, anchor.path
                 ),
                 None => format!(
-                    "cites {}:{}, which the graph no longer has",
+                    "cites {}:{}, {ANCHOR_BROKEN_HINT}",
                     anchor.repo, anchor.path
                 ),
             },

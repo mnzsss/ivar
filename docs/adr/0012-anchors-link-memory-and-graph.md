@@ -51,7 +51,10 @@ Rejected: a marker in a spool JSON like `_consolidate.json`. It drifts from the 
 
 ## Consequences
 
-- A change in the graph never re-anchors a page. Only a page edit or `ivar memory reindex` does.
+- A change in the graph does not re-anchor pages by itself. A page edit or `ivar memory reindex`
+  does, and so does the routine reindex when an unchanged page has an anchor broken against the
+  current graph (a renamed or moved symbol). Pages with only valid anchors stay on the
+  "unchanged" path, and without a usable graph nothing is re-resolved. Page text is not rewritten.
 - `lint.anchor_broken` is a warning, because a graph that has not indexed a file yet looks the
   same as a deleted file.
 - `graph_explore` shows up to 3 related pages and drops them first when the answer is too long.
