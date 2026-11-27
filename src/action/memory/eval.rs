@@ -50,6 +50,7 @@ impl WriteHuman for SampleOutcome {
     }
 }
 
+#[allow(clippy::expect_used)]
 fn jsonl(label: &Label) -> String {
     serde_json::to_string(label).expect("a Label of plain strings always serializes")
 }
@@ -213,13 +214,59 @@ fn page_state(
     .optional()
 }
 
+/// Scores one query, or `None` when none of its expected pages is live.
+fn score(
+    conn: &rusqlite::Connection,
+    label: Label,
+    returned: Vec<String>,
+    k: usize,
+    now: &str,
+    warned: &mut BTreeSet<String>,
+    warnings: &mut Vec<Warning>,
+) -> Result<Option<QueryScore>, Failure> {
+    let mut live = BTreeSet::new();
+    let mut missing = Vec::new();
+    for path in &label.expected {
+        let state = page_state(conn, path, now)
+            .map_err(|e| Failure::failed("memory.read_failed", e.to_string()))?;
+        if state == Some(true) {
+            live.insert(path.clone());
+            continue;
+        }
+        if warned.insert(path.clone()) {
+            let what = if state.is_none() {
+                format!("expected page `{path}` does not exist")
+            } else {
+                format!("expected page `{path}` has expired and is never returned")
+            };
+            warnings.push(Warning::new("memory.eval_page_missing", path.clone(), what));
+        }
+        missing.push(path.clone());
+    }
+    if live.is_empty() {
+        return Ok(None);
+    }
+    let top: Vec<String> = returned.into_iter().take(k).collect();
+    let in_top = top.iter().filter(|p| live.contains(*p)).count();
+    let first = top.iter().position(|p| live.contains(p));
+    #[allow(clippy::cast_precision_loss)]
+    Ok(Some(QueryScore {
+        query: label.query,
+        expected: label.expected,
+        missing,
+        returned: top,
+        hit: in_top > 0,
+        recall: in_top as f64 / live.len() as f64,
+        reciprocal_rank: first.map_or(0.0, |i| 1.0 / (i + 1) as f64),
+    }))
+}
+
 /// Scores are cut at `k` (hit@k, recall@k, MRR@k): a first relevant page past
 /// rank `k` counts as a miss with a reciprocal rank of 0.
 ///
 /// # Errors
 ///
 /// When no hall is found, the label file is unreadable or malformed, or the index cannot be read.
-#[allow(clippy::cast_precision_loss)]
 pub fn run(ctx: &Ctx, file: &Path, k: usize) -> Outcome<EvalOutcome> {
     let layout = discover_hall(ctx)?;
     let k = k.clamp(1, MAX_LIMIT);
@@ -276,41 +323,10 @@ pub fn run(ctx: &Ctx, file: &Path, k: usize) -> Outcome<EvalOutcome> {
         let now = rfc3339_now();
         let mut warned = BTreeSet::new();
         for (label, returned) in ranked {
-            let mut live = BTreeSet::new();
-            let mut missing = Vec::new();
-            for path in &label.expected {
-                let state = page_state(&conn, path, &now)
-                    .map_err(|e| Failure::failed("memory.read_failed", e.to_string()))?;
-                if state == Some(true) {
-                    live.insert(path.clone());
-                    continue;
-                }
-                if warned.insert(path.clone()) {
-                    let what = if state.is_none() {
-                        format!("expected page `{path}` does not exist")
-                    } else {
-                        format!("expected page `{path}` has expired and is never returned")
-                    };
-                    warnings.push(Warning::new("memory.eval_page_missing", path.clone(), what));
-                }
-                missing.push(path.clone());
+            match score(&conn, label, returned, k, &now, &mut warned, &mut warnings)? {
+                Some(score) => scores.push(score),
+                None => unresolvable += 1,
             }
-            if live.is_empty() {
-                unresolvable += 1;
-                continue;
-            }
-            let top: Vec<String> = returned.into_iter().take(k).collect();
-            let in_top = top.iter().filter(|p| live.contains(*p)).count();
-            let first = top.iter().position(|p| live.contains(p));
-            scores.push(QueryScore {
-                query: label.query,
-                expected: label.expected,
-                missing,
-                returned: top,
-                hit: in_top > 0,
-                recall: in_top as f64 / live.len() as f64,
-                reciprocal_rank: first.map_or(0.0, |i| 1.0 / (i + 1) as f64),
-            });
         }
     }
     let n = scores.len();

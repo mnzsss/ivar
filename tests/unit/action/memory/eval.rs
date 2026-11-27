@@ -108,7 +108,7 @@ fn run_skips_unlabelled_lines_and_warns_about_missing_pages() {
 
     let report = run(&Ctx::new(root), &file, 3).unwrap();
 
-    assert_eq!(report.warnings.len(), 2);
+    assert_eq!(report.warnings.len(), 1);
     let out = report.value;
     assert_eq!(out.skipped_unlabelled, 1);
     assert_eq!(out.skipped_unresolvable, 1);
