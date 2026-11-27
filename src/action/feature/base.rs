@@ -183,10 +183,6 @@ fn landed_under_new_identity(
     Ok(true)
 }
 
-#[cfg(test)]
-#[path = "../../../tests/unit/action/feature/base.rs"]
-mod tests;
-
 /// The newest view of `base` this repo holds without touching the network.
 ///
 /// `refs/remotes/origin/<base>` when it resolves and the local `<base>` is
@@ -195,6 +191,7 @@ mod tests;
 /// parked on purpose, so anything measuring "what the feature adds" must use
 /// this rather than the bare local ref.
 pub(crate) fn fresh_base_ref(git: &impl Git, bare: &Utf8Path, base: &str) -> String {
+    // Best-effort: a git failure while comparing falls back to the local base.
     let remote = format!("refs/remotes/origin/{base}");
     if git.revision_commit(bare, &remote).is_ok()
         && git.is_ancestor(bare, base, &remote).unwrap_or(false)
@@ -204,3 +201,7 @@ pub(crate) fn fresh_base_ref(git: &impl Git, bare: &Utf8Path, base: &str) -> Str
         base.to_owned()
     }
 }
+
+#[cfg(test)]
+#[path = "../../../tests/unit/action/feature/base.rs"]
+mod tests;

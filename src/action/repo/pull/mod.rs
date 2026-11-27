@@ -352,9 +352,12 @@ pub(crate) fn refresh_default(
 /// default branch when that loses nothing (clean, no operation under way,
 /// `HEAD` an ancestor of `FETCH_HEAD`); otherwise report it as skipped.
 fn reattach_detached(git: &impl Git, worktree: &Utf8Path, repo: &Repo) -> Result<(), PullStatus> {
-    let Ok(state) = git.repo_state(worktree) else {
-        return Ok(());
-    };
+    let state = git
+        .repo_state(worktree)
+        .map_err(|error| PullStatus::Skipped {
+            reason: format!("cannot read the default worktree state: {error}"),
+            divergence: None,
+        })?;
     if state.branch.is_some() || !state.is_repository {
         return Ok(());
     }
