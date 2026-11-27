@@ -128,8 +128,11 @@ and skip the pass when another process holds `memory.lock`. `ivar memory status`
 ## Anchors and usage
 
 - Anchors resolve against the base layer only, never a feature session's layer.
-- A change in the graph never re-anchors a page. A file indexed after the page was anchored joins
-  only when the page changes or `ivar memory reindex` runs.
+- A change in the graph does not re-anchor a page on its own. The routine reindex re-resolves
+  the anchors of an unchanged page only when one of them is broken against the current graph; the
+  page text is never rewritten. A file indexed after the page was anchored, with no broken anchor
+  on that page, joins only when the page changes or `ivar memory reindex` runs. Without a usable
+  `graph.db` nothing is re-resolved.
 - An ambiguous path or symbol becomes an anchor only when the page also cites a resolved path in
   the same repo or file; otherwise it is dropped.
 - The guard counts a memory read from a `Read` target, a Grep or Glob `path`, or a Bash search

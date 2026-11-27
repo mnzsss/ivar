@@ -150,10 +150,15 @@ fn anchor_page(
     Ok(true)
 }
 
-fn index(layout: &Layout, db: &mut MemoryDb, full: bool) -> Result<ReindexReport, String> {
+fn index(
+    layout: &Layout,
+    db: &mut MemoryDb,
+    full: bool,
+    reanchor: bool,
+) -> Result<ReindexReport, String> {
     // ATTACH is refused once the transaction below is open.
     let attached = anchors::attach_indexed_graph(db.conn(), &layout.graph_db());
-    let outcome = index_attached(layout, db, full, attached);
+    let outcome = index_attached(layout, db, full, attached, reanchor);
     if attached {
         anchors::detach_graph(db.conn());
     }
@@ -165,6 +170,7 @@ fn index_attached(
     db: &mut MemoryDb,
     full: bool,
     attached: bool,
+    reanchor: bool,
 ) -> Result<ReindexReport, String> {
     let sql = |error: rusqlite::Error| error.to_string();
     let tx = db.conn_mut().transaction().map_err(sql)?;
@@ -181,6 +187,12 @@ fn index_attached(
     } else {
         &previous
     };
+    // A page whose anchors broke when the graph changed is re-resolved though its file is intact.
+    let stale = if attached && reanchor && !full {
+        anchors::pages_with_broken_anchors(&tx).map_err(sql)?
+    } else {
+        BTreeSet::new()
+    };
     let mut report = ReindexReport::default();
     let mut kept = BTreeSet::new();
     let indexed_at = rfc3339_now();
@@ -193,6 +205,7 @@ fn index_attached(
         let mtime = mtime_ns(&metadata);
         let read = || std::fs::read_to_string(&file.path).ok();
         if let Some(row) = known.get(&file.rel)
+            && !stale.contains(&file.rel)
             && unchanged(row, size, mtime, read)
         {
             kept.insert(file.rel);
@@ -306,13 +319,13 @@ pub fn refresh_locked(
     db: &mut MemoryDb,
     full: bool,
 ) -> Result<ReindexReport, Failure> {
-    finish(layout, index(layout, db, full))
+    finish(layout, index(layout, db, full, true))
 }
 
-fn run(layout: &Layout, full: bool) -> Result<ReindexReport, Failure> {
+fn run(layout: &Layout, full: bool, reanchor: bool) -> Result<ReindexReport, Failure> {
     let outcome = MemoryDb::open(layout.memory_db().as_std_path())
         .map_err(|error| error.to_string())
-        .and_then(|mut db| index(layout, &mut db, full));
+        .and_then(|mut db| index(layout, &mut db, full, reanchor));
     finish(layout, outcome)
 }
 
@@ -323,7 +336,7 @@ fn run(layout: &Layout, full: bool) -> Result<ReindexReport, Failure> {
 /// When the lock or the database cannot be used; the error is recorded in `_reindex.json`.
 pub fn refresh(layout: &Layout) -> Result<ReindexReport, Failure> {
     let _lock = recorded(layout, fs::lock_exclusive(&layout.memory_lock()))?;
-    run(layout, false)
+    run(layout, false, true)
 }
 
 /// Incremental, returning an empty report when another process holds
@@ -336,7 +349,20 @@ pub fn refresh_if_free(layout: &Layout) -> Result<ReindexReport, Failure> {
     let Some(_lock) = recorded(layout, fs::try_lock_exclusive(&layout.memory_lock()))? else {
         return Ok(ReindexReport::default());
     };
-    run(layout, false)
+    run(layout, false, true)
+}
+
+/// Like [`refresh_if_free`], but a page whose file did not change keeps its anchors, so the lint
+/// can still report the broken ones.
+///
+/// # Errors
+///
+/// When the lock or the database cannot be used.
+pub fn refresh_if_free_keeping_anchors(layout: &Layout) -> Result<ReindexReport, Failure> {
+    let Some(_lock) = recorded(layout, fs::try_lock_exclusive(&layout.memory_lock()))? else {
+        return Ok(ReindexReport::default());
+    };
+    run(layout, false, false)
 }
 
 /// Full rebuild: every page row is dropped and re-read; observations stay.
@@ -346,7 +372,7 @@ pub fn refresh_if_free(layout: &Layout) -> Result<ReindexReport, Failure> {
 /// When the lock or the database cannot be used.
 pub fn rebuild(layout: &Layout) -> Result<ReindexReport, Failure> {
     let _lock = recorded(layout, fs::lock_exclusive(&layout.memory_lock()))?;
-    run(layout, true)
+    run(layout, true, true)
 }
 
 /// # Errors

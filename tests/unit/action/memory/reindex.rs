@@ -453,3 +453,70 @@ fn a_full_rebuild_keeps_every_automation_decision() {
         1
     );
 }
+
+fn seed_symbol(layout: &Layout, name: &str) {
+    let g = crate::store::graph::db::GraphDb::open(layout.graph_db().as_std_path()).unwrap();
+    g.conn().execute("DELETE FROM symbols", []).unwrap();
+    g.conn()
+        .execute(
+            "INSERT INTO symbols (file_id, repo, name, kind, start_line, start_col, end_line, end_col)
+             VALUES (1, 'ivar', ?1, 'function', 1, 0, 1, 1)",
+            [name],
+        )
+        .unwrap();
+}
+
+#[test]
+fn an_unchanged_page_with_a_renamed_symbol_is_reanchored_and_valid_pages_stay_unchanged() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root);
+    seed_graph(&layout);
+    seed_symbol(&layout, "old_name");
+    write_page(
+        &layout,
+        "docs/memory/gotcha/a.md",
+        "# A\n\nSee `src/a.rs` and `old_name` and `new_name`.\n",
+    );
+    write_page(
+        &layout,
+        "docs/memory/gotcha/b.md",
+        "# B\n\nSee `src/a.rs`.\n",
+    );
+    refresh(&layout).unwrap();
+    let symbol_anchors = "SELECT count(*) FROM page_anchors WHERE page_path = 'docs/memory/gotcha/a.md' AND symbol = ";
+    assert_eq!(count(&layout, &format!("{symbol_anchors}'old_name'")), 1);
+
+    let calm = refresh(&layout).unwrap();
+    assert_eq!((calm.indexed, calm.unchanged), (0, 2));
+
+    seed_symbol(&layout, "new_name");
+    let report = refresh(&layout).unwrap();
+    assert_eq!((report.indexed, report.unchanged), (1, 1));
+    assert_eq!(count(&layout, &format!("{symbol_anchors}'old_name'")), 0);
+    assert_eq!(count(&layout, &format!("{symbol_anchors}'new_name'")), 1);
+
+    let after = refresh(&layout).unwrap();
+    assert_eq!((after.indexed, after.unchanged), (0, 2));
+}
+
+#[test]
+fn without_a_usable_graph_an_unchanged_page_is_not_reresolved() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root);
+    seed_graph(&layout);
+    write_page(
+        &layout,
+        "docs/memory/gotcha/a.md",
+        "# A\n\nSee `src/a.rs`.\n",
+    );
+    refresh(&layout).unwrap();
+    std::fs::remove_file(layout.graph_db()).unwrap();
+
+    let report = refresh(&layout).unwrap();
+
+    assert_eq!(
+        (report.indexed, report.unchanged, report.anchored),
+        (0, 1, 0)
+    );
+    assert_eq!(count(&layout, "SELECT count(*) FROM page_anchors"), 1);
+}

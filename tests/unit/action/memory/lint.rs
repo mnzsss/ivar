@@ -162,6 +162,7 @@ fn an_anchor_whose_file_left_the_graph_is_a_warning_not_an_error() {
     assert_eq!(issue.severity, "warning");
     assert_eq!(issue.path, "docs/memory/decision/a.md");
     assert!(issue.message.contains("ivar:src/a.rs"));
+    assert!(issue.message.contains("ivar memory reindex"));
     let outcome = LintOutcome {
         issues: issues.clone(),
     };

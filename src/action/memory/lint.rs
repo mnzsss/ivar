@@ -91,7 +91,7 @@ fn broken_anchor_warnings(layout: &Layout) -> Vec<LintIssue> {
     if !layout.graph_db().exists() || !layout.memory_db().exists() {
         return Vec::new();
     }
-    let refresh_failure = crate::action::memory::reindex::refresh_if_free(layout)
+    let refresh_failure = crate::action::memory::reindex::refresh_if_free_keeping_anchors(layout)
         .err()
         .map(|failure| LintIssue {
             path: "docs/memory".to_owned(),
@@ -116,11 +116,11 @@ fn broken_anchor_warnings(layout: &Layout) -> Vec<LintIssue> {
             severity: "warning",
             message: match anchor.symbol {
                 Some(symbol) => format!(
-                    "cites `{symbol}` in {}:{}, which the graph no longer has",
+                    "cites `{symbol}` in {}:{}, which the graph no longer has; `ivar memory reindex` re-resolves anchors, so run it before editing the page",
                     anchor.repo, anchor.path
                 ),
                 None => format!(
-                    "cites {}:{}, which the graph no longer has",
+                    "cites {}:{}, which the graph no longer has; `ivar memory reindex` re-resolves anchors, so run it before editing the page",
                     anchor.repo, anchor.path
                 ),
             },

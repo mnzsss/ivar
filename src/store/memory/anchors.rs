@@ -283,6 +283,18 @@ pub fn pending_count(conn: &Connection) -> rusqlite::Result<usize> {
     )
 }
 
+/// Paths of the pages with at least one anchor broken against the attached graph.
+///
+/// # Errors
+///
+/// Returns the `SQLite` error.
+pub fn pages_with_broken_anchors(conn: &Connection) -> rusqlite::Result<BTreeSet<String>> {
+    let sql = format!("SELECT DISTINCT a.page_path FROM page_anchors a WHERE {BROKEN}");
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map([], |r| r.get(0))?;
+    rows.collect()
+}
+
 /// Anchors of a page, broken ones first. Without the graph attached none is reported broken.
 ///
 /// # Errors
