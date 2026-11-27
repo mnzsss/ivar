@@ -64,6 +64,35 @@ Show what a feature wrote to memory, its gaps and the pages its diff may have ma
 | `--read-only` |  |  | Only read: take no lock, drain nothing and migrate nothing, so it works where `.ivar/` is not writable. Observations still in the capture spool are not counted, and a warning says so |
 
 
+## `ivar memory eval`
+
+Measure retrieval quality against a file of labelled queries
+
+
+### `ivar memory eval sample`
+
+Export distinct queries from the usage log (never hook ones) as a JSONL label file: each line has `query` and an empty `expected`, for a human to fill with the paths of the relevant pages. Read-only
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--days` | `<DAYS>` | `30` | Only queries made in the last N days |
+| `--limit` | `<LIMIT>` | `100` | Most queries to export, newest first |
+| `--out` | `<OUT>` |  | Write the JSONL here instead of stdout |
+
+
+### `ivar memory eval run`
+
+Run each labelled query through the ranking `ivar memory query` uses and report hit@k, recall@k and MRR, per query and overall. Lines with an empty `expected` are skipped and counted. Records nothing in the usage log
+
+| argument | required | description |
+| --- | --- | --- |
+| `file` | yes | JSONL label file: `{"query": "...", "expected": ["docs/memory/..."]}` per line |
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--k` | `<K>` | `3` | How many top results count |
+
+
 ## `ivar memory handoff`
 
 Open, list or cancel a handoff for the next session. Accepting one and messages are MCP-only

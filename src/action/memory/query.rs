@@ -24,7 +24,7 @@ use crate::store::memory::pages::{self, PageFilter, PageHit};
 use crate::store::memory::retention::{SESSION_RETENTION_DAYS, cutoff_before};
 use crate::store::memory::usage::{self, MemoryMiss, MemoryMissKind, QueryRecord};
 
-const MAX_LIMIT: usize = 20;
+pub(super) const MAX_LIMIT: usize = 20;
 const CANDIDATES: usize = 50;
 const ANCHORS_PER_HIT: usize = 10;
 
@@ -338,7 +338,8 @@ fn record_usage(
     }
 }
 
-fn search(layout: &Layout, input: &QueryInput) -> Outcome<QueryOutcome> {
+/// The ranking `query_in` answers with, without recording the query.
+pub(super) fn search(layout: &Layout, input: &QueryInput) -> Outcome<QueryOutcome> {
     let kinds = parse_kinds(&input.kinds)?;
     let tier = parse_tier(input.tier.as_deref())?;
     let limit = input.limit.clamp(1, MAX_LIMIT);
