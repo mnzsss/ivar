@@ -312,6 +312,10 @@ pub(crate) fn refresh_default(
         Err(status) => return status,
     };
 
+    if let Err(status) = reattach_detached(git, &worktree, repo) {
+        return status;
+    }
+
     match git.fast_forward(&worktree) {
         Ok(()) => PullStatus::Refreshed,
         Err(error) => {
@@ -341,6 +345,41 @@ pub(crate) fn refresh_default(
             }
         }
     }
+}
+
+/// A default worktree on a detached `HEAD` would let the fast-forward move
+/// only `HEAD`, leaving `refs/heads/<default>` stale. Re-attach it to the
+/// default branch when that loses nothing (clean, no operation under way,
+/// `HEAD` an ancestor of `FETCH_HEAD`); otherwise report it as skipped.
+fn reattach_detached(git: &impl Git, worktree: &Utf8Path, repo: &Repo) -> Result<(), PullStatus> {
+    let Ok(state) = git.repo_state(worktree) else {
+        return Ok(());
+    };
+    if state.branch.is_some() || !state.is_repository {
+        return Ok(());
+    }
+    let skip = |detail: &str| PullStatus::Skipped {
+        reason: format!("the default worktree is on a detached HEAD; {detail}"),
+        divergence: None,
+    };
+    if state.operation.is_some() {
+        return Err(skip("finish the operation in progress first"));
+    }
+    if git.worktree_dirty(worktree).unwrap_or(true) {
+        return Err(skip("it has uncommitted changes"));
+    }
+    if !git
+        .is_ancestor(worktree, "HEAD", "FETCH_HEAD")
+        .unwrap_or(false)
+    {
+        return Err(skip("its HEAD is not behind the fetched tip"));
+    }
+    git.switch_branch(worktree, repo.default_branch().as_str())
+        .map_err(|error| {
+            skip(&format!(
+                "cannot re-attach it to the default branch: {error}"
+            ))
+        })
 }
 
 /// The part of a worktree refresh both refreshers share: check `worktree` is

@@ -59,6 +59,9 @@ impl git::Git for PublishedRemoteGit {
     fn fast_forward(&self, worktree: &Utf8Path) -> Result<(), git::Error> {
         self.dummy.fast_forward(worktree)
     }
+    fn switch_branch(&self, worktree: &Utf8Path, branch: &str) -> Result<(), git::Error> {
+        self.dummy.switch_branch(worktree, branch)
+    }
     fn remove_worktree(&self, git_dir: &Utf8Path, dest: &Utf8Path) -> Result<(), git::Error> {
         self.dummy.remove_worktree(git_dir, dest)
     }

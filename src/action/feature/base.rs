@@ -186,3 +186,21 @@ fn landed_under_new_identity(
 #[cfg(test)]
 #[path = "../../../tests/unit/action/feature/base.rs"]
 mod tests;
+
+/// The newest view of `base` this repo holds without touching the network.
+///
+/// `refs/remotes/origin/<base>` when it resolves and the local `<base>` is
+/// an ancestor of it (the local branch is merely behind), else `<base>`.
+/// `feature rebase` replays onto the remote tip and leaves the local branch
+/// parked on purpose, so anything measuring "what the feature adds" must use
+/// this rather than the bare local ref.
+pub(crate) fn fresh_base_ref(git: &impl Git, bare: &Utf8Path, base: &str) -> String {
+    let remote = format!("refs/remotes/origin/{base}");
+    if git.revision_commit(bare, &remote).is_ok()
+        && git.is_ancestor(bare, base, &remote).unwrap_or(false)
+    {
+        remote
+    } else {
+        base.to_owned()
+    }
+}

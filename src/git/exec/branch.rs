@@ -18,6 +18,19 @@ pub(crate) fn fast_forward(worktree: &Utf8Path) -> Result<(), Error> {
     Ok(())
 }
 
+/// `git -C <worktree> switch <branch>` — attach the worktree's `HEAD` to an
+/// existing local branch. Refuses when the switch would lose local changes.
+pub(crate) fn switch_branch(worktree: &Utf8Path, branch: &str) -> Result<(), Error> {
+    // `--ignore-other-worktrees`: the bare repository's own `HEAD` names the
+    // default branch but checks nothing out, and git would refuse over it.
+    run(&git()
+        .cwd(worktree)
+        .arg("switch")
+        .arg("--ignore-other-worktrees")
+        .arg(branch))?;
+    Ok(())
+}
+
 /// `git --git-dir <git_dir> branch <branch> <revision>` — create a branch at
 /// an explicit revision in the bare repository. The temporary
 /// `ivar-integrate/<feature>/<repo>` branches integration uses are created

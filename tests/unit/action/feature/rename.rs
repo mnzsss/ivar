@@ -94,6 +94,9 @@ impl git::Git for DummyRemoteGit {
     fn fast_forward(&self, worktree: &Utf8Path) -> Result<(), git::Error> {
         self.system.fast_forward(worktree)
     }
+    fn switch_branch(&self, worktree: &Utf8Path, branch: &str) -> Result<(), git::Error> {
+        self.system.switch_branch(worktree, branch)
+    }
     fn remove_worktree(&self, git_dir: &Utf8Path, dest: &Utf8Path) -> Result<(), git::Error> {
         self.system.remove_worktree(git_dir, dest)
     }
