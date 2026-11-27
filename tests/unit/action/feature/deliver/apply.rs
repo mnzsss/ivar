@@ -60,6 +60,28 @@ fn apply_is_rejected_when_the_state_has_drifted_since_the_preview() {
     assert!(remote_ref(&origin_of(&root, "api"), "checkout").is_none());
 }
 
+#[test]
+fn a_placeholder_fingerprint_does_not_reveal_the_current_one() {
+    let (_guard, root) = hall_with_promoted(&["api"]);
+    approve_through_plan(&root);
+    let ctx = Ctx::new(root.clone());
+    let current = deliver(&ctx, preview_input("checkout"))
+        .unwrap()
+        .value
+        .preview
+        .fingerprint
+        .clone();
+
+    let failure = deliver(&ctx, apply_input("checkout", "x")).unwrap_err();
+
+    assert_eq!(failure.code, "deliver.fingerprint_mismatch");
+    let surface = serde_json::to_string(&failure).unwrap();
+    assert!(
+        !surface.contains(&current),
+        "the refusal must not hand out a fingerprint no human reviewed: {surface}"
+    );
+}
+
 // -- apply: pushing -------------------------------------------------------
 
 #[test]

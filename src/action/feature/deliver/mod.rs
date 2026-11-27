@@ -366,7 +366,9 @@ fn check_fingerprint(
             ),
         )
         .expected(format!("the preview fingerprint `{expected}`"))
-        .actual(format!("the current state fingerprints as `{current}`"))
+        // Printing `current` would let an apply with a placeholder fingerprint
+        // read a valid one back, skipping the preview the human must review.
+        .actual("the current state fingerprints differently")
         .fix(FixAction::safe(
             "deliver.re_preview",
             format!(
