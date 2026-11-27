@@ -33,6 +33,9 @@ pub struct ReindexReport {
     pub removed: usize,
     pub anchored: usize,
     pub invalid: Vec<String>,
+    /// Graph stamp the anchors were resolved against; recorded in `_reindex.json`.
+    #[serde(skip)]
+    resolved_graph: Option<String>,
 }
 
 impl WriteHuman for ReindexReport {
@@ -55,6 +58,8 @@ pub struct ReindexState {
     pub last_reindex_at: Option<String>,
     pub last_error: Option<String>,
     pub pages: usize,
+    /// Modification time of `graph.db` when anchors were last re-resolved.
+    pub graph_stamp: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -134,6 +139,20 @@ fn mtime_ns(metadata: &std::fs::Metadata) -> i64 {
         .unwrap_or(0)
 }
 
+/// Identifies the graph's content by size and mtime of the file and its WAL, since a WAL-mode
+/// write may leave the main file untouched.
+fn graph_stamp(layout: &Layout) -> Option<String> {
+    let main = layout.graph_db();
+    let part = |path: &Utf8Path| {
+        std::fs::metadata(path)
+            .map(|meta| format!("{}:{}", meta.len(), mtime_ns(&meta)))
+            .unwrap_or_default()
+    };
+    let wal = Utf8PathBuf::from(format!("{main}-wal"));
+    main.exists()
+        .then(|| format!("{}|{}", part(&main), part(&wal)))
+}
+
 fn anchor_page(
     tx: &Transaction<'_>,
     rel: &str,
@@ -188,12 +207,19 @@ fn index_attached(
         &previous
     };
     // A page whose anchors broke when the graph changed is re-resolved though its file is intact.
-    let stale = if attached && reanchor && !full {
+    // Only when the graph changed since the last resolution: re-resolving against the same graph
+    // cannot repair an anchor.
+    let graph_stamp = graph_stamp(layout);
+    let graph_changed = graph_stamp != read_state(layout).graph_stamp;
+    let stale = if attached && reanchor && !full && graph_changed {
         anchors::pages_with_broken_anchors(&tx).map_err(sql)?
     } else {
         BTreeSet::new()
     };
     let mut report = ReindexReport::default();
+    if attached && reanchor {
+        report.resolved_graph = graph_stamp;
+    }
     let mut kept = BTreeSet::new();
     let indexed_at = rfc3339_now();
     for file in walk_pages(layout) {
@@ -280,13 +306,20 @@ fn record(layout: &Layout, outcome: &Result<ReindexReport, String>) {
         && report.anchored == 0
         && state.last_error.is_none()
         && state.last_reindex_at.is_some()
-        && state.pages == pages;
+        && state.pages == pages
+        && report
+            .resolved_graph
+            .as_ref()
+            .is_none_or(|stamp| state.graph_stamp.as_ref() == Some(stamp));
     if nothing_to_record {
         return;
     }
     state.last_reindex_at = Some(rfc3339_now());
     state.last_error = None;
     state.pages = pages;
+    if report.resolved_graph.is_some() {
+        state.graph_stamp.clone_from(&report.resolved_graph);
+    }
     write_state(layout, &state);
 }
 

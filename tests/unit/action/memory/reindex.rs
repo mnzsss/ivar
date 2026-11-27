@@ -407,6 +407,7 @@ fn the_human_report_names_the_anchored_pages() {
         removed: 0,
         anchored: 3,
         invalid: Vec::new(),
+        ..ReindexReport::default()
     };
     let mut human = Vec::new();
 
@@ -519,4 +520,77 @@ fn without_a_usable_graph_an_unchanged_page_is_not_reresolved() {
         (0, 1, 0)
     );
     assert_eq!(count(&layout, "SELECT count(*) FROM page_anchors"), 1);
+}
+
+fn seed_two_pages_with_old_symbol(layout: &Layout) {
+    seed_graph(layout);
+    seed_symbol(layout, "old_name");
+    write_page(
+        layout,
+        "docs/memory/gotcha/a.md",
+        "# A\n\nSee `src/a.rs` and `old_name`.\n",
+    );
+    write_page(
+        layout,
+        "docs/memory/gotcha/b.md",
+        "# B\n\nSee `src/a.rs`.\n",
+    );
+    refresh(layout).unwrap();
+}
+
+#[test]
+fn keeping_anchors_leaves_a_broken_anchor_for_lint_and_a_routine_refresh_repairs_it() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root);
+    seed_two_pages_with_old_symbol(&layout);
+    seed_symbol(&layout, "new_name");
+    let symbol = "SELECT count(*) FROM page_anchors WHERE symbol = 'old_name'";
+
+    let kept = refresh_if_free_keeping_anchors(&layout).unwrap();
+    assert_eq!((kept.indexed, kept.unchanged), (0, 2));
+    assert_eq!(count(&layout, symbol), 1);
+
+    let routine = refresh_if_free(&layout).unwrap();
+    assert_eq!((routine.indexed, routine.unchanged), (1, 1));
+    assert_eq!(count(&layout, symbol), 0);
+}
+
+#[test]
+fn an_anchor_that_stays_broken_is_not_reresolved_until_the_graph_changes() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root);
+    seed_two_pages_with_old_symbol(&layout);
+    {
+        let db = MemoryDb::open(layout.memory_db().as_std_path()).unwrap();
+        db.conn()
+            .execute(
+                "INSERT INTO page_anchors (page_path, repo, path, symbol)
+                 VALUES ('docs/memory/gotcha/b.md', 'ivar', 'src/deleted.rs', NULL)",
+                [],
+            )
+            .unwrap();
+    }
+
+    let first = refresh(&layout).unwrap();
+    assert_eq!((first.indexed, first.unchanged), (0, 2));
+    let second = refresh_if_free(&layout).unwrap();
+    assert_eq!((second.indexed, second.unchanged), (0, 2));
+    assert_eq!(
+        count(
+            &layout,
+            "SELECT count(*) FROM page_anchors WHERE path = 'src/deleted.rs'"
+        ),
+        1
+    );
+
+    seed_symbol(&layout, "other_name");
+    let changed = refresh(&layout).unwrap();
+    assert_eq!(changed.indexed, 2);
+    assert_eq!(
+        count(
+            &layout,
+            "SELECT count(*) FROM page_anchors WHERE path = 'src/deleted.rs'"
+        ),
+        0
+    );
 }
