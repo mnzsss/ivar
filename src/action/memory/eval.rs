@@ -13,9 +13,9 @@ use serde::{Deserialize, Serialize};
 use crate::action::memory::drain::epoch_secs_now;
 use crate::action::memory::query::{MAX_LIMIT, QueryInput, search};
 use crate::action::{Ctx, discover_hall};
+use crate::domain::session::rfc3339_now;
 use crate::error::{Failure, Outcome, Report, Warning, WriteHuman};
-use crate::store::memory::db::{MemoryDb, ReadOnlyOpen, open_current_read_only};
-use crate::store::memory::pages;
+use crate::store::memory::db::{ReadOnlyOpen, open_current_read_only};
 
 /// One line of the label file.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -51,7 +51,7 @@ impl WriteHuman for SampleOutcome {
 }
 
 fn jsonl(label: &Label) -> String {
-    serde_json::to_string(label).unwrap_or_default()
+    serde_json::to_string(label).expect("a Label of plain strings always serializes")
 }
 
 /// # Errors
@@ -114,7 +114,7 @@ pub fn sample(ctx: &Ctx, days: u64, limit: usize, out: Option<PathBuf>) -> Outco
 pub struct QueryScore {
     pub query: String,
     pub expected: Vec<String>,
-    /// Expected pages that no longer exist; left out of the scores.
+    /// Expected pages that no longer exist or have expired; left out of the scores.
     pub missing: Vec<String>,
     pub returned: Vec<String>,
     pub hit: bool,
@@ -135,7 +135,7 @@ pub struct EvalOutcome {
     pub scored: usize,
     /// Lines with an empty `expected`.
     pub skipped_unlabelled: usize,
-    /// Lines whose expected pages all no longer exist.
+    /// Lines whose expected pages all no longer exist or have expired.
     pub skipped_unresolvable: usize,
     pub aggregate: Aggregate,
     pub queries: Vec<QueryScore>,
@@ -147,7 +147,7 @@ impl WriteHuman for EvalOutcome {
         for q in &self.queries {
             writeln!(
                 w,
-                "{} hit@{k}={} recall@{k}={:.3} rr={:.3}",
+                "{} hit@{k}={} recall@{k}={:.3} rr@{k}={:.3}",
                 q.query,
                 u8::from(q.hit),
                 q.recall,
@@ -161,7 +161,7 @@ impl WriteHuman for EvalOutcome {
         )?;
         writeln!(
             w,
-            "hit@{k}={:.3} recall@{k}={:.3} MRR={:.3}",
+            "hit@{k}={:.3} recall@{k}={:.3} MRR@{k}={:.3}",
             self.aggregate.hit_rate, self.aggregate.recall, self.aggregate.mrr
         )
     }
@@ -197,6 +197,25 @@ fn mean(values: impl Iterator<Item = f64>, count: usize) -> f64 {
     }
 }
 
+/// Looks up each expected path: `Some(true)` when live, `Some(false)` when
+/// expired, `None` when absent.
+fn page_state(
+    conn: &rusqlite::Connection,
+    path: &str,
+    now: &str,
+) -> rusqlite::Result<Option<bool>> {
+    use rusqlite::OptionalExtension as _;
+    conn.query_row(
+        "SELECT expires_at IS NULL OR expires_at >= ?2 FROM pages WHERE path = ?1",
+        rusqlite::params![path, now],
+        |row| row.get::<_, bool>(0),
+    )
+    .optional()
+}
+
+/// Scores are cut at `k` (hit@k, recall@k, MRR@k): a first relevant page past
+/// rank `k` counts as a miss with a reciprocal rank of 0.
+///
 /// # Errors
 ///
 /// When no hall is found, the label file is unreadable or malformed, or the index cannot be read.
@@ -205,15 +224,17 @@ pub fn run(ctx: &Ctx, file: &Path, k: usize) -> Outcome<EvalOutcome> {
     let layout = discover_hall(ctx)?;
     let k = k.clamp(1, MAX_LIMIT);
     let labels = read_labels(file)?;
-    let mut warnings = Vec::new();
-    let mut scores = Vec::new();
-    let (mut unlabelled, mut unresolvable) = (0, 0);
+    let mut warnings: Vec<Warning> = Vec::new();
+    let mut unlabelled = 0;
+    // Rank every labelled query first: `search` refreshes the index, so the
+    // read-only connection below sees it current.
+    let mut ranked = Vec::new();
     for label in labels {
         if label.expected.is_empty() {
             unlabelled += 1;
             continue;
         }
-        let returned: Vec<String> = search(
+        let report = search(
             &layout,
             &QueryInput {
                 text: label.query.clone(),
@@ -224,49 +245,73 @@ pub fn run(ctx: &Ctx, file: &Path, k: usize) -> Outcome<EvalOutcome> {
                 include_expired: false,
                 explain: false,
             },
-        )?
-        .value
-        .pages
-        .into_iter()
-        .map(|hit| hit.path)
-        .collect();
-        let db = MemoryDb::open(layout.memory_db().as_std_path())
-            .map_err(|e| Failure::failed("memory.db_unavailable", e.to_string()))?;
-        let mut live = BTreeSet::new();
-        let mut missing = Vec::new();
-        for path in &label.expected {
-            let found = pages::page_by_path(&db, path, None, None)
-                .map_err(|e| Failure::failed("memory.read_failed", e.to_string()))?;
-            if found.is_some() {
-                live.insert(path.clone());
-            } else {
-                warnings.push(Warning::new(
-                    "memory.eval_page_missing",
-                    label.query.clone(),
-                    format!("expected page `{path}` does not exist"),
-                ));
-                missing.push(path.clone());
+        )?;
+        for w in report.warnings {
+            if !warnings
+                .iter()
+                .any(|x| x.code == w.code && x.subject == w.subject && x.what == w.what)
+            {
+                warnings.push(w);
             }
         }
-        if live.is_empty() {
-            unresolvable += 1;
-            continue;
+        let returned: Vec<String> = report.value.pages.into_iter().map(|h| h.path).collect();
+        ranked.push((label, returned));
+    }
+    let mut scores = Vec::new();
+    let mut unresolvable = 0;
+    if !ranked.is_empty() {
+        let db_path = layout.memory_db();
+        let conn = match open_current_read_only(db_path.as_std_path()) {
+            Ok(ReadOnlyOpen::Current(conn)) => conn,
+            Ok(ReadOnlyOpen::Outdated { found, current }) => {
+                return Err(crate::action::memory::review::outdated(found, current));
+            }
+            Err(error) => {
+                return Err(Failure::failed(
+                    "memory.db_unavailable",
+                    format!("could not read `{db_path}`: {error}"),
+                ));
+            }
+        };
+        let now = rfc3339_now();
+        let mut warned = BTreeSet::new();
+        for (label, returned) in ranked {
+            let mut live = BTreeSet::new();
+            let mut missing = Vec::new();
+            for path in &label.expected {
+                let state = page_state(&conn, path, &now)
+                    .map_err(|e| Failure::failed("memory.read_failed", e.to_string()))?;
+                if state == Some(true) {
+                    live.insert(path.clone());
+                    continue;
+                }
+                if warned.insert(path.clone()) {
+                    let what = if state.is_none() {
+                        format!("expected page `{path}` does not exist")
+                    } else {
+                        format!("expected page `{path}` has expired and is never returned")
+                    };
+                    warnings.push(Warning::new("memory.eval_page_missing", path.clone(), what));
+                }
+                missing.push(path.clone());
+            }
+            if live.is_empty() {
+                unresolvable += 1;
+                continue;
+            }
+            let top: Vec<String> = returned.into_iter().take(k).collect();
+            let in_top = top.iter().filter(|p| live.contains(*p)).count();
+            let first = top.iter().position(|p| live.contains(p));
+            scores.push(QueryScore {
+                query: label.query,
+                expected: label.expected,
+                missing,
+                returned: top,
+                hit: in_top > 0,
+                recall: in_top as f64 / live.len() as f64,
+                reciprocal_rank: first.map_or(0.0, |i| 1.0 / (i + 1) as f64),
+            });
         }
-        let in_top = returned
-            .iter()
-            .take(k)
-            .filter(|p| live.contains(*p))
-            .count();
-        let first = returned.iter().position(|p| live.contains(p));
-        scores.push(QueryScore {
-            query: label.query,
-            expected: label.expected,
-            missing,
-            returned: returned.into_iter().take(k).collect(),
-            hit: in_top > 0,
-            recall: in_top as f64 / live.len() as f64,
-            reciprocal_rank: first.map_or(0.0, |i| 1.0 / (i + 1) as f64),
-        });
     }
     let n = scores.len();
     let aggregate = Aggregate {
