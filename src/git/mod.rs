@@ -479,6 +479,15 @@ pub trait Git {
     /// Returns [`Error`] if the branch cannot be fast-forwarded (e.g. it diverged).
     fn fast_forward(&self, worktree: &Utf8Path) -> Result<(), Error>;
 
+    /// Attach the worktree's `HEAD` to the existing local `branch` —
+    /// `git switch <branch>`. Used to re-attach a default-branch worktree
+    /// left on a detached `HEAD`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error`] if the branch does not exist or the switch is refused.
+    fn switch_branch(&self, worktree: &Utf8Path, branch: &str) -> Result<(), Error>;
+
     /// Remove the worktree at `dest` from the repository at `git_dir`.
     ///
     /// Forced: git refuses to remove a worktree with uncommitted changes, and
@@ -1328,6 +1337,10 @@ impl Git for System {
 
     fn fast_forward(&self, worktree: &Utf8Path) -> Result<(), Error> {
         exec::fast_forward(worktree)
+    }
+
+    fn switch_branch(&self, worktree: &Utf8Path, branch: &str) -> Result<(), Error> {
+        exec::switch_branch(worktree, branch)
     }
 
     fn remove_worktree(&self, git_dir: &Utf8Path, dest: &Utf8Path) -> Result<(), Error> {

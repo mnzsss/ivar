@@ -68,6 +68,14 @@ between preview and apply; a base that moved then changes the fingerprint, so
 the delivery is refused as drifted. Repos that only push have no PR and no base
 check.
 
+## The base `deliver` counts from
+
+The preview counts "commit(s) not pushed" from `origin/<default>` when that tracking
+ref is newer than the local default branch (the local branch is its ancestor), else
+from the local default branch. `feature rebase` replays onto the remote tip and leaves
+the local default branch where it was, so the newer ref keeps upstream commits out of
+the count and the fingerprint. The check reads local refs only.
+
 ## What protects the default branch
 
 Protection is layered, and the layers are not equally strong. Each one below

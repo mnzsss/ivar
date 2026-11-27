@@ -95,6 +95,13 @@ fn absence_of_preview_evidence_none_none_skips_whole_batch() {
         fn fast_forward(&self, worktree: &Utf8Path) -> Result<(), crate::git::Error> {
             self.0.fast_forward(worktree)
         }
+        fn switch_branch(
+            &self,
+            worktree: &Utf8Path,
+            branch: &str,
+        ) -> Result<(), crate::git::Error> {
+            self.0.switch_branch(worktree, branch)
+        }
         fn remove_worktree(
             &self,
             git_dir: &Utf8Path,

@@ -461,3 +461,22 @@ pub(super) fn failure_text(failure: &Failure) -> String {
     failure.write_human(&mut out).unwrap();
     anstream::adapter::strip_str(&String::from_utf8(out).unwrap()).to_string()
 }
+
+/// Upstream gains `upstream.txt`; the bare learns the new tip only through
+/// `refs/remotes/origin/main` and the feature is rebased onto it, so the
+/// local `main` stays behind — what `feature rebase` leaves.
+pub(super) fn rebase_onto_newer_remote_tip(
+    root: &Utf8Path,
+    layout_bare: &Utf8Path,
+    worktree: &Utf8Path,
+) {
+    let origin = Utf8PathBuf::from(origin_of(root, "api"));
+    std::fs::write(origin.join("upstream.txt"), "up\n").unwrap();
+    git(&origin, &["add", "upstream.txt"]);
+    git(&origin, &["commit", "-m", "upstream"]);
+    git(
+        layout_bare,
+        &["fetch", origin.as_str(), "+main:refs/remotes/origin/main"],
+    );
+    git(worktree, &["rebase", "refs/remotes/origin/main"]);
+}

@@ -32,6 +32,23 @@ fn preview_lists_every_promoted_repo_with_its_delivery_facts() {
     assert!(remote_ref(&origin_of(&root, "api"), "checkout").is_none());
 }
 
+#[test]
+fn a_local_default_branch_left_behind_does_not_inflate_the_pending_commits() {
+    let (_guard, root) = hall_with_promoted(&["api"]);
+    let layout = Layout::at(root.clone());
+    let name = RepoName::new("api").unwrap();
+    let worktree = layout.repo_worktree(&name, &BranchName::new("checkout").unwrap());
+    rebase_onto_newer_remote_tip(&root, &layout.repo_bare(&name), &worktree);
+    let ctx = Ctx::new(root);
+
+    let report = deliver(&ctx, preview_input("checkout")).unwrap();
+
+    assert_eq!(
+        report.value.preview.repos[0].pending,
+        ["1 commit(s) not pushed"]
+    );
+}
+
 /// `base_branch` in the preview is the base `promote` actually recorded —
 /// the feature's declared base, not always the repo's default branch.
 #[test]

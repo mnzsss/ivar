@@ -77,11 +77,8 @@ fn push_readiness(
     }
 
     if branch_exists {
-        let ahead = git.commits_ahead(
-            bare,
-            declared.default_branch().as_str(),
-            feature.branch.as_str(),
-        )?;
+        let base = base::fresh_base_ref(git, bare, declared.default_branch().as_str());
+        let ahead = git.commits_ahead(bare, &base, feature.branch.as_str())?;
         if ahead > 0 {
             match git.remote_branch_tip(bare, declared.url(), feature.branch.as_str()) {
                 // Only what the remote does not carry is pending. Its tip

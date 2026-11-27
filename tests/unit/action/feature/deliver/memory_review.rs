@@ -188,6 +188,23 @@ fn confirming_needs_a_verdict_per_stale_page_then_records_the_heads() {
 }
 
 #[test]
+fn upstream_changes_after_a_rebase_do_not_make_pages_stale() {
+    let (_guard, root) = hall_with_promoted(&["api"]);
+    let layout = Layout::at(root.clone());
+    let name = RepoName::new("api").unwrap();
+    let worktree = layout.repo_worktree(&name, &BranchName::new("checkout").unwrap());
+    rebase_onto_newer_remote_tip(&root, &layout.repo_bare(&name), &worktree);
+    std::fs::write(worktree.join("README.md"), "changed\n").unwrap();
+    anchored_page(&layout, "docs/memory/decision/up.md", "api", "upstream.txt");
+    anchored_page(&layout, "docs/memory/decision/own.md", "api", "README.md");
+
+    let report = review_in(&layout, &checkout()).unwrap().value;
+
+    let stale: Vec<&str> = report.stale.iter().map(|p| p.path.as_str()).collect();
+    assert_eq!(stale, ["docs/memory/decision/own.md"]);
+}
+
+#[test]
 fn a_skip_alone_is_skipped_and_a_review_outranks_a_later_skip() {
     let (_guard, root) = hall_with_promoted(&["api"]);
     let layout = Layout::at(root);

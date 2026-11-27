@@ -165,6 +165,9 @@ The tools are in [MCP tools](mcp-tools.md).
 - A stale page comes from the feature's diff against its merge base, uncommitted and
   untracked files included. Deliver refuses an uncommitted worktree, so at apply the
   set is `merge-base..HEAD`.
+  The base is `origin/<base>` when that tracking ref is newer than the local base
+  (the local base is its ancestor), else the local base, so a `feature rebase` onto a
+  newer remote tip does not count upstream changes as the feature's.
 - OpenCode reports every tool as `failed: false`, so the "failed tool without a
   gotcha" gap never fires for OpenCode sessions.
 - "Analysis approved without a query" uses the captured `ivar plan approve <feature> analysis`.

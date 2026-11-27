@@ -124,6 +124,71 @@ fn pull_advances_the_default_worktree_to_the_origins_new_tip() {
     );
 }
 
+fn git_out(dir: &Utf8Path, args: &[&str]) -> String {
+    let out = std::process::Command::new("git")
+        .arg("-C")
+        .arg(dir.as_str())
+        .args(args)
+        .output()
+        .unwrap();
+    String::from_utf8(out.stdout).unwrap().trim().to_owned()
+}
+
+fn origin_gains_commit(root: &Utf8Path) {
+    let origin = origin_path(root, "api");
+    std::fs::write(origin.join("CHANGELOG.md"), "v1\n").unwrap();
+    git(&origin, &["add", "CHANGELOG.md"]);
+    git(&origin, &["commit", "-m", "v1"]);
+}
+
+/// A default worktree left on a detached HEAD would let the fast-forward
+/// move only HEAD; pull re-attaches it so `refs/heads/main` advances too.
+#[test]
+fn pull_reattaches_a_detached_default_worktree_and_advances_the_bare_ref() {
+    let (_guard, root) = hall_with(&[("api", "main")]);
+    let ctx = Ctx::new(root.clone());
+    crate::action::sync::sync(&ctx, &Default::default()).unwrap();
+    let worktree = root.join(".ivar/repos/api/main");
+    let bare = root.join(".ivar/repos/api/.bare");
+    git(&worktree, &["checkout", "--detach"]);
+    origin_gains_commit(&root);
+
+    let report = pull(&ctx, &PullInput::default()).unwrap();
+
+    assert_eq!(status_of(&report, "api"), &PullStatus::Refreshed);
+    let tip = git_out(&origin_path(&root, "api"), &["rev-parse", "main"]);
+    assert_eq!(git_out(&bare, &["rev-parse", "main"]), tip);
+    assert_eq!(
+        git_out(&worktree, &["symbolic-ref", "--short", "HEAD"]),
+        "main"
+    );
+}
+
+#[test]
+fn pull_skips_a_detached_default_worktree_with_unreachable_work() {
+    let (_guard, root) = hall_with(&[("api", "main")]);
+    let ctx = Ctx::new(root.clone());
+    crate::action::sync::sync(&ctx, &Default::default()).unwrap();
+    let worktree = root.join(".ivar/repos/api/main");
+    let bare = root.join(".ivar/repos/api/.bare");
+    git(&worktree, &["checkout", "--detach"]);
+    std::fs::write(worktree.join("loose.txt"), "x\n").unwrap();
+    git(&worktree, &["add", "loose.txt"]);
+    git(&worktree, &["commit", "-m", "loose"]);
+    let head = git_out(&worktree, &["rev-parse", "HEAD"]);
+    let main_before = git_out(&bare, &["rev-parse", "main"]);
+    origin_gains_commit(&root);
+
+    let report = pull(&ctx, &PullInput::default()).unwrap();
+
+    match status_of(&report, "api") {
+        PullStatus::Skipped { reason, .. } => assert!(reason.contains("detached HEAD")),
+        other => panic!("expected Skipped, got {other:?}"),
+    }
+    assert_eq!(git_out(&bare, &["rev-parse", "main"]), main_before);
+    assert_eq!(git_out(&worktree, &["rev-parse", "HEAD"]), head);
+}
+
 #[test]
 fn pull_with_no_repos_reports_an_empty_run() {
     let (_guard, root) = hall_with(&[]);

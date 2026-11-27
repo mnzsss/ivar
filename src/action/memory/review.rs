@@ -771,12 +771,10 @@ fn changed_files(layout: &Layout, feature: &Feature, notes: &mut Notes) -> Vec<(
             continue;
         };
         let base = base::resolve(feature, promotion, declared.default_branch());
+        let bare = layout.repo_bare(repo);
+        let base = base::fresh_base_ref(&git, &bare, base.as_str());
         let diff = git
-            .merge_base(
-                &layout.repo_bare(repo),
-                base.as_str(),
-                feature.branch.as_str(),
-            )
+            .merge_base(&bare, base.as_str(), feature.branch.as_str())
             .and_then(|merge_base| {
                 git.diff_worktree_files(
                     &layout.repo_worktree(repo, &feature.branch),
