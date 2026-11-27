@@ -83,6 +83,11 @@ pub enum MemoryCommand {
         #[arg(long)]
         read_only: bool,
     },
+    /// Measure retrieval quality against a file of labelled queries.
+    Eval {
+        #[command(subcommand)]
+        command: EvalCommand,
+    },
     /// Open, list or cancel a handoff for the next session. Accepting one and messages are MCP-only.
     Handoff {
         #[command(subcommand)]
@@ -102,6 +107,30 @@ pub enum MemoryCommand {
         /// Provider whose hook runs this; used when the session is outside `ivar session`.
         #[arg(long)]
         provider: Option<String>,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum EvalCommand {
+    /// Export distinct queries from the usage log (never hook ones) as a JSONL label file: each line has `query` and an empty `expected`, for a human to fill with the paths of the relevant pages. Read-only.
+    Sample {
+        /// Only queries made in the last N days.
+        #[arg(long, default_value_t = 30)]
+        days: u64,
+        /// Most queries to export, newest first.
+        #[arg(long, default_value_t = 100)]
+        limit: usize,
+        /// Write the JSONL here instead of stdout.
+        #[arg(long)]
+        out: Option<std::path::PathBuf>,
+    },
+    /// Run each labelled query through the ranking `ivar memory query` uses and report hit@k, recall@k and MRR, per query and overall. Lines with an empty `expected` are skipped and counted. Records nothing in the usage log.
+    Run {
+        /// JSONL label file: `{"query": "...", "expected": ["docs/memory/..."]}` per line.
+        file: std::path::PathBuf,
+        /// How many top results count.
+        #[arg(long, default_value_t = 3)]
+        k: usize,
     },
 }
 
