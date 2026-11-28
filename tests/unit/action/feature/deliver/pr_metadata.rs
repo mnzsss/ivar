@@ -201,10 +201,9 @@ fn inline_and_file_bodies() {
     );
     assert_eq!(
         previewed_body("body.md")["pr_body"],
-        "body.md",
-        "non-prefixed body.md should be treated as inline text"
+        "Content from file\n",
+        "a bare body.md that exists should be read as a file"
     );
-    // The argument is path-shaped, so inline text is never what was meant.
     assert_eq!(
         previewed_body(body_md.as_str())["pr_body"],
         "Content from file\n",
@@ -395,5 +394,42 @@ fn existing_pr_edits() {
     assert_eq!(
         edits_after_noop, edits_before_noop,
         "no-op when no metadata flags: no additional pr edit should be called"
+    );
+}
+
+/// A first delivery without `--name` warns that the title is the feature name.
+#[test]
+fn a_new_pr_without_a_name_warns_about_the_title() {
+    let (_guard, root, fake) = on_github(&["api"]);
+    let _gh = fake_gh_on_this_thread(&fake);
+    let warns = |input: DeliverInput| {
+        deliver(&Ctx::new(root.clone()), input)
+            .unwrap()
+            .warnings
+            .iter()
+            .any(|w| w.code == "deliver.title_is_branch_name")
+    };
+    assert!(warns(DeliverInput {
+        preview: true,
+        ..metadata_input(None, None, None)
+    }));
+    assert!(!warns(DeliverInput {
+        preview: true,
+        ..metadata_input(Some("feat: x"), None, None)
+    }));
+}
+
+/// Changing the body file's content changes the fingerprint.
+#[test]
+fn a_changed_body_file_changes_the_fingerprint() {
+    let (_guard, root, fake) = on_github(&["api"]);
+    let _gh = fake_gh_on_this_thread(&fake);
+    std::fs::write(root.join("notes.md"), "one\n").unwrap();
+    let first = preview_json(&root, metadata_input(Some("feat"), Some("notes.md"), None));
+    std::fs::write(root.join("notes.md"), "two\n").unwrap();
+    let second = preview_json(&root, metadata_input(Some("feat"), Some("notes.md"), None));
+    assert_ne!(
+        first["preview"]["fingerprint"],
+        second["preview"]["fingerprint"]
     );
 }

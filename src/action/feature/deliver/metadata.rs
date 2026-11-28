@@ -207,16 +207,38 @@ fn resolve_body(ctx: &Ctx, body: Option<&str>) -> Result<Option<String>, Failure
         return Ok(None);
     };
 
-    // A `./` prefix or a leading `/` marks the argument as a path; the
-    // extension then decides. A bare `body.md` stays inline text, because a
-    // relative name is also a plausible thing to write in a body, and
-    // treating it as a file would read whatever happens to sit in the cwd.
-    let looks_like_path = raw.starts_with("./") || raw.starts_with('/');
-    if looks_like_path && (raw.ends_with(".md") || raw.ends_with(".txt")) {
-        // `join` on an absolute path yields that path, so both forms resolve
-        // through one expression.
-        let full_path = ctx.cwd.join(raw.trim_start_matches("./"));
-        let bytes = std::fs::read(&full_path).map_err(|e| {
+    // A single-line, space-free value ending in `.md` or `.txt` is a path. It
+    // resolves against the cwd (`join` on an absolute path yields that path).
+    // A bare name with no path separator (e.g. `README.md`) is read as a file
+    // only when it exists, and is otherwise kept as inline text. A value with a
+    // separator that names no file is refused rather than published as text.
+    let looks_like_path = !raw.contains(char::is_whitespace)
+        && !raw.is_empty()
+        && (raw.ends_with(".md") || raw.ends_with(".txt"));
+    if looks_like_path {
+        let full_path = ctx.cwd.join(raw);
+        let has_separator = raw.contains('/');
+        let read = std::fs::read(&full_path);
+        if let Err(e) = &read
+            && e.kind() == std::io::ErrorKind::NotFound
+        {
+            if !has_separator {
+                return Ok(Some(raw.to_owned()));
+            }
+            return Err(Failure::blocked(
+                "deliver.body_looks_like_path",
+                format!("`--body {raw}` looks like a file path, but `{full_path}` does not exist"),
+            )
+            .expected(format!("an existing file at `{full_path}`, or inline body text"))
+            .actual("no such file")
+            .fix(FixAction::safe(
+                "deliver.fix_body_path",
+                format!(
+                    "Correct the path so `{full_path}` exists, or pass inline text containing a space or several lines."
+                ),
+            )));
+        }
+        let bytes = read.map_err(|e| {
             Failure::blocked(
                 "deliver.body_file_read_failed",
                 format!("failed to read pull request body file `{raw}`: {e}"),

@@ -26,8 +26,8 @@ use crate::action::memory::delivery::Emitter;
 use crate::action::read_manifest;
 use crate::domain::delivery_event::DeliveryScope;
 use crate::domain::feature::{
-    DeliveryMode, DeliveryPreview, DeliveryTreeBlocker, Feature, FeatureIntegrationState, Gate,
-    GateState, MemoryReviewGate,
+    DeliveryAction, DeliveryMode, DeliveryPreview, DeliveryTreeBlocker, Feature,
+    FeatureIntegrationState, Gate, GateState, MemoryReviewGate,
 };
 use crate::domain::name::FeatureName;
 use crate::error::{Failure, FixAction, Outcome, Report, Warning};
@@ -129,7 +129,21 @@ fn preflight_and_resolve(
     };
     attribution::check(layout, &preview)?;
 
-    Ok((feature_name, feature, preview, memory_warnings))
+    let mut warnings = memory_warnings;
+    for repo in &preview.repos {
+        if repo.action == DeliveryAction::NewPr && repo.pr_title.is_none() {
+            warnings.push(Warning::new(
+                "deliver.title_is_branch_name",
+                repo.repo.to_string(),
+                format!(
+                    "no --name given, so the new pull request is titled `{feature_name}`; pass --name \"<type>: <subject>\""
+                ),
+            )
+            .advisory());
+        }
+    }
+
+    Ok((feature_name, feature, preview, warnings))
 }
 
 fn run_land_checks(

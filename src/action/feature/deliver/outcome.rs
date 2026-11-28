@@ -148,6 +148,41 @@ fn write_human_push_preview(w: &mut impl io::Write, outcome: &DeliverOutcome) ->
                 action_word(repo.action, repo.draft)
             )?;
         }
+        if matches!(
+            repo.action,
+            DeliveryAction::NewPr | DeliveryAction::UpdatePr
+        ) {
+            let title = repo
+                .pr_title
+                .clone()
+                .unwrap_or_else(|| format!("{} (default)", outcome.preview.feature));
+            writeln!(w, "    {}   {title}", paint(MUTED, "title:"))?;
+            match repo.pr_body.as_deref() {
+                Some(body) => {
+                    let lines: Vec<&str> = body.lines().collect();
+                    let mut shown = lines.iter().take(5);
+                    if let Some(first) = shown.next() {
+                        writeln!(w, "    {}    {first}", paint(MUTED, "body:"))?;
+                    } else {
+                        writeln!(w, "    {}    (empty)", paint(MUTED, "body:"))?;
+                    }
+                    for line in shown {
+                        writeln!(w, "           {line}")?;
+                    }
+                    if lines.len() > 5 {
+                        writeln!(w, "           …")?;
+                    }
+                }
+                None => {
+                    let note = if repo.action == DeliveryAction::NewPr {
+                        "(default)"
+                    } else {
+                        "(unchanged)"
+                    };
+                    writeln!(w, "    {}    {note}", paint(MUTED, "body:"))?;
+                }
+            }
+        }
         for pending in &repo.pending {
             writeln!(w, "    {} {pending}", paint(MUTED, "pending:"))?;
         }

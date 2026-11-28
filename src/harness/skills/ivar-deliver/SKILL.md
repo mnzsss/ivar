@@ -128,12 +128,20 @@ scoped repo that omits `--name`, `--body`, or `--draft` inherits the global valu
 ### Body values
 
 - **Inline string:** `--body "short description"`.
-- **File reference:** `--body ./notes.md` or `--body /abs/path/notes.txt` — the
-  file contents are read and used as the PR body. A relative path is resolved
-  against the current working directory.
+- **File reference:** `--body rel/dir/notes.md`, `--body ./notes.md` or
+  `--body /abs/path/notes.txt` — the file contents are read and used as the PR
+  body. A relative path is resolved against the current working directory.
 
-A `.md`/`.txt` argument is only read as a file when it is written as a path:
-prefixed `./` or absolute. A bare `notes.md` is used as inline body text.
+A single-line value without spaces that ends in `.md`/`.txt` is always treated
+as a path. If no such file exists, deliver refuses with
+`deliver.body_looks_like_path` instead of publishing the string. Inline text
+containing a space or several lines stays inline.
+
+### Title
+
+Without `--name`, a new PR is titled with the feature name and deliver warns
+`deliver.title_is_branch_name`. Pass `--name "<type>: <subject>"`. The preview
+shows each PR's effective `title:` and first lines of `body:`.
 
 ### Draft guidance
 

@@ -64,6 +64,11 @@ fn human_preview_renders_new_pr_draft() {
         rendered.contains("action:  new pr (draft)"),
         "expected 'action:  new pr (draft)' in:\n{rendered}"
     );
+    assert!(
+        rendered.contains("title:   checkout (default)"),
+        "{rendered}"
+    );
+    assert!(rendered.contains("body:    (default)"), "{rendered}");
 }
 
 #[test]
