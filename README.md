@@ -1,7 +1,7 @@
 # ivar
 
 <p align="center">
-  <img src="docs/assets/readme-banner.webp" alt="A stylized Viking longship crossing a Nordic fjord between mountains" width="1200">
+  <img src="docs/assets/readme-banner.webp" alt="A pixel longship, the feature, sailing a dotted amber lane over a dithered sea through three lit ports, with a fourth grey port off the lane" width="1200">
 </p>
 
 **Multi-repo worktrees for coding agents.** One feature across repos, as one unit: one branch, one plan, one pull request per repo, inside the Claude Code, OpenCode or OMP session you already use.
@@ -10,11 +10,17 @@
 curl -fsSL https://ivar.run/install | sh
 ```
 
-Add an `avatarUrl` field to the user profile: the agent describes it in `shared-types`, returns it from `api` and renders it in `web`, with all three mounted as real git worktrees on the `avatar-url` branch. Repos you haven't promoted are guarded (kernel-enforced on Linux; see [Limitations](docs/reference/limitations-sessions.md)).
+You ask for the change in your own words. Your agent runs ivar: it opens one
+feature across the repos, asks the code graph where to work and previews one pull
+request per repo. You never type an ivar command after the install.
 
 <p align="center">
-  <img src="docs/assets/ivar-terminal-avatar-url.gif" alt="Terminal recording against a demo hall. ivar feature create avatar-url, then ivar feature promote avatar-url for api, web and shared-types, then ivar session start avatar-url. The agent's planning and implementation are elided. ivar feature deliver avatar-url --preview then shows a new pull request for api, shared-types and web, the plan gate approved, and nothing for infra, which stays read-only." width="1093">
+  <img src="docs/assets/ivar-claude-session.gif" alt="A Claude Code session in the acme hall. You ask: add an avatarUrl field to the user profile, describe it in shared-types, return it from api, render it in web. The agent replies that the change spans three repos and runs it as one ivar feature: Bash ivar feature create avatar-url, then three shell commands that promote api, web and shared-types onto avatar-url while infra stays read-only, then the acme-ivar graph_explore MCP tool for UserProfile, which finds shared-types/user.ts used by api/src/profile.ts and web/src/profile-page.tsx. It loads the ivar-plan skill, works through a todo list for the three repos, and loads ivar-deliver, whose preview shows a new pull request for api, shared-types and web and nothing for infra." width="1093">
 </p>
+
+All three repos are mounted as real git worktrees on the `avatar-url` branch.
+Repos you haven't promoted are guarded (kernel-enforced on Linux; see
+[Limitations](docs/reference/limitations-sessions.md)).
 
 - **Your harness:** Claude Code, OpenCode or OMP, with MCP servers declared once in `ivar.json` (`ivar mcp add figma`).
 - **Plan first:** `/ivar-plan` stops for your approval after requirements, analysis and plan.
@@ -99,26 +105,57 @@ binary executable and put it on your `PATH`.
 
 ## Start with a Hall
 
-If a teammate already has a Hall:
+You type two things yourself: the directory for the hall and the command that
+opens your harness in it. Then you ask.
 
-```sh
-git clone <hall-url> && cd <hall>
-ivar sync
+If a teammate already has a Hall, clone it and ask your agent to sync it:
+
+```text
+$ git clone <hall-url> acme && cd acme && claude
+
+> Sync this hall.
+● Bash(ivar sync)
 ```
 
 If you are creating one:
 
+```text
+$ mkdir acme && cd acme && git init && claude
+
+> Set this directory up as an ivar hall and add our api and web repos.
+● Bash(ivar init --name acme)
+● Bash(ivar repo add api https://github.com/acme/api)
+● Bash(ivar repo add web https://github.com/acme/web)
+```
+
+Then ask for the work: the agent creates the feature, promotes the repositories
+it may change, plans with `ivar-plan` and stops for your approval, builds with
+`ivar-execute` and delivers with `ivar-deliver`. OpenCode and OMP work the same
+way. The [getting-started guide](docs/getting-started.md) walks through both
+paths.
+
+<details>
+<summary>Run it by hand</summary>
+
 ```sh
+# Join a teammate's hall
+git clone <hall-url> && cd <hall>
+ivar sync
+
+# Or create one
 mkdir acme && cd acme
 git init
 ivar init --name acme
 ivar repo add api https://github.com/acme/api
 ivar repo add web https://github.com/acme/web
+
+# A feature: create, promote the repos it changes, open a session
+ivar feature create avatar-url
+ivar feature promote avatar-url api
+ivar session start avatar-url
 ```
 
-Then follow the day-to-day loop: create a feature, promote the repositories it
-may change, and start a session. The [getting-started guide](docs/getting-started.md)
-walks through both paths.
+</details>
 
 ## Local by architecture
 
