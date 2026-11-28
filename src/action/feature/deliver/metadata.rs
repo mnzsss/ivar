@@ -207,19 +207,27 @@ fn resolve_body(ctx: &Ctx, body: Option<&str>) -> Result<Option<String>, Failure
         return Ok(None);
     };
 
-    // A single-line, space-free value ending in `.md` or `.txt` is a path,
-    // with or without `./` or `/`. It resolves against the cwd (`join` on an
-    // absolute path yields that path). A path that names no file is refused
-    // rather than published as the body text.
+    // A single-line, space-free value ending in `.md` or `.txt` is a path. It
+    // resolves against the cwd (`join` on an absolute path yields that path).
+    // A bare name with no path separator (e.g. `README.md`) is read as a file
+    // only when it exists, and is otherwise kept as inline text. A value with a
+    // separator that names no file is refused rather than published as text.
     let looks_like_path = !raw.contains(char::is_whitespace)
         && !raw.is_empty()
         && (raw.ends_with(".md") || raw.ends_with(".txt"));
     if looks_like_path {
         let full_path = ctx.cwd.join(raw);
-        if !full_path.is_file() {
+        let has_separator = raw.contains('/');
+        let read = std::fs::read(&full_path);
+        if let Err(e) = &read
+            && e.kind() == std::io::ErrorKind::NotFound
+        {
+            if !has_separator {
+                return Ok(Some(raw.to_owned()));
+            }
             return Err(Failure::blocked(
                 "deliver.body_looks_like_path",
-                format!("`--body {raw}` looks like a file path, but `{full_path}` is not a file"),
+                format!("`--body {raw}` looks like a file path, but `{full_path}` does not exist"),
             )
             .expected(format!("an existing file at `{full_path}`, or inline body text"))
             .actual("no such file")
@@ -230,7 +238,7 @@ fn resolve_body(ctx: &Ctx, body: Option<&str>) -> Result<Option<String>, Failure
                 ),
             )));
         }
-        let bytes = std::fs::read(&full_path).map_err(|e| {
+        let bytes = read.map_err(|e| {
             Failure::blocked(
                 "deliver.body_file_read_failed",
                 format!("failed to read pull request body file `{raw}`: {e}"),

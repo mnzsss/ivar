@@ -26,8 +26,8 @@ use crate::action::memory::delivery::Emitter;
 use crate::action::read_manifest;
 use crate::domain::delivery_event::DeliveryScope;
 use crate::domain::feature::{
-    DeliveryMode, DeliveryPreview, DeliveryTreeBlocker, Feature, FeatureIntegrationState, Gate,
-    GateState, MemoryReviewGate,
+    DeliveryAction, DeliveryMode, DeliveryPreview, DeliveryTreeBlocker, Feature,
+    FeatureIntegrationState, Gate, GateState, MemoryReviewGate,
 };
 use crate::domain::name::FeatureName;
 use crate::error::{Failure, FixAction, Outcome, Report, Warning};
@@ -131,7 +131,7 @@ fn preflight_and_resolve(
 
     let mut warnings = memory_warnings;
     for repo in &preview.repos {
-        if repo.action == crate::domain::feature::DeliveryAction::NewPr && repo.pr_title.is_none() {
+        if repo.action == DeliveryAction::NewPr && repo.pr_title.is_none() {
             warnings.push(Warning::new(
                 "deliver.title_is_branch_name",
                 repo.repo.to_string(),
