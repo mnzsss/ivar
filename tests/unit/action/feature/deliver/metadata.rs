@@ -177,15 +177,77 @@ fn resolve_inline_body_versus_file_body() {
         })
     );
 
-    // Non-prefixed or non-extension bodies remain inline
-    let input_inline = DeliverInput {
+    // A bare or nested relative path is read as a file too.
+    std::fs::create_dir_all(ctx.cwd.join("rel/dir")).unwrap();
+    std::fs::write(ctx.cwd.join("rel/dir/body.md"), "Nested\n").unwrap();
+    std::fs::write(ctx.cwd.join("body.md"), "Bare\n").unwrap();
+    for (arg, want) in [("rel/dir/body.md", "Nested\n"), ("body.md", "Bare\n")] {
+        let input_rel = DeliverInput {
+            feature: "checkout".to_owned(),
+            preview: true,
+            land: false,
+            fingerprint: None,
+            global_metadata: PullRequestMetadata {
+                title: None,
+                body: Some(arg.to_owned()),
+                draft: None,
+            },
+            repo_overrides: Vec::new(),
+            only: Vec::new(),
+            skip_memory_review: None,
+            no_plan: None,
+        };
+        let resolved = resolve(&ctx, &feature, &input_rel).unwrap();
+        assert_eq!(
+            resolved
+                .get(&RepoName::new("api").unwrap())
+                .unwrap()
+                .body
+                .as_deref(),
+            Some(want)
+        );
+    }
+
+    // Text with a space or several lines stays inline.
+    for text in ["short description", "line one\nline two.md"] {
+        let input_inline = DeliverInput {
+            feature: "checkout".to_owned(),
+            preview: true,
+            land: false,
+            fingerprint: None,
+            global_metadata: PullRequestMetadata {
+                title: None,
+                body: Some(text.to_owned()),
+                draft: None,
+            },
+            repo_overrides: Vec::new(),
+            only: Vec::new(),
+            skip_memory_review: None,
+            no_plan: None,
+        };
+        let resolved = resolve(&ctx, &feature, &input_inline).unwrap();
+        assert_eq!(
+            resolved
+                .get(&RepoName::new("api").unwrap())
+                .unwrap()
+                .body
+                .as_deref(),
+            Some(text)
+        );
+    }
+}
+
+#[test]
+fn resolve_refuses_a_path_like_body_that_is_not_a_file() {
+    let (_guard, ctx, feature) = setup_feature_with_promotions(&["api"]);
+    let input = DeliverInput {
         feature: "checkout".to_owned(),
         preview: true,
         land: false,
         fingerprint: None,
         global_metadata: PullRequestMetadata {
             title: None,
-            body: Some("body.md".to_owned()), // missing leading ./
+            body: Some("rel/dir/missing.md".to_owned()),
             draft: None,
         },
         repo_overrides: Vec::new(),
@@ -193,15 +255,8 @@ fn resolve_inline_body_versus_file_body() {
         skip_memory_review: None,
         no_plan: None,
     };
-    let resolved_inline = resolve(&ctx, &feature, &input_inline).unwrap();
-    assert_eq!(
-        resolved_inline.get(&RepoName::new("api").unwrap()),
-        Some(&PullRequestMetadata {
-            title: None,
-            body: Some("body.md".to_owned()),
-            draft: None,
-        })
-    );
+    let failure = resolve(&ctx, &feature, &input).unwrap_err();
+    assert_eq!(failure.code, "deliver.body_looks_like_path");
 }
 
 #[test]
@@ -299,7 +354,7 @@ fn resolve_rejects_missing_or_invalid_body_file() {
     };
 
     let failure = resolve(&ctx, &feature, &input_missing).unwrap_err();
-    assert_eq!(failure.code, "deliver.body_file_read_failed");
+    assert_eq!(failure.code, "deliver.body_looks_like_path");
 
     // Invalid UTF-8
     let invalid_path = ctx.cwd.join("invalid.txt");

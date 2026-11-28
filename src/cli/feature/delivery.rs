@@ -59,7 +59,7 @@ impl clap::Args for FeatureDeliverArgs {
         .arg(
             clap::Arg::new("body")
                 .long("body")
-                .help("Pull request body text, or a path to a `.md` / `.txt` file — either `./relative` or absolute. If placed before any `--repo`, applies globally; if placed after a `--repo`, applies to that repo. Part of the delivery fingerprint: pass the same value to the preview and the apply.")
+                .help("Pull request body text, or a path to a `.md` / `.txt` file (relative to the current directory, or absolute). A single-line value without spaces ending in `.md` / `.txt` is read as a file and refused if it does not exist; use text with a space or several lines to pass it inline. If placed before any `--repo`, applies globally; if placed after a `--repo`, applies to that repo. Part of the delivery fingerprint: pass the same value to the preview and the apply.")
                 .value_name("BODY")
                 .action(clap::ArgAction::Append),
         )
