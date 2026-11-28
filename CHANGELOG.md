@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.21.0](https://github.com/mnzsss/ivar/compare/v0.20.0...v0.21.0) - 2026-11-28
+
+### Added
+
+- add agent resume, provider preflight and problem notifier ([#329](https://github.com/mnzsss/ivar/pull/329))
+- show a running agent in ivar agent status ([#326](https://github.com/mnzsss/ivar/pull/326))
+- add --read-only to memory status and review ([#320](https://github.com/mnzsss/ivar/pull/320))
+
+### Documentation
+
+- *(readme)* Redraw the banner and show the agent running ivar ([#339](https://github.com/mnzsss/ivar/pull/339))
+
+### Fixed
+
+- *(deliver)* Keep the current fingerprint out of the mismatch refusal ([#333](https://github.com/mnzsss/ivar/pull/333))
+- create missing catchup stamp for agent timers ([#328](https://github.com/mnzsss/ivar/pull/328))
+- *(agent)* keep only Claude's final message in run output ([#324](https://github.com/mnzsss/ivar/pull/324))
+- treat a search of one memory page as a read, not a followup ([#321](https://github.com/mnzsss/ivar/pull/321))
+- block deliver when the branch's PR is already merged ([#319](https://github.com/mnzsss/ivar/pull/319))
+- explain and fix cleanup records outside docs/memory/update ([#318](https://github.com/mnzsss/ivar/pull/318))
+- report memory calls not attributed to a feature ([#317](https://github.com/mnzsss/ivar/pull/317))
+- gate the release commit and drop the legacy graph suffixes ([#322](https://github.com/mnzsss/ivar/pull/322))
+
+### Other
+
+- a relative --body path is published as the PR body, and new PRs default to the branch name as title ([#338](https://github.com/mnzsss/ivar/pull/338))
+- repo pull leaves the bare default-branch ref stale, so deliver and memory_review use an old base ([#336](https://github.com/mnzsss/ivar/pull/336))
+- Re-anchor memory pages whose anchors broke when the graph changed ([#331](https://github.com/mnzsss/ivar/pull/331))
+- Add a retrieval evaluation command to ivar memory ([#332](https://github.com/mnzsss/ivar/pull/332))
+
 ## [0.20.0](https://github.com/mnzsss/ivar/compare/v0.19.0...v0.20.0) - 2026-11-16
 
 ### Added
