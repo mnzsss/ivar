@@ -1,7 +1,7 @@
 # ivar
 
 <p align="center">
-  <img src="docs/assets/readme-banner.webp" alt="A stylized Viking longship crossing a Nordic fjord between mountains" width="1200">
+  <img src="docs/assets/readme-banner.webp" alt="A pixel longship, the feature, sailing a dotted amber lane over a dithered sea through three lit ports, with a fourth grey port off the lane" width="1200">
 </p>
 
 **Multi-repo worktrees for coding agents.** One feature across repos, as one unit: one branch, one plan, one pull request per repo, inside the Claude Code, OpenCode or OMP session you already use.
