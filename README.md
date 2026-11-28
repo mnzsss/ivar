@@ -14,32 +14,13 @@ You ask for the change in your own words. Your agent runs ivar: it opens one
 feature across the repos, asks the code graph where to work and previews one pull
 request per repo. You never type an ivar command after the install.
 
-```text
-claude — ~/acme
-
-> Add an avatarUrl field to the user profile: describe it in shared-types,
-  return it from api, render it in web.
-
-● That spans three repos. I'll run it as one ivar feature.
-● Bash(ivar feature create avatar-url)
-  ⎿ Created feature `avatar-url` (branch: avatar-url)
-● Ran 3 shell commands
-  ⎿ Promoted `api`, `web` and `shared-types` onto `avatar-url`; `infra` stays read-only
-● acme-ivar - graph_explore (MCP)(query: "UserProfile")
-● Skill(ivar-plan)
-● Skill(ivar-deliver)
-  ⎿ Preview: new pr for `api`, `shared-types` and `web`; nothing for `infra`
-```
+<p align="center">
+  <img src="docs/assets/ivar-claude-session.gif" alt="A Claude Code session in the acme hall. You ask: add an avatarUrl field to the user profile, describe it in shared-types, return it from api, render it in web. The agent replies that the change spans three repos and runs it as one ivar feature: Bash ivar feature create avatar-url, then three shell commands that promote api, web and shared-types onto avatar-url while infra stays read-only, then the acme-ivar graph_explore MCP tool for UserProfile, which finds shared-types/user.ts used by api/src/profile.ts and web/src/profile-page.tsx. It loads the ivar-plan skill, works through a todo list for the three repos, and loads ivar-deliver, whose preview shows a new pull request for api, shared-types and web and nothing for infra." width="1093">
+</p>
 
 All three repos are mounted as real git worktrees on the `avatar-url` branch.
 Repos you haven't promoted are guarded (kernel-enforced on Linux; see
-[Limitations](docs/reference/limitations-sessions.md)). The recording below is
-the same feature with the commands typed by hand, the ones your agent runs for
-you.
-
-<p align="center">
-  <img src="docs/assets/ivar-terminal-avatar-url.gif" alt="Terminal recording against a demo hall. ivar feature create avatar-url, then ivar feature promote avatar-url for api, web and shared-types, then ivar session start avatar-url. The agent's planning and implementation are elided. ivar feature deliver avatar-url --preview then shows a new pull request for api, shared-types and web, the plan gate approved, and nothing for infra, which stays read-only." width="1093">
-</p>
+[Limitations](docs/reference/limitations-sessions.md)).
 
 - **Your harness:** Claude Code, OpenCode or OMP, with MCP servers declared once in `ivar.json` (`ivar mcp add figma`).
 - **Plan first:** `/ivar-plan` stops for your approval after requirements, analysis and plan.
